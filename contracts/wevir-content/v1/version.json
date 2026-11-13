@@ -1,0 +1,29 @@
+{
+  "protocol": "wevir-content/1",
+  "artifactRevision": 1,
+  "status": "proposed",
+  "hostProtocol": "0.173.0",
+  "cloudProtocol": "wevir-sync/1",
+  "schemas": [
+    "project",
+    "session",
+    "event-stream",
+    "episode",
+    "retro-summary",
+    "session-state",
+    "session-tombstone",
+    "memory",
+    "settings",
+    "chunk",
+    "bundle"
+  ],
+  "semanticChecks": [
+    "Validate source Host/device binding and immutable resource/project binding.",
+    "Validate decrypted pack references against the gateway manifest before applying.",
+    "Use source stream sequence for provenance; local seq is a cursor and reference mapping.",
+    "Keep concurrent heads and unresolvable references; never execute imported history.",
+    "Enforce safe paths, symlinks, case collisions, aggregate bundle size and immutable chunk references.",
+    "Do not install or trust synchronized scripts or enable privileged/paid preferences."
+  ],
+  "cryptoVectors": "../../wevir-sync/v1/crypto-vectors.json"
+}

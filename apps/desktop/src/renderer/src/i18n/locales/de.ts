@@ -1713,6 +1713,7 @@ export const messages: Messages = {
   'source.zuv.reauthorize': 'Erneut anmelden',
   'source.zuv.storage': 'Cloudspeicher',
   'sync.title': 'Synchronisierung',
+  'sync.missingRefs': '{count} fehlende Quellen',
   'sync.sessions': 'Sitzungen',
   'sync.memory': 'Gedächtnis',
   'sync.rules': 'Regeln',

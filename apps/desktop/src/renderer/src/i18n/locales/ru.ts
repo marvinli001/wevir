@@ -1723,6 +1723,7 @@ export const messages: Messages = {
   'source.zuv.reauthorize': 'Войдите снова',
   'source.zuv.storage': 'Облачное хранилище',
   'sync.title': 'Синхронизация',
+  'sync.missingRefs': 'Недоступных источников: {count}',
   'sync.sessions': 'Сеансы',
   'sync.memory': 'Память',
   'sync.rules': 'Правила',

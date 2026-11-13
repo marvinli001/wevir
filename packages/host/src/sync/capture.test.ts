@@ -86,10 +86,57 @@ function fixture() {
     permit: () => {
       permitted = true;
     },
+    disallow: () => {
+      permitted = false;
+    },
   };
 }
 
 describe('same-transaction source event capture', () => {
+  it('preserves every already-captured range during removal after sign-out, without adding later unconsented events', () => {
+    const h = fixture();
+    h.permit();
+    h.create();
+    for (let index = 0; index < 4; index++)
+      h.store.append(h.sessionId, {
+        type: 'user.message',
+        source: 'host',
+        payload: {
+          turnId: `trn_${index}`,
+          content: [{ type: 'text', text: `Synthetic ${index} ${'x'.repeat(100 * 1024)}` }],
+          sentBy: { deviceId: 'synthetic', clientId: 'synthetic', clientKind: 'cli' },
+        },
+      });
+    h.disallow();
+    h.store.append(h.sessionId, {
+      type: 'user.message',
+      source: 'host',
+      payload: {
+        turnId: 'trn_private',
+        content: [{ type: 'text', text: 'Synthetic unconsented content' }],
+        sentBy: { deviceId: 'synthetic', clientId: 'synthetic', clientKind: 'cli' },
+      },
+    });
+    h.storage.transaction(() => {
+      h.capture.preserveForRemoval([h.sessionId]);
+      h.storage.sessions.remove([h.sessionId]);
+    });
+    h.store.forget([h.sessionId]);
+    const rows = h.storage.sync
+      .drafts(h.vault.vaultId)
+      .map((row) => row.content as SyncDraftPayload)
+      .filter((row) => row.origin);
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.flatMap((row) => row.events?.map((event) => event.seq))).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+    ]);
+    expect(JSON.stringify(rows)).not.toContain('Synthetic unconsented content');
+    expect(h.storage.sync.captures(h.vault.vaultId)).toEqual([]);
+  });
   it('declares diagnostic omissions without uploading raw engine content or losing source sequence positions', () => {
     const h = fixture();
     h.permit();

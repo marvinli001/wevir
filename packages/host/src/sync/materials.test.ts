@@ -1,7 +1,12 @@
 import { mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { jcs, packRecord, type SyncOperation } from '@wevir/protocol/sync';
-import { openStorage, type SyncDraftRecord, type SyncVaultRecord } from '@wevir/storage';
+import {
+  FileSecretStore,
+  openStorage,
+  type SyncDraftRecord,
+  type SyncVaultRecord,
+} from '@wevir/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventStore } from '../event-store.js';
 import { newId } from '../ids.js';
@@ -9,6 +14,7 @@ import { ImageStore } from '../images.js';
 import { MemoryStore } from '../memory.js';
 import { HostSettingsStore } from '../settings.js';
 import { useTempDir } from '../test-utils.js';
+import { ZuvClient } from '../zuv/client.js';
 import { sha256 } from './crypto.js';
 import { SyncFilesCapture } from './files-capture.js';
 import { SyncMaterials } from './materials.js';
@@ -45,6 +51,9 @@ function fixture() {
   });
   const memoryDir = join(home, 'memory');
   const materials = new SyncMaterials({
+    client: new ZuvClient({ secrets: new FileSecretStore(home) }),
+    eligible: () => storage.sync.activeVault(),
+    nativeSource: () => undefined,
     storage,
     events,
     home,

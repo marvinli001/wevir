@@ -81,6 +81,7 @@ import {
   ReviewFindingsOriginSchema,
 } from './review.js';
 import { RoutingDecisionSchema, RoutingFailoverSchema } from './routing.js';
+import { SyncSourceOriginSchema } from './sync.js';
 import {
   RepairChainSchema,
   SessionAcceptanceSchema,
@@ -681,6 +682,7 @@ export const WevirEventEnvelopeSchema = z.object({
   type: z.string().min(1),
   /** `engine` = 引擎事实的投影；`host` = Host 自己的事实或推导。 */
   source: EventSourceSchema,
+  syncOrigin: SyncSourceOriginSchema.optional(),
   payload: z.unknown(),
 });
 export type WevirEventEnvelope = z.infer<typeof WevirEventEnvelopeSchema>;

@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "wevir-retro-summary/1"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "hostId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+        },
+        "streamId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        }
+      },
+      "required": ["hostId", "deviceId", "sessionId", "streamId"],
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "minItems": 1,
+          "maxItems": 6,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "refs": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "inferred": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": ["text", "refs"],
+            "additionalProperties": false
+          }
+        },
+        "providerId": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,31}$"
+        },
+        "modelId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "throughSeq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        },
+        "inputBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "outputBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "inputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "outputTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["inputTokens", "outputTokens"],
+          "additionalProperties": false
+        },
+        "outdated": {
+          "type": "boolean",
+          "const": true
+        },
+        "unavailableRefs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "syncOrigin": {
+          "type": "object",
+          "properties": {
+            "hostId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "deviceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "sessionId": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+            },
+            "streamId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "vaultId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "seq": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,38})$"
+            }
+          },
+          "required": ["hostId", "deviceId", "sessionId", "streamId", "vaultId", "seq"],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "points",
+        "providerId",
+        "modelId",
+        "throughSeq",
+        "generatedAt",
+        "inputBytes",
+        "outputBytes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": ["schema", "source", "summary"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:content:1:retro-summary"
+}

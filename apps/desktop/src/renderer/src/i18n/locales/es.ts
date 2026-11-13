@@ -1719,6 +1719,7 @@ export const messages: Messages = {
   'source.zuv.reauthorize': 'Iniciar sesión de nuevo',
   'source.zuv.storage': 'Almacenamiento en la nube',
   'sync.title': 'Sincronización',
+  'sync.missingRefs': '{count} referencias no disponibles',
   'sync.sessions': 'Sesiones',
   'sync.memory': 'Memoria',
   'sync.rules': 'Reglas',

@@ -18,6 +18,7 @@ import {
 } from './common.js';
 import { GoalStatusSchema, TurnOutcomeSchema } from './entities.js';
 import { DiffSourceSchema, GitObjectIdSchema } from './git.js';
+import { SyncSourceOriginSchema } from './sync.js';
 import {
   AcceptanceStatusSchema,
   CheckKindSchema,
@@ -327,6 +328,8 @@ export const RetroSummarySchema = z.object({
   outputBytes: z.int().min(0),
   usage: z.object({ inputTokens: z.int().min(0), outputTokens: z.int().min(0) }).optional(),
   outdated: z.literal(true).optional(),
+  unavailableRefs: z.int().min(1).optional(),
+  syncOrigin: SyncSourceOriginSchema.optional(),
 });
 export type RetroSummary = z.infer<typeof RetroSummarySchema>;
 

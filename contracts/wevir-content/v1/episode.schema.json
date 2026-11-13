@@ -1,0 +1,2830 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "wevir-episode/1"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "hostId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+        },
+        "streamId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        }
+      },
+      "required": ["hostId", "deviceId", "sessionId", "streamId"],
+      "additionalProperties": false
+    },
+    "episodeId": {
+      "type": "string",
+      "pattern": "^ep_[0-9A-Za-z]{1,64}$"
+    },
+    "episode": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^ep_[0-9A-Za-z]{1,64}$"
+        },
+        "workspaceId": {
+          "type": "string",
+          "pattern": "^ws_[0-9A-Za-z]{1,64}$"
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+        },
+        "rootSessionId": {
+          "type": "string",
+          "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+        },
+        "title": {
+          "type": "string"
+        },
+        "goal": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "text": {
+              "type": "string"
+            },
+            "ref": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "event"
+                    },
+                    "seq": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "turnId": {
+                      "type": "string",
+                      "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                    }
+                  },
+                  "required": ["kind", "seq"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "turn_diff"
+                    },
+                    "turnId": {
+                      "type": "string",
+                      "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["kind", "turnId"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "verification"
+                    },
+                    "runId": {
+                      "type": "string",
+                      "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                    },
+                    "seq": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["kind", "runId", "seq"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "review"
+                    },
+                    "commentId": {
+                      "type": "string",
+                      "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                    },
+                    "path": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "source": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "uncommitted"
+                            }
+                          },
+                          "required": ["kind"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "branch"
+                            }
+                          },
+                          "required": ["kind"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "turn"
+                            },
+                            "turnId": {
+                              "type": "string",
+                              "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                            }
+                          },
+                          "required": ["kind", "turnId"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "const": "staged"
+                            }
+                          },
+                          "required": ["kind"],
+                          "additionalProperties": false
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["kind", "commentId", "path", "source"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "commit"
+                    },
+                    "sha": {
+                      "type": "string",
+                      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                    }
+                  },
+                  "required": ["kind", "sha"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "session"
+                    },
+                    "sessionId": {
+                      "type": "string",
+                      "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                    }
+                  },
+                  "required": ["kind", "sessionId"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "const": "memory"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": ["global", "project"]
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["kind", "scope", "name"],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "source": {
+              "type": "string",
+              "enum": ["available", "deleted", "unknown"]
+            },
+            "inherited": {
+              "type": "boolean",
+              "const": true
+            },
+            "at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+            }
+          },
+          "required": ["id", "text"],
+          "additionalProperties": false
+        },
+        "outcome": {
+          "type": "object",
+          "properties": {
+            "checks": {
+              "type": "string",
+              "minLength": 1
+            },
+            "commit": {
+              "type": "string",
+              "minLength": 1
+            },
+            "push": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ci": {
+              "type": "string",
+              "minLength": 1
+            },
+            "deploy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ahead": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "lastTurn": {
+              "type": "string"
+            },
+            "open": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "checkedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+            },
+            "comparedToCode": {
+              "type": "boolean",
+              "const": false
+            }
+          },
+          "required": [
+            "checks",
+            "commit",
+            "push",
+            "ci",
+            "deploy",
+            "open",
+            "checkedAt",
+            "comparedToCode"
+          ],
+          "additionalProperties": false
+        },
+        "done": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string"
+              },
+              "ref": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "event"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "turn_diff"
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "turnId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "verification"
+                      },
+                      "runId": {
+                        "type": "string",
+                        "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["kind", "runId", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "review"
+                      },
+                      "commentId": {
+                        "type": "string",
+                        "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "source": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "uncommitted"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "branch"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "turn"
+                              },
+                              "turnId": {
+                                "type": "string",
+                                "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                              }
+                            },
+                            "required": ["kind", "turnId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "staged"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["kind", "commentId", "path", "source"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "commit"
+                      },
+                      "sha": {
+                        "type": "string",
+                        "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                      }
+                    },
+                    "required": ["kind", "sha"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "session"
+                      },
+                      "sessionId": {
+                        "type": "string",
+                        "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "sessionId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "memory"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": ["global", "project"]
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "scope", "name"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": ["available", "deleted", "unknown"]
+              },
+              "inherited": {
+                "type": "boolean",
+                "const": true
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+              },
+              "origin": {
+                "type": "string",
+                "enum": ["todo", "board", "turn", "approval", "question"]
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "owner": {
+                "type": "string",
+                "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+              }
+            },
+            "required": ["id", "text", "origin", "status"],
+            "additionalProperties": false
+          }
+        },
+        "open": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string"
+              },
+              "ref": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "event"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "turn_diff"
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "turnId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "verification"
+                      },
+                      "runId": {
+                        "type": "string",
+                        "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["kind", "runId", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "review"
+                      },
+                      "commentId": {
+                        "type": "string",
+                        "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "source": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "uncommitted"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "branch"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "turn"
+                              },
+                              "turnId": {
+                                "type": "string",
+                                "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                              }
+                            },
+                            "required": ["kind", "turnId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "staged"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["kind", "commentId", "path", "source"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "commit"
+                      },
+                      "sha": {
+                        "type": "string",
+                        "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                      }
+                    },
+                    "required": ["kind", "sha"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "session"
+                      },
+                      "sessionId": {
+                        "type": "string",
+                        "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "sessionId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "memory"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": ["global", "project"]
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "scope", "name"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": ["available", "deleted", "unknown"]
+              },
+              "inherited": {
+                "type": "boolean",
+                "const": true
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+              },
+              "origin": {
+                "type": "string",
+                "enum": ["todo", "board", "turn", "approval", "question"]
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "owner": {
+                "type": "string",
+                "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+              }
+            },
+            "required": ["id", "text", "origin", "status"],
+            "additionalProperties": false
+          }
+        },
+        "decisions": {
+          "maxItems": 15,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string"
+              },
+              "ref": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "event"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "turn_diff"
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "turnId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "verification"
+                      },
+                      "runId": {
+                        "type": "string",
+                        "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["kind", "runId", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "review"
+                      },
+                      "commentId": {
+                        "type": "string",
+                        "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "source": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "uncommitted"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "branch"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "turn"
+                              },
+                              "turnId": {
+                                "type": "string",
+                                "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                              }
+                            },
+                            "required": ["kind", "turnId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "staged"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["kind", "commentId", "path", "source"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "commit"
+                      },
+                      "sha": {
+                        "type": "string",
+                        "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                      }
+                    },
+                    "required": ["kind", "sha"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "session"
+                      },
+                      "sessionId": {
+                        "type": "string",
+                        "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "sessionId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "memory"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": ["global", "project"]
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "scope", "name"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": ["available", "deleted", "unknown"]
+              },
+              "inherited": {
+                "type": "boolean",
+                "const": true
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": ["id", "text", "kind"],
+            "additionalProperties": false
+          }
+        },
+        "lessons": {
+          "maxItems": 10,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "check_recovered",
+                  "check_failed",
+                  "command_recovered",
+                  "correction",
+                  "guardrail",
+                  "turn_failed"
+                ]
+              },
+              "text": {
+                "type": "string"
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "verified": {
+                "type": "boolean"
+              }
+            },
+            "required": ["kind", "text", "sources", "verified"],
+            "additionalProperties": false
+          }
+        },
+        "files": {
+          "maxItems": 50,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "turnIds": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                }
+              },
+              "diff": {
+                "type": "string",
+                "enum": ["available", "live", "deleted", "none", "not_git"]
+              }
+            },
+            "required": ["id", "path", "turnIds", "diff"],
+            "additionalProperties": false
+          }
+        },
+        "omittedFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "commits": {
+          "maxItems": 20,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha": {
+                "type": "string",
+                "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+              }
+            },
+            "required": ["id", "sha", "subject", "at"],
+            "additionalProperties": false
+          }
+        },
+        "anchor": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "head": {
+              "type": ["string", "null"]
+            },
+            "startHead": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "engines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "providerId": {
+                "type": "string"
+              },
+              "modelId": {
+                "type": "string"
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["providerId", "modelId", "seq"],
+            "additionalProperties": false
+          }
+        },
+        "period": {
+          "type": "object",
+          "properties": {
+            "start": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+            },
+            "end": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+            }
+          },
+          "required": ["start", "end"],
+          "additionalProperties": false
+        },
+        "throughSeq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "memories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string"
+              },
+              "ref": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "event"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "turn_diff"
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "turnId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "verification"
+                      },
+                      "runId": {
+                        "type": "string",
+                        "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["kind", "runId", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "review"
+                      },
+                      "commentId": {
+                        "type": "string",
+                        "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "source": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "uncommitted"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "branch"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "turn"
+                              },
+                              "turnId": {
+                                "type": "string",
+                                "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                              }
+                            },
+                            "required": ["kind", "turnId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "staged"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["kind", "commentId", "path", "source"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "commit"
+                      },
+                      "sha": {
+                        "type": "string",
+                        "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                      }
+                    },
+                    "required": ["kind", "sha"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "session"
+                      },
+                      "sessionId": {
+                        "type": "string",
+                        "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "sessionId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "memory"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": ["global", "project"]
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "scope", "name"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": ["available", "deleted", "unknown"]
+              },
+              "inherited": {
+                "type": "boolean",
+                "const": true
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+              },
+              "scope": {
+                "type": "string",
+                "enum": ["global", "project"]
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "operation": {
+                "type": "string",
+                "enum": ["save", "delete"]
+              }
+            },
+            "required": ["id", "text", "scope", "name", "operation"],
+            "additionalProperties": false
+          }
+        },
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string"
+              },
+              "ref": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "event"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "turn_diff"
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "turnId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "verification"
+                      },
+                      "runId": {
+                        "type": "string",
+                        "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["kind", "runId", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "review"
+                      },
+                      "commentId": {
+                        "type": "string",
+                        "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "source": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "uncommitted"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "branch"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "turn"
+                              },
+                              "turnId": {
+                                "type": "string",
+                                "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                              }
+                            },
+                            "required": ["kind", "turnId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "staged"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["kind", "commentId", "path", "source"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "commit"
+                      },
+                      "sha": {
+                        "type": "string",
+                        "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                      }
+                    },
+                    "required": ["kind", "sha"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "session"
+                      },
+                      "sessionId": {
+                        "type": "string",
+                        "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "sessionId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "memory"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": ["global", "project"]
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "scope", "name"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": ["available", "deleted", "unknown"]
+              },
+              "inherited": {
+                "type": "boolean",
+                "const": true
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "turns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["id", "text", "turns"],
+            "additionalProperties": false
+          }
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string"
+              },
+              "ref": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "event"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "turn_diff"
+                      },
+                      "turnId": {
+                        "type": "string",
+                        "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "turnId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "verification"
+                      },
+                      "runId": {
+                        "type": "string",
+                        "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                      },
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["kind", "runId", "seq"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "review"
+                      },
+                      "commentId": {
+                        "type": "string",
+                        "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                      },
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "source": {
+                        "oneOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "uncommitted"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "branch"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "turn"
+                              },
+                              "turnId": {
+                                "type": "string",
+                                "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                              }
+                            },
+                            "required": ["kind", "turnId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "staged"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["kind", "commentId", "path", "source"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "commit"
+                      },
+                      "sha": {
+                        "type": "string",
+                        "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                      }
+                    },
+                    "required": ["kind", "sha"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "session"
+                      },
+                      "sessionId": {
+                        "type": "string",
+                        "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                      }
+                    },
+                    "required": ["kind", "sessionId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "memory"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": ["global", "project"]
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": ["kind", "scope", "name"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": ["available", "deleted", "unknown"]
+              },
+              "inherited": {
+                "type": "boolean",
+                "const": true
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+              },
+              "sessionId": {
+                "type": "string",
+                "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+              },
+              "relation": {
+                "type": "string",
+                "enum": ["forked_from", "subagent", "opened"]
+              }
+            },
+            "required": ["id", "text", "sessionId", "relation"],
+            "additionalProperties": false
+          }
+        },
+        "summary": {
+          "type": "object",
+          "properties": {
+            "points": {
+              "minItems": 1,
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 400
+                  },
+                  "refs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "inferred": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": ["text", "refs"],
+                "additionalProperties": false
+              }
+            },
+            "providerId": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,31}$"
+            },
+            "modelId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "throughSeq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+            },
+            "inputBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "outputBytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["inputTokens", "outputTokens"],
+              "additionalProperties": false
+            },
+            "outdated": {
+              "type": "boolean",
+              "const": true
+            },
+            "unavailableRefs": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "syncOrigin": {
+              "type": "object",
+              "properties": {
+                "hostId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "deviceId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "sessionId": {
+                  "type": "string",
+                  "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                },
+                "streamId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "vaultId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "seq": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,38})$"
+                }
+              },
+              "required": ["hostId", "deviceId", "sessionId", "streamId", "vaultId", "seq"],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "points",
+            "providerId",
+            "modelId",
+            "throughSeq",
+            "generatedAt",
+            "inputBytes",
+            "outputBytes"
+          ],
+          "additionalProperties": false
+        },
+        "overrides": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            },
+            "goal": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "text": {
+                  "type": "string"
+                },
+                "ref": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "event"
+                        },
+                        "seq": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "turnId": {
+                          "type": "string",
+                          "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                        }
+                      },
+                      "required": ["kind", "seq"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "turn_diff"
+                        },
+                        "turnId": {
+                          "type": "string",
+                          "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": ["kind", "turnId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "verification"
+                        },
+                        "runId": {
+                          "type": "string",
+                          "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                        },
+                        "seq": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["kind", "runId", "seq"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "review"
+                        },
+                        "commentId": {
+                          "type": "string",
+                          "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                        },
+                        "path": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "source": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "uncommitted"
+                                }
+                              },
+                              "required": ["kind"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "branch"
+                                }
+                              },
+                              "required": ["kind"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "turn"
+                                },
+                                "turnId": {
+                                  "type": "string",
+                                  "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                                }
+                              },
+                              "required": ["kind", "turnId"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
+                                  "const": "staged"
+                                }
+                              },
+                              "required": ["kind"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "required": ["kind", "commentId", "path", "source"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "commit"
+                        },
+                        "sha": {
+                          "type": "string",
+                          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                        }
+                      },
+                      "required": ["kind", "sha"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "session"
+                        },
+                        "sessionId": {
+                          "type": "string",
+                          "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                        }
+                      },
+                      "required": ["kind", "sessionId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "memory"
+                        },
+                        "scope": {
+                          "type": "string",
+                          "enum": ["global", "project"]
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": ["kind", "scope", "name"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "source": {
+                  "type": "string",
+                  "enum": ["available", "deleted", "unknown"]
+                },
+                "inherited": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+                }
+              },
+              "required": ["id", "text"],
+              "additionalProperties": false
+            },
+            "open": {
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "event"
+                          },
+                          "seq": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          },
+                          "turnId": {
+                            "type": "string",
+                            "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                          }
+                        },
+                        "required": ["kind", "seq"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "turn_diff"
+                          },
+                          "turnId": {
+                            "type": "string",
+                            "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["kind", "turnId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "verification"
+                          },
+                          "runId": {
+                            "type": "string",
+                            "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                          },
+                          "seq": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["kind", "runId", "seq"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "review"
+                          },
+                          "commentId": {
+                            "type": "string",
+                            "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "source": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "uncommitted"
+                                  }
+                                },
+                                "required": ["kind"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "branch"
+                                  }
+                                },
+                                "required": ["kind"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "turn"
+                                  },
+                                  "turnId": {
+                                    "type": "string",
+                                    "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                                  }
+                                },
+                                "required": ["kind", "turnId"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "staged"
+                                  }
+                                },
+                                "required": ["kind"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["kind", "commentId", "path", "source"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "commit"
+                          },
+                          "sha": {
+                            "type": "string",
+                            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                          }
+                        },
+                        "required": ["kind", "sha"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "session"
+                          },
+                          "sessionId": {
+                            "type": "string",
+                            "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                          }
+                        },
+                        "required": ["kind", "sessionId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "memory"
+                          },
+                          "scope": {
+                            "type": "string",
+                            "enum": ["global", "project"]
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["kind", "scope", "name"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": ["available", "deleted", "unknown"]
+                  },
+                  "inherited": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+                  },
+                  "origin": {
+                    "type": "string",
+                    "enum": ["todo", "board", "turn", "approval", "question"]
+                  },
+                  "status": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "owner": {
+                    "type": "string",
+                    "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                  }
+                },
+                "required": ["id", "text", "origin", "status"],
+                "additionalProperties": false
+              }
+            },
+            "lessons": {
+              "maxItems": 10,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "check_recovered",
+                      "check_failed",
+                      "command_recovered",
+                      "correction",
+                      "guardrail",
+                      "turn_failed"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "verified": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["kind", "text", "sources", "verified"],
+                "additionalProperties": false
+              }
+            },
+            "decisions": {
+              "maxItems": 15,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "event"
+                          },
+                          "seq": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          },
+                          "turnId": {
+                            "type": "string",
+                            "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                          }
+                        },
+                        "required": ["kind", "seq"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "turn_diff"
+                          },
+                          "turnId": {
+                            "type": "string",
+                            "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["kind", "turnId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "verification"
+                          },
+                          "runId": {
+                            "type": "string",
+                            "pattern": "^vrn_[0-9A-Za-z]{1,64}$"
+                          },
+                          "seq": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["kind", "runId", "seq"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "review"
+                          },
+                          "commentId": {
+                            "type": "string",
+                            "pattern": "^rvc_[0-9A-Za-z]{1,64}$"
+                          },
+                          "path": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "source": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "uncommitted"
+                                  }
+                                },
+                                "required": ["kind"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "branch"
+                                  }
+                                },
+                                "required": ["kind"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "turn"
+                                  },
+                                  "turnId": {
+                                    "type": "string",
+                                    "pattern": "^trn_[0-9A-Za-z]{1,64}$"
+                                  }
+                                },
+                                "required": ["kind", "turnId"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "staged"
+                                  }
+                                },
+                                "required": ["kind"],
+                                "additionalProperties": false
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["kind", "commentId", "path", "source"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "commit"
+                          },
+                          "sha": {
+                            "type": "string",
+                            "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+                          }
+                        },
+                        "required": ["kind", "sha"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "session"
+                          },
+                          "sessionId": {
+                            "type": "string",
+                            "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+                          }
+                        },
+                        "required": ["kind", "sessionId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "memory"
+                          },
+                          "scope": {
+                            "type": "string",
+                            "enum": ["global", "project"]
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "required": ["kind", "scope", "name"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": ["available", "deleted", "unknown"]
+                  },
+                  "inherited": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["id", "text", "kind"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "excluded": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["available", "deleted"]
+        },
+        "unavailableRefs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "syncOrigin": {
+          "type": "object",
+          "properties": {
+            "hostId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "deviceId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "sessionId": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+            },
+            "streamId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "vaultId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "seq": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,38})$"
+            }
+          },
+          "required": ["hostId", "deviceId", "sessionId", "streamId", "vaultId", "seq"],
+          "additionalProperties": false
+        },
+        "stale": {
+          "type": "boolean",
+          "const": true
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1
+        },
+        "redactions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z))$"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "sessionId",
+        "rootSessionId",
+        "title",
+        "outcome",
+        "done",
+        "open",
+        "decisions",
+        "lessons",
+        "files",
+        "commits",
+        "anchor",
+        "engines",
+        "period",
+        "throughSeq",
+        "schemaVersion",
+        "memories",
+        "chapters",
+        "sessions",
+        "overrides",
+        "pinned",
+        "excluded",
+        "source",
+        "revision",
+        "redactions",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "deleted": {
+      "type": "boolean"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+    },
+    "unmappedRefs": {
+      "maxItems": 128,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "sessionId": {
+            "type": "string",
+            "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+          },
+          "ref": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "required": ["deviceId", "sessionId", "ref"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["schema", "source", "episodeId", "deleted", "createdAt", "updatedAt"],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  },
+  "$id": "urn:wevir:content:1:episode"
+}

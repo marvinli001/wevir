@@ -1,0 +1,300 @@
+{
+  "valid": [
+    {
+      "schema": "project",
+      "value": {
+        "schema": "wevir-project/1",
+        "projectId": "project_synthetic",
+        "displayName": "Synthetic project"
+      }
+    },
+    {
+      "schema": "session",
+      "value": {
+        "schema": "wevir-session/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "sessionId": "ses_synthetic",
+        "throughSeq": "3",
+        "title": "Synthetic task",
+        "titleSource": "user",
+        "providerId": "synthetic-api",
+        "modelId": "synthetic-model",
+        "engine": "echo",
+        "createdAt": "2026-11-13T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "event-stream",
+      "value": {
+        "schema": "wevir-event-stream/1",
+        "sessionId": "ses_synthetic",
+        "streamId": "stream_synthetic",
+        "exclusions": ["engine.raw"]
+      }
+    },
+    {
+      "schema": "episode",
+      "value": {
+        "schema": "wevir-episode/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "episodeId": "ep_synthetic",
+        "episode": {
+          "id": "ep_synthetic",
+          "workspaceId": "ws_synthetic",
+          "sessionId": "ses_synthetic",
+          "rootSessionId": "ses_synthetic",
+          "title": "Synthetic task",
+          "outcome": {
+            "checks": "unverified",
+            "commit": "unknown",
+            "push": "unknown",
+            "ci": "unknown",
+            "deploy": "unknown",
+            "open": 0,
+            "checkedAt": "2026-11-04T00:00:00.000Z",
+            "comparedToCode": false
+          },
+          "done": [],
+          "open": [],
+          "decisions": [],
+          "lessons": [],
+          "files": [],
+          "commits": [],
+          "anchor": {},
+          "engines": [],
+          "period": {
+            "start": "2026-11-04T00:00:00.000Z",
+            "end": "2026-11-04T00:00:00.000Z"
+          },
+          "throughSeq": 1,
+          "schemaVersion": 1,
+          "memories": [],
+          "chapters": [],
+          "sessions": [],
+          "overrides": {},
+          "pinned": false,
+          "excluded": false,
+          "source": "available",
+          "revision": "abc",
+          "redactions": 0,
+          "updatedAt": "2026-11-04T00:00:00.000Z"
+        },
+        "deleted": false,
+        "createdAt": "2026-11-13T00:00:00.000Z",
+        "updatedAt": "2026-11-13T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "retro-summary",
+      "value": {
+        "schema": "wevir-retro-summary/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "summary": {
+          "points": [
+            {
+              "text": "Synthetic summary",
+              "refs": ["e3"]
+            }
+          ],
+          "providerId": "synthetic-api",
+          "modelId": "synthetic-model",
+          "throughSeq": 3,
+          "generatedAt": "2026-11-13T00:00:00.000Z",
+          "inputBytes": 128,
+          "outputBytes": 32
+        }
+      }
+    },
+    {
+      "schema": "session-state",
+      "value": {
+        "schema": "wevir-session-state/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "title": "Synthetic renamed task",
+        "titleSource": "user",
+        "archivedAt": null
+      }
+    },
+    {
+      "schema": "session-tombstone",
+      "value": {
+        "schema": "wevir-session-deleted/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "deletedAt": "2026-11-13T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "memory",
+      "value": {
+        "schema": "wevir-memory/1",
+        "scope": "global",
+        "name": "synthetic-note",
+        "markdown": "---\nname: synthetic-note\ntype: project\ndescription: Synthetic\n---\nSynthetic content\n"
+      }
+    },
+    {
+      "schema": "settings",
+      "value": {
+        "schema": "wevir-settings/1",
+        "values": {
+          "outputStyle": "concise",
+          "autoMemory": false
+        },
+        "exclusions": ["remote", "computerUse", "routing"]
+      }
+    },
+    {
+      "schema": "chunk",
+      "value": {
+        "schema": "wevir-chunk/1",
+        "ownerId": "bundle_synthetic",
+        "index": 0,
+        "data": "",
+        "sha256": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
+      }
+    },
+    {
+      "schema": "bundle",
+      "value": {
+        "schema": "wevir-bundle/1",
+        "category": "skill-bundle",
+        "name": "Synthetic skill",
+        "files": [
+          {
+            "path": "SKILL.md",
+            "bytes": 0,
+            "sha256": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+            "parts": []
+          }
+        ],
+        "exclusions": [".env"]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "schema": "session-state",
+      "value": {
+        "schema": "wevir-session-state/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "title": "Synthetic renamed task",
+        "titleSource": "user",
+        "archivedAt": "invalid"
+      }
+    },
+    {
+      "schema": "settings",
+      "value": {
+        "schema": "wevir-settings/1",
+        "values": {
+          "computerUse": true
+        },
+        "exclusions": ["remote", "computerUse", "routing"]
+      }
+    },
+    {
+      "schema": "bundle",
+      "value": {
+        "schema": "wevir-bundle/1",
+        "category": "skill-bundle",
+        "name": "Synthetic skill",
+        "files": [
+          {
+            "path": "../escape",
+            "bytes": 0,
+            "sha256": "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+            "parts": []
+          }
+        ],
+        "exclusions": [".env"]
+      }
+    },
+    {
+      "schema": "episode",
+      "value": {
+        "schema": "wevir-episode/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "episodeId": "ep_synthetic",
+        "episode": {
+          "id": "ep_synthetic",
+          "workspaceId": "ws_synthetic",
+          "sessionId": "ses_synthetic",
+          "rootSessionId": "ses_synthetic",
+          "title": "Synthetic task",
+          "outcome": {
+            "checks": "unverified",
+            "commit": "unknown",
+            "push": "unknown",
+            "ci": "unknown",
+            "deploy": "unknown",
+            "open": 0,
+            "checkedAt": "2026-11-04T00:00:00.000Z",
+            "comparedToCode": false
+          },
+          "done": [],
+          "open": [],
+          "decisions": [],
+          "lessons": [],
+          "files": [],
+          "commits": [],
+          "anchor": {},
+          "engines": [],
+          "period": {
+            "start": "2026-11-04T00:00:00.000Z",
+            "end": "2026-11-04T00:00:00.000Z"
+          },
+          "throughSeq": 1,
+          "schemaVersion": 1,
+          "memories": [],
+          "chapters": [],
+          "sessions": [],
+          "overrides": {},
+          "pinned": false,
+          "excluded": false,
+          "source": "available",
+          "revision": "abc",
+          "redactions": 0,
+          "updatedAt": "2026-11-04T00:00:00.000Z"
+        },
+        "deleted": "false",
+        "createdAt": "2026-11-13T00:00:00.000Z",
+        "updatedAt": "2026-11-13T00:00:00.000Z"
+      }
+    }
+  ]
+}

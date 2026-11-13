@@ -155,6 +155,9 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
                 {episode.excluded ? ` · ${t('settings.episodes.excluded')}` : ''}
                 {episode.pinned ? ` · ${t('settings.episodes.pinned')}` : ''}
                 {episode.stale ? ` · ${t('episodes.stale')}` : ''}
+                {episode.unavailableRefs
+                  ? ` · ${t('sync.missingRefs', { count: episode.unavailableRefs })}`
+                  : ''}
                 {episode.source === 'deleted' ? ` · ${t('settings.episodes.sourceDeleted')}` : ''}
               </div>
             </button>
@@ -308,6 +311,11 @@ function EpisodeEditor({ initial, onClose }: { initial: Episode; onClose: () => 
           <p className="text-xs text-muted-foreground">{t('settings.episodes.edited')}</p>
         )}
         {initial.stale && <p className="text-xs text-warning">{t('episodes.stale')}</p>}
+        {initial.unavailableRefs && (
+          <p className="text-xs text-warning" role="status">
+            {t('sync.missingRefs', { count: initial.unavailableRefs })}
+          </p>
+        )}
         <label className="grid gap-1 text-sm" htmlFor={`${fieldId}-name`}>
           {t('settings.episodes.name')}
           <Input

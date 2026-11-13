@@ -1698,6 +1698,7 @@ export const messages: Messages = {
   'source.zuv.reauthorize': '再ログイン',
   'source.zuv.storage': 'クラウドストレージ',
   'sync.title': '同期',
+  'sync.missingRefs': '参照先なし {count} 件',
   'sync.sessions': 'セッション',
   'sync.memory': 'メモリ',
   'sync.rules': 'ルール',

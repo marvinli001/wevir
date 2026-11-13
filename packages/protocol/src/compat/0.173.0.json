@@ -1,0 +1,209 @@
+{
+  "protocolVersion": "0.173.0",
+  "methods": {
+    "session.get": {
+      "params": [
+        {
+          "sessionId": "ses_replica"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_replica",
+            "workspaceId": "ws_replica",
+            "cwd": "/synthetic/replica",
+            "engine": {
+              "kind": "sync",
+              "sessionId": "replica_synthetic"
+            },
+            "providerId": "synthetic-api",
+            "modelId": "synthetic-model",
+            "title": "Synthetic task",
+            "titleSource": "user",
+            "state": "closed",
+            "createdAt": "2026-11-13T00:00:00.000Z",
+            "updatedAt": "2026-11-13T00:00:00.000Z",
+            "lastSeq": 3,
+            "origin": {
+              "kind": "synced",
+              "vaultId": "vault_synthetic",
+              "hostId": "host_synthetic",
+              "sessionId": "ses_synthetic",
+              "streamId": "stream_synthetic"
+            },
+            "readOnly": {
+              "reason": "synchronized",
+              "message": "Synced history",
+              "since": "2026-11-13T00:00:00.000Z"
+            }
+          },
+          "pendingApprovals": []
+        }
+      ]
+    },
+    "episode.get": {
+      "params": [
+        {
+          "id": "ep_replica"
+        }
+      ],
+      "result": [
+        {
+          "episode": {
+            "id": "ep_replica",
+            "workspaceId": "ws_replica",
+            "sessionId": "ses_replica",
+            "rootSessionId": "ses_replica",
+            "title": "Synthetic task",
+            "outcome": {
+              "checks": "unverified",
+              "commit": "unknown",
+              "push": "unknown",
+              "ci": "unknown",
+              "deploy": "unknown",
+              "open": 0,
+              "checkedAt": "2026-11-04T00:00:00.000Z",
+              "comparedToCode": false
+            },
+            "done": [],
+            "open": [],
+            "decisions": [],
+            "lessons": [],
+            "files": [],
+            "commits": [],
+            "anchor": {},
+            "engines": [],
+            "period": {
+              "start": "2026-11-04T00:00:00.000Z",
+              "end": "2026-11-04T00:00:00.000Z"
+            },
+            "throughSeq": 1,
+            "schemaVersion": 1,
+            "memories": [],
+            "chapters": [],
+            "sessions": [],
+            "overrides": {},
+            "pinned": false,
+            "excluded": false,
+            "source": "available",
+            "revision": "abc",
+            "redactions": 0,
+            "updatedAt": "2026-11-04T00:00:00.000Z",
+            "unavailableRefs": 1,
+            "syncOrigin": {
+              "hostId": "host_synthetic",
+              "deviceId": "device_synthetic",
+              "sessionId": "ses_synthetic",
+              "streamId": "stream_synthetic",
+              "vaultId": "vault_synthetic",
+              "seq": "3"
+            }
+          }
+        }
+      ]
+    },
+    "retro.summarize": {
+      "params": [
+        {
+          "sessionId": "ses_replica"
+        }
+      ],
+      "result": [
+        {
+          "summary": {
+            "points": [
+              {
+                "text": "Synthetic summary",
+                "refs": ["e3"]
+              }
+            ],
+            "providerId": "synthetic-api",
+            "modelId": "synthetic-model",
+            "throughSeq": 3,
+            "generatedAt": "2026-11-13T00:00:00.000Z",
+            "inputBytes": 128,
+            "outputBytes": 32,
+            "unavailableRefs": 1,
+            "syncOrigin": {
+              "hostId": "host_synthetic",
+              "deviceId": "device_synthetic",
+              "sessionId": "ses_synthetic",
+              "streamId": "stream_synthetic",
+              "vaultId": "vault_synthetic",
+              "seq": "3"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {
+    "events.event": [
+      {
+        "subscriptionId": "sub_synthetic",
+        "event": {
+          "seq": 3,
+          "sessionId": "ses_replica",
+          "ts": "2026-11-13T00:00:00.000Z",
+          "source": "host",
+          "type": "user.message",
+          "syncOrigin": {
+            "hostId": "host_synthetic",
+            "deviceId": "device_synthetic",
+            "sessionId": "ses_synthetic",
+            "streamId": "stream_synthetic",
+            "vaultId": "vault_synthetic",
+            "seq": "3"
+          },
+          "payload": {
+            "turnId": "trn_synthetic",
+            "content": [
+              {
+                "type": "text",
+                "text": "Synthetic message"
+              }
+            ],
+            "sentBy": {
+              "deviceId": "synthetic",
+              "clientId": "synthetic",
+              "clientKind": "cli"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "seq": 3,
+      "sessionId": "ses_replica",
+      "ts": "2026-11-13T00:00:00.000Z",
+      "source": "host",
+      "type": "user.message",
+      "syncOrigin": {
+        "hostId": "host_synthetic",
+        "deviceId": "device_synthetic",
+        "sessionId": "ses_synthetic",
+        "streamId": "stream_synthetic",
+        "vaultId": "vault_synthetic",
+        "seq": "3"
+      },
+      "payload": {
+        "turnId": "trn_synthetic",
+        "content": [
+          {
+            "type": "text",
+            "text": "Synthetic message"
+          }
+        ],
+        "sentBy": {
+          "deviceId": "synthetic",
+          "clientId": "synthetic",
+          "clientKind": "cli"
+        }
+      }
+    }
+  ],
+  "errors": []
+}

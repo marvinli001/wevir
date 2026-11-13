@@ -444,6 +444,11 @@ function SummarySection({
       </h3>
       {summary && (
         <div className="mt-1 rounded-lg border border-border px-3 py-2">
+          {summary.unavailableRefs && (
+            <p className="mb-2 text-xs text-warning" role="status">
+              {t('sync.missingRefs', { count: summary.unavailableRefs })}
+            </p>
+          )}
           <ul className="space-y-1.5">
             {summary.points.map((point) => (
               <li key={point.text} className="leading-snug" data-inferred={point.inferred}>

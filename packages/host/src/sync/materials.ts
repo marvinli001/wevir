@@ -18,6 +18,7 @@ import {
   SyncMemoryContentSchema,
   SyncProjectContentSchema,
   SyncSessionContentSchema,
+  type SyncStreamRef,
   UserImagePartSchema,
   type WevirEvent,
   WevirEventSchema,
@@ -29,14 +30,18 @@ import type {
   Storage,
   SyncMaterialJournalRecord,
   SyncSourceRecord,
+  SyncVaultRecord,
 } from '@wevir/storage';
+import type { EpisodeChange } from '../episodes/service.js';
 import type { EventStore } from '../event-store.js';
 import { newId } from '../ids.js';
 import type { ImageStore } from '../images.js';
 import { validMemoryMarkdown } from '../memory.js';
+import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sha256 } from './crypto.js';
 import { SyncQueue } from './queue.js';
+import { SyncSessionMaterials } from './session-materials.js';
 import type { SyncSettings } from './settings.js';
 
 type MaterialRecord = typeof packRecord._output;
@@ -50,6 +55,7 @@ export class SyncMaterials {
   readonly #images: ImageStore;
   readonly #queue: SyncQueue;
   readonly #settings: SyncSettings;
+  readonly sessions: SyncSessionMaterials;
   readonly #changed = new Map<SessionId, number>();
   constructor(options: {
     storage: Storage;
@@ -58,6 +64,10 @@ export class SyncMaterials {
     memoryDir: string;
     images: ImageStore;
     settingsSync: SyncSettings;
+    client: ZuvClient;
+    eligible: () => SyncVaultRecord | undefined;
+    nativeSource: (sessionId: string) => SyncSourceRecord | undefined;
+    onEpisodeChanged?: (change: EpisodeChange) => void;
   }) {
     this.#storage = options.storage;
     this.#events = options.events;
@@ -66,6 +76,10 @@ export class SyncMaterials {
     this.#images = options.images;
     this.#queue = new SyncQueue(options.storage);
     this.#settings = options.settingsSync;
+    this.sessions = new SyncSessionMaterials({
+      ...options,
+      ensureSource: (vaultId, source, projectId) => this.#ensureSource(vaultId, source, projectId),
+    });
   }
 
   notify(): void {
@@ -74,6 +88,7 @@ export class SyncMaterials {
       if (events.length) this.#events.projectionChanged(events);
     }
     this.#changed.clear();
+    this.sessions.notify();
   }
 
   async prepareApply(op: SyncOperation, record: MaterialRecord): Promise<() => void> {
@@ -88,6 +103,9 @@ export class SyncMaterials {
         };
       }
       if (op.entityType === 'session') {
+        const raw = record.content as { schema?: string; source?: unknown };
+        if (raw.source || raw.schema !== 'wevir-session/1')
+          return await this.sessions.prepare(op, record);
         const body = SyncSessionContentSchema.parse(record.content);
         return () => {
           this.#entity(op, `remote-session:${op.deviceId}:${body.sessionId}`, record, false);
@@ -250,7 +268,20 @@ export class SyncMaterials {
         )
           continue;
         let localSeq: number | undefined;
+        if (event?.type === 'session.created') localSeq = 1;
         if (event && event.type !== 'session.created' && event.type !== 'engine.raw') {
+          if (
+            source.mirrored &&
+            !this.#storage.sync.entity(op.vaultId, origin.sessionId)?.revision
+          ) {
+            if (event.type === 'session.title_changed')
+              this.#storage.sessions.update(localId, {
+                title: event.payload.title,
+                titleSource: event.payload.source,
+              });
+            if (event.type === 'session.configured')
+              this.#storage.sessions.update(localId, { modelId: event.payload.modelId });
+          }
           localSeq = this.#storage.events.lastSeq(localId) + 1;
           const local = { ...event, sessionId: localId, seq: localSeq } as WevirEvent;
           this.#storage.events.insert(local);
@@ -264,6 +295,7 @@ export class SyncMaterials {
         activeTurn: null,
         updatedAt: op.clientTime,
       });
+      this.sessions.reconcile(op.vaultId);
       this.#entity(
         op,
         `event-segment:${origin.hostId}:${origin.streamId}:${origin.fromSeq}:${origin.throughSeq}`,
@@ -271,6 +303,45 @@ export class SyncMaterials {
         false,
       );
     };
+  }
+
+  #ensureSource(vaultId: string, ref: SyncStreamRef, projectId: string): SyncSourceRecord {
+    if (!this.#storage.db.isTransaction)
+      throw new Error('sync source projection requires a transaction');
+    const workspace = this.#workspace(vaultId, projectId);
+    const existing = this.#storage.sync
+      .sources(vaultId)
+      .find(
+        (value) =>
+          value.hostId === ref.hostId &&
+          value.sessionId === ref.sessionId &&
+          value.streamId === ref.streamId,
+      );
+    if (existing) {
+      const local = existing.localSessionId && this.#storage.sessions.get(existing.localSessionId);
+      if (existing.deviceId !== ref.deviceId || (local && local.workspaceId !== workspace.id))
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      return existing;
+    }
+    const related = this.#storage.sync
+      .sources(vaultId)
+      .find(
+        (value) =>
+          value.hostId === ref.hostId &&
+          value.deviceId === ref.deviceId &&
+          value.sessionId === ref.sessionId &&
+          value.localSessionId &&
+          this.#storage.sessions.get(value.localSessionId),
+      );
+    const source: SyncSourceRecord = {
+      vaultId,
+      ...ref,
+      localSessionId: related?.localSessionId ?? newId('ses'),
+      mirrored: related?.mirrored ?? true,
+    };
+    if (!related) this.#createMirror(source, workspace.id, workspace.rootPath);
+    this.#storage.sync.putSource(source);
+    return source;
   }
 
   #createMirror(
@@ -292,6 +363,7 @@ export class SyncMaterials {
       modelId: created?.modelId ?? 'sync',
       title: '',
       titleSource: 'first_prompt',
+      ...(created?.side && { side: true as const }),
       state: 'closed',
       lastSeq: 2,
       createdAt: now,

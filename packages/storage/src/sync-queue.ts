@@ -166,6 +166,12 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         capture.preparedSeq,
       );
     },
+    rewindCapture(vaultId: string, localSessionId: string, streamId: string): void {
+      transactionRequired();
+      db.prepare(
+        'UPDATE sync_event_captures SET prepared_seq = 0 WHERE vault_id = ? AND local_session_id = ? AND stream_id = ?',
+      ).run(vaultId, localSessionId, streamId);
+    },
     captures(vaultId: string): SyncCaptureRecord[] {
       return db
         .prepare(

@@ -101,6 +101,9 @@ export interface EventStoreOptions {
   storage: Storage;
   /** 与事件业务写入同事务的持久捕获；只允许同步 SQLite 写入。 */
   onAppendInTransaction?: (events: readonly WevirEvent[]) => void;
+  onPrepareRemoval?: (sessionIds: readonly SessionId[]) => Promise<void>;
+  onRemoveInTransaction?: (sessionIds: readonly SessionId[]) => void;
+  onMetadataChanged?: (sessionIds: readonly SessionId[]) => void;
   /** 增量合并窗口，默认 `DELTA_WINDOW_MS`。 */
   deltaWindowMs?: number;
   toolOutputWindowMs?: number;
@@ -156,6 +159,9 @@ export class EventStore {
   readonly #toolOutputWindowMs: number;
   readonly #onError: (error: unknown) => void;
   readonly #onAppendInTransaction: EventStoreOptions['onAppendInTransaction'];
+  readonly #onPrepareRemoval: EventStoreOptions['onPrepareRemoval'];
+  readonly #onRemoveInTransaction: EventStoreOptions['onRemoveInTransaction'];
+  readonly #onMetadataChanged: EventStoreOptions['onMetadataChanged'];
   readonly #bus: EventBus;
   readonly #projections = new Map<SessionId, SessionProjection>();
   readonly #buffers = new Map<SessionId, DeltaBuffer>();
@@ -171,6 +177,9 @@ export class EventStore {
   constructor(options: EventStoreOptions) {
     this.#storage = options.storage;
     this.#onAppendInTransaction = options.onAppendInTransaction;
+    this.#onPrepareRemoval = options.onPrepareRemoval;
+    this.#onRemoveInTransaction = options.onRemoveInTransaction;
+    this.#onMetadataChanged = options.onMetadataChanged;
     this.#deltaWindowMs = options.deltaWindowMs ?? DELTA_WINDOW_MS;
     this.#toolOutputWindowMs = options.toolOutputWindowMs ?? TOOL_OUTPUT_WINDOW_MS;
     this.#onError =
@@ -205,6 +214,11 @@ export class EventStore {
    */
   touch(sessionIds: readonly SessionId[]): void {
     if (sessionIds.length === 0) return;
+    this.#onMetadataChanged?.(sessionIds);
+    this.touchProjection(sessionIds);
+  }
+  touchProjection(sessionIds: readonly SessionId[]): void {
+    if (sessionIds.length === 0) return;
     for (const listener of [...this.#touchListeners]) {
       try {
         listener(sessionIds);
@@ -219,7 +233,7 @@ export class EventStore {
       this.#projections.delete(id);
       this.#checkpointSeq.delete(id);
     }
-    this.touch(ids);
+    this.touchProjection(ids);
     this.#bus.publishProjection(events);
   }
 
@@ -385,6 +399,15 @@ export class EventStore {
     this.touch(sessionIds);
   }
 
+  async prepareRemoval(sessionIds: readonly SessionId[]): Promise<void> {
+    await this.#onPrepareRemoval?.(sessionIds);
+  }
+  removingInTransaction(sessionIds: readonly SessionId[]): void {
+    if (!this.#storage.db.isTransaction)
+      throw new Error('session removal capture requires the business transaction');
+    this.#onRemoveInTransaction?.(sessionIds);
+  }
+
   /**
    * 写入所有缓冲的增量（失败交给 `onError`），然后停止接受写入。不关闭数据库（它属于调用方）。
    * 可重复调用。
@@ -438,7 +461,10 @@ export class EventStore {
       throw new RangeError(`limit 必须是正整数，收到 ${limit}`);
     }
     const options = limit === undefined ? { afterSeq: sinceSeq } : { afterSeq: sinceSeq, limit };
-    return this.#storage.events.list(sessionId, options).map(fromRecord);
+    return this.#withOrigins(
+      sessionId,
+      this.#storage.events.list(sessionId, options).map(fromRecord),
+    );
   }
 
   /** 内部历史查询；只读所需事实，完整回放仍走 readSince。 */
@@ -453,7 +479,26 @@ export class EventStore {
     const events: WevirEvent[] = [];
     for (const record of this.#storage.events.iterateTypes(sessionId, types, options))
       events.push(fromRecord(record));
-    return events;
+    return this.#withOrigins(sessionId, events);
+  }
+
+  #withOrigins(sessionId: SessionId, events: WevirEvent[]): WevirEvent[] {
+    if (!events.length) return events;
+    const first = events[0]?.seq as number;
+    const last = events.at(-1)?.seq as number;
+    const origins = new Map(
+      this.#storage.sync
+        .sourceOrigins(sessionId, first, last)
+        .map(({ localSeq, ...origin }) => [localSeq, origin]),
+    );
+    return origins.size
+      ? events.map((event) => {
+          const origin = origins.get(event.seq);
+          return origin
+            ? { ...event, syncOrigin: { ...origin, sessionId: origin.sessionId as SessionId } }
+            : event;
+        })
+      : events;
   }
 
   /**
@@ -852,14 +897,26 @@ export class EventStore {
 
   #readOnlyProjection(sessionId: SessionId, projection: SessionProjection): SessionProjection {
     const record = this.#storage.sessions.get(sessionId);
+    if (!record) return projection;
+    const ref = this.#storage.sync.localContentRef('session', sessionId);
+    const material = ref && this.#storage.sync.entity(ref.vaultId, ref.entityId);
+    if (material?.materialized && material.revision)
+      projection = {
+        ...projection,
+        title: record.title,
+        titleSource: record.titleSource as SessionProjection['titleSource'],
+      };
     if (record?.origin?.kind !== 'synced') return projection;
     return {
       ...projection,
       state: 'closed',
+      title: record.title,
+      titleSource: record.titleSource as SessionProjection['titleSource'],
       activeTurn: undefined,
       pendingApprovals: [],
       pendings: new Map(),
       questions: new Map(),
+      model: projection.model ? { ...projection.model, modelId: record.modelId } : undefined,
       current: projection.current
         ? {
             ...projection.current,

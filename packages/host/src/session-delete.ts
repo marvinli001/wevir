@@ -238,12 +238,13 @@ export async function deleteSessionData(
     );
   }
 
+  await deps.events.prepareRemoval(ids);
   deps.detach(ids);
 
   // 子会话由引擎随父会话删除；持久化支线各自删除。
   let engineDataKept = false;
   const engineSessions = [record, ...family.filter((member) => member.side)].flatMap((member) => {
-    if (member.origin?.kind === 'imported') return [];
+    if (member.origin?.kind === 'imported' || member.origin?.kind === 'synced') return [];
     const sessions = engineSessionsOf(
       member,
       deps.events.readTypes(member.id as SessionId, ['session.handoff']),
@@ -291,7 +292,10 @@ export async function deleteSessionData(
 
   // 图片的归属在删行之前算（删了就看不出别的会话引用没引用）。
   const { paths, images } = ownedFiles(deps, family, storage.events.imageRefs());
-  storage.transaction(() => storage.sessions.remove(ids));
+  storage.transaction(() => {
+    deps.events.removingInTransaction(ids);
+    storage.sessions.remove(ids);
+  });
   deps.events.forget(ids);
 
   for (const path of paths) {

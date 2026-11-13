@@ -42,6 +42,7 @@ export * from './storage.js';
 export * from './sync.js';
 export type * from './sync-materials.js';
 export type * from './sync-queue.js';
+export type * from './sync-references.js';
 export * from './transaction.js';
 export * from './tuning-proposals.js';
 export * from './tuning-runs.js';

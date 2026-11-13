@@ -1699,6 +1699,7 @@ export const messages: Messages = {
   'source.zuv.reauthorize': 'Sign in again',
   'source.zuv.storage': 'Cloud storage',
   'sync.title': 'Sync',
+  'sync.missingRefs': '{count} unavailable references',
   'sync.sessions': 'Sessions',
   'sync.memory': 'Memory',
   'sync.rules': 'Rules',

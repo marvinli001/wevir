@@ -163,6 +163,21 @@ export class MockSyncGateway {
       if (!vault.trusted.has(deviceId)) throw new MockSyncError('RECOVERY_REQUIRED', 403);
       return { value: { vaultId: vault.id, keyEpoch: input.keyEpoch, keyMaterial: vault.key } };
     }
+    if (path === '/sync/v1/devices' && method === 'GET')
+      return {
+        value: {
+          devices: [...vault.scopes].map(([id, scope]) => ({
+            deviceId: id,
+            name: 'Synthetic device',
+            thumbprint: sha256(id),
+            revokedAt: null,
+            originHostId: id,
+            keyThroughEpoch: vault.trusted.has(id) ? '1' : '0',
+            enabled: scope.enabled,
+            revision: scope.revision,
+          })),
+        },
+      };
     if (path.endsWith('/approve') && method === 'POST') {
       schemas.approveDevice.parse(value);
       const target = path.split('/').at(-2) as string;

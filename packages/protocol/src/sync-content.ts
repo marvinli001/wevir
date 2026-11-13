@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { SessionIdSchema } from './common.js';
-import { HostSettingsSchema, MemoryNameSchema } from './entities.js';
+import { EpisodeIdSchema, EpisodeSchema } from './context.js';
+import { HostSettingsSchema, MemoryNameSchema, SessionForkedFromSchema } from './entities.js';
+import { RetroSummarySchema } from './retro.js';
+import { SyncStreamRefSchema } from './sync.js';
 import { decimal, id } from './sync-wire.js';
 
 export const SyncRelativePathSchema = z
@@ -34,12 +37,47 @@ export const SyncSessionContentSchema = z.object({
   engine: z.string().min(1).max(128),
   createdAt: z.iso.datetime(),
   origin: z.json().optional(),
+  source: SyncStreamRefSchema.optional(),
+  archivedAt: z.iso.datetime().optional(),
+  side: z.literal(true).optional(),
+  parentSessionId: SessionIdSchema.optional(),
+  forkedFrom: SessionForkedFromSchema.optional(),
 });
 export const SyncEventStreamContentSchema = z.object({
   schema: z.literal('wevir-event-stream/1'),
   sessionId: SessionIdSchema,
   streamId: id,
   exclusions: z.array(z.literal('engine.raw')).max(1),
+});
+export const SyncEpisodeContentSchema = z.object({
+  schema: z.literal('wevir-episode/1'),
+  source: SyncStreamRefSchema,
+  episodeId: EpisodeIdSchema,
+  episode: EpisodeSchema.optional(),
+  deleted: z.boolean(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  unmappedRefs: z
+    .array(z.object({ deviceId: id, sessionId: SessionIdSchema, ref: z.json() }))
+    .max(128)
+    .optional(),
+});
+export const SyncRetroSummaryContentSchema = z.object({
+  schema: z.literal('wevir-retro-summary/1'),
+  source: SyncStreamRefSchema,
+  summary: RetroSummarySchema,
+});
+export const SyncSessionTombstoneSchema = z.object({
+  schema: z.literal('wevir-session-deleted/1'),
+  source: SyncStreamRefSchema,
+  deletedAt: z.iso.datetime(),
+});
+export const SyncSessionStateContentSchema = z.object({
+  schema: z.literal('wevir-session-state/1'),
+  source: SyncStreamRefSchema,
+  title: z.string().max(2048),
+  titleSource: z.enum(['first_prompt', 'user', 'generated']),
+  archivedAt: z.iso.datetime().nullable(),
 });
 export const SyncMemoryContentSchema = z.object({
   schema: z.literal('wevir-memory/1'),
@@ -104,3 +142,17 @@ export const SyncBundleContentSchema = z.object({
   exclusions: z.array(SyncRelativePathSchema).max(10000),
   metadata: z.json().optional(),
 });
+
+export const SYNC_CONTENT_SCHEMAS = {
+  project: SyncProjectContentSchema,
+  session: SyncSessionContentSchema,
+  'event-stream': SyncEventStreamContentSchema,
+  episode: SyncEpisodeContentSchema,
+  'retro-summary': SyncRetroSummaryContentSchema,
+  'session-state': SyncSessionStateContentSchema,
+  'session-tombstone': SyncSessionTombstoneSchema,
+  memory: SyncMemoryContentSchema,
+  settings: SyncSettingsContentSchema,
+  chunk: SyncChunkContentSchema,
+  bundle: SyncBundleContentSchema,
+} as const;

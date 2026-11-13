@@ -54,6 +54,7 @@ export class ZuvClient {
   #pending: PendingEnrollment | undefined;
   #refreshing: Promise<string> | undefined;
   #generation = 0;
+  #identityTransitions = 0;
   #closed = false;
   readonly #abort = new AbortController();
   readonly #writes = new Set<Promise<unknown>>();
@@ -84,6 +85,9 @@ export class ZuvClient {
   }
   get signedIn(): boolean {
     return this.#identity !== undefined;
+  }
+  get changingIdentity(): boolean {
+    return this.#identityTransitions > 0;
   }
   get requiresLogin(): boolean {
     return this.#identity?.refreshPending === true || this.#identity?.blocked !== undefined;
@@ -130,47 +134,52 @@ export class ZuvClient {
     deviceType: 'desktop' | 'cli' | 'mobile' | 'browser' = 'desktop',
   ): Promise<Enrollment> {
     const generation = ++this.#generation;
-    await this.#options.onIdentityChanging?.();
-    const key = newZuvDeviceKey();
-    const verifier = randomBytes(32).toString('base64url');
-    this.#remember(key.privateKey, verifier);
-    const body = Buffer.from(
-      jcs(
-        schemas.enrollmentStart.parse({
-          publicKey: key.publicKey,
-          deviceType,
-          name,
-          codeChallenge: sha256(verifier),
-          codeChallengeMethod: 'S256',
-        }),
-      ),
-    );
-    const started = await this.transport.json(
-      { method: 'POST', path: '/api/wevir/enrollment/start', body, maxBytes: 8192 },
-      schemas.enrollmentStarted,
-    );
-    const verification = new URL(started.verificationUri);
-    if (
-      verification.origin !== this.transport.origin ||
-      verification.username ||
-      verification.password ||
-      verification.hash
-    )
-      throw new ZuvRequestError('INVALID_RESPONSE');
-    if (generation !== this.#generation) throw new ZuvRequestError('ENROLLMENT_EXPIRED');
-    const pending: PendingEnrollment = {
-      v: 1,
-      origin: this.transport.origin,
-      key,
-      verifier,
-      started,
-      startedAt: new Date(this.#now()).toISOString(),
-    };
-    await this.#persist(() =>
-      this.#options.secrets.set(ENROLLMENT_SECRET, JSON.stringify(pending)),
-    );
-    this.#pending = pending;
-    return started;
+    this.#identityTransitions++;
+    try {
+      await this.#options.onIdentityChanging?.();
+      const key = newZuvDeviceKey();
+      const verifier = randomBytes(32).toString('base64url');
+      this.#remember(key.privateKey, verifier);
+      const body = Buffer.from(
+        jcs(
+          schemas.enrollmentStart.parse({
+            publicKey: key.publicKey,
+            deviceType,
+            name,
+            codeChallenge: sha256(verifier),
+            codeChallengeMethod: 'S256',
+          }),
+        ),
+      );
+      const started = await this.transport.json(
+        { method: 'POST', path: '/api/wevir/enrollment/start', body, maxBytes: 8192 },
+        schemas.enrollmentStarted,
+      );
+      const verification = new URL(started.verificationUri);
+      if (
+        verification.origin !== this.transport.origin ||
+        verification.username ||
+        verification.password ||
+        verification.hash
+      )
+        throw new ZuvRequestError('INVALID_RESPONSE');
+      if (generation !== this.#generation) throw new ZuvRequestError('ENROLLMENT_EXPIRED');
+      const pending: PendingEnrollment = {
+        v: 1,
+        origin: this.transport.origin,
+        key,
+        verifier,
+        started,
+        startedAt: new Date(this.#now()).toISOString(),
+      };
+      await this.#persist(() =>
+        this.#options.secrets.set(ENROLLMENT_SECRET, JSON.stringify(pending)),
+      );
+      this.#pending = pending;
+      return started;
+    } finally {
+      this.#identityTransitions--;
+    }
   }
 
   async pollEnrollment(): Promise<
@@ -221,18 +230,26 @@ export class ZuvClient {
 
   async logout(): Promise<void> {
     this.#generation++;
-    await this.#options.onIdentityChanging?.();
-    await this.cancelEnrollment();
-    await this.#persist(() => this.#options.secrets.delete(IDENTITY_SECRET));
-    this.#identity = undefined;
+    this.#identityTransitions++;
+    try {
+      await this.#options.onIdentityChanging?.();
+      await this.cancelEnrollment();
+      await this.#persist(() => this.#options.secrets.delete(IDENTITY_SECRET));
+      this.#identity = undefined;
+    } finally {
+      this.#identityTransitions--;
+    }
   }
 
   async getEntitlements(): Promise<Entitlements> {
+    const generation = this.#generation;
     let result: Entitlements;
     try {
       result = await this.json('entitlements', 'GET', '/api/wevir/entitlements');
     } catch (error) {
       if (
+        generation === this.#generation &&
+        !this.changingIdentity &&
         this.#identity &&
         error instanceof ZuvRequestError &&
         (error.code === 'AUTH_REQUIRED' || error.code === 'DEVICE_REVOKED')
@@ -240,6 +257,7 @@ export class ZuvClient {
         await this.#save({ ...this.#identity, blocked: error.code });
       throw error;
     }
+    if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
     const identity = this.#identity;
     if (!identity || identity.deviceId !== result.identity.deviceId)
       throw new ZuvRequestError('INTEGRITY_FAILED');
@@ -323,7 +341,7 @@ export class ZuvClient {
   }
 
   async #proof(): Promise<{ key: ZuvDeviceKey; secret: string }> {
-    if (this.#closed) throw new ZuvRequestError('AUTH_REQUIRED', 401);
+    if (this.#closed || this.changingIdentity) throw new ZuvRequestError('AUTH_REQUIRED', 401);
     if (this.#refreshing) {
       const secret = await this.#refreshing;
       if (!this.#identity) throw new ZuvRequestError('AUTH_REQUIRED', 401);

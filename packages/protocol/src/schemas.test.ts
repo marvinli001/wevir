@@ -5756,7 +5756,106 @@ const episodeCases = [
     invalid: [{ id: 'ep_1' }],
   },
 ];
+const syncSource = {
+  hostId: 'host_synthetic',
+  deviceId: 'device_synthetic',
+  sessionId: 'ses_synthetic',
+  streamId: 'stream_synthetic',
+};
 const syncContentCases: Case[] = [
+  {
+    name: 'SyncSessionStateContent',
+    schema: protocol.SyncSessionStateContentSchema,
+    valid: [
+      {
+        schema: 'wevir-session-state/1',
+        source: syncSource,
+        title: 'Synthetic title',
+        titleSource: 'user',
+        archivedAt: null,
+      },
+    ],
+    invalid: [
+      {
+        schema: 'wevir-session-state/1',
+        source: syncSource,
+        title: 'Synthetic title',
+        titleSource: 'user',
+      },
+    ],
+  },
+  {
+    name: 'SyncStreamRef',
+    schema: protocol.SyncStreamRefSchema,
+    valid: [syncSource],
+    invalid: [{ ...syncSource, sessionId: 'not-a-session' }],
+  },
+  {
+    name: 'SyncSourceOrigin',
+    schema: protocol.SyncSourceOriginSchema,
+    valid: [{ ...syncSource, vaultId: 'vault_synthetic', seq: '9007199254740993' }],
+    invalid: [{ ...syncSource, vaultId: 'vault_synthetic', seq: 123 }],
+  },
+  {
+    name: 'SyncEpisodeContent',
+    schema: protocol.SyncEpisodeContentSchema,
+    valid: [
+      {
+        schema: 'wevir-episode/1',
+        source: syncSource,
+        episodeId: 'ep_synthetic',
+        episode: {
+          ...episode,
+          id: 'ep_synthetic',
+          sessionId: 'ses_synthetic',
+          rootSessionId: 'ses_synthetic',
+        },
+        deleted: false,
+        createdAt: '2026-11-13T00:00:00.000Z',
+        updatedAt: '2026-11-13T00:00:00.000Z',
+      },
+    ],
+    invalid: [
+      {
+        schema: 'wevir-episode/1',
+        source: syncSource,
+        episodeId: 'ep_synthetic',
+        deleted: 'false',
+      },
+    ],
+  },
+  {
+    name: 'SyncRetroSummaryContent',
+    schema: protocol.SyncRetroSummaryContentSchema,
+    valid: [
+      {
+        schema: 'wevir-retro-summary/1',
+        source: syncSource,
+        summary: {
+          points: [{ text: 'Synthetic summary', refs: ['e2'] }],
+          providerId: 'synthetic-api',
+          modelId: 'synthetic-model',
+          throughSeq: 2,
+          generatedAt: '2026-11-13T00:00:00.000Z',
+          inputBytes: 128,
+          outputBytes: 32,
+        },
+      },
+    ],
+    invalid: [{ schema: 'wevir-retro-summary/1', source: syncSource, summary: { points: [] } }],
+  },
+  {
+    name: 'SyncSessionTombstone',
+    schema: protocol.SyncSessionTombstoneSchema,
+    valid: [
+      {
+        schema: 'wevir-session-deleted/1',
+        source: syncSource,
+        deletedAt: '2026-11-13T00:00:00.000Z',
+      },
+    ],
+    invalid: [{ schema: 'wevir-session-deleted/1', source: syncSource }],
+  },
   {
     name: 'SyncRelativePath',
     schema: protocol.SyncRelativePathSchema,

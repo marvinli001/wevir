@@ -1684,6 +1684,7 @@ export const messages: Messages = {
   'source.zuv.reauthorize': '需重新登入',
   'source.zuv.storage': '雲端儲存',
   'sync.title': '同步',
+  'sync.missingRefs': '出處缺失 {count} 項',
   'sync.sessions': '工作階段',
   'sync.memory': '記憶',
   'sync.rules': '規則',

@@ -1,6 +1,15 @@
 import { z } from 'zod';
-import { WorkspaceIdSchema } from './common.js';
+import { SessionIdSchema, WorkspaceIdSchema } from './common.js';
 import { decimal, entityType, id, PROTOCOL, schemas } from './sync-wire.js';
+
+export const SyncStreamRefSchema = z.object({
+  hostId: id,
+  deviceId: id,
+  sessionId: SessionIdSchema,
+  streamId: id,
+});
+export type SyncStreamRef = z.infer<typeof SyncStreamRefSchema>;
+export const SyncSourceOriginSchema = SyncStreamRefSchema.extend({ vaultId: id, seq: decimal });
 
 export const SyncStatusSchema = z.object({
   protocol: z.literal(PROTOCOL),

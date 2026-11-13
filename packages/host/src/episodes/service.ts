@@ -25,6 +25,7 @@ export interface EpisodeServiceOptions {
   retro: RetroService;
   enabled: () => boolean;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
+  onPersist?: (record: EpisodeRecord) => void;
 }
 
 export class EpisodeService {
@@ -75,7 +76,7 @@ export class EpisodeService {
       updatedAt: new Date().toISOString(),
     };
     next.revision = episodeRevision([next.digest, next.overrides, next.pinned, next.excluded]);
-    this.#options.storage.episodes.put(next);
+    this.#persist(next);
     this.#changed(next);
     return { episode: this.#read(next) };
   }
@@ -94,7 +95,7 @@ export class EpisodeService {
       updatedAt: now,
       revision: episodeRevision([id, now]),
     };
-    this.#options.storage.episodes.put(next);
+    this.#persist(next);
     this.#changed(next);
     return {};
   }
@@ -169,7 +170,7 @@ export class EpisodeService {
       updatedAt: digest.updatedAt,
     };
     row.revision = episodeRevision([row.digest, row.overrides, row.pinned, row.excluded]);
-    storage.episodes.put(row);
+    this.#persist(row);
     this.#changed(row);
     return this.#read(row);
   }
@@ -236,6 +237,7 @@ export class EpisodeService {
       session !== undefined &&
       session.origin?.kind !== 'second_opinion' &&
       session.origin?.kind !== 'automation' &&
+      session.origin?.kind !== 'synced' &&
       session.side !== true &&
       storage.workspaces.get(session.workspaceId) !== undefined &&
       storage.workspaces.get(session.workspaceId)?.removedAt === undefined
@@ -261,13 +263,25 @@ export class EpisodeService {
       revision: row.revision,
       updatedAt: row.updatedAt,
       source:
-        this.#options.storage.sessions.get(row.sessionId) === undefined ? 'deleted' : 'available',
+        this.#options.storage.sessions.get(row.sessionId) === undefined ||
+        this.#options.storage.sync.sessionDeleted(row.sessionId)
+          ? 'deleted'
+          : 'available',
       ...(this.#options.storage.events.lastSeq(row.sessionId) > row.throughSeq && { stale: true }),
     });
   }
   #changed(row: EpisodeRecord): void {
     for (const listener of this.#listeners)
       listener({ workspaceId: row.workspaceId as WorkspaceId, id: row.id as EpisodeId });
+  }
+  notifyStored(change: EpisodeChange): void {
+    for (const listener of this.#listeners) listener(change);
+  }
+  #persist(row: EpisodeRecord): void {
+    this.#options.storage.transaction(() => {
+      this.#options.storage.episodes.put(row);
+      this.#options.onPersist?.(row);
+    });
   }
   #cancel(id: string): void {
     const timer = this.#timers.get(id);

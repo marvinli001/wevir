@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "wevir-settings/1"
+    },
+    "values": {
+      "type": "object",
+      "properties": {
+        "sendWhileBusy": {
+          "type": "string",
+          "enum": ["steer", "queue"]
+        },
+        "autoMemory": {
+          "type": "boolean"
+        },
+        "autoEpisodes": {
+          "type": "boolean"
+        },
+        "ruleFiles": {
+          "type": "boolean"
+        },
+        "agentInstructions": {
+          "type": "string",
+          "maxLength": 16000
+        },
+        "outputStyle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "writingStyle": {
+          "type": "boolean"
+        },
+        "notifications": {
+          "type": "object",
+          "properties": {
+            "completed": {
+              "type": "boolean"
+            },
+            "approval": {
+              "type": "boolean"
+            },
+            "question": {
+              "type": "boolean"
+            },
+            "failed": {
+              "type": "boolean"
+            },
+            "automation": {
+              "type": "boolean"
+            },
+            "channel": {
+              "type": "boolean"
+            },
+            "agent": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "exclusions": {
+      "maxItems": 128,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 128
+      }
+    }
+  },
+  "required": ["schema", "values", "exclusions"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:content:1:settings"
+}

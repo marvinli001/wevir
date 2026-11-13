@@ -892,6 +892,13 @@ export class RpcConnection {
   #subscribe(id: JsonRpcId, params: MethodParams<'events.subscribe'>): void {
     const { sessionId, sinceSeq, elideSuperseded } = params;
     assertSessionVisible(this.#host.storage, sessionId);
+    if (
+      compareProtocolVersions(this.#protocolVersion, '0.172.0') < 0 &&
+      this.#host.storage.sessions.get(sessionId)?.origin?.kind === 'synced'
+    )
+      throw new HostError('INVALID_STATE', 'synchronized history requires protocol 0.172.0', {
+        state: 'closed',
+      });
     const subscription: Subscription = {
       id: newId('sub'),
       sessionId,
@@ -1082,7 +1089,9 @@ export class RpcConnection {
         change.upserted = change.upserted.map(adaptSession);
       }
       if (compareProtocolVersions(this.#protocolVersion, '0.172.0') < 0)
-        change.upserted = change.upserted.map(sessionBeforeSync);
+        change.upserted = change.upserted
+          .filter((session) => session.origin?.kind !== 'synced')
+          .map(sessionBeforeSync);
       if (compareProtocolVersions(this.#protocolVersion, '0.155.0') < 0) {
         change.upserted = change.upserted.map(sessionBeforeImports);
       }
@@ -1832,7 +1841,12 @@ export function adaptResultForClient(
   if (compareProtocolVersions(protocolVersion, '0.172.0') < 0) {
     if (method === 'session.list') {
       const list = value as MethodResult<'session.list'>;
-      value = { ...list, sessions: list.sessions.map(sessionBeforeSync) };
+      value = {
+        ...list,
+        sessions: list.sessions
+          .filter((session) => session.origin?.kind !== 'synced')
+          .map(sessionBeforeSync),
+      };
     } else if (
       method === 'session.get' ||
       method === 'session.resume' ||

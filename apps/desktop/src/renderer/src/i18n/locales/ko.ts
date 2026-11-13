@@ -1687,6 +1687,7 @@ export const messages: Messages = {
   'source.zuv.reauthorize': '다시 로그인',
   'source.zuv.storage': '클라우드 저장소',
   'sync.title': '동기화',
+  'sync.missingRefs': '참조 {count}개 없음',
   'sync.sessions': '세션',
   'sync.memory': '메모리',
   'sync.rules': '규칙',

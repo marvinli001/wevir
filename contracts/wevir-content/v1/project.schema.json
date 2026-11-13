@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "wevir-project/1"
+    },
+    "projectId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "displayName": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "repoUrl": {
+      "type": "string",
+      "maxLength": 2048
+    }
+  },
+  "required": ["schema", "projectId", "displayName"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:content:1:project"
+}

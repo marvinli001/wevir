@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "wevir-event-stream/1"
+    },
+    "sessionId": {
+      "type": "string",
+      "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+    },
+    "streamId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "exclusions": {
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "const": "engine.raw"
+      }
+    }
+  },
+  "required": ["schema", "sessionId", "streamId", "exclusions"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:content:1:event-stream"
+}

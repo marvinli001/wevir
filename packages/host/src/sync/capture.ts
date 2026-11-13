@@ -8,7 +8,7 @@ import type {
   SyncVaultRecord,
 } from '@wevir/storage';
 import { newId } from '../ids.js';
-import { eventDigest } from './crypto.js';
+import { eventDigest, sha256 } from './crypto.js';
 import { SyncQueue } from './queue.js';
 
 export class SyncEventCapture {
@@ -21,7 +21,7 @@ export class SyncEventCapture {
     this.#queue = new SyncQueue(options.storage);
   }
 
-  initialize(includeHistory: boolean): void {
+  initialize(includeHistory: boolean, backfill = false): void {
     const vault = this.#eligible();
     this.projects();
     if (!vault?.categories.includes('event-segment')) return;
@@ -47,14 +47,14 @@ export class SyncEventCapture {
           )
             continue;
           const source = this.#source(vault, session);
-          if (includeHistory)
-            this.#metadata(
-              vault,
-              session,
-              project.projectId,
-              this.#storage.sync.captureRange(vault.vaultId, session.id, source.streamId)
-                ?.preparedSeq ?? 0,
-            );
+          this.#metadata(
+            vault,
+            session,
+            project.projectId,
+            this.#storage.sync.captureRange(vault.vaultId, session.id, source.streamId)
+              ?.preparedSeq ?? (includeHistory ? 0 : session.lastSeq),
+            { baselineOnly: !includeHistory, force: backfill },
+          );
           this.#storage.sync.capture({
             vaultId: vault.vaultId,
             localSessionId: session.id,
@@ -63,6 +63,8 @@ export class SyncEventCapture {
             throughSeq: session.lastSeq,
             preparedSeq: includeHistory ? 0 : session.lastSeq,
           });
+          if (backfill)
+            this.#storage.sync.rewindCapture(vault.vaultId, session.id, source.streamId);
         }
       }
     });
@@ -88,6 +90,50 @@ export class SyncEventCapture {
             displayName: workspace.displayName,
           },
         });
+      }
+    });
+  }
+
+  source(sessionId: string): SyncSourceRecord | undefined {
+    const vault = this.#eligible();
+    const session = this.#storage.sessions.get(sessionId);
+    if (!vault || !session || this.#storage.sync.foreignSource(vault.vaultId, sessionId)) return;
+    if (
+      !this.#storage.sync
+        .projects(vault.vaultId)
+        .some(
+          (project) =>
+            project.workspaceId === session.workspaceId &&
+            vault.projectIds.includes(project.projectId),
+        )
+    )
+      return;
+    return this.#source(vault, session);
+  }
+
+  metadataChanged(sessionIds: readonly string[]): void {
+    const vault = this.#eligible();
+    if (!vault?.categories.includes('session')) return;
+    this.#storage.transaction(() => {
+      for (const id of sessionIds) {
+        const session = this.#storage.sessions.get(id);
+        const source = session && this.source(id);
+        if (!session || !source) continue;
+        const project = this.#storage.sync
+          .projects(vault.vaultId)
+          .find(
+            (value) =>
+              value.workspaceId === session.workspaceId &&
+              vault.projectIds.includes(value.projectId),
+          );
+        if (project)
+          this.#metadata(
+            vault,
+            session,
+            project.projectId,
+            this.#storage.sync.captureRange(vault.vaultId, id, source.streamId)?.preparedSeq ??
+              session.lastSeq,
+          );
       }
     });
   }
@@ -140,13 +186,46 @@ export class SyncEventCapture {
     }
   }
 
-  prepare(): void {
+  prepare(sessionIds?: readonly string[]): void {
     const vault = this.#eligible();
     if (!vault) return;
+    this.#prepare(vault, sessionIds, false);
+  }
+
+  preserveForRemoval(sessionIds: readonly string[]): void {
+    if (!this.#storage.db.isTransaction)
+      throw new Error('outbox preservation requires the removal transaction');
+    for (const vault of this.#storage.sync.vaults()) {
+      while (true) {
+        const pending = this.#storage.sync
+          .captures(vault.vaultId)
+          .filter((value) => sessionIds.includes(value.localSessionId));
+        if (!pending.length) break;
+        this.#prepare(vault, sessionIds, true);
+        const next = this.#storage.sync
+          .captures(vault.vaultId)
+          .filter((value) => sessionIds.includes(value.localSessionId));
+        if (
+          next.length &&
+          next.reduce((sum, value) => sum + value.preparedSeq, 0) <=
+            pending.reduce((sum, value) => sum + value.preparedSeq, 0)
+        )
+          throw new Error('unprepared source events cannot be removed');
+      }
+    }
+  }
+
+  #prepare(
+    vault: SyncVaultRecord,
+    sessionIds: readonly string[] | undefined,
+    preserve: boolean,
+  ): void {
     for (const capture of this.#storage.sync.captures(vault.vaultId)) {
+      if (sessionIds && !sessionIds.includes(capture.localSessionId)) continue;
       if (
-        !vault.projectIds.includes(capture.projectId) ||
-        !vault.categories.includes('event-segment')
+        !preserve &&
+        (!vault.projectIds.includes(capture.projectId) ||
+          !vault.categories.includes('event-segment'))
       )
         continue;
       const source = this.#storage.sync
@@ -183,9 +262,10 @@ export class SyncEventCapture {
       if (!events.length) continue;
       const fromSeq = events[0]?.seq as string;
       const throughSeq = events.at(-1)?.seq as string;
-      this.#storage.transaction(() => {
+      const persist = () => {
         const session = this.#storage.sessions.get(capture.localSessionId);
-        if (session) this.#metadata(vault, session, capture.projectId, Number(throughSeq));
+        if (session && !preserve)
+          this.#metadata(vault, session, capture.projectId, Number(throughSeq));
         this.#queue.enqueue({
           vaultId: vault.vaultId,
           entityType: 'event-segment',
@@ -210,7 +290,9 @@ export class SyncEventCapture {
           },
         });
         this.#storage.sync.prepareCapture(capture, Number(throughSeq));
-      });
+      };
+      if (preserve) persist();
+      else this.#storage.transaction(persist);
     }
   }
 
@@ -242,6 +324,7 @@ export class SyncEventCapture {
     session: SessionRecord,
     projectId: string,
     throughSeq: number,
+    options: { baselineOnly?: boolean; force?: boolean } = {},
   ): void {
     if (vault.categories.includes('project')) {
       const workspace = this.#storage.workspaces.get(session.workspaceId);
@@ -255,25 +338,68 @@ export class SyncEventCapture {
           content: { schema: 'wevir-project/1', projectId, displayName: workspace.displayName },
         });
     }
-    if (vault.categories.includes('session'))
+    if (!vault.categories.includes('session')) return;
+    const native = this.#source(vault, session);
+    const source = {
+      hostId: native.hostId,
+      deviceId: native.deviceId as string,
+      sessionId: native.sessionId,
+      streamId: native.streamId,
+    };
+    const body = {
+      schema: 'wevir-session/1',
+      source,
+      sessionId: session.id,
+      throughSeq: String(throughSeq),
+      title: session.title,
+      titleSource: session.titleSource,
+      providerId: session.providerId,
+      modelId: session.modelId,
+      engine: session.engine,
+      createdAt: session.createdAt,
+      ...(session.side && { side: session.side }),
+      ...(session.parentSessionId && { parentSessionId: session.parentSessionId }),
+      ...(session.forkedFrom && { forkedFrom: session.forkedFrom }),
+      ...(session.archivedAt && { archivedAt: session.archivedAt }),
+      ...(session.origin && { origin: session.origin }),
+    };
+    const existing = this.#storage.sync.entity(vault.vaultId, session.id);
+    const baseline = this.#storage.sync.fileBaseline(vault.vaultId, session.id);
+    const fingerprint = sha256(jcs(body));
+    this.#storage.sync.putContentRef({
+      vaultId: vault.vaultId,
+      entityId: session.id,
+      kind: 'session',
+      source,
+      localId: session.id,
+    });
+    if (baseline?.fingerprint === fingerprint && !(options.force && !existing?.revision)) return;
+    if (options.baselineOnly && !baseline && !existing?.revision) {
+      if (!existing)
+        this.#storage.sync.putEntity({
+          vaultId: vault.vaultId,
+          entityId: session.id,
+          entityType: 'session',
+          projectId,
+          localKey: `session:${session.id}`,
+          materialized: true,
+        });
+    } else
       this.#queue.enqueue({
         vaultId: vault.vaultId,
         entityId: session.id,
         entityType: 'session',
         projectId,
-        localKey: `session:${session.id}`,
-        content: {
-          schema: 'wevir-session/1',
-          sessionId: session.id,
-          throughSeq: String(throughSeq),
-          title: session.title,
-          titleSource: session.titleSource,
-          providerId: session.providerId,
-          modelId: session.modelId,
-          engine: session.engine,
-          createdAt: session.createdAt,
-          ...(session.origin && { origin: session.origin }),
-        },
+        localKey: existing?.localKey ?? `session:${session.id}`,
+        content: body,
       });
+    this.#storage.sync.putFileBaseline({
+      vaultId: vault.vaultId,
+      entityId: session.id,
+      entityType: 'session',
+      projectId,
+      path: `sqlite:session:${session.id}`,
+      fingerprint,
+    });
   }
 }

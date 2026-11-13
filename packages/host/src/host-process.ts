@@ -383,6 +383,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const store = new EventStore({
       storage,
       onAppendInTransaction: (events) => syncService?.record(events),
+      onPrepareRemoval: async (ids) => {
+        await syncService?.prepareRemoval(ids);
+      },
+      onRemoveInTransaction: (ids) => syncService?.recordRemoval(ids),
+      onMetadataChanged: (ids) => syncService?.recordMetadata(ids),
       onError: (error) => logger.error('event store error', { error }),
     });
     events = store;
@@ -611,6 +616,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       memoryDir: memory.dir,
       images,
       settings,
+      onEpisodeChanged: (change) => episodes?.notifyStored(change),
       onSecret: (value) => logger.addSecret(value),
       intervalMs: options.zuv?.syncIntervalMs,
       bundleRoots: (vault) =>
@@ -1238,6 +1244,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }
     }
     const retro = new RetroService({
+      onSummaryPersist: (row) => sync.recordSummary(row),
       onGet: async (id) => {
         await episodes?.refresh(id);
       },
@@ -1254,6 +1261,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     episodes = new EpisodeService({
+      onPersist: (row) => sync.recordEpisode(row),
       storage,
       events: store,
       retro,

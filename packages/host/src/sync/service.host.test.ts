@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionId, WorkspaceId } from '@wevir/protocol';
+import type { TitleRequest } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startHost } from '../host-process.js';
@@ -11,6 +12,16 @@ import { startMockZuv } from '../zuv/mock.test-utils.js';
 
 const tempDir = useTempDir();
 const cleanups: Array<() => Promise<void> | void> = [];
+class SummaryEcho extends EchoAdapter {
+  summary = '';
+  readonly deleted: string[] = [];
+  override async deleteSession(id: string): Promise<void> {
+    this.deleted.push(id);
+  }
+  async generateTitle(_sessionId: string, _request: TitleRequest): Promise<string> {
+    return this.summary;
+  }
+}
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -25,7 +36,7 @@ async function fixture() {
     const project = join(base, 'project');
     await mkdir(userHome, { recursive: true });
     await mkdir(project, { recursive: true });
-    const adapter = new EchoAdapter();
+    const adapter = new SummaryEcho();
     const host = await startHost({
       home,
       userHome,
@@ -62,12 +73,463 @@ async function fixture() {
           ),
       'synthetic ZUV sign-in',
     );
-    return { home, userHome, project, workspaceId, rpc, memory, adapter };
+    return { home, userHome, project, workspaceId, rpc, memory, adapter, url: host.url, token };
   };
   return { mock, first: await boot('first'), second: await boot('second') };
 }
 
+type Peer = Awaited<ReturnType<typeof fixture>>['first'];
+async function linkSessions(first: Peer, second: Peer, includeHistory = true) {
+  await first.rpc.request('provider.upsert', {
+    id: 'synthetic-api',
+    kind: 'openai-compatible',
+    displayName: 'Synthetic API',
+    api: 'openai-responses',
+    baseURL: 'https://synthetic.invalid/v1',
+    models: [{ id: 'synthetic-model' }],
+    defaultModelId: 'synthetic-model',
+  });
+  const params = {
+    enabled: true,
+    categories: ['project', 'session', 'event-segment'],
+    includeHistory,
+  };
+  const selected = await first.rpc.request('sync.configure', {
+    ...params,
+    projects: [{ workspaceId: first.workspaceId }],
+  });
+  const target = {
+    ...params,
+    projects: [{ workspaceId: second.workspaceId, projectId: selected.binding.projectIds[0] }],
+  };
+  expect((await second.rpc.call('sync.configure', target)).error).toMatchObject({
+    data: { code: 'RECOVERY_REQUIRED' },
+  });
+  const status = await second.rpc.request('sync.status');
+  await first.rpc.request('sync.approveDevice', { deviceId: status.binding.deviceId });
+  await second.rpc.request('sync.configure', target);
+}
+
 describe('full Host material synchronization with synthetic identities', () => {
+  it('keeps synchronized side sessions out of the top-level session list', async () => {
+    const { first, second } = await fixture();
+    await linkSessions(first, second);
+    const root = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.send', {
+      sessionId: root.id,
+      clientMessageId: 'synthetic-side-source',
+      content: [{ type: 'text', text: 'Synthetic side setup' }],
+    });
+    await expect
+      .poll(
+        async () => (await first.rpc.request('session.get', { sessionId: root.id })).session.state,
+        { timeout: 8000 },
+      )
+      .toBe('idle');
+    const side = (await first.rpc.request('session.fork', { sessionId: root.id, side: true }))
+      .session;
+    await first.rpc.request('session.rename', {
+      sessionId: side.id,
+      title: 'Synthetic side session',
+    });
+    await expect
+      .poll(async () => (await first.rpc.request('sync.status', {})).pending, { timeout: 8000 })
+      .toBe(0);
+    await second.rpc.request('sync.retry', {});
+    expect(
+      (await second.rpc.request('session.list', { workspaceId: second.workspaceId })).sessions.some(
+        (row: { title: string }) => row.title === 'Synthetic side session',
+      ),
+    ).toBe(false);
+  }, 30000);
+  it('synchronizes replica names and archive changes without injecting received state into the native source stream', async () => {
+    const { first, second } = await fixture();
+    await linkSessions(first, second);
+    const created = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.rename', {
+      sessionId: created.id,
+      title: 'Original native title',
+    });
+    let id: SessionId | undefined;
+    await expect
+      .poll(
+        async () => {
+          const list = (
+            await second.rpc.request('session.list', { workspaceId: second.workspaceId })
+          ).sessions as Array<{ id: SessionId; title: string }>;
+          id = list[0]?.id;
+          return list[0]?.title;
+        },
+        { timeout: 8000 },
+      )
+      .toBe('Original native title');
+    const before = (await first.rpc.request('session.get', { sessionId: created.id })).session
+      .lastSeq;
+    await second.rpc.request('session.rename', { sessionId: id, title: 'Renamed on second Host' });
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('session.get', { sessionId: created.id })).session.title,
+        { timeout: 8000 },
+      )
+      .toBe('Renamed on second Host');
+    expect(
+      (await first.rpc.request('session.get', { sessionId: created.id })).session.lastSeq,
+    ).toBe(before);
+    await first.rpc.request('session.send', {
+      sessionId: created.id,
+      clientMessageId: 'synthetic-after-rename',
+      content: [{ type: 'text', text: 'Synthetic further work' }],
+    });
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('session.get', { sessionId: created.id })).session.state,
+        { timeout: 8000 },
+      )
+      .toBe('idle');
+    expect((await first.rpc.request('session.get', { sessionId: created.id })).session.title).toBe(
+      'Renamed on second Host',
+    );
+    await first.rpc.request('session.archive', { sessionId: created.id, archived: true });
+    await expect
+      .poll(
+        async () =>
+          (
+            await second.rpc.request('session.list', {
+              workspaceId: second.workspaceId,
+              archived: true,
+            })
+          ).sessions.map((value: { id: string }) => value.id),
+        { timeout: 8000 },
+      )
+      .toContain(id);
+    await expect
+      .poll(async () => (await first.rpc.request('sync.status', {})).pending, { timeout: 8000 })
+      .toBe(0);
+    await second.rpc.request('sync.retry', {});
+    await second.rpc.request('session.archive', { sessionId: id, archived: false });
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('session.get', { sessionId: created.id })).session.archivedAt,
+        { timeout: 8000 },
+      )
+      .toBeUndefined();
+    expect((await first.rpc.request('session.get', { sessionId: created.id })).session.state).toBe(
+      'closed',
+    );
+  }, 30000);
+  it('starts without existing history, backfills it only on explicit consent and gates source streams from older clients', async () => {
+    const { first, second } = await fixture();
+    await first.rpc.request('provider.upsert', {
+      id: 'synthetic-api',
+      kind: 'openai-compatible',
+      displayName: 'Synthetic API',
+      api: 'openai-responses',
+      baseURL: 'https://synthetic.invalid/v1',
+      models: [{ id: 'synthetic-model' }],
+      defaultModelId: 'synthetic-model',
+    });
+    const native = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.rename', {
+      sessionId: native.id,
+      title: 'Before sync consent',
+    });
+    await first.rpc.request('session.send', {
+      sessionId: native.id,
+      clientMessageId: 'synthetic-before-consent',
+      content: [{ type: 'text', text: 'Synthetic earlier message' }],
+    });
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('session.get', { sessionId: native.id })).session.state,
+        { timeout: 8000 },
+      )
+      .toBe('idle');
+    await linkSessions(first, second, false);
+    await first.rpc.request('sync.retry', {});
+    await second.rpc.request('sync.retry', {});
+    expect(
+      (
+        await second.rpc.request('session.list', {
+          workspaceId: second.workspaceId,
+          archived: false,
+        })
+      ).sessions,
+    ).toEqual([]);
+    const status = await first.rpc.request('sync.status', {});
+    await first.rpc.request('sync.configure', {
+      enabled: true,
+      categories: status.binding.categories,
+      projects: [{ workspaceId: first.workspaceId, projectId: status.binding.projectIds[0] }],
+      includeHistory: true,
+      expectedRevision: status.binding.revision,
+    });
+    let remoteId: SessionId | undefined;
+    await expect
+      .poll(
+        async () => {
+          const list = (
+            await second.rpc.request('session.list', { workspaceId: second.workspaceId })
+          ).sessions as Array<{ id: SessionId; title: string }>;
+          remoteId = list[0]?.id;
+          return list[0]?.title;
+        },
+        { timeout: 8000 },
+      )
+      .toBe('Before sync consent');
+    const { subscriptionId } = await second.rpc.request('events.subscribe', {
+      sessionId: remoteId,
+      sinceSeq: 0,
+    });
+    await second.rpc.until(
+      () =>
+        second.rpc
+          .events(subscriptionId)
+          .some(
+            (event) =>
+              event.type === 'user.message' &&
+              event.payload.content.some(
+                (part) => part.type === 'text' && part.text === 'Synthetic earlier message',
+              ),
+          ),
+      'consented history backfill',
+    );
+    const legacy = await TestRpcClient.connect(second.url);
+    cleanups.push(() => legacy.ws.terminate());
+    expect(
+      (
+        await legacy.call('host.hello', {
+          token: second.token,
+          protocolVersion: '0.171.0',
+          deviceId: 'synthetic-legacy',
+          clientId: 'synthetic-legacy',
+          clientKind: 'cli',
+          capabilities: {},
+        })
+      ).error,
+    ).toBeUndefined();
+    expect(
+      (await legacy.request('session.list', { workspaceId: second.workspaceId })).sessions,
+    ).toEqual([]);
+    expect(
+      (await legacy.call('events.subscribe', { sessionId: remoteId, sinceSeq: 0 })).error,
+    ).toMatchObject({ code: -32020 });
+  }, 30000);
+  it('propagates a session tombstone while preserving pinned task history and avoiding native deletion on the receiving Host', async () => {
+    const { mock, first, second } = await fixture();
+    await linkSessions(first, second);
+    const source = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.rename', {
+      sessionId: source.id,
+      title: 'Synthetic retained task',
+    });
+    await first.rpc.request('session.send', {
+      sessionId: source.id,
+      clientMessageId: 'synthetic-deleted-source',
+      content: [{ type: 'text', text: 'Synthetic retained history' }],
+    });
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('session.get', { sessionId: source.id })).session.state,
+        { timeout: 8000 },
+      )
+      .toBe('idle');
+    const task = (await first.rpc.request('episode.refresh', { sessionId: source.id })).episode;
+    await first.rpc.request('episode.update', {
+      id: task.id,
+      revision: task.revision,
+      patch: {},
+      pinned: true,
+    });
+    let remoteId: string | undefined;
+    await expect
+      .poll(
+        async () => {
+          const rows = (
+            await second.rpc.request('episode.list', { workspaceId: second.workspaceId })
+          ).episodes as Array<{ id: string; pinned: boolean }>;
+          remoteId = rows[0]?.id;
+          return rows[0]?.pinned;
+        },
+        { timeout: 8000 },
+      )
+      .toBe(true);
+    const remote = (await second.rpc.request('episode.get', { id: remoteId })).episode;
+    await first.rpc.request('session.archive', { sessionId: source.id, archived: true });
+    await first.rpc.request('session.delete', { sessionId: source.id });
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc.request('session.list', { workspaceId: second.workspaceId })).sessions,
+        { timeout: 8000 },
+      )
+      .toEqual([]);
+    await expect
+      .poll(async () => (await second.rpc.request('episode.get', { id: remote.id })).episode, {
+        timeout: 8000,
+      })
+      .toMatchObject({
+        pinned: true,
+        source: 'deleted',
+      });
+    const { subscriptionId } = await second.rpc.request('events.subscribe', {
+      sessionId: remote.sessionId,
+      sinceSeq: 0,
+    });
+    await second.rpc.until(
+      () => second.rpc.events(subscriptionId).some((event) => event.type === 'user.message'),
+      'retained source history',
+    );
+    await second.rpc.request('session.delete', { sessionId: remote.sessionId });
+    expect(second.adapter.deleted).toEqual([]);
+    expect(first.adapter.deleted).toHaveLength(1);
+    expect(mock.errors).toEqual([]);
+  }, 30000);
+  it('synchronizes task records and summaries with usable source references, then preserves edits and deletion', async () => {
+    const { mock, first, second } = await fixture();
+    await linkSessions(first, second);
+    const generate = vi.spyOn(second.adapter, 'generateTitle');
+    const created = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.rename', {
+      sessionId: created.id,
+      title: 'Synthetic task record',
+    });
+    await first.rpc.request('session.send', {
+      sessionId: created.id,
+      clientMessageId: 'synthetic-record-message',
+      content: [{ type: 'text', text: 'Synthetic recorded work' }],
+    });
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('session.get', { sessionId: created.id })).session.state,
+        { timeout: 8000 },
+      )
+      .toBe('idle');
+    const native = (await first.rpc.request('episode.refresh', { sessionId: created.id })).episode;
+    let remoteId: string | undefined;
+    await expect
+      .poll(
+        async () => {
+          const rows = (
+            await second.rpc.request('episode.list', { workspaceId: second.workspaceId })
+          ).episodes as Array<{ id: string; title: string }>;
+          remoteId = rows[0]?.id;
+          return rows[0]?.title;
+        },
+        { timeout: 8000 },
+      )
+      .toBe('Synthetic task record');
+    const remote = (await second.rpc.request('episode.get', { id: remoteId })).episode;
+    expect(remote.id).not.toBe(native.id);
+    expect(remote).toMatchObject({
+      source: 'available',
+      syncOrigin: { sessionId: created.id },
+      workspaceId: second.workspaceId,
+    });
+    const { subscriptionId } = await second.rpc.request('events.subscribe', {
+      sessionId: remote.sessionId,
+      sinceSeq: 0,
+    });
+    await second.rpc.until(
+      () =>
+        second.rpc
+          .events(subscriptionId)
+          .some((event) => event.syncOrigin?.seq === String(native.goal.ref.seq)),
+      'task source event',
+    );
+    const linked = second.rpc
+      .events(subscriptionId)
+      .find((event) => event.syncOrigin?.seq === String(native.goal.ref.seq));
+    expect(remote.goal.ref.seq).toBe(linked?.seq);
+    expect(linked?.type).toBe('user.message');
+    const retro = await first.rpc.request('retro.get', { sessionId: created.id });
+    const requestId = retro.retro.goal.request.id;
+    first.adapter.summary = JSON.stringify({
+      points: [{ text: 'Synthetic summary', refs: [requestId] }],
+    });
+    expect(
+      (await first.rpc.request('retro.summarize', { sessionId: created.id })).summary,
+    ).toBeDefined();
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc.request('retro.get', { sessionId: remote.sessionId })).retro.summary
+            ?.points[0],
+        { timeout: 8000 },
+      )
+      .toMatchObject({ text: 'Synthetic summary', refs: [remote.goal.id] });
+    expect(generate).not.toHaveBeenCalled();
+    await second.rpc.request('episode.update', {
+      id: remote.id,
+      revision: remote.revision,
+      patch: {
+        title: 'Edited on second Host',
+        goal: { ...remote.goal, text: 'Updated synthetic goal' },
+        open: [
+          {
+            id: 'user:follow-up',
+            text: 'Synthetic follow-up',
+            origin: 'todo',
+            status: 'pending',
+            ref: remote.goal.ref,
+          },
+        ],
+      },
+      pinned: true,
+    });
+    await expect
+      .poll(async () => (await first.rpc.request('episode.get', { id: native.id })).episode, {
+        timeout: 8000,
+      })
+      .toMatchObject({ title: 'Edited on second Host', pinned: true });
+    const current = (await first.rpc.request('episode.get', { id: native.id })).episode;
+    expect(current.goal.ref.seq).toBe(native.goal.ref.seq);
+    expect(current.open[0].ref.seq).toBe(native.goal.ref.seq);
+    await first.rpc.request('episode.delete', { id: native.id, revision: current.revision });
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc.request('episode.list', { workspaceId: second.workspaceId })).episodes,
+        { timeout: 8000 },
+      )
+      .toEqual([]);
+    expect(mock.errors).toEqual([]);
+  }, 30000);
   it('keeps the prior account material local when a new identity opens another vault', async () => {
     const { mock, first } = await fixture();
     await first.memory.save('global', undefined, {
@@ -200,36 +662,7 @@ describe('full Host material synchronization with synthetic identities', () => {
     const create = vi.spyOn(second.adapter, 'createSession');
     const resume = vi.spyOn(second.adapter, 'resumeSession');
     const execute = vi.spyOn(second.adapter, 'send');
-    await first.rpc.request('provider.upsert', {
-      id: 'synthetic-api',
-      kind: 'openai-compatible',
-      displayName: 'Synthetic API',
-      api: 'openai-responses',
-      baseURL: 'https://synthetic.invalid/v1',
-      models: [{ id: 'synthetic-model' }],
-      defaultModelId: 'synthetic-model',
-    });
-    const firstStatus = await first.rpc.request('sync.configure', {
-      enabled: true,
-      categories: ['project', 'session', 'event-segment'],
-      projects: [{ workspaceId: first.workspaceId }],
-      includeHistory: true,
-    });
-    const attempt = await second.rpc.call('sync.configure', {
-      enabled: true,
-      categories: ['project', 'session', 'event-segment'],
-      projects: [{ workspaceId: second.workspaceId, projectId: firstStatus.binding.projectIds[0] }],
-      includeHistory: true,
-    });
-    expect(attempt.error).toMatchObject({ data: { code: 'RECOVERY_REQUIRED' } });
-    const secondStatus = await second.rpc.request('sync.status');
-    await first.rpc.request('sync.approveDevice', { deviceId: secondStatus.binding.deviceId });
-    await second.rpc.request('sync.configure', {
-      enabled: true,
-      categories: ['project', 'session', 'event-segment'],
-      projects: [{ workspaceId: second.workspaceId, projectId: firstStatus.binding.projectIds[0] }],
-      includeHistory: true,
-    });
+    await linkSessions(first, second);
     const created = (
       await first.rpc.request('session.create', {
         workspaceId: first.workspaceId,

@@ -1697,6 +1697,7 @@ export const zhCN = {
   'source.zuv.reauthorize': '需重新登录',
   'source.zuv.storage': '云存储',
   'sync.title': '同步',
+  'sync.missingRefs': '出处缺失 {count} 项',
   'sync.sessions': '会话',
   'sync.memory': '记忆',
   'sync.rules': '规则',

@@ -125,6 +125,35 @@ function mock() {
 }
 
 describe('Host-owned ZUV identity', () => {
+  it('ignores an entitlement response that belongs to the identity before sign-out', async () => {
+    const h = mock();
+    await h.login();
+    const send = h.request.getMockImplementation();
+    if (!send) throw new Error('missing synthetic fetch');
+    let release = () => {};
+    let arrived = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const seen = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    h.request.mockImplementation(async (...args) => {
+      const response = await send(...args);
+      if (new URL(String(args[0])).pathname === '/api/wevir/entitlements') {
+        arrived();
+        await gate;
+      }
+      return response;
+    });
+    const pending = h.client.getEntitlements();
+    await seen;
+    await h.client.logout();
+    release();
+    await expect(pending).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    expect(h.client.signedIn).toBe(false);
+    expect(h.values.size).toBe(0);
+  });
   it('waits for the prior vault application to drain before clearing its identity', async () => {
     const h = mock();
     await h.login();
@@ -136,9 +165,14 @@ describe('Host-owned ZUV identity', () => {
     await peer.load();
     const loggingOut = peer.logout();
     expect(peer.signedIn).toBe(true);
+    expect(peer.changingIdentity).toBe(true);
+    await expect(
+      peer.authorizeInference('https://zuv.test/api/wevir/v1/responses', Buffer.from('{}')),
+    ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
     expect(h.values.size).toBeGreaterThan(0);
     release();
     await loggingOut;
+    expect(peer.changingIdentity).toBe(false);
     expect(peer.signedIn).toBe(false);
     expect(h.values.size).toBe(0);
     await peer.close();

@@ -2,6 +2,7 @@ import type { SqliteDatabase, SqlRow } from './driver.js';
 import { integer, json, optionalText, text, toJson } from './rows.js';
 import { createSyncMaterialRepository } from './sync-materials.js';
 import { createSyncQueueRepository } from './sync-queue.js';
+import { createSyncReferenceRepository } from './sync-references.js';
 
 export interface SyncVaultRecord {
   vaultId: string;
@@ -91,6 +92,10 @@ export function createSyncRepository(db: SqliteDatabase) {
   return {
     ...createSyncQueueRepository(db),
     ...createSyncMaterialRepository(db),
+    ...createSyncReferenceRepository(db),
+    vaults(): SyncVaultRecord[] {
+      return db.prepare('SELECT * FROM sync_vaults ORDER BY rowid').all().map(vaultFromRow);
+    },
     counts(vaultId: string): { pending: number; quarantined: number; conflicts: number } {
       const pending = db
         .prepare(

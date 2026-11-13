@@ -180,6 +180,7 @@ export interface SessionRepository {
   }): SessionRecord[];
   /** 归档或取消归档（`undefined`）；会话不存在时返回 false。 */
   setArchived(id: string, archivedAt: string | undefined): boolean;
+  setSyncedSide(id: string): boolean;
   /**
    * 会话换了目录（0.81.0，`session.move`）：改 `cwd` 与 `worktrees`（空数组清掉）；会话不存在时返回 false。
    */
@@ -366,6 +367,15 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
     },
     setArchived(id, archivedAt) {
       return changed(setArchived.run(archivedAt ?? null, id));
+    },
+    setSyncedSide(id) {
+      return changed(
+        db
+          .prepare(
+            "UPDATE sessions SET side = 1 WHERE id = ? AND json_extract(origin, '$.kind') = 'synced'",
+          )
+          .run(id),
+      );
     },
     setLocation(id, { cwd, worktrees }) {
       return changed(

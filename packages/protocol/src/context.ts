@@ -13,6 +13,7 @@ import {
   RetroSummarySchema,
   RetroWorkItemSchema,
 } from './retro.js';
+import { SyncSourceOriginSchema } from './sync.js';
 
 export const EpisodeIdSchema = z.string().regex(/^ep_[0-9A-Za-z]{1,64}$/);
 export type EpisodeId = z.infer<typeof EpisodeIdSchema>;
@@ -76,6 +77,8 @@ export const EpisodeSchema = z.object({
   pinned: z.boolean(),
   excluded: z.boolean(),
   source: z.enum(['available', 'deleted']),
+  unavailableRefs: z.int().min(1).optional(),
+  syncOrigin: SyncSourceOriginSchema.optional(),
   stale: z.literal(true).optional(),
   revision: z.string().min(1),
   redactions: z.int().min(0),
@@ -83,6 +86,8 @@ export const EpisodeSchema = z.object({
 });
 export type Episode = z.infer<typeof EpisodeSchema>;
 export const EpisodeSummarySchema = EpisodeSchema.pick({
+  unavailableRefs: true,
+  syncOrigin: true,
   id: true,
   workspaceId: true,
   sessionId: true,

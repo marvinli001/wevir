@@ -8,7 +8,7 @@ import {
   type SessionId,
   type SessionRetro,
 } from '@wevir/protocol';
-import type { Storage } from '@wevir/storage';
+import type { RetroSummaryRecord, Storage } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import type { EventStore } from '../event-store.js';
 import { buildRetro } from './build.js';
@@ -44,6 +44,7 @@ export interface RetroServiceOptions extends Omit<RetroLiveDeps, 'session'> {
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
   now?: () => Date;
   onGet?: (sessionId: SessionId) => Promise<unknown>;
+  onSummaryPersist?: (record: RetroSummaryRecord) => void;
 }
 
 export interface RetroProjection {
@@ -263,10 +264,14 @@ export class RetroService {
       outputBytes: Buffer.byteLength(result.text, 'utf8'),
       ...(usage !== undefined && { usage }),
     };
-    this.#options.storage.retros.putSummary({
+    const saved = {
       sessionId,
       summary: JSON.stringify(summary),
       createdAt: summary.generatedAt,
+    };
+    this.#options.storage.transaction(() => {
+      this.#options.storage.retros.putSummary(saved);
+      this.#options.onSummaryPersist?.(saved);
     });
     return { summary };
   }
