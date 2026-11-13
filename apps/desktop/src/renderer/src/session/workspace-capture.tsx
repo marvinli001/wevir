@@ -65,25 +65,27 @@ export function WorkspaceCaptureButton({
         <DialogContent className="flex max-h-[80vh] flex-col">
           <DialogTitle>{t('sync.workspaceCapture')}</DialogTitle>
           {untracked.length > 0 && (
-            <fieldset className="min-h-0 overflow-y-auto">
-              <legend className="mb-2 text-sm text-muted-foreground">
-                {t('sync.workspaceUntracked')}
-              </legend>
-              {untracked.map((path) => (
-                <label key={path} className="flex min-w-0 items-center gap-2 py-1 text-sm">
-                  <Checkbox
-                    checked={selected.includes(path)}
-                    disabled={busy || saved}
-                    onCheckedChange={(value) =>
-                      setSelected((current) =>
-                        value ? [...current, path] : current.filter((entry) => entry !== path),
-                      )
-                    }
-                  />
-                  <span className="min-w-0 break-all font-mono">{path}</span>
-                </label>
-              ))}
-            </fieldset>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <fieldset>
+                <legend className="mb-2 text-sm text-muted-foreground">
+                  {t('sync.workspaceUntracked')}
+                </legend>
+                {untracked.map((path) => (
+                  <label key={path} className="flex min-w-0 items-center gap-2 py-1 text-sm">
+                    <Checkbox
+                      checked={selected.includes(path)}
+                      disabled={busy || saved}
+                      onCheckedChange={(value) =>
+                        setSelected((current) =>
+                          value ? [...current, path] : current.filter((entry) => entry !== path),
+                        )
+                      }
+                    />
+                    <span className="min-w-0 break-all font-mono">{path}</span>
+                  </label>
+                ))}
+              </fieldset>
+            </div>
           )}
           {saved && (
             <p role="status" className="text-sm text-muted-foreground">
