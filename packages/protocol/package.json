@@ -12,7 +12,12 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./sync": {
+      "@wevir/source": "./src/sync-wire.ts",
+      "types": "./dist/sync-wire.d.ts",
+      "default": "./dist/sync-wire.js"
+    }
   },
   "files": [
     "dist",
@@ -25,6 +30,7 @@
     "schema": "node scripts/plugin-schema.ts && biome format --write schemas"
   },
   "dependencies": {
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "canonicalize": "2.1.0"
   }
 }

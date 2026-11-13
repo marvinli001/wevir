@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "runId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "expectedEpoch": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "fencingToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "leaseSeconds": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 120
+    }
+  },
+  "required": ["runId", "expectedEpoch", "fencingToken", "leaseSeconds"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:executionRenew"
+}

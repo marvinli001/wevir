@@ -3377,6 +3377,17 @@ export const episode: Episode = {
 };
 
 export const methodSamples: MethodSamples = {
+  'sync.status': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [
+        { protocol: 'wevir-sync/1', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },
+      ],
+      invalid: [
+        { protocol: 'wevir-sync/2', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },
+      ],
+    },
+  },
   'plugin.preview': {
     params: {
       valid: [{ path: '/plugins/sample.zip' }, { entry: 'sample' }],

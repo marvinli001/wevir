@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "protocol": {
+      "type": "string",
+      "const": "wevir-sync-control/1"
+    },
+    "vaultId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "userId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "head": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "floor": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "keyEpoch": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "retiredSha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "deleted": {
+      "type": "boolean"
+    },
+    "revokedDeviceIds": {
+      "maxItems": 100000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{8,128}$"
+      }
+    },
+    "signingKeyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "signature": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "protocol",
+    "vaultId",
+    "userId",
+    "head",
+    "floor",
+    "keyEpoch",
+    "retiredSha256",
+    "deleted",
+    "revokedDeviceIds",
+    "signingKeyId",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:controlCheckpoint"
+}

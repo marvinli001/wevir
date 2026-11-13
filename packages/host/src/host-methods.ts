@@ -24,6 +24,7 @@ import {
   IMAGE_MAX_PER_MESSAGE,
   isOutputStyle,
   resolveProviderModels,
+  SyncStatusSchema,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
 import type {
@@ -1527,6 +1528,26 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'image.read': (params) => imageStore().read(params),
 
     'settings.get': () => ({ settings: settings.get() }),
+    'sync.status': () => {
+      const vault = storage.sync.activeVault();
+      return SyncStatusSchema.parse({
+        protocol: 'wevir-sync/1',
+        artifactRevision: 1,
+        ...(vault && {
+          binding: {
+            vaultId: vault.vaultId,
+            deviceId: vault.deviceId,
+            enabled: vault.enabled,
+            revision: vault.revision,
+            categories: vault.categories,
+            projectIds: vault.projectIds,
+          },
+        }),
+        ...(vault
+          ? storage.sync.counts(vault.vaultId)
+          : { pending: 0, quarantined: 0, conflicts: 0 }),
+      });
+    },
     // 0.102.0：防休眠的判定在 Host，桌面主进程按它执行。
     'power.get': () => ({ keepAwake: options.keepAwake?.keepAwake ?? false }),
 

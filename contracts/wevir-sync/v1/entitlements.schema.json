@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "vault": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "vaultId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            },
+            "keyEpoch": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,38})$"
+            },
+            "keyState": {
+              "type": "string",
+              "enum": ["pending", "ready", "approval-required"]
+            },
+            "state": {
+              "type": "string",
+              "enum": ["initializing", "active", "deleting", "deleted"]
+            }
+          },
+          "required": ["vaultId", "keyEpoch", "keyState", "state"],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "protocol": {
+      "type": "string",
+      "const": "wevir-sync/1"
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        }
+      },
+      "required": ["userId", "deviceId"],
+      "additionalProperties": false
+    },
+    "deviceScopes": {
+      "maxItems": 4,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["identity", "inference", "sync", "recovery"]
+      }
+    },
+    "subscriptionState": {
+      "type": "string",
+      "enum": ["active", "inactive", "expired", "none"]
+    },
+    "syncState": {
+      "type": "string",
+      "enum": ["disabled", "ready", "paused", "deleting", "recovery-required"]
+    },
+    "quota": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    },
+    "retentionUntil": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "recovery": {
+      "type": "object",
+      "properties": {
+        "eligible": {
+          "type": "boolean"
+        },
+        "requiresApproval": {
+          "type": "boolean"
+        }
+      },
+      "required": ["eligible", "requiresApproval"],
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      }
+    }
+  },
+  "required": [
+    "vault",
+    "protocol",
+    "identity",
+    "deviceScopes",
+    "subscriptionState",
+    "syncState",
+    "quota",
+    "retentionUntil",
+    "recovery",
+    "limits"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:entitlements"
+}

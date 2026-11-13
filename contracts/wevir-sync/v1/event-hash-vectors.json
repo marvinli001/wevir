@@ -1,0 +1,43 @@
+{
+  "domain": "wevir-sync-event/1",
+  "preimage": "UTF8(JCS({protocol,vaultId,hostId,sessionId,streamId,seq,event}))",
+  "vectors": [
+    {
+      "source": {
+        "vaultId": "vault_fixture",
+        "hostId": "device_fixture",
+        "sessionId": "session_fixture",
+        "streamId": "stream_fixture",
+        "seq": "9007199254740993"
+      },
+      "event": {
+        "type": "message",
+        "role": "user",
+        "text": "Independent message · 独立消息"
+      },
+      "sha256": "GxBX3p6adlsO35jsxDBza4a8WU0SHeFH3Tt6IPhRPc4"
+    },
+    {
+      "source": {
+        "vaultId": "vault_fixture",
+        "hostId": "device_fixture",
+        "sessionId": "session_fixture",
+        "streamId": "recovered_stream",
+        "seq": "9007199254740993"
+      },
+      "event": {
+        "type": "message",
+        "role": "user",
+        "text": "Independent message · 独立消息",
+        "recoveredFrom": {
+          "vaultId": "vault_fixture",
+          "hostId": "device_fixture",
+          "sessionId": "session_fixture",
+          "streamId": "stream_fixture",
+          "seq": "9007199254740993"
+        }
+      },
+      "sha256": "LStKY6HLW4yxu321uGvLLTN_QOK-mIkUJ2nNuFSSO9Y"
+    }
+  ]
+}

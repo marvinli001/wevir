@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "restoreId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    }
+  },
+  "required": ["cursor"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:ack"
+}

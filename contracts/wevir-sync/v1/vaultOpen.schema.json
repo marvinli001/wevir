@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "consent": {
+      "type": "boolean",
+      "const": true
+    },
+    "protocol": {
+      "type": "string",
+      "const": "wevir-sync/1"
+    }
+  },
+  "required": ["consent", "protocol"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:vaultOpen"
+}

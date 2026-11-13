@@ -1,0 +1,229 @@
+{
+  "valid": [
+    {
+      "schema": "operation",
+      "value": {
+        "protocol": "wevir-sync/1",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_1",
+        "deviceId": "device_fixture",
+        "deviceSeq": "9007199254740993",
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "put",
+        "parents": [],
+        "payload": {
+          "blobId": "blob_fixture",
+          "recordIndex": 0
+        },
+        "clientTime": "2026-11-12T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "operation",
+      "value": {
+        "protocol": "wevir-sync/1",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_2",
+        "deviceId": "device_fixture",
+        "deviceSeq": "9007199254740994",
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "delete",
+        "parents": ["op_fixture_1"],
+        "clientTime": "2026-11-12T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "commit",
+      "value": {
+        "commitId": "commit_fixture",
+        "operations": [
+          {
+            "protocol": "wevir-sync/1",
+            "vaultId": "vault_fixture",
+            "opId": "op_fixture_1",
+            "deviceId": "device_fixture",
+            "deviceSeq": "9007199254740993",
+            "entityType": "memory",
+            "entityId": "entity_fixture",
+            "kind": "put",
+            "parents": [],
+            "payload": {
+              "blobId": "blob_fixture",
+              "recordIndex": 0
+            },
+            "clientTime": "2026-11-12T00:00:00.000Z"
+          }
+        ],
+        "recordManifest": [
+          {
+            "opId": "op_fixture_1",
+            "blobId": "blob_fixture",
+            "recordIndex": 0
+          }
+        ]
+      }
+    },
+    {
+      "schema": "scopes",
+      "value": {
+        "expectedRevision": "0",
+        "enabled": false,
+        "categories": [],
+        "projectIds": []
+      }
+    },
+    {
+      "schema": "error",
+      "value": {
+        "error": {
+          "code": "BUDGET_PAUSED",
+          "message": "BUDGET_PAUSED",
+          "retryAfterMs": 60000
+        }
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "schema": "operation",
+      "value": {
+        "protocol": "wevir-sync/2",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_1",
+        "deviceId": "device_fixture",
+        "deviceSeq": "9007199254740993",
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "put",
+        "parents": [],
+        "payload": {
+          "blobId": "blob_fixture",
+          "recordIndex": 0
+        },
+        "clientTime": "2026-11-12T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "operation",
+      "value": {
+        "protocol": "wevir-sync/1",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_1",
+        "deviceId": "device_fixture",
+        "deviceSeq": 9007199254740992,
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "put",
+        "parents": [],
+        "payload": {
+          "blobId": "blob_fixture",
+          "recordIndex": 0
+        },
+        "clientTime": "2026-11-12T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "operation",
+      "value": {
+        "protocol": "wevir-sync/1",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_1",
+        "deviceId": "device_fixture",
+        "deviceSeq": "01",
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "put",
+        "parents": [],
+        "payload": {
+          "blobId": "blob_fixture",
+          "recordIndex": 0
+        },
+        "clientTime": "2026-11-12T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "operation",
+      "value": {
+        "protocol": "wevir-sync/1",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_1",
+        "deviceId": "device_fixture",
+        "deviceSeq": "9007199254740993",
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "put",
+        "parents": [
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture",
+          "parent_fixture"
+        ],
+        "payload": {
+          "blobId": "blob_fixture",
+          "recordIndex": 0
+        },
+        "clientTime": "2026-11-12T00:00:00.000Z"
+      }
+    },
+    {
+      "schema": "operation",
+      "value": {
+        "protocol": "wevir-sync/1",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_1",
+        "deviceId": "device_fixture",
+        "deviceSeq": "9007199254740993",
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "put",
+        "parents": [],
+        "payload": {
+          "blobId": "blob_fixture",
+          "recordIndex": 0
+        },
+        "clientTime": "2026-11-12T00:00:00.000Z",
+        "userId": "other_user"
+      }
+    },
+    {
+      "schema": "scopes",
+      "value": {
+        "expectedRevision": "0",
+        "enabled": true,
+        "categories": ["token"],
+        "projectIds": []
+      }
+    }
+  ]
+}

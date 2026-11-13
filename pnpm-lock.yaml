@@ -811,6 +811,9 @@ importers:
 
   packages/protocol:
     dependencies:
+      canonicalize:
+        specifier: 2.1.0
+        version: 2.1.0
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -3765,6 +3768,10 @@ packages:
 
   caniuse-lite@1.0.30001815:
     resolution: {integrity: sha512-uDybUEyfgbyJJ93J1vikTylBX31AkdVYeVPeffMQpf8XN7hSfr0oZOn4VFOIMNvtU5+rHvC5Udg2TgtJKHm23Q==}
+
+  canonicalize@2.1.0:
+    resolution: {integrity: sha512-F705O3xrsUtgt98j7leetNhTWPe+5S72rlL5O4jA1pKqBVQ/dT1O1D6PFxmSXvc0SUOinWS57DKx0I3CHrXJHQ==}
+    hasBin: true
 
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
@@ -9852,6 +9859,8 @@ snapshots:
   camelcase@6.3.0: {}
 
   caniuse-lite@1.0.30001815: {}
+
+  canonicalize@2.1.0: {}
 
   ccount@2.0.1: {}
 

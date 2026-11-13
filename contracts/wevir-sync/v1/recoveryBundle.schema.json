@@ -1,0 +1,639 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "protocol": {
+      "type": "string",
+      "const": "wevir-sync-export/1"
+    },
+    "vaultId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "userId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "head": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "floor": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "retiredBlobIds": {
+      "maxItems": 50000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{8,128}$"
+      }
+    },
+    "stores": {
+      "maxItems": 10000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "config": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          }
+        },
+        "required": ["id", "config"],
+        "additionalProperties": false
+      }
+    },
+    "receipts": {
+      "maxItems": 100000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "protocol": {
+            "type": "string",
+            "const": "wevir-sync-receipt/1"
+          },
+          "vaultId": {
+            "type": "string"
+          },
+          "commitId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "string"
+          },
+          "previousReceipt": {
+            "type": ["string", "null"]
+          },
+          "operations": {
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "protocol": {
+                  "type": "string",
+                  "const": "wevir-sync/1"
+                },
+                "vaultId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "opId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "deviceId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "deviceSeq": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,38})$"
+                },
+                "entityType": {
+                  "type": "string",
+                  "enum": [
+                    "project",
+                    "session",
+                    "event-segment",
+                    "settings",
+                    "memory",
+                    "rule",
+                    "skill-bundle",
+                    "artifact",
+                    "workspace-snapshot"
+                  ]
+                },
+                "entityId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["append", "put", "delete", "resolve"]
+                },
+                "parents": {
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                  }
+                },
+                "payload": {
+                  "type": "object",
+                  "properties": {
+                    "blobId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                    },
+                    "recordIndex": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    }
+                  },
+                  "required": ["blobId", "recordIndex"],
+                  "additionalProperties": false
+                },
+                "origin": {
+                  "type": "object",
+                  "properties": {
+                    "hostId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                    },
+                    "sessionId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                    },
+                    "streamId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                    },
+                    "fromSeq": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]{0,38})$"
+                    },
+                    "throughSeq": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]{0,38})$"
+                    }
+                  },
+                  "required": ["hostId", "sessionId", "streamId", "fromSeq", "throughSeq"],
+                  "additionalProperties": false
+                },
+                "clientTime": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                }
+              },
+              "required": [
+                "protocol",
+                "vaultId",
+                "opId",
+                "deviceId",
+                "deviceSeq",
+                "entityType",
+                "entityId",
+                "kind",
+                "parents",
+                "clientTime"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "recordManifest": {
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "opId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "blobId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "recordIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "projectId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                },
+                "events": {
+                  "maxItems": 4096,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "seq": {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]{0,38})$"
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{43}$"
+                      }
+                    },
+                    "required": ["seq", "sha256"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["opId"],
+              "additionalProperties": false
+            }
+          },
+          "blobs": {
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "blobId": {
+                  "type": "string"
+                },
+                "storeId": {
+                  "type": "string"
+                },
+                "objectKey": {
+                  "type": "string"
+                },
+                "cipherBytes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 4194304
+                },
+                "cipherSha256": {
+                  "type": "string"
+                },
+                "keyEpoch": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "blobId",
+                "storeId",
+                "objectKey",
+                "cipherBytes",
+                "cipherSha256",
+                "keyEpoch"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "signingKeyId": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol",
+          "vaultId",
+          "commitId",
+          "deviceId",
+          "ordinal",
+          "previousReceipt",
+          "operations",
+          "recordManifest",
+          "blobs",
+          "signingKeyId",
+          "signature"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "objects": {
+      "maxItems": 50000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "blobId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "bytes": {
+            "type": "string",
+            "maxLength": 5592406
+          }
+        },
+        "required": ["blobId"],
+        "additionalProperties": false
+      }
+    },
+    "keys": {
+      "maxItems": 10000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "epoch": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,38})$"
+          },
+          "kmsKeyArn": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "kmsWrapped": {
+            "type": "string",
+            "maxLength": 32768
+          },
+          "offlineKeyId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "offlineWrapped": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "keyDigest": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "manifestStoreId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "manifestKey": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "epoch",
+          "kmsKeyArn",
+          "kmsWrapped",
+          "offlineKeyId",
+          "offlineWrapped",
+          "keyDigest",
+          "manifestStoreId",
+          "manifestKey"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "devices": {
+      "maxItems": 100000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "publicKey": {
+            "type": "object",
+            "properties": {
+              "kty": {
+                "type": "string",
+                "const": "OKP"
+              },
+              "crv": {
+                "type": "string",
+                "const": "Ed25519"
+              },
+              "x": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{43}$"
+              }
+            },
+            "required": ["kty", "crv", "x"],
+            "additionalProperties": false
+          },
+          "thumbprint": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "hostId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          }
+        },
+        "required": ["id", "name", "publicKey", "thumbprint", "hostId"],
+        "additionalProperties": false
+      }
+    },
+    "backupRefs": {
+      "maxItems": 200000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "storeId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "objectKey": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["blob", "receipt", "key"]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4194304
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "sourceVersionId": {
+            "type": ["string", "null"]
+          },
+          "backupVersionId": {
+            "type": ["string", "null"]
+          },
+          "backedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sourceDeletedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "backupDeletedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "storeId",
+          "objectKey",
+          "kind",
+          "bytes",
+          "digest",
+          "sourceVersionId",
+          "backupVersionId",
+          "backedAt",
+          "sourceDeletedAt",
+          "backupDeletedAt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "const": "wevir-sync-control/1"
+        },
+        "vaultId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "head": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,38})$"
+        },
+        "floor": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,38})$"
+        },
+        "keyEpoch": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,38})$"
+        },
+        "retiredSha256": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "revokedDeviceIds": {
+          "maxItems": 100000,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          }
+        },
+        "signingKeyId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "signature": {
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "protocol",
+        "vaultId",
+        "userId",
+        "head",
+        "floor",
+        "keyEpoch",
+        "retiredSha256",
+        "deleted",
+        "revokedDeviceIds",
+        "signingKeyId",
+        "signature"
+      ],
+      "additionalProperties": false
+    },
+    "signingKeyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "signature": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "protocol",
+    "vaultId",
+    "userId",
+    "head",
+    "floor",
+    "retiredBlobIds",
+    "stores",
+    "receipts",
+    "objects",
+    "keys",
+    "devices",
+    "backupRefs",
+    "checkpoint",
+    "signingKeyId",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  },
+  "$id": "urn:wevir:sync:1:recoveryBundle"
+}

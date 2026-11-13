@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "vaultId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "deviceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "originHostId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "keyEpoch": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "keyState": {
+      "type": "string",
+      "enum": ["pending", "ready", "approval-required"]
+    },
+    "cursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    }
+  },
+  "required": ["vaultId", "deviceId", "originHostId", "keyEpoch", "keyState", "cursor"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:vaultOpened"
+}

@@ -39,6 +39,7 @@ export * from './send-receipts.js';
 export * from './session-contexts.js';
 export * from './sessions.js';
 export * from './storage.js';
+export * from './sync.js';
 export * from './transaction.js';
 export * from './tuning-proposals.js';
 export * from './tuning-runs.js';

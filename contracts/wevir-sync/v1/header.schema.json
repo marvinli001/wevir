@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "v": {
+      "type": "number",
+      "const": 1
+    },
+    "vaultId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "blobId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "keyEpoch": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "cipher": {
+      "type": "string",
+      "const": "AES-256-GCM"
+    },
+    "wrap": {
+      "type": "string",
+      "const": "AES-KW"
+    },
+    "wrappedDek": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{54}$"
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16}$"
+    },
+    "compression": {
+      "type": "string",
+      "enum": ["none", "gzip"]
+    },
+    "plainBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16777216
+    },
+    "contentSchema": {
+      "type": "string",
+      "const": "wevir-sync-pack/1"
+    }
+  },
+  "required": [
+    "v",
+    "vaultId",
+    "blobId",
+    "keyEpoch",
+    "cipher",
+    "wrap",
+    "wrappedDek",
+    "nonce",
+    "compression",
+    "plainBytes",
+    "contentSchema"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:header"
+}

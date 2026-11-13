@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "publicKey": {
+      "type": "object",
+      "properties": {
+        "kty": {
+          "type": "string",
+          "const": "OKP"
+        },
+        "crv": {
+          "type": "string",
+          "const": "Ed25519"
+        },
+        "x": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      },
+      "required": ["kty", "crv", "x"],
+      "additionalProperties": false
+    },
+    "deviceType": {
+      "type": "string",
+      "enum": ["desktop", "cli", "mobile", "browser"]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "codeChallenge": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "codeChallengeMethod": {
+      "type": "string",
+      "const": "S256"
+    }
+  },
+  "required": ["publicKey", "deviceType", "name", "codeChallenge", "codeChallengeMethod"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:enrollmentStart"
+}

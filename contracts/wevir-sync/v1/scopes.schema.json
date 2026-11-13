@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "expectedRevision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "categories": {
+      "maxItems": 9,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "project",
+          "session",
+          "event-segment",
+          "settings",
+          "memory",
+          "rule",
+          "skill-bundle",
+          "artifact",
+          "workspace-snapshot"
+        ]
+      }
+    },
+    "projectIds": {
+      "maxItems": 1000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{8,128}$"
+      }
+    }
+  },
+  "required": ["expectedRevision", "enabled", "categories", "projectIds"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:scopes"
+}

@@ -1,0 +1,93 @@
+{
+  "warning": "Public deterministic TEST KEYS only. Never use these keys or nonces for user data.",
+  "vectors": [
+    {
+      "name": "none",
+      "vaultKey": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "dek": "__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA",
+      "nonce": "AAECAwQFBgcICQoL",
+      "operation": {
+        "protocol": "wevir-sync/1",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_1",
+        "deviceId": "device_fixture",
+        "deviceSeq": "9007199254740993",
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "put",
+        "parents": [],
+        "payload": {
+          "blobId": "blob_fixture",
+          "recordIndex": 0
+        },
+        "clientTime": "2026-11-12T00:00:00.000Z"
+      },
+      "recordManifest": {
+        "opId": "op_fixture_1",
+        "blobId": "blob_fixture",
+        "recordIndex": 0
+      },
+      "pack": {
+        "v": 1,
+        "records": [
+          {
+            "opId": "op_fixture_1",
+            "entityId": "entity_fixture",
+            "kind": "put",
+            "parents": [],
+            "content": {
+              "text": "Recoverable memory · 记忆"
+            }
+          }
+        ]
+      },
+      "canonicalPack": "{\"records\":[{\"content\":{\"text\":\"Recoverable memory · 记忆\"},\"entityId\":\"entity_fixture\",\"kind\":\"put\",\"opId\":\"op_fixture_1\",\"parents\":[]}],\"v\":1}",
+      "envelope": "AAABGnsiYmxvYklkIjoiYmxvYl9maXh0dXJlIiwiY2lwaGVyIjoiQUVTLTI1Ni1HQ00iLCJjb21wcmVzc2lvbiI6Im5vbmUiLCJjb250ZW50U2NoZW1hIjoid2V2aXItc3luYy1wYWNrLzEiLCJrZXlFcG9jaCI6IjEiLCJub25jZSI6IkFBRUNBd1FGQmdjSUNRb0wiLCJwbGFpbkJ5dGVzIjoxNDcsInYiOjEsInZhdWx0SWQiOiJ2YXVsdF9maXh0dXJlIiwid3JhcCI6IkFFUy1LVyIsIndyYXBwZWREZWsiOiJ0UUVKSEJHbEYyVDlQd1FrN1N2bVFxMDREc0NUUF81YmdmYWZzLUtZVy1udGZ0S2lKT2xCbEEifaywi22HxGxw47rFWBDeBNCC0YcUh9YZIi51fDnJubJI9BuxJsyu-GzxrCrFisAfXnKIQM2hf31qBhSMZ7gRmDxuoY-dvSrm4yjXu_-nRfjJifObZs2VBpsH4I-_e7mgTuiDMNJKg4tkEg58FoQDdPi-H0w9JgHhbfkStyVXk0ORe6fZFC9124g6KCbeWG4ityJF2OpmLSDjoaW1WW2SFyXdjPI",
+      "cipherSha256": "Hb4bvgWxd96SPiHrQ00RHGgzelos_Hdb8UMDa6aq9xw"
+    },
+    {
+      "name": "gzip",
+      "vaultKey": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "dek": "__79_Pv6-fj39vX08_Lx8O_u7ezr6uno5-bl5OPi4eA",
+      "nonce": "AAECAwQFBgcICQoL",
+      "operation": {
+        "protocol": "wevir-sync/1",
+        "vaultId": "vault_fixture",
+        "opId": "op_fixture_1",
+        "deviceId": "device_fixture",
+        "deviceSeq": "9007199254740993",
+        "entityType": "memory",
+        "entityId": "entity_fixture",
+        "kind": "put",
+        "parents": [],
+        "payload": {
+          "blobId": "blob_fixture",
+          "recordIndex": 0
+        },
+        "clientTime": "2026-11-12T00:00:00.000Z"
+      },
+      "recordManifest": {
+        "opId": "op_fixture_1",
+        "blobId": "blob_fixture",
+        "recordIndex": 0
+      },
+      "pack": {
+        "v": 1,
+        "records": [
+          {
+            "opId": "op_fixture_1",
+            "entityId": "entity_fixture",
+            "kind": "put",
+            "parents": [],
+            "content": {
+              "text": "Recoverable memory · 记忆"
+            }
+          }
+        ]
+      },
+      "canonicalPack": "{\"records\":[{\"content\":{\"text\":\"Recoverable memory · 记忆\"},\"entityId\":\"entity_fixture\",\"kind\":\"put\",\"opId\":\"op_fixture_1\",\"parents\":[]}],\"v\":1}",
+      "envelope": "AAABGnsiYmxvYklkIjoiYmxvYl9maXh0dXJlIiwiY2lwaGVyIjoiQUVTLTI1Ni1HQ00iLCJjb21wcmVzc2lvbiI6Imd6aXAiLCJjb250ZW50U2NoZW1hIjoid2V2aXItc3luYy1wYWNrLzEiLCJrZXlFcG9jaCI6IjEiLCJub25jZSI6IkFBRUNBd1FGQmdjSUNRb0wiLCJwbGFpbkJ5dGVzIjoxNDcsInYiOjEsInZhdWx0SWQiOiJ2YXVsdF9maXh0dXJlIiwid3JhcCI6IkFFUy1LVyIsIndyYXBwZWREZWsiOiJ0UUVKSEJHbEYyVDlQd1FrN1N2bVFxMDREc0NUUF81YmdmYWZzLUtZVy1udGZ0S2lKT2xCbEEifcgZ8Qjkqx4UkJvKjlr2pf_84E3ID4647XcCQpqt2VTmFhak38vZmJv-_cE9QrHOuuDARK3LvGQk0_lKd2Ru43lzQbGlKGE74Y8uB6aGFUxcvMpdjtDQvDzerVRK81qsa5s6PBkhGS6lAa02VSHDWjg3vLvrr40YIHb0XpYwVeVDdCYaTk0VpedfzFLg999UlRjFsVcpaKKeKzGd-clxq5Ni",
+      "cipherSha256": "T40_p2f1BQTBhdoj5iO_woFGkI9R6tKn_jEyBh7eWC4"
+    }
+  ]
+}

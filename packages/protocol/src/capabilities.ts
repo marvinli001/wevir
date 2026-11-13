@@ -83,6 +83,8 @@ export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
  * 每次握手时给出。
  */
 export const HOST_FEATURES = {
+  /** 0.170.0：本地同步绑定、队列与冲突数量；不表示网络传输已启用。 */
+  syncMetadata: 'sync_metadata',
   /** 0.162.0：API Key 网关的隐私遮蔽设置与用户豁免。 */
   gatewayPrivacy: 'gateway_privacy',
   /** Host 全局连接器与 skills 注册表（0.41.0）。 */
@@ -624,6 +626,7 @@ export const HOST_FEATURES = {
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
+  sync_metadata: z.boolean().optional(),
   plugins: z.boolean().optional(),
   plugin_packages: z.boolean().optional(),
   plugin_preview: z.boolean().optional(),

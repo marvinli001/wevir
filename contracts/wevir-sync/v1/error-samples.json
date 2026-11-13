@@ -1,0 +1,130 @@
+[
+  {
+    "error": {
+      "code": "AUTH_REQUIRED",
+      "message": "AUTH_REQUIRED"
+    }
+  },
+  {
+    "error": {
+      "code": "DEVICE_REVOKED",
+      "message": "DEVICE_REVOKED"
+    }
+  },
+  {
+    "error": {
+      "code": "SUBSCRIPTION_REQUIRED",
+      "message": "SUBSCRIPTION_REQUIRED"
+    }
+  },
+  {
+    "error": {
+      "code": "SCOPE_DISABLED",
+      "message": "SCOPE_DISABLED"
+    }
+  },
+  {
+    "error": {
+      "code": "QUOTA_EXCEEDED",
+      "message": "QUOTA_EXCEEDED"
+    }
+  },
+  {
+    "error": {
+      "code": "BUDGET_PAUSED",
+      "message": "BUDGET_PAUSED",
+      "retryAfterMs": 60000
+    }
+  },
+  {
+    "error": {
+      "code": "RATE_LIMITED",
+      "message": "RATE_LIMITED",
+      "retryAfterMs": 60000
+    }
+  },
+  {
+    "error": {
+      "code": "MISSING_PARENT",
+      "message": "MISSING_PARENT"
+    }
+  },
+  {
+    "error": {
+      "code": "OP_ID_REUSED",
+      "message": "OP_ID_REUSED"
+    }
+  },
+  {
+    "error": {
+      "code": "BLOB_INCOMPLETE",
+      "message": "BLOB_INCOMPLETE"
+    }
+  },
+  {
+    "error": {
+      "code": "INTEGRITY_FAILED",
+      "message": "INTEGRITY_FAILED"
+    }
+  },
+  {
+    "error": {
+      "code": "RESET_REQUIRED",
+      "message": "RESET_REQUIRED"
+    }
+  },
+  {
+    "error": {
+      "code": "EXECUTION_CONFLICT",
+      "message": "EXECUTION_CONFLICT"
+    }
+  },
+  {
+    "error": {
+      "code": "RECOVERY_REQUIRED",
+      "message": "RECOVERY_REQUIRED"
+    }
+  },
+  {
+    "error": {
+      "code": "UPGRADE_REQUIRED",
+      "message": "UPGRADE_REQUIRED"
+    }
+  },
+  {
+    "error": {
+      "code": "INVALID_REQUEST",
+      "message": "INVALID_REQUEST"
+    }
+  },
+  {
+    "error": {
+      "code": "NOT_FOUND",
+      "message": "NOT_FOUND"
+    }
+  },
+  {
+    "error": {
+      "code": "REVISION_CONFLICT",
+      "message": "REVISION_CONFLICT"
+    }
+  },
+  {
+    "error": {
+      "code": "ENROLLMENT_EXPIRED",
+      "message": "ENROLLMENT_EXPIRED"
+    }
+  },
+  {
+    "error": {
+      "code": "STEP_UP_REQUIRED",
+      "message": "STEP_UP_REQUIRED"
+    }
+  },
+  {
+    "error": {
+      "code": "SERVICE_UNAVAILABLE",
+      "message": "SERVICE_UNAVAILABLE"
+    }
+  }
+]

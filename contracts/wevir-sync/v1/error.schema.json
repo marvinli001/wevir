@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "AUTH_REQUIRED",
+            "DEVICE_REVOKED",
+            "SUBSCRIPTION_REQUIRED",
+            "SCOPE_DISABLED",
+            "QUOTA_EXCEEDED",
+            "BUDGET_PAUSED",
+            "RATE_LIMITED",
+            "MISSING_PARENT",
+            "OP_ID_REUSED",
+            "BLOB_INCOMPLETE",
+            "INTEGRITY_FAILED",
+            "RESET_REQUIRED",
+            "EXECUTION_CONFLICT",
+            "RECOVERY_REQUIRED",
+            "UPGRADE_REQUIRED",
+            "INVALID_REQUEST",
+            "NOT_FOUND",
+            "REVISION_CONFLICT",
+            "ENROLLMENT_EXPIRED",
+            "STEP_UP_REQUIRED",
+            "SERVICE_UNAVAILABLE"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "retryAfterMs": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "details": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{8,128}$"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "required": ["code", "message"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["error"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:error"
+}

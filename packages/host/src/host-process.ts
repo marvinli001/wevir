@@ -1810,6 +1810,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         provider_model_discovery: true,
         pending_messages: true,
         host_settings: true,
+        sync_metadata: true,
         ...(adapter.bindGatewayPrivacy !== undefined && { gateway_privacy: true }),
         workspace_git: true,
         workspace_diff: true,

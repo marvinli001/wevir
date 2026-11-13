@@ -1,0 +1,44 @@
+{
+  "commit": {
+    "transitions": [["prepared", "receipted"], ["receipted", "committed"]],
+    "crash": {
+      "prepared": "retry identical conditional PUT with a new paid attempt",
+      "receipted": "finalize under per-vault row lock",
+      "committed": "return existing cursor"
+    },
+    "fence": "one pending commit per vault; ordinal=head+1; no abort after receipt; no cursor allocated outside finalize"
+  },
+  "transfer": {
+    "transitions": [
+      ["reserved", "inflight"],
+      ["reserved", "cancelled"],
+      ["inflight", "settled"],
+      ["inflight", "uncertain"]
+    ],
+    "crash": "retain cost/physical holds; release only concurrency after the bounded network deadline; reconcile with new budgeted attempts"
+  },
+  "recovery": {
+    "transitions": [["requested", "verified"], ["verified", "approved"], ["approved", "completed"]],
+    "constraints": [
+      "bound account/device/thumbprint/vault/epoch",
+      "notification receipt required",
+      "48h minimum cooling",
+      "distinct manual verifier and approver",
+      "one pending request",
+      "completion consumes authorization and revokes lost devices"
+    ]
+  },
+  "quotas": {
+    "locks": ["global", "lane", "account", "account lane", "device"],
+    "failClosed": [
+      "price missing/expired",
+      "budget/DB unavailable",
+      "global pause for ordinary sync"
+    ],
+    "conservative": [
+      "unknown provider outcome",
+      "all approved network bytes",
+      "all extant versions and backups"
+    ]
+  }
+}

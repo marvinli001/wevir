@@ -1,0 +1,35 @@
+{
+  "protocolVersion": "0.170.0",
+  "methods": {
+    "sync.status": {
+      "params": [{}],
+      "result": [
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "pending": 0,
+          "quarantined": 0,
+          "conflicts": 0
+        },
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "binding": {
+            "vaultId": "vault_fixture",
+            "deviceId": "device_fixture",
+            "enabled": false,
+            "revision": "9007199254740993",
+            "categories": ["memory", "session"],
+            "projectIds": ["project_fixture"]
+          },
+          "pending": 1,
+          "quarantined": 1,
+          "conflicts": 1
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

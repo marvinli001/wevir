@@ -1,0 +1,87 @@
+{
+  "invalid": [
+    {
+      "protocol": "wevir-sync/1",
+      "vaultId": "vault_fixture",
+      "opId": "op_fixture_1",
+      "deviceId": "device_fixture",
+      "deviceSeq": "9007199254740993",
+      "entityType": "memory",
+      "entityId": "entity_fixture",
+      "kind": "put",
+      "parents": [],
+      "clientTime": "2026-11-12T00:00:00.000Z"
+    },
+    {
+      "protocol": "wevir-sync/1",
+      "vaultId": "vault_fixture",
+      "opId": "op_fixture_1",
+      "deviceId": "device_fixture",
+      "deviceSeq": "9007199254740993",
+      "entityType": "memory",
+      "entityId": "entity_fixture",
+      "kind": "put",
+      "parents": ["op_fixture_1"],
+      "payload": {
+        "blobId": "blob_fixture",
+        "recordIndex": 0
+      },
+      "clientTime": "2026-11-12T00:00:00.000Z"
+    },
+    {
+      "protocol": "wevir-sync/1",
+      "vaultId": "vault_fixture",
+      "opId": "op_fixture_1",
+      "deviceId": "device_fixture",
+      "deviceSeq": "9007199254740993",
+      "entityType": "memory",
+      "entityId": "entity_fixture",
+      "kind": "resolve",
+      "parents": [],
+      "payload": {
+        "blobId": "blob_fixture",
+        "recordIndex": 0
+      },
+      "clientTime": "2026-11-12T00:00:00.000Z"
+    },
+    {
+      "protocol": "wevir-sync/1",
+      "vaultId": "vault_fixture",
+      "opId": "op_fixture_1",
+      "deviceId": "device_fixture",
+      "deviceSeq": "9007199254740993",
+      "entityType": "memory",
+      "entityId": "entity_fixture",
+      "kind": "put",
+      "parents": ["parent_fixture", "parent_fixture"],
+      "payload": {
+        "blobId": "blob_fixture",
+        "recordIndex": 0
+      },
+      "clientTime": "2026-11-12T00:00:00.000Z"
+    },
+    {
+      "protocol": "wevir-sync/1",
+      "vaultId": "vault_fixture",
+      "opId": "op_fixture_1",
+      "deviceId": "device_fixture",
+      "deviceSeq": "9007199254740993",
+      "entityType": "memory",
+      "entityId": "entity_fixture",
+      "kind": "put",
+      "parents": [],
+      "payload": {
+        "blobId": "blob_fixture",
+        "recordIndex": 0
+      },
+      "clientTime": "2026-11-12T00:00:00.000Z",
+      "origin": {
+        "hostId": "device_fixture",
+        "sessionId": "session_fixture",
+        "streamId": "stream_fixture",
+        "fromSeq": "2",
+        "throughSeq": "1"
+      }
+    }
+  ]
+}

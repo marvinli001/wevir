@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "restoreId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "snapshotCursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+    },
+    "manifest": {
+      "maxItems": 50000,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "blobId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "cipherBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cipherSha256": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        },
+        "required": ["blobId", "cipherBytes", "cipherSha256"],
+        "additionalProperties": false
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "const": "wevir-sync-snapshot/1"
+        },
+        "vaultId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "restoreId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "snapshotCursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "operationsSha256": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "blobManifestSha256": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "signingKeyId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      },
+      "required": [
+        "protocol",
+        "vaultId",
+        "restoreId",
+        "snapshotCursor",
+        "operationsSha256",
+        "blobManifestSha256",
+        "signingKeyId",
+        "signature"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": ["restoreId", "snapshotCursor", "expiresAt", "manifest", "snapshot"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:exported"
+}

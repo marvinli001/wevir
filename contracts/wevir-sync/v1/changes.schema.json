@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "operations": {
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "protocol": {
+            "type": "string",
+            "const": "wevir-sync/1"
+          },
+          "vaultId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "opId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "deviceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "deviceSeq": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,38})$"
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "project",
+              "session",
+              "event-segment",
+              "settings",
+              "memory",
+              "rule",
+              "skill-bundle",
+              "artifact",
+              "workspace-snapshot"
+            ]
+          },
+          "entityId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["append", "put", "delete", "resolve"]
+          },
+          "parents": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            }
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "blobId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{8,128}$"
+              },
+              "recordIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              }
+            },
+            "required": ["blobId", "recordIndex"],
+            "additionalProperties": false
+          },
+          "origin": {
+            "type": "object",
+            "properties": {
+              "hostId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{8,128}$"
+              },
+              "sessionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{8,128}$"
+              },
+              "streamId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{8,128}$"
+              },
+              "fromSeq": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,38})$"
+              },
+              "throughSeq": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,38})$"
+              }
+            },
+            "required": ["hostId", "sessionId", "streamId", "fromSeq", "throughSeq"],
+            "additionalProperties": false
+          },
+          "clientTime": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "protocol",
+          "vaultId",
+          "opId",
+          "deviceId",
+          "deviceSeq",
+          "entityType",
+          "entityId",
+          "kind",
+          "parents",
+          "clientTime"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "recordManifest": {
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "opId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "blobId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "recordIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "events": {
+            "maxItems": 4096,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,38})$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{43}$"
+                }
+              },
+              "required": ["seq", "sha256"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["opId"],
+        "additionalProperties": false
+      }
+    },
+    "nextCursor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "hasMore": {
+      "type": "boolean"
+    }
+  },
+  "required": ["operations", "recordManifest", "nextCursor", "hasMore"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:changes"
+}

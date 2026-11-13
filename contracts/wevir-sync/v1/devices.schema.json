@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "devices": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "thumbprint": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "originHostId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "keyThroughEpoch": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,38})$"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,38})$"
+          }
+        },
+        "required": [
+          "deviceId",
+          "name",
+          "thumbprint",
+          "revokedAt",
+          "originHostId",
+          "keyThroughEpoch",
+          "enabled",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["devices"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:devices"
+}

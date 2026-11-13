@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "v": {
+      "type": "number",
+      "const": 1
+    },
+    "records": {
+      "minItems": 1,
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "opId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "entityId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["append", "put", "delete", "resolve"]
+          },
+          "parents": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,128}$"
+            }
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "content": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "events": {
+            "maxItems": 4096,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,38})$"
+                },
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{43}$"
+                },
+                "content": {
+                  "$ref": "#/$defs/__schema1"
+                }
+              },
+              "required": ["seq", "sha256", "content"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["opId", "entityId", "kind", "parents", "content"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["v", "records"],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    },
+    "__schema1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema1"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema1"
+          }
+        }
+      ]
+    }
+  },
+  "$id": "urn:wevir:sync:1:pack"
+}

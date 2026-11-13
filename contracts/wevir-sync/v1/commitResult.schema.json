@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "committed"
+        },
+        "commitId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": ["state", "commitId", "cursor"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "const": "pending"
+        },
+        "commitId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        }
+      },
+      "required": ["state", "commitId"],
+      "additionalProperties": false
+    }
+  ],
+  "$id": "urn:wevir:sync:1:commitResult"
+}

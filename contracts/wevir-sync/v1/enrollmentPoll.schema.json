@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "enrollmentId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{8,128}$"
+    },
+    "codeVerifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._~-]{43,128}$"
+    }
+  },
+  "required": ["enrollmentId", "codeVerifier"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:enrollmentPoll"
+}

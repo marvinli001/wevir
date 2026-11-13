@@ -325,6 +325,7 @@ import {
   SpeechFinishResultSchema,
   SpeechStatusResultSchema,
 } from './speech.js';
+import { SyncMethodSchemas } from './sync.js';
 import {
   TerminalAttachParamsSchema,
   TerminalAttachResultSchema,
@@ -2092,6 +2093,7 @@ export interface MethodSpec {
  * 除 `host.hello` 外，所有方法都要求本连接已完成 hello。
  */
 export const MethodSchemas = {
+  ...SyncMethodSchemas,
   ...PluginMethodSchemas,
   ...ImportMethodSchemas,
   ...MarketMethodSchemas,

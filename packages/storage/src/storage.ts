@@ -31,6 +31,7 @@ import {
   type SessionContextRepository,
 } from './session-contexts.js';
 import { createSessionRepository, type SessionRepository } from './sessions.js';
+import { createSyncRepository, type SyncRepository } from './sync.js';
 import { transaction } from './transaction.js';
 import {
   createTuningProposalRepository,
@@ -54,6 +55,7 @@ export interface Storage {
   readonly environments: EnvironmentRepository;
   readonly providers: ProviderProfileRepository;
   readonly sessions: SessionRepository;
+  readonly sync: SyncRepository;
   readonly events: EventRepository;
   /** 会话投影的检查点：派生数据，不走迁移，打开库时建表（projections.ts）。 */
   readonly projections: ProjectionRepository;
@@ -112,6 +114,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       environments: createEnvironmentRepository(db),
       providers: createProviderProfileRepository(db),
       sessions: createSessionRepository(db),
+      sync: createSyncRepository(db),
       events: createEventRepository(db),
       projections: createProjectionRepository(db),
       approvals: createApprovalRepository(db),
