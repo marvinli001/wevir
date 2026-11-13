@@ -1,7 +1,77 @@
+import { ErrorCode } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { type OfflineConversation, offlineTranscript, PersistentDrafts } from './offline.js';
+import { WevirRpcError } from './errors.js';
+import {
+  type OfflineConversation,
+  offlineTranscript,
+  PersistentDrafts,
+  sendOutcomeUnknown,
+} from './offline.js';
 
 describe('persistent input drafts', () => {
+  it('distinguishes pre-dispatch refusal from an engine error with an uncertain outcome', () => {
+    expect(
+      sendOutcomeUnknown(
+        new WevirRpcError('session.send', { code: ErrorCode.DEVICE_FORBIDDEN, message: 'denied' }),
+      ),
+    ).toBe(false);
+    expect(
+      sendOutcomeUnknown(
+        new WevirRpcError('session.send', {
+          code: ErrorCode.ENGINE_ERROR,
+          message: 'engine error',
+        }),
+      ),
+    ).toBe(true);
+    expect(sendOutcomeUnknown(new Error('lost response'))).toBe(true);
+  });
+  it('preserves uncertain sends across restart and acknowledges only the submitted text', async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      get: async (key: string) => values.get(key),
+      set: async (key: string, value: string) => {
+        values.set(key, value);
+      },
+      delete: async (key: string) => {
+        values.delete(key);
+      },
+    };
+    const first = new PersistentDrafts(storage);
+    await first.writeState('host/session', { text: 'submitted input', uncertain: true });
+    const reopened = new PersistentDrafts(storage);
+    expect(await reopened.readState('host/session')).toEqual({
+      text: 'submitted input',
+      uncertain: true,
+    });
+    await reopened.writeState('host/session', { text: 'newer local edit', uncertain: true });
+    expect(await reopened.settle('host/session', 'submitted input')).toEqual({
+      text: 'newer local edit',
+      uncertain: false,
+    });
+    await reopened.writeState('host/session', { text: 'confirmed input', uncertain: true });
+    await reopened.settle('host/session', 'confirmed input');
+    expect(await new PersistentDrafts(storage).readState('host/session')).toEqual({
+      text: '',
+      uncertain: false,
+    });
+  });
+  it('keeps legacy text intact without claiming an unknown old outcome was not executed', async () => {
+    const original = '{"v":1,"text":"literal user input","uncertain":false}';
+    const values = new Map([['legacy/session', original]]);
+    const drafts = new PersistentDrafts({
+      get: async (key) => values.get(key),
+      set: async (key, value) => {
+        values.set(key, value);
+      },
+      delete: async (key) => {
+        values.delete(key);
+      },
+    });
+    expect(await drafts.readState('legacy/session')).toEqual({ text: original, uncertain: true });
+    await drafts.writeState('legacy/session', { text: original, uncertain: true });
+    expect(values.has('legacy/session')).toBe(false);
+    expect(await drafts.read('legacy/session')).toBe(original);
+  });
   it('keeps cached execution and approval state out of the offline projection', () => {
     const date = '2026-11-13T00:00:00.000Z';
     const value: OfflineConversation = {

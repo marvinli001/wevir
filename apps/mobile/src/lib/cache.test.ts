@@ -4,6 +4,7 @@ import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { PersistentDrafts } from '@wevir/client-sdk';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -63,11 +64,29 @@ describe('ComputerCache', () => {
     const first = await ComputerCache.open(nodeDb(file));
     await first.saveDraft('route-a/session', 'synthetic pending input');
     await first.saveDraft('route-b/session', 'independent input');
+    const durable = (cache: ComputerCache) =>
+      new PersistentDrafts({
+        get: async (key) => (await cache.loadDraft(key)) || undefined,
+        set: (key, value) => cache.saveDraft(key, value),
+        delete: (key) => cache.saveDraft(key, ''),
+      });
+    await durable(first).writeState('route-a/uncertain', {
+      text: 'unconfirmed synthetic input',
+      uncertain: true,
+    });
     await first.close();
     const second = await ComputerCache.open(nodeDb(file));
+    expect(await durable(second).readState('route-a/uncertain')).toEqual({
+      text: 'unconfirmed synthetic input',
+      uncertain: true,
+    });
     expect(await second.loadDraft('route-a/session')).toBe('synthetic pending input');
     await second.forgetDrafts('route-a');
     expect(await second.loadDraft('route-a/session')).toBe('');
+    expect(await durable(second).readState('route-a/uncertain')).toEqual({
+      text: '',
+      uncertain: false,
+    });
     expect(await second.loadDraft('route-b/session')).toBe('independent input');
     await second.close();
     rmSync(file, { force: true });

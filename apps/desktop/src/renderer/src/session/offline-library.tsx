@@ -1,4 +1,9 @@
-import { type OfflineConversation, offlineTranscript } from '@wevir/client-sdk';
+import {
+  isRpcError,
+  type OfflineConversation,
+  offlineTranscript,
+  sendOutcomeUnknown,
+} from '@wevir/client-sdk';
 import type { Session, WevirEvent } from '@wevir/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -10,7 +15,7 @@ import {
   clearBrowserLibrary,
   saveBrowserConversation,
 } from '@/data/browser-library';
-import { useHostConnection } from '@/host/host-connection';
+import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { capabilities } from '@/platform/platform';
 
@@ -32,6 +37,8 @@ export function OfflineLibrary() {
   const draftKey = current
     ? `${current.hostId}/${current.clientId}/${current.session.id}`
     : undefined;
+  const scope = useRef(draftKey);
+  scope.current = draftKey;
   const browser = !capabilities().localHost;
   useEffect(() => {
     if (!browser || !open) return;
@@ -48,10 +55,11 @@ export function OfflineLibrary() {
     edited.current = false;
     if (!draftKey) return;
     let live = true;
-    void browserDrafts.read(draftKey).then(
-      (text) => {
+    void browserDrafts.readState(draftKey).then(
+      (value) => {
         if (live) {
-          if (!edited.current) setDraft(text);
+          if (!edited.current) setDraft(value.text);
+          setSendUncertain(value.uncertain);
           setReady(true);
           setLoadedDraftKey(draftKey);
         }
@@ -66,8 +74,10 @@ export function OfflineLibrary() {
   }, [draftKey]);
   useEffect(() => {
     if (draftKey && ready && loadedDraftKey === draftKey)
-      void browserDrafts.write(draftKey, draft).catch(() => setError(t('portable.storageError')));
-  }, [draftKey, draft, ready, loadedDraftKey]);
+      void browserDrafts
+        .writeState(draftKey, { text: draft, uncertain: sendUncertain })
+        .catch(() => setError(t('portable.storageError')));
+  }, [draftKey, draft, ready, loadedDraftKey, sendUncertain]);
   const selectedSessionId = current?.session.id;
   const selectedHostId = current?.hostId;
   const selectedClientId = current?.clientId;
@@ -136,6 +146,16 @@ export function OfflineLibrary() {
     current?.clientId === identity?.clientId &&
     !current?.session.readOnly;
   const transcript = current ? offlineTranscript(current) : undefined;
+  const selectConversation = (value: OfflineConversation) => {
+    if (
+      current?.hostId === value.hostId &&
+      current.clientId === value.clientId &&
+      current.session.id === value.session.id
+    )
+      return;
+    setDraft('');
+    setCurrent(value);
+  };
   return (
     <>
       <Button
@@ -163,10 +183,7 @@ export function OfflineLibrary() {
                   key={`${value.hostId}/${value.clientId}/${value.session.id}`}
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    setDraft('');
-                    setCurrent(value);
-                  }}
+                  onClick={() => selectConversation(value)}
                 >
                   {value.session.title}
                 </Button>
@@ -179,8 +196,7 @@ export function OfflineLibrary() {
                     size="sm"
                     onClick={() => {
                       if (client) {
-                        setDraft('');
-                        setCurrent({
+                        selectConversation({
                           hostId: client.hello.hostId,
                           clientId: identity?.clientId ?? '',
                           session,
@@ -210,7 +226,7 @@ export function OfflineLibrary() {
                 {t(sendUncertain ? 'portable.sendUnknown' : 'portable.draft')}
               </p>
               <Textarea
-                aria-label={t('portable.draft')}
+                aria-label={t(sendUncertain ? 'portable.sendUnknown' : 'portable.draft')}
                 value={draft}
                 onChange={(e) => {
                   edited.current = true;
@@ -222,10 +238,13 @@ export function OfflineLibrary() {
                 onClick={() => {
                   if (!client || !current || !canSend) return;
                   const text = draft;
+                  const key = draftKey as string;
                   setSending(true);
                   setError(undefined);
-                  void client
-                    .request(
+                  void (async () => {
+                    await browserDrafts.writeState(key, { text, uncertain: true });
+                    if (scope.current === key) setSendUncertain(true);
+                    await client.request(
                       'session.send',
                       {
                         sessionId: current.session.id,
@@ -233,14 +252,24 @@ export function OfflineLibrary() {
                         clientMessageId: crypto.randomUUID(),
                       },
                       { queue: false },
-                    )
-                    .then(
-                      () => setDraft((value) => (value === text ? '' : value)),
-                      () => {
-                        setSendUncertain(true);
-                        setError(t('portable.sendUnknown'));
-                      },
-                    )
+                    );
+                    await browserDrafts.settle(key, text);
+                    if (scope.current === key) {
+                      setSendUncertain(false);
+                      setDraft((value) => (value === text ? '' : value));
+                    }
+                  })()
+                    .catch(async (error: unknown) => {
+                      const uncertain = sendOutcomeUnknown(error);
+                      if (!uncertain)
+                        await browserDrafts.settle(key).catch(() => {
+                          if (scope.current === key) setError(t('portable.storageError'));
+                        });
+                      if (scope.current === key) {
+                        setSendUncertain(uncertain);
+                        setError(isRpcError(error) ? describe(error) : t('portable.sendUnknown'));
+                      }
+                    })
                     .finally(() => setSending(false));
                 }}
               >
