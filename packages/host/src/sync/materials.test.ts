@@ -1,5 +1,6 @@
 import { mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { WevirEventSchema } from '@wevir/protocol';
 import { jcs, packRecord, type SyncOperation } from '@wevir/protocol/sync';
 import {
   FileSecretStore,
@@ -63,13 +64,23 @@ function fixture() {
   });
   const capture = new SyncFilesCapture({ storage, memoryDir });
   let deviceSeq = 0;
-  async function apply(draft: SyncDraftRecord, entityType: SyncOperation['entityType']) {
+  async function apply(
+    draft: SyncDraftRecord,
+    entityType: SyncOperation['entityType'],
+    extra: {
+      projectId?: string;
+      events?: typeof packRecord._output.events;
+      origin?: SyncOperation['origin'];
+    } = {},
+  ) {
     const record = packRecord.parse({
       opId: draft.opId,
       entityId: draft.entityId,
       kind: draft.kind,
       parents: draft.parents,
       content: (draft.content as SyncDraftPayload).body,
+      ...(extra.projectId && { projectId: extra.projectId }),
+      ...(extra.events && { events: extra.events }),
     });
     const op: SyncOperation = {
       protocol: 'wevir-sync/1',
@@ -82,6 +93,7 @@ function fixture() {
       kind: record.kind,
       parents: record.parents,
       clientTime: '2026-11-13T00:00:00.000Z',
+      ...(extra.origin && { origin: extra.origin }),
     };
     const materialize = await materials.prepareApply(op, record);
     storage.transaction(() => {
@@ -102,6 +114,7 @@ function fixture() {
   return {
     home,
     storage,
+    events,
     capture,
     materials,
     apply,
@@ -121,6 +134,140 @@ function draft(entityId: string, content: unknown): SyncDraftRecord {
 }
 
 describe('untrusted synchronized packages', () => {
+  it('keeps independent source streams as related histories instead of interleaving their events', async () => {
+    const h = fixture();
+    const at = '2026-11-13T00:00:00.000Z';
+    h.storage.workspaces.insert({
+      id: 'ws_synthetic',
+      rootPath: h.home,
+      displayName: 'Synthetic',
+      createdAt: at,
+      updatedAt: at,
+    });
+    h.storage.transaction(() =>
+      h.storage.sync.bindProject('vault_synthetic', 'project_synthetic', 'ws_synthetic'),
+    );
+    const receive = async (streamId: string, text: string) => {
+      const sessionId = 'ses_original';
+      const origin = {
+        hostId: 'device_source',
+        sessionId,
+        streamId,
+        fromSeq: '1',
+        throughSeq: '2',
+      };
+      const records = [
+        {
+          seq: 1,
+          sessionId,
+          ts: at,
+          source: 'host',
+          type: 'session.created',
+          payload: {
+            workspaceId: 'ws_source',
+            cwd: '/synthetic/source',
+            providerId: 'synthetic-api',
+            modelId: 'synthetic-model',
+          },
+        },
+        {
+          seq: 2,
+          sessionId,
+          ts: at,
+          source: 'host',
+          type: 'user.message',
+          payload: {
+            turnId: `trn_${streamId.replaceAll('_', '')}`,
+            content: [{ type: 'text', text }],
+            sentBy: { deviceId: 'device_source', clientId: 'synthetic', clientKind: 'desktop' },
+          },
+        },
+      ];
+      for (const record of records) WevirEventSchema.parse(record);
+      await h.apply(
+        draft(`segment_${streamId}`, {
+          schema: 'wevir-event-stream/1',
+          sessionId,
+          streamId,
+          exclusions: [],
+        }),
+        'event-segment',
+        {
+          projectId: 'project_synthetic',
+          origin,
+          events: records.map((event) => ({
+            seq: String(event.seq),
+            sha256: sha256(jcs(event)),
+            content: JSON.parse(jcs(event)),
+          })),
+        },
+      );
+    };
+    await receive('stream_branchA', 'Synthetic first branch');
+    await receive('stream_branchB', 'Synthetic concurrent branch');
+    const sources = h.storage.sync.sources('vault_synthetic');
+    expect(sources).toHaveLength(2);
+    const first = sources.find((value) => value.streamId === 'stream_branchA')?.localSessionId;
+    const second = sources.find((value) => value.streamId === 'stream_branchB')?.localSessionId;
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    expect(second).not.toBe(first);
+    if (!first || !second) throw new Error('missing synthetic source');
+    expect(h.storage.sessions.get(second)?.origin).toMatchObject({
+      kind: 'synced',
+      relatedTo: first,
+    });
+    expect(h.storage.sessions.get(second)?.forkedFrom).toBeUndefined();
+    const usage = async (seq: number, contextUsed: number) => {
+      const content = {
+        sessionId: 'ses_original',
+        seq,
+        ts: at,
+        source: 'engine',
+        type: 'usage.updated',
+        payload: { contextUsed, contextSize: 1000 },
+      };
+      await h.apply(
+        draft(`segment_usage_${seq}`, {
+          schema: 'wevir-event-stream/1',
+          sessionId: 'ses_original',
+          streamId: 'stream_branchA',
+          exclusions: [],
+        }),
+        'event-segment',
+        {
+          projectId: 'project_synthetic',
+          origin: {
+            hostId: 'device_source',
+            sessionId: 'ses_original',
+            streamId: 'stream_branchA',
+            fromSeq: String(seq),
+            throughSeq: String(seq),
+          },
+          events: [{ seq: String(seq), sha256: sha256(jcs(content)), content }],
+        },
+      );
+    };
+    await usage(4, 300);
+    expect(h.events.snapshot(first as `ses_${string}`)?.usage?.contextUsed).toBe(300);
+    await usage(3, 100);
+    expect(h.events.snapshot(first as `ses_${string}`)?.usage?.contextUsed).toBe(300);
+
+    for (const [id, text] of [
+      [first, 'Synthetic first branch'],
+      [second, 'Synthetic concurrent branch'],
+    ] as const) {
+      const history = h.events
+        .readSince(id as `ses_${string}`, 0)
+        .filter((event) => event.type === 'user.message');
+      expect(history).toHaveLength(1);
+      expect(history[0]).toMatchObject({ payload: { content: [{ text }] } });
+      expect(h.events.snapshot(id as `ses_${string}`)?.session.readOnly?.reason).toBe(
+        'synchronized',
+      );
+    }
+  });
+
   it('rejects malformed memory content before replacing a readable local note', async () => {
     const h = fixture();
     const memory = new MemoryStore({ dir: join(h.home, 'memory') });

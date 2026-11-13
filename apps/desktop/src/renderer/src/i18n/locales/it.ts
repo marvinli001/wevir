@@ -1212,6 +1212,7 @@ export const messages: Messages = {
   'recovery.resumeFailed': 'Ripresa non riuscita: {error}',
   'recovery.readOnlyTitle': 'Sessione in sola lettura',
   'recovery.fromHistory': 'Nuova sessione dalla cronologia',
+  'recovery.relatedBranch': 'Ramo collegato',
   'recovery.retryResume': 'Riprova ripresa',
   'recovery.engineMessage': 'Messaggio del motore: {message}',
 

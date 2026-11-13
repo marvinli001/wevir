@@ -1140,6 +1140,10 @@ export function SessionView({
               readOnly={readOnly}
               lastError={transcript?.lastError ?? session.lastError}
               disabled={!client || !transcript}
+              {...(session.origin?.kind === 'synced' &&
+                session.origin.relatedTo && {
+                  relatedHref: paths.session(session.workspaceId, session.origin.relatedTo),
+                })}
               onResume={resume}
               onFromHistory={startFromHistory}
               fromHistorySupported={fromHistorySupported}

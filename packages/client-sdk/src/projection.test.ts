@@ -111,6 +111,103 @@ function approval(toolCallId: string): ApprovalRequest {
 }
 
 describe('TranscriptProjection：增量与已提交消息（domain-model §6.3）', () => {
+  it('rebuilds late source prefixes in their own order while preserving local sequence references', () => {
+    const e = events();
+    e.add('session.read_only', { reason: 'synchronized', message: 'Synced history' });
+    e.turn(TURN, 'Synthetic earlier input');
+    e.add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 0,
+      kind: 'text',
+      text: 'Synthetic earlier',
+    });
+    e.add('assistant.message', {
+      turnId: TURN,
+      messageId: 'earlier',
+      text: 'Synthetic earlier final',
+      replaces: [{ streamId: STREAM, blockIndex: 0 }],
+    });
+    e.add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 1 });
+    e.turn(TURN2, 'Synthetic later input');
+    e.add('assistant.message', {
+      turnId: TURN2,
+      messageId: 'later',
+      text: 'Synthetic later final',
+      replaces: [],
+    });
+    e.add('turn.finished', { turnId: TURN2, outcome: 'completed', durationMs: 1 });
+    const original = e.list.slice(2);
+    const split = original.findIndex(
+      (event) => event.type === 'assistant.message' && event.payload.turnId === TURN,
+    );
+    const arrival = [...original.slice(split), ...original.slice(0, split)];
+    const source = {
+      vaultId: 'vault_synthetic',
+      hostId: 'host_synthetic',
+      deviceId: 'device_synthetic',
+      sessionId: SES,
+      streamId: 'source_stream',
+    };
+    const projection = new TranscriptProjection();
+    projection.apply(e.list[0] as WevirEvent);
+    projection.apply(e.list[1] as WevirEvent);
+    const records = arrival.map((event, index) => ({
+      ...event,
+      seq: index + 3,
+      ts: new Date(Date.UTC(2026, 10, 13, 0, 0, index)).toISOString(),
+      syncOrigin: { ...source, seq: String(event.seq) },
+    }));
+    for (const event of records) {
+      projection.apply(event);
+      projection.snapshot();
+    }
+    const snapshot = projection.snapshot();
+    const users = snapshot.messages.filter((message) => message.role === 'user');
+    expect(users.map((message) => message.turnId)).toEqual([TURN, TURN2]);
+    expect(users.map((message) => message.seqRange[0])).toEqual([
+      records.find((event) => event.type === 'user.message' && event.payload.turnId === TURN)?.seq,
+      records.find((event) => event.type === 'user.message' && event.payload.turnId === TURN2)?.seq,
+    ]);
+    expect(
+      snapshot.messages
+        .filter((message) => message.role === 'assistant')
+        .flatMap((message) => message.parts)
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text),
+    ).toEqual(['Synthetic earlier final', 'Synthetic later final']);
+    for (const event of records) {
+      if (!['user.message', 'assistant.delta', 'assistant.message'].includes(event.type)) continue;
+      const turnId = (event.payload as { turnId: TurnId }).turnId;
+      const role = event.type === 'user.message' ? 'user' : 'assistant';
+      const target = snapshot.messages.find(
+        (message) => message.role === role && message.turnId === turnId,
+      );
+      expect(snapshot.sourceEventMessages?.get(event.seq)).toBe(target?.id);
+    }
+    expect(projection.lastSeq).toBe(records.length + 2);
+    expect(snapshot).toMatchObject({
+      state: 'closed',
+      readOnly: { reason: 'synchronized' },
+      pendingApprovals: [],
+    });
+    const stable = projection.snapshot();
+    expect(stable).toBe(snapshot);
+    const last = records.at(-1);
+    if (!last) throw new Error('missing synthetic source event');
+    expect(() =>
+      projection.apply({
+        ...last,
+        seq: records.length + 3,
+        syncOrigin: { ...source, streamId: 'parallel_stream', seq: '1' },
+      }),
+    ).toThrow('multiple source streams');
+    expect(projection.lastSeq).toBe(records.length + 2);
+    expect(projection.snapshot()).toBe(stable);
+    projection.reset();
+    expect(projection.snapshot().messages).toEqual([]);
+  });
+
   it('keeps synchronized source history inert across historical resumes, approvals and UI requests', () => {
     const { list, add, turn } = events();
     add('session.read_only', { reason: 'synchronized', message: 'Synced history' });

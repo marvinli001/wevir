@@ -1193,6 +1193,7 @@ export const messages: Messages = {
   'recovery.resumeFailed': '복원 실패: {error}',
   'recovery.readOnlyTitle': '읽기 전용 세션',
   'recovery.fromHistory': '기록으로 새 세션 만들기',
+  'recovery.relatedBranch': '연결된 분기',
   'recovery.retryResume': '복원 다시 시도',
   'recovery.engineMessage': '엔진 원문: {message}',
 

@@ -1199,6 +1199,7 @@ export const messages: Messages = {
   'recovery.resumeFailed': 'Resume failed: {error}',
   'recovery.readOnlyTitle': 'Read-only session',
   'recovery.fromHistory': 'New session from history',
+  'recovery.relatedBranch': 'Related branch',
   'recovery.retryResume': 'Retry resume',
   'recovery.engineMessage': 'Engine message: {message}',
 

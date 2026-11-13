@@ -2184,6 +2184,7 @@ export const SessionOriginSchema = z.discriminatedUnion('kind', [
   HistorySessionOriginSchema,
   z.object({
     kind: z.literal('synced'),
+    relatedTo: SessionIdSchema.optional(),
     vaultId: z.string().min(8).max(128),
     hostId: z.string().min(8).max(128),
     sessionId: SessionIdSchema,

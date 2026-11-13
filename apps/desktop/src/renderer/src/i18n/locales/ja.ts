@@ -1201,6 +1201,7 @@ export const messages: Messages = {
   'recovery.resumeFailed': '再開に失敗しました: {error}',
   'recovery.readOnlyTitle': 'セッションは読み取り専用',
   'recovery.fromHistory': '履歴から新しいセッションを作成',
+  'recovery.relatedBranch': '関連ブランチ',
   'recovery.retryResume': '再開を再試行',
   'recovery.engineMessage': 'エンジンのメッセージ: {message}',
 

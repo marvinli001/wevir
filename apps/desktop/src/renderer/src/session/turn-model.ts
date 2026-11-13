@@ -134,7 +134,13 @@ export function continuesAgent(block: TranscriptBlock): boolean {
  * 某个事件在消息流里的位置（任务回顾跳到出处，0.76.0）：seq 范围包含它的那条消息；没有时取它之前最近的一条（事件没有
  * 自己的消息，例如审批、检查）。都没有时 -1。
  */
-export function messageIndexForSeq(messages: readonly ChatMessage[], seq: number): number {
+export function messageIndexForSeq(
+  messages: readonly ChatMessage[],
+  seq: number,
+  sourceEvents?: ReadonlyMap<number, string>,
+): number {
+  const target = sourceEvents?.get(seq);
+  if (target !== undefined) return messages.findIndex((message) => message.id === target);
   // 自动继续会扩展旧额度卡片的范围；精确的消息起点仍属于接力芯片或新消息。
   const start = messages.findIndex((message) => message.seqRange[0] === seq);
   if (start !== -1) return start;

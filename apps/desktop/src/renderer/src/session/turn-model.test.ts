@@ -814,6 +814,17 @@ describe('按 seq 找位置', () => {
     expect(messageIndexForSeq([message('x', TURN, [3, 4])], 1)).toBe(-1);
   });
 
+  it('来源排序后数值范围可能重叠，出处使用精确事件映射', () => {
+    const reordered = [message('earlier', TURN, [3, 30]), message('later', TURN2, [5, 9])];
+    const source = new Map([
+      [7, 'later'],
+      [20, 'earlier'],
+    ]);
+    expect(messageIndexForSeq(reordered, 7, source)).toBe(1);
+    expect(messageIndexForSeq(reordered, 20, source)).toBe(0);
+    expect(messageIndexForSeq(reordered.slice(1), 20, source)).toBe(-1);
+  });
+
   it('一块的范围是它所有消息的并集', () => {
     const [first, second] = groupTurns(messages);
     expect(first && blockSeqRange(first)).toEqual([1, 9]);

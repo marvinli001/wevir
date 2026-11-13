@@ -1211,6 +1211,7 @@ export const messages: Messages = {
   'recovery.resumeFailed': 'Fortsetzen fehlgeschlagen: {error}',
   'recovery.readOnlyTitle': 'Sitzung schreibgeschützt',
   'recovery.fromHistory': 'Neue Sitzung aus Verlauf',
+  'recovery.relatedBranch': 'Verknüpfter Zweig',
   'recovery.retryResume': 'Fortsetzen erneut versuchen',
   'recovery.engineMessage': 'Engine-Meldung: {message}',
 

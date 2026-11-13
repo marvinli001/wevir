@@ -431,6 +431,7 @@ export interface Transcript {
   /** 收到第一条事件之前为 undefined。 */
   sessionId: SessionId | undefined;
   messages: readonly ChatMessage[];
+  sourceEventMessages?: ReadonlyMap<number, string>;
   engineSegments?: readonly TranscriptEngineSegment[];
   /** 全部审批（含已结算），按 ID。 */
   approvals: ReadonlyMap<ApprovalId, ApprovalRequest>;
@@ -660,6 +661,13 @@ export class TranscriptProjection {
   #lastSeq = 0;
   #dirty = true;
   #snapshot: Transcript | undefined;
+  #createdEvent: WevirEvent | undefined;
+  #sourceEvents: Map<number, WevirEvent> | undefined;
+  #sourceStream: string | undefined;
+  #sourceThrough = 0n;
+  #sourceReplay = false;
+  readonly #sourceEventMessages = new Map<number, string>();
+  #lastSourceMessage: string | undefined;
   #messageListDirty = true;
   readonly #changedMessages = new Set<MutableMessage>();
   readonly #messageIndices = new Map<MutableMessage, number>();
@@ -677,6 +685,17 @@ export class TranscriptProjection {
 
   /** 丢掉全部投影（订阅 `reset`：之后从 seq 1 重新回放）。 */
   reset(): void {
+    this.#createdEvent = undefined;
+    this.#sourceEvents = undefined;
+    this.#sourceStream = undefined;
+    this.#sourceThrough = 0n;
+    this.#sourceReplay = false;
+    this.#resetProjection();
+  }
+
+  #resetProjection(): void {
+    this.#sourceEventMessages.clear();
+    this.#lastSourceMessage = undefined;
     this.#messages = [];
     this.#messageListDirty = true;
     this.#changedMessages.clear();
@@ -730,6 +749,52 @@ export class TranscriptProjection {
   }
 
   apply(event: WevirEvent): void {
+    if (event.type === 'session.created') this.#createdEvent = event;
+    if (
+      !this.#sourceEvents &&
+      (event.syncOrigin ||
+        (event.type === 'session.read_only' && event.payload.reason === 'synchronized'))
+    ) {
+      this.#sourceEvents = new Map();
+      if (this.#createdEvent) this.#sourceEvents.set(this.#createdEvent.seq, this.#createdEvent);
+    }
+    if (this.#sourceEvents) {
+      if (event.syncOrigin) {
+        const origin = event.syncOrigin;
+        const stream = JSON.stringify([
+          origin.vaultId,
+          origin.deviceId,
+          origin.hostId,
+          origin.sessionId,
+          origin.streamId,
+        ]);
+        if (this.#sourceStream !== undefined && this.#sourceStream !== stream)
+          throw new Error('synchronized history contains multiple source streams');
+        this.#sourceStream = stream;
+        const seq = BigInt(origin.seq);
+        if (seq < this.#sourceThrough) this.#sourceReplay = true;
+        if (seq > this.#sourceThrough) this.#sourceThrough = seq;
+      }
+      this.#sourceEvents.set(event.seq, event);
+      if (this.#sourceReplay) {
+        this.#lastSeq = Math.max(this.#lastSeq, event.seq);
+        this.#dirty = true;
+        return;
+      }
+    }
+    this.#applyAndIndex(event);
+  }
+
+  #applyAndIndex(event: WevirEvent): void {
+    this.#lastSourceMessage = undefined;
+    this.#apply(event);
+    if (this.#sourceEvents) {
+      const target = this.#lastSourceMessage ?? this.#messages.at(-1)?.id;
+      if (target) this.#sourceEventMessages.set(event.seq, target);
+    }
+  }
+
+  #apply(event: WevirEvent): void {
     this.#sessionId = event.sessionId;
     this.#lastSeq = event.seq;
     this.#dirty = true;
@@ -1133,6 +1198,28 @@ export class TranscriptProjection {
 
   /** 当前投影。自上次调用以来没有新事件时返回同一个对象。 */
   snapshot(): Transcript {
+    if (this.#sourceReplay && this.#sourceEvents) {
+      const lastSeq = this.#lastSeq;
+      const events = [...this.#sourceEvents.values()];
+      const prefix = events.filter(
+        (event) =>
+          !event.syncOrigin &&
+          (event.type === 'session.created' ||
+            (event.type === 'session.read_only' && event.payload.reason === 'synchronized')),
+      );
+      const source = events
+        .filter((event) => event.syncOrigin)
+        .sort((a, b) => {
+          const first = BigInt(a.syncOrigin?.seq ?? '0');
+          const second = BigInt(b.syncOrigin?.seq ?? '0');
+          return first < second ? -1 : first > second ? 1 : 0;
+        });
+      const local = events.filter((event) => !event.syncOrigin && !prefix.includes(event));
+      this.#resetProjection();
+      for (const event of [...prefix, ...source, ...local]) this.#applyAndIndex(event);
+      this.#lastSeq = lastSeq;
+      this.#sourceReplay = false;
+    }
     if (!this.#dirty && this.#snapshot) return this.#snapshot;
     const previous = this.#snapshot;
     let messages = previous?.messages ?? [];
@@ -1185,6 +1272,7 @@ export class TranscriptProjection {
     this.#snapshot = {
       sessionId: this.#sessionId,
       messages,
+      ...(this.#sourceEvents && { sourceEventMessages: new Map(this.#sourceEventMessages) }),
       engineSegments: this.#engineSegments,
       approvals,
       pendingApprovals: this.#sourceReadOnly ? [] : pendingApprovals,
@@ -1234,6 +1322,7 @@ export class TranscriptProjection {
   #push(message: MutableMessage): MutableMessage {
     if (message.turnId !== undefined) message.engine = this.#turn(message.turnId).engine;
     this.#messages.push(message);
+    if (this.#sourceEvents) this.#lastSourceMessage = message.id;
     this.#messageListDirty = true;
     return message;
   }
@@ -1252,7 +1341,11 @@ export class TranscriptProjection {
   #touch(message: MutableMessage, seq: number): MutableMessage {
     message.snapshot = undefined;
     this.#changedMessages.add(message);
-    message.lastSeq = seq;
+    if (this.#sourceEvents) {
+      message.firstSeq = Math.min(message.firstSeq, seq);
+      message.lastSeq = Math.max(message.lastSeq, seq);
+      this.#lastSourceMessage = message.id;
+    } else message.lastSeq = seq;
     return message;
   }
 

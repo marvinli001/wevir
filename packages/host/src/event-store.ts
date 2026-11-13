@@ -237,6 +237,13 @@ export class EventStore {
   projectionChanged(events: readonly WevirEvent[]): void {
     const ids = [...new Set(events.map((event) => event.sessionId))];
     for (const id of ids) {
+      const cached = this.#projections.get(id);
+      if (
+        cached &&
+        this.#storage.sessions.get(id)?.origin?.kind === 'synced' &&
+        cached.lastSeq < this.#storage.events.lastSeq(id)
+      )
+        continue;
       this.#projections.delete(id);
       this.#checkpointSeq.delete(id);
     }
@@ -906,9 +913,65 @@ export class EventStore {
     this.#evict();
   }
 
+  #sourceProjection(
+    sessionId: SessionId,
+    projection: SessionProjection,
+    source: Extract<NonNullable<SessionRecord['origin']>, { kind: 'synced' }>,
+  ): SessionProjection {
+    const lastSeq = projection.lastSeq;
+    const previous = projection.sourceOrder;
+    if (previous?.throughLocalSeq === lastSeq) return projection;
+    const origins = this.#storage.sync.sourceOrigins(
+      sessionId,
+      (previous?.throughLocalSeq ?? 0) + 1,
+      lastSeq,
+    );
+    let highest = BigInt(previous?.throughSourceSeq ?? '0');
+    let reordered = previous === undefined;
+    for (const origin of origins) {
+      if (
+        origin.vaultId !== source.vaultId ||
+        origin.hostId !== source.hostId ||
+        origin.sessionId !== source.sessionId ||
+        (source.streamId && origin.streamId !== source.streamId)
+      )
+        throw new Error('synchronized history contains multiple source streams');
+      const seq = BigInt(origin.seq);
+      if (seq < highest) reordered = true;
+      if (seq > highest) highest = seq;
+    }
+    if (reordered) {
+      const streams = new Set(
+        this.#storage.sync
+          .sourceOrigins(sessionId, 1, lastSeq)
+          .map((origin) =>
+            JSON.stringify([
+              origin.vaultId,
+              origin.deviceId,
+              origin.hostId,
+              origin.sessionId,
+              origin.streamId,
+            ]),
+          ),
+      );
+      if (streams.size > 1)
+        throw new Error('synchronized history contains multiple source streams');
+      projection = INITIAL_PROJECTION;
+      for (const event of this.#storage.events.iterateSourceOrdered(sessionId))
+        projection = applyEvent(projection, fromRecord(event));
+    }
+    return {
+      ...projection,
+      lastSeq,
+      sourceOrder: { throughLocalSeq: lastSeq, throughSourceSeq: String(highest) },
+    };
+  }
+
   #readOnlyProjection(sessionId: SessionId, projection: SessionProjection): SessionProjection {
     const record = this.#storage.sessions.get(sessionId);
     if (!record) return projection;
+    if (record.origin?.kind === 'synced')
+      projection = this.#sourceProjection(sessionId, projection, record.origin);
     const ref = this.#storage.sync.localContentRef('session', sessionId);
     const material = ref && this.#storage.sync.entity(ref.vaultId, ref.entityId);
     if (material?.materialized && material.revision)

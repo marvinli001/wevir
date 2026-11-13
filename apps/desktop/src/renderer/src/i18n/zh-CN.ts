@@ -1205,6 +1205,7 @@ export const zhCN = {
   'recovery.resumeFailed': '恢复失败：{error}',
   'recovery.readOnlyTitle': '会话只读',
   'recovery.fromHistory': '基于历史新建会话',
+  'recovery.relatedBranch': '关联分支',
   'recovery.retryResume': '重试恢复',
   'recovery.engineMessage': '引擎原文：{message}',
 

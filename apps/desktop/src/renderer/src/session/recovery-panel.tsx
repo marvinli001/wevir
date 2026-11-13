@@ -2,6 +2,7 @@ import type { EngineErrorInfo, SessionReadOnly, SessionState } from '@wevir/prot
 import { cn } from 'cn';
 import { CircleAlert, History, Lock, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
@@ -20,6 +21,7 @@ export function RecoveryPanel({
   onResume,
   onFromHistory,
   fromHistorySupported = false,
+  relatedHref,
 }: {
   state: SessionState | undefined;
   readOnly: SessionReadOnly | undefined;
@@ -29,6 +31,7 @@ export function RecoveryPanel({
   onResume: () => Promise<void>;
   onFromHistory: () => void;
   fromHistorySupported?: boolean;
+  relatedHref?: string;
 }) {
   const [resuming, setResuming] = useState(false);
   const [failure, setFailure] = useState<string>();
@@ -111,7 +114,12 @@ export function RecoveryPanel({
               <History data-icon="inline-start" />
               {t(fromHistorySupported ? 'recovery.continue' : 'recovery.fromHistory')}
             </Button>
-            {readOnly.reason !== 'imported' && (
+            {relatedHref && (
+              <Button size="sm" variant="outline" render={<Link to={relatedHref} />}>
+                {t('recovery.relatedBranch')}
+              </Button>
+            )}
+            {!imported && (
               <Button
                 size="sm"
                 variant="outline"

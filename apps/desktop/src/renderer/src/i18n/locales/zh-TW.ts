@@ -1191,6 +1191,7 @@ export const messages: Messages = {
   'recovery.resumeFailed': '恢復失敗：{error}',
   'recovery.readOnlyTitle': '工作階段唯讀',
   'recovery.fromHistory': '以歷史記錄新增工作階段',
+  'recovery.relatedBranch': '關聯分支',
   'recovery.retryResume': '重試恢復',
   'recovery.engineMessage': '引擎原文：{message}',
 

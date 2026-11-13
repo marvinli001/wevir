@@ -69,6 +69,7 @@ import { isNativeSlashCommand } from './handoff.js';
 
 /** 由事件推导的会话状态。对象不可变：`applyEvent` 返回新对象，旧对象照常可用。 */
 export interface SessionProjection {
+  readonly sourceOrder?: { throughLocalSeq: number; throughSourceSeq: string };
   /** 已应用的最后一个事件的 `seq`；还没有事件时为 0。 */
   readonly lastSeq: number;
   /** 最后一个事件的 `ts`。 */

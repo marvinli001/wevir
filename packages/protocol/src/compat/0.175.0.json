@@ -1,0 +1,50 @@
+{
+  "protocolVersion": "0.175.0",
+  "methods": {
+    "session.get": {
+      "params": [
+        {
+          "sessionId": "ses_replica"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_replica",
+            "workspaceId": "ws_replica",
+            "cwd": "/synthetic/replica",
+            "engine": {
+              "kind": "sync",
+              "sessionId": "replica_synthetic"
+            },
+            "providerId": "synthetic-api",
+            "modelId": "synthetic-model",
+            "title": "Synthetic task",
+            "titleSource": "user",
+            "state": "closed",
+            "createdAt": "2026-11-13T00:00:00.000Z",
+            "updatedAt": "2026-11-13T00:00:00.000Z",
+            "lastSeq": 3,
+            "origin": {
+              "kind": "synced",
+              "vaultId": "vault_synthetic",
+              "hostId": "host_synthetic",
+              "sessionId": "ses_synthetic",
+              "streamId": "stream_synthetic",
+              "relatedTo": "ses_related"
+            },
+            "readOnly": {
+              "reason": "synchronized",
+              "message": "Synced history",
+              "since": "2026-11-13T00:00:00.000Z"
+            }
+          },
+          "pendingApprovals": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

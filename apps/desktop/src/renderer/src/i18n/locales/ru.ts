@@ -1226,6 +1226,7 @@ export const messages: Messages = {
   'recovery.resumeFailed': 'Не удалось восстановить: {error}',
   'recovery.readOnlyTitle': 'Сессия только для чтения',
   'recovery.fromHistory': 'Новая сессия на основе истории',
+  'recovery.relatedBranch': 'Связанная ветка',
   'recovery.retryResume': 'Повторить восстановление',
   'recovery.engineMessage': 'Сообщение движка: {message}',
 

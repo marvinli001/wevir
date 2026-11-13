@@ -65,6 +65,8 @@ export interface EventRepository {
       limit?: number;
     },
   ): IterableIterator<EventRecord>;
+  /** 只读来源的显示顺序；本机 seq 不变，本地元数据修改在来源事实之后。 */
+  iterateSourceOrdered(sessionId: string): IterableIterator<EventRecord>;
   /** 会话里最大的 `seq`；没有事件时为 0。 */
   lastSeq(sessionId: string): number;
   /** `afterSeq < seq <= throughSeq` 里助手增量、已提交消息与工具更新的索引，按 `seq` 升序（`ReplayIndexRow`）。 */
@@ -170,6 +172,19 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
       });
       if (options?.turnId !== undefined) params.turnId = options.turnId;
       for (const row of query.iterate(params)) yield fromRow(row);
+    },
+    *iterateSourceOrdered(sessionId) {
+      const query = db.prepare(`SELECT e.* FROM events e
+        LEFT JOIN (SELECT x.local_seq, x.seq FROM sync_source_events x
+          JOIN sync_sources s ON x.vault_id = s.vault_id AND x.host_id = s.host_id
+            AND x.session_id = s.session_id AND x.stream_id = s.stream_id
+          WHERE s.local_session_id = :sessionId AND s.mirrored = 1 AND x.local_seq IS NOT NULL
+        ) origin ON origin.local_seq = e.seq
+        WHERE e.session_id = :sessionId
+        ORDER BY CASE WHEN origin.seq IS NOT NULL THEN 1
+          WHEN e.type IN ('session.created', 'session.read_only') THEN 0 ELSE 2 END,
+          LENGTH(origin.seq), origin.seq, e.seq`);
+      for (const row of query.iterate({ sessionId })) yield fromRow(row);
     },
     lastSeq: (sessionId) => integer(lastSeq.get(sessionId) ?? {}, 'seq'),
     replayIndex(sessionId, afterSeq, throughSeq) {

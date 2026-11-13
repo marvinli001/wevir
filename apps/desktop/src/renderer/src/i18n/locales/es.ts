@@ -1216,6 +1216,7 @@ export const messages: Messages = {
   'recovery.resumeFailed': 'Error al reanudar: {error}',
   'recovery.readOnlyTitle': 'Sesión de solo lectura',
   'recovery.fromHistory': 'Nueva sesión a partir del historial',
+  'recovery.relatedBranch': 'Rama relacionada',
   'recovery.retryResume': 'Reintentar reanudación',
   'recovery.engineMessage': 'Mensaje del motor: {message}',
 

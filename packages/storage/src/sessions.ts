@@ -50,6 +50,7 @@ export interface SessionRecord {
   origin?:
     | {
         kind: 'synced';
+        relatedTo?: string;
         vaultId: string;
         hostId: string;
         sessionId: string;

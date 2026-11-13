@@ -156,6 +156,8 @@ export function TranscriptView({
   const [focusTick, setFocusTick] = useState(0);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
+  const sourceEventsRef = useRef(transcript.sourceEventMessages);
+  sourceEventsRef.current = transcript.sourceEventMessages;
   const claim = useMemo(
     () => (index: number, text?: string, anchor?: string) => {
       const message = messagesRef.current[index];
@@ -176,13 +178,18 @@ export function TranscriptView({
     [release],
   );
   const revealSeq = useMemo(
-    () => (seq: number) => claim(messageIndexForSeq(messagesRef.current, seq)),
+    () => (seq: number) =>
+      claim(messageIndexForSeq(messagesRef.current, seq, sourceEventsRef.current)),
     [claim],
   );
   // 章节目录（0.82.0）：滚到那一章的分隔线。
   const jumpToChapter = useMemo(
     () => (chapter: TranscriptChapter) =>
-      claim(messageIndexForSeq(messagesRef.current, chapter.seq), undefined, chapter.key),
+      claim(
+        messageIndexForSeq(messagesRef.current, chapter.seq, sourceEventsRef.current),
+        undefined,
+        chapter.key,
+      ),
     [claim],
   );
   // 搜索结果：消息流追到那个事件之后认领。
@@ -190,8 +197,8 @@ export function TranscriptView({
   useEffect(() => {
     if (focus?.sessionId !== sessionId || transcript.lastSeq < focus.seq) return;
     transcriptFocus.set(undefined);
-    claim(messageIndexForSeq(messages, focus.seq), focus.text);
-  }, [focus, sessionId, messages, transcript.lastSeq, claim]);
+    claim(messageIndexForSeq(messages, focus.seq, transcript.sourceEventMessages), focus.text);
+  }, [focus, sessionId, messages, transcript.lastSeq, transcript.sourceEventMessages, claim]);
   // 每次认领（focusTick）起一个逐帧的循环，直到位置稳定；用户自己滚动就停下。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在认领时开始。
   useEffect(() => {

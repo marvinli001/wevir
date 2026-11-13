@@ -191,7 +191,7 @@ export class SyncMaterials {
       !record.events
     )
       throw new ZuvRequestError('INTEGRITY_FAILED');
-    const workspace = this.#workspace(op.vaultId, record.projectId);
+    this.#workspace(op.vaultId, record.projectId);
     const decoded = record.events.map((entry) => {
       const value = entry.content as {
         type?: string;
@@ -217,47 +217,21 @@ export class SyncMaterials {
       return { entry, event, alreadyApplied: previous !== undefined };
     });
     return () => {
-      let source = this.#storage.sync
-        .sources(op.vaultId)
-        .find(
-          (value) =>
-            value.hostId === origin.hostId &&
-            value.sessionId === origin.sessionId &&
-            value.streamId === origin.streamId,
-        );
+      const source = this.#ensureSource(
+        op.vaultId,
+        {
+          hostId: origin.hostId,
+          deviceId: op.deviceId,
+          sessionId: origin.sessionId as SessionId,
+          streamId: origin.streamId,
+        },
+        record.projectId as string,
+        decoded.find((value) => value.event?.type === 'session.created')?.event,
+      );
       if (source && !source.mirrored) {
         for (const value of decoded)
           this.#storage.sync.sourceEvent(source, value.entry.seq, value.entry.sha256);
         return;
-      }
-      if (!source) {
-        const related = this.#storage.sync
-          .sources(op.vaultId)
-          .find(
-            (value) =>
-              value.mirrored &&
-              value.sessionId === origin.sessionId &&
-              value.deviceId === op.deviceId &&
-              value.localSessionId,
-          );
-        const localSessionId = related?.localSessionId ?? newId('ses');
-        source = {
-          vaultId: op.vaultId,
-          hostId: origin.hostId,
-          sessionId: origin.sessionId,
-          streamId: origin.streamId,
-          localSessionId,
-          mirrored: true,
-          deviceId: op.deviceId,
-        };
-        if (!related)
-          this.#createMirror(
-            source,
-            workspace.id,
-            workspace.rootPath,
-            decoded.find((value) => value.event?.type === 'session.created')?.event,
-          );
-        this.#storage.sync.putSource(source);
       }
       const localId = source.localSessionId as SessionId;
       for (const { entry, event, alreadyApplied } of decoded) {
@@ -310,7 +284,12 @@ export class SyncMaterials {
     };
   }
 
-  #ensureSource(vaultId: string, ref: SyncStreamRef, projectId: string): SyncSourceRecord {
+  #ensureSource(
+    vaultId: string,
+    ref: SyncStreamRef,
+    projectId: string,
+    first?: WevirEvent,
+  ): SyncSourceRecord {
     if (!this.#storage.db.isTransaction)
       throw new Error('sync source projection requires a transaction');
     const workspace = this.#workspace(vaultId, projectId);
@@ -328,23 +307,13 @@ export class SyncMaterials {
         throw new ZuvRequestError('INTEGRITY_FAILED');
       return existing;
     }
-    const related = this.#storage.sync
-      .sources(vaultId)
-      .find(
-        (value) =>
-          value.hostId === ref.hostId &&
-          value.deviceId === ref.deviceId &&
-          value.sessionId === ref.sessionId &&
-          value.localSessionId &&
-          this.#storage.sessions.get(value.localSessionId),
-      );
     const source: SyncSourceRecord = {
       vaultId,
       ...ref,
-      localSessionId: related?.localSessionId ?? newId('ses'),
-      mirrored: related?.mirrored ?? true,
+      localSessionId: newId('ses'),
+      mirrored: true,
     };
-    if (!related) this.#createMirror(source, workspace.id, workspace.rootPath);
+    this.#createMirror(source, workspace.id, workspace.rootPath, first);
     this.#storage.sync.putSource(source);
     return source;
   }
@@ -358,6 +327,17 @@ export class SyncMaterials {
     const created = first?.type === 'session.created' ? first.payload : undefined;
     const id = source.localSessionId as SessionId;
     const now = first?.ts ?? new Date().toISOString();
+    const related = this.#storage.sync
+      .sources(source.vaultId)
+      .find(
+        (value) =>
+          value.hostId === source.hostId &&
+          value.deviceId === source.deviceId &&
+          value.sessionId === source.sessionId &&
+          value.streamId !== source.streamId &&
+          value.localSessionId &&
+          this.#storage.sessions.get(value.localSessionId),
+      );
     const session: SessionRecord = {
       id,
       workspaceId,
@@ -375,6 +355,7 @@ export class SyncMaterials {
       updatedAt: now,
       origin: {
         kind: 'synced',
+        ...(related?.localSessionId && { relatedTo: related.localSessionId }),
         vaultId: source.vaultId,
         hostId: source.hostId,
         sessionId: source.sessionId,
