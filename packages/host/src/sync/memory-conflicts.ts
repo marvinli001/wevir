@@ -204,6 +204,7 @@ export class SyncMemoryConflicts {
           ...(intent.projectId && { projectId: intent.projectId }),
           content,
         }),
+        { replaceRevision: input.localRevision },
       );
       storage.transaction(() => {
         this.#check(vault, snapshot.entity, input.expectedHeads, input.localRevision);
@@ -264,6 +265,13 @@ export class SyncMemoryConflicts {
   #heads(vault: SyncVaultRecord, entity: SyncEntityRecord): string[] {
     const heads = this.#options.storage.sync.heads(vault.vaultId, entity.entityId);
     if (entity.revision && !heads.includes(entity.revision)) {
+      const operation = this.#options.storage.sync.getOperation(vault.vaultId, entity.revision);
+      const draft = this.#options.storage.sync.draft(vault.vaultId, entity.revision);
+      if (
+        !draft &&
+        !(operation?.direction === 'outbox' && ['queued', 'pending'].includes(operation.state))
+      )
+        return heads;
       const ancestors = this.#ancestors(vault.vaultId, entity.entityId, entity.revision);
       if (!ancestors) throw new ZuvRequestError('RECOVERY_REQUIRED');
       return [...heads.filter((head) => !ancestors.has(head)), entity.revision].sort();

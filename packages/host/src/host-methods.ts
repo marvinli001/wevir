@@ -1612,6 +1612,21 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
       return options.sync.retry();
     },
+    'sync.resetPrepare': ({ restart }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.resetPrepare(restart);
+    },
+    'sync.resetApply': ({ jobId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.resetApply(jobId);
+    },
+    'sync.resetCancel': ({ jobId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.resetCancel(jobId);
+    },
     'sync.devices': () => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });

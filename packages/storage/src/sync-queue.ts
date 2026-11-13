@@ -45,6 +45,7 @@ export interface SyncCommitRecord {
   cursor?: string;
   attempts: number;
   retryAt: number;
+  rebased?: boolean;
 }
 
 export interface SyncCaptureRecord {
@@ -183,6 +184,46 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
       transactionRequired();
       db.prepare('DELETE FROM sync_drafts WHERE vault_id = ? AND op_id = ?').run(vaultId, opId);
     },
+    draftsReferencing(vaultId: string, opIds: readonly string[]): string[] {
+      return db
+        .prepare(`SELECT d.op_id FROM sync_drafts d WHERE d.vault_id = :vaultId AND (
+        EXISTS (SELECT 1 FROM json_each(d.parents) p WHERE p.value IN (SELECT value FROM json_each(:ids)))
+        OR (json_extract(d.content,'$.body.schema') = 'wevir-bundle/1' AND EXISTS (
+          SELECT 1 FROM json_each(d.content,'$.body.files') f, json_each(f.value,'$.parts') p
+          WHERE json_extract(p.value,'$.opId') IN (SELECT value FROM json_each(:ids))))) ORDER BY d.rowid`)
+        .all({ vaultId, ids: toJson(opIds) })
+        .map((row) => text(row, 'op_id'));
+    },
+    saveResetDraft(jobId: string, draft: SyncDraftRecord): void {
+      transactionRequired();
+      db.prepare(
+        'INSERT OR IGNORE INTO sync_reset_drafts(vault_id,job_id,op_id,original) VALUES (?,?,?,?)',
+      ).run(draft.vaultId, jobId, draft.opId, toJson(draft));
+    },
+    rebaseOperation(vaultId: string, opId: string, nextId: string): void {
+      transactionRequired();
+      const result = db
+        .prepare(
+          "UPDATE sync_operations SET rebased_to = ? WHERE vault_id = ? AND op_id = ? AND direction = 'outbox' AND state = 'queued' AND rebased_to IS NULL",
+        )
+        .run(nextId, vaultId, opId);
+      if (Number(result.changes) !== 1) throw new Error('sync reset operation changed');
+      db.prepare('DELETE FROM sync_heads WHERE vault_id = ? AND op_id = ?').run(vaultId, opId);
+      db.prepare('UPDATE sync_file_journal SET op_id = ? WHERE vault_id = ? AND op_id = ?').run(
+        nextId,
+        vaultId,
+        opId,
+      );
+    },
+    rebaseCommit(vaultId: string, commitId: string): void {
+      transactionRequired();
+      const result = db
+        .prepare(
+          "UPDATE sync_commits SET rebased = 1 WHERE vault_id = ? AND commit_id = ? AND attempts = 0 AND state = 'queued' AND rebased = 0",
+        )
+        .run(vaultId, commitId);
+      if (Number(result.changes) !== 1) throw new Error('sync reset commit changed');
+    },
     capture(capture: SyncCaptureRecord): void {
       transactionRequired();
       db.prepare(`INSERT INTO sync_event_captures (vault_id, local_session_id, stream_id, project_id, through_seq, prepared_seq)
@@ -313,7 +354,7 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
     commits(vaultId: string, pendingOnly = true): SyncCommitRecord[] {
       return db
         .prepare(
-          `SELECT * FROM sync_commits WHERE vault_id = ? ${pendingOnly ? "AND state != 'committed'" : ''} ORDER BY rowid`,
+          `SELECT * FROM sync_commits WHERE vault_id = ? ${pendingOnly ? "AND state != 'committed' AND rebased = 0" : ''} ORDER BY rowid`,
         )
         .all(vaultId)
         .map((row) => ({
@@ -324,6 +365,7 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
           ...(optionalText(row, 'cursor') !== undefined && { cursor: text(row, 'cursor') }),
           attempts: integer(row, 'attempts'),
           retryAt: integer(row, 'retry_at'),
+          ...(integer(row, 'rebased') && { rebased: true }),
         }));
     },
     pages(

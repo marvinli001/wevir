@@ -1743,6 +1743,16 @@ export const messages: Messages = {
   'sync.localVersion': 'Lokale Version',
   'sync.mergeResult': 'Zusammenführung',
   'sync.manualMerge': 'Manuell zusammenführen',
+  'sync.rebuild': 'Sync neu aufbauen',
+  'sync.applySnapshot': 'Snapshot anwenden',
+  'sync.fetchAgain': 'Erneut abrufen',
+  'sync.resetConsequences':
+    'Lädt Cloud-Daten im gewählten Umfang und baut den Sync-Index neu auf. Lokale Änderungen und der Versionsverlauf bleiben erhalten.',
+  'sync.resetApplyConsequences':
+    'Wendet den geprüften Snapshot an und stellt den Sync-Umfang wieder her. Lokale Änderungen bleiben erhalten; Konflikte erfordern eine Auswahl.',
+  'sync.resetStaged': '{done}/{total} bereitgestellt',
+  'sync.resetApplied': '{done}/{total} angewendet',
+  'sync.pauseReset': 'Wiederherstellung pausieren',
   'sync.projects': 'Projekte',
   'sync.includeHistory': 'Vorhandenen Verlauf einbeziehen',
   'sync.saveScope': 'Speichern und aktivieren',

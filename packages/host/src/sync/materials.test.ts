@@ -29,7 +29,7 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 });
 function fixture() {
-  const home = tempDir();
+  const home = join(tempDir(), newId('fixture'));
   const storage = openStorage({ dataDir: home });
   const events = new EventStore({ storage });
   cleanups.push(() => {
@@ -171,6 +171,96 @@ async function memoryConflictFixture(
 }
 
 describe('untrusted synchronized packages', () => {
+  it('replaces a fenced committed memory baseline but preserves a file edited after preparation', async () => {
+    const h = await memoryConflictFixture('Base', 'Local', 'Remote');
+    h.storage.transaction(() => {
+      h.storage.sync.putSnapshotProof(h.vault.vaultId, 'job_snapshot_fence', {
+        verified: 'synthetic',
+      });
+      h.storage.sync.putSnapshotRoot(
+        h.vault.vaultId,
+        'job_snapshot_fence',
+        'memory_synthetic',
+        'operation_pruned',
+      );
+    });
+    const leaf = await h.apply(
+      {
+        ...draft('memory_synthetic', {
+          schema: 'wevir-memory/1',
+          scope: 'global',
+          name: 'synthetic-note',
+          markdown: h.markdown('Snapshot after gap'),
+        }),
+        parents: ['operation_pruned'],
+      },
+      'memory',
+    );
+    expect((await h.memory.read('global', undefined, 'synthetic-note')).content).toBe('Local');
+    const record = packRecord.parse(
+      h.storage.sync.getOperation(h.vault.vaultId, leaf.opId)?.record,
+    );
+    const materialize = await h.materials.prepareApply(leaf, record, {
+      replaceRevision: h.left.opId,
+    });
+    h.storage.transaction(materialize);
+    expect((await h.memory.read('global', undefined, 'synthetic-note')).content).toBe(
+      'Snapshot after gap',
+    );
+    expect(leaf.parents).toEqual(['operation_pruned']);
+    expect(h.storage.sync.getOperation(h.vault.vaultId, 'operation_pruned')).toBeUndefined();
+    const next = { ...leaf, opId: newId('sop'), deviceSeq: '99' };
+    const nextRecord = packRecord.parse({
+      ...record,
+      opId: next.opId,
+      content: { ...(record.content as object), markdown: h.markdown('Later snapshot') },
+    });
+    const apply = await h.materials.prepareApply(next, nextRecord, { replaceRevision: leaf.opId });
+    await writeFile(join(h.memory.dir, 'global/synthetic-note.md'), h.markdown('Unsubmitted edit'));
+    h.storage.transaction(apply);
+    expect((await h.memory.read('global', undefined, 'synthetic-note')).content).toBe(
+      'Unsubmitted edit',
+    );
+    expect(h.storage.sync.entity(h.vault.vaultId, 'memory_synthetic')?.revision).toBe(leaf.opId);
+    await h.capture.memory(h.vault, false, false);
+    expect(h.storage.sync.drafts(h.vault.vaultId)[0]?.parents).toEqual([leaf.opId]);
+  });
+
+  it('does not present an old committed materialization as a newly authored branch', async () => {
+    const h = await memoryConflictFixture('Base', 'Local', 'Remote');
+    const base = packRecord.parse(
+      h.storage.sync.getOperation(h.vault.vaultId, h.base.opId)?.record,
+    );
+    const markdown = (base.content as { markdown: string }).markdown;
+    await writeFile(join(h.memory.dir, 'global/synthetic-note.md'), markdown);
+    h.storage.transaction(() => {
+      const entity = h.storage.sync.entity(h.vault.vaultId, 'memory_synthetic');
+      if (!entity) throw new Error('missing materialized note');
+      h.storage.sync.putEntity({ ...entity, revision: h.base.opId });
+      h.storage.sync.putFileBaseline({
+        vaultId: h.vault.vaultId,
+        entityId: entity.entityId,
+        entityType: 'memory',
+        path: join(h.memory.dir, 'global/synthetic-note.md'),
+        fingerprint: sha256(markdown),
+        opId: h.base.opId,
+      });
+    });
+    const preview = await h.conflicts.preview('memory_synthetic');
+    expect(new Set(preview.expectedHeads)).toEqual(new Set([h.left.opId, h.right.opId]));
+    expect(preview.localRevision).toBe(h.base.opId);
+    const resolved = await h.conflicts.resolve({
+      ...preview,
+      markdown: h.markdown('Explicit merge'),
+    });
+    expect(h.storage.sync.draft(h.vault.vaultId, resolved.opId)?.parents).toEqual(
+      preview.expectedHeads,
+    );
+    expect((await h.memory.read('global', undefined, 'synthetic-note')).content).toBe(
+      'Explicit merge',
+    );
+  });
+
   it('merges independent memory edits with all causal parents and recovers the same resolution after file promotion rolls back', async () => {
     const h = await memoryConflictFixture(
       'Alpha\n\nMiddle\n\nOmega',

@@ -15,7 +15,7 @@ import { newId } from '../ids.js';
 import { type HostSettingsStore, SettingsRevisionError } from '../settings.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sha256 } from './crypto.js';
-import { type SyncMaterialRevision, SyncQueue } from './queue.js';
+import { type SyncApplyContext, type SyncMaterialRevision, SyncQueue } from './queue.js';
 
 type Values = typeof SyncSettingsValuesSchema._output;
 type Key = keyof Values;
@@ -123,7 +123,11 @@ export class SyncSettings {
       }
     });
   }
-  async prepare(op: SyncMaterialRevision, record: typeof packRecord._output): Promise<() => void> {
+  async prepare(
+    op: SyncMaterialRevision,
+    record: typeof packRecord._output,
+    context: SyncApplyContext = {},
+  ): Promise<() => void> {
     const body = SyncSettingsContentSchema.parse(record.content);
     const keys = Object.keys(body.values) as Key[];
     const key = keys[0];
@@ -155,8 +159,12 @@ export class SyncSettings {
     const owner = this.#storage.sync.owner(localKey);
     const conflict =
       (owner && owner !== op.vaultId) ||
-      (local?.revision && local.revision !== op.opId && !op.parents.includes(local.revision));
+      (local?.revision &&
+        local.revision !== op.opId &&
+        !op.parents.includes(local.revision) &&
+        local.revision !== context.replaceRevision);
     if (conflict) journal = { ...journal, state: 'conflict' };
+    else journal = { ...journal, state: 'staged' };
     this.#storage.sync.putMaterialJournal(journal);
     if (!conflict && sha256(jcs(this.#values(this.#settings.get())[key] ?? null)) !== nextHash) {
       const expected = { [key]: this.#settings.get()[key] } as Partial<HostSettings>;

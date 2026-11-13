@@ -3485,6 +3485,33 @@ export const methodSamples: MethodSamples = {
       invalid: [{}],
     },
   },
+  'sync.resetPrepare': {
+    params: { valid: [{}, { restart: true }], invalid: [{ restart: 'true' }] },
+    result: {
+      valid: [
+        { protocol: 'wevir-sync/1', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.resetApply': {
+    params: { valid: [{ jobId: 'srj_synthetic' }], invalid: [{}, { jobId: 1 }] },
+    result: {
+      valid: [
+        { protocol: 'wevir-sync/1', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.resetCancel': {
+    params: { valid: [{ jobId: 'srj_synthetic' }], invalid: [{}, { jobId: 1 }] },
+    result: {
+      valid: [
+        { protocol: 'wevir-sync/1', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },
+      ],
+      invalid: [{}],
+    },
+  },
   'sync.status': {
     params: { valid: [{}], invalid: [null] },
     result: {

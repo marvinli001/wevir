@@ -107,7 +107,7 @@ export function createSyncRepository(db: SqliteDatabase) {
       const pending = db
         .prepare(
           `SELECT (
-            (SELECT COUNT(*) FROM sync_operations WHERE vault_id = :vaultId AND direction = 'outbox' AND state IN ('queued', 'pending')) +
+            (SELECT COUNT(*) FROM sync_operations WHERE vault_id = :vaultId AND direction = 'outbox' AND state IN ('queued', 'pending') AND rebased_to IS NULL) +
             (SELECT COUNT(*) FROM sync_drafts WHERE vault_id = :vaultId) +
             (SELECT COUNT(*) FROM sync_event_captures WHERE vault_id = :vaultId AND through_seq > prepared_seq)
           ) AS n`,
@@ -264,6 +264,18 @@ export function createSyncRepository(db: SqliteDatabase) {
       ).run(...args, sha256, localSeq ?? null);
     },
     getOperation,
+    hasPendingEntity(vaultId: string, entityId: string): boolean {
+      return Boolean(
+        db
+          .prepare(`SELECT (
+        EXISTS(SELECT 1 FROM sync_drafts WHERE vault_id = :vaultId AND entity_id = :entityId) OR
+        EXISTS(SELECT 1 FROM sync_operations WHERE vault_id = :vaultId AND entity_id = :entityId AND direction = 'outbox' AND state IN ('queued','pending') AND rebased_to IS NULL) OR
+        EXISTS(SELECT 1 FROM sync_local_writes WHERE vault_id = :vaultId AND entity_id = :entityId AND state = 'pending') OR
+        EXISTS(SELECT 1 FROM sync_event_captures WHERE vault_id = :vaultId AND local_session_id = :entityId AND through_seq > prepared_seq)
+      ) AS pending`)
+          .get({ vaultId, entityId })?.pending,
+      );
+    },
     putSnapshotProof(vaultId: string, jobId: string, snapshot: unknown): void {
       requireTransaction();
       const body = toJson(snapshot);
@@ -338,7 +350,7 @@ export function createSyncRepository(db: SqliteDatabase) {
     ): SyncOperationRecord[] {
       return db
         .prepare(
-          'SELECT * FROM sync_operations WHERE vault_id = ? AND direction = ? AND state = ? ORDER BY rowid LIMIT ?',
+          'SELECT * FROM sync_operations WHERE vault_id = ? AND direction = ? AND state = ? AND rebased_to IS NULL ORDER BY rowid LIMIT ?',
         )
         .all(vaultId, direction, state, limit)
         .map(operationFromRow);

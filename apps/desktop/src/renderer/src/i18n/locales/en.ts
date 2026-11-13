@@ -1729,6 +1729,16 @@ export const messages: Messages = {
   'sync.localVersion': 'Local version',
   'sync.mergeResult': 'Merge result',
   'sync.manualMerge': 'Manual merge',
+  'sync.rebuild': 'Rebuild sync',
+  'sync.applySnapshot': 'Apply snapshot',
+  'sync.fetchAgain': 'Fetch again',
+  'sync.resetConsequences':
+    'Downloads cloud data in the selected scope and rebuilds the sync index. Unsynced local changes and revision history are retained.',
+  'sync.resetApplyConsequences':
+    'Applies the verified snapshot and restores the selected sync scope. Unsynced local changes are retained; conflicting versions require a choice.',
+  'sync.resetStaged': '{done}/{total} staged',
+  'sync.resetApplied': '{done}/{total} applied',
+  'sync.pauseReset': 'Pause recovery',
   'sync.projects': 'Projects',
   'sync.includeHistory': 'Include existing history',
   'sync.saveScope': 'Save and enable',

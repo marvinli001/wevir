@@ -42,7 +42,7 @@ import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sharedFilesKey } from './artifacts.js';
 import { sha256 } from './crypto.js';
-import { type SyncMaterialRevision, SyncQueue } from './queue.js';
+import { type SyncApplyContext, type SyncMaterialRevision, SyncQueue } from './queue.js';
 import { SyncSessionMaterials } from './session-materials.js';
 import type { SyncSettings } from './settings.js';
 
@@ -96,7 +96,11 @@ export class SyncMaterials {
     this.sessions.notify();
   }
 
-  async prepareApply(op: SyncMaterialRevision, record: MaterialRecord): Promise<() => void> {
+  async prepareApply(
+    op: SyncMaterialRevision,
+    record: MaterialRecord,
+    context: SyncApplyContext = {},
+  ): Promise<() => void> {
     try {
       if (op.entityType === 'project') {
         const body = SyncProjectContentSchema.parse(record.content);
@@ -107,19 +111,27 @@ export class SyncMaterials {
           if (
             !current?.revision ||
             current.revision === op.opId ||
-            op.parents.includes(current.revision)
+            op.parents.includes(current.revision) ||
+            current.revision === context.replaceRevision
           )
             this.#storage.sync.setProjectName(op.vaultId, body.projectId, body.displayName);
-          this.#entity(op, `project:${body.projectId}`, record);
+          this.#entity(op, `project:${body.projectId}`, record, true, context);
         };
       }
       if (op.entityType === 'session') {
         const raw = record.content as { schema?: string; source?: unknown };
         if (raw.source || raw.schema !== 'wevir-session/1')
-          return await this.sessions.prepare(op, record);
+          return await this.sessions.prepare(op, record, context);
         const body = SyncSessionContentSchema.parse(record.content);
         return () => {
-          this.#entity(op, `remote-session:${op.deviceId}:${body.sessionId}`, record, false);
+          this.#entity(
+            op,
+            `remote-session:${op.deviceId}:${body.sessionId}`,
+            record,
+            false,
+            context,
+          );
+          if (this.#storage.sync.entity(op.vaultId, op.entityId)?.revision !== op.opId) return;
           for (const source of this.#storage.sync
             .sources(op.vaultId)
             .filter(
@@ -137,12 +149,12 @@ export class SyncMaterials {
         };
       }
       if (op.entityType === 'event-segment') return this.#prepareEvents(op, record);
-      if (op.entityType === 'memory') return await this.#prepareMemory(op, record);
-      if (op.entityType === 'settings') return await this.#settings.prepare(op, record);
+      if (op.entityType === 'memory') return await this.#prepareMemory(op, record, context);
+      if (op.entityType === 'settings') return await this.#settings.prepare(op, record, context);
       const raw = record.content as { schema?: string };
       if (raw?.schema === 'wevir-chunk/1' && op.entityType === 'artifact')
         return await this.#prepareChunk(op, record);
-      if (raw?.schema === 'wevir-bundle/1') return await this.#prepareBundle(op, record);
+      if (raw?.schema === 'wevir-bundle/1') return await this.#prepareBundle(op, record, context);
       if (op.kind === 'delete')
         return () => {
           this.#entity(op, `deleted:${op.entityId}`, record, false);
@@ -161,11 +173,16 @@ export class SyncMaterials {
     localKey: string,
     record: MaterialRecord,
     materialized = true,
+    context: SyncApplyContext = {},
   ): void {
     const old = this.#storage.sync.entity(op.vaultId, op.entityId);
     const owner = this.#storage.sync.localEntity(op.vaultId, localKey);
     const canAdvance =
-      !old?.revision || op.parents.includes(old.revision) || old.revision === op.opId;
+      !context.preserveRevision &&
+      (!old?.revision ||
+        op.parents.includes(old.revision) ||
+        old.revision === op.opId ||
+        old.revision === context.replaceRevision);
     this.#storage.sync.putEntity({
       vaultId: op.vaultId,
       entityId: op.entityId,
@@ -414,7 +431,11 @@ export class SyncMaterials {
     }
   }
 
-  async #prepareMemory(op: SyncMaterialRevision, record: MaterialRecord): Promise<() => void> {
+  async #prepareMemory(
+    op: SyncMaterialRevision,
+    record: MaterialRecord,
+    context: SyncApplyContext,
+  ): Promise<() => void> {
     const body = SyncMemoryContentSchema.parse(record.content);
     if (
       !['put', 'delete', 'resolve'].includes(op.kind) ||
@@ -493,7 +514,8 @@ export class SyncMaterials {
       const parentMatches =
         !material?.revision ||
         material.revision === op.opId ||
-        op.parents.includes(material.revision);
+        op.parents.includes(material.revision) ||
+        material.revision === context.replaceRevision;
       const actual = this.#fileSync(target);
       const actualHash = actual === undefined ? MISSING : sha256(actual);
       const conflict =
@@ -502,7 +524,7 @@ export class SyncMaterials {
         !parentMatches ||
         (actualHash !== journal.previousHash && actualHash !== nextHash);
       if (conflict) {
-        this.#entity(op, localKey, record, false);
+        this.#entity(op, localKey, record, false, { preserveRevision: true });
         this.#storage.sync.putMaterialJournal({ ...journal, state: 'conflict' });
         return;
       }
@@ -519,7 +541,7 @@ export class SyncMaterials {
         } else renameSync(staged as string, target);
       }
       this.#storage.sync.claimResource(localKey, op.vaultId);
-      this.#entity(op, localKey, record);
+      this.#entity(op, localKey, record, true, context);
       this.#storage.sync.putFileBaseline({
         vaultId: op.vaultId,
         entityId: op.entityId,
@@ -555,7 +577,11 @@ export class SyncMaterials {
     return () => this.#entity(op, `chunk:${op.entityId}`, record, false);
   }
 
-  async #prepareBundle(op: SyncMaterialRevision, record: MaterialRecord): Promise<() => void> {
+  async #prepareBundle(
+    op: SyncMaterialRevision,
+    record: MaterialRecord,
+    context: SyncApplyContext,
+  ): Promise<() => void> {
     const body = SyncBundleContentSchema.parse(record.content);
     if (body.category !== op.entityType) throw new ZuvRequestError('INTEGRITY_FAILED');
     let localKey = `bundle:${op.entityId}`;
@@ -647,7 +673,7 @@ export class SyncMaterials {
         throw new ZuvRequestError('INTEGRITY_FAILED');
     }
     return () => {
-      this.#entity(op, localKey, record, localKey.startsWith('shared-files:'));
+      this.#entity(op, localKey, record, localKey.startsWith('shared-files:'), context);
     };
   }
 

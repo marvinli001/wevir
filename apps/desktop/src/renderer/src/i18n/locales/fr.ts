@@ -1748,6 +1748,16 @@ export const messages: Messages = {
   'sync.localVersion': 'Version locale',
   'sync.mergeResult': 'Résultat de fusion',
   'sync.manualMerge': 'Fusion manuelle',
+  'sync.rebuild': 'Reconstruire la synchro',
+  'sync.applySnapshot': 'Appliquer le snapshot',
+  'sync.fetchAgain': 'Récupérer à nouveau',
+  'sync.resetConsequences':
+    'Télécharge les données cloud du périmètre sélectionné et reconstruit l’index. Les modifications locales non synchronisées et l’historique sont conservés.',
+  'sync.resetApplyConsequences':
+    'Applique le snapshot vérifié et rétablit le périmètre de synchronisation. Les modifications locales sont conservées ; les conflits nécessitent un choix.',
+  'sync.resetStaged': '{done}/{total} préparés',
+  'sync.resetApplied': '{done}/{total} appliqués',
+  'sync.pauseReset': 'Suspendre la récupération',
   'sync.projects': 'Projets',
   'sync.includeHistory': 'Inclure l’historique existant',
   'sync.saveScope': 'Enregistrer et activer',

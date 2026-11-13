@@ -7,11 +7,14 @@ import { useTempDir } from '../test-utils.js';
 import { ZuvClient, type ZuvClientOptions } from '../zuv/client.js';
 import { startMockZuv } from '../zuv/mock.test-utils.js';
 import { ZuvRequestError } from '../zuv/transport.js';
+import { SyncBootstrap } from './bootstrap.js';
 import { SyncBlobCache } from './cache.js';
 import { encryptPack, sha256 } from './crypto.js';
 import { SyncEngine } from './engine.js';
 import { SyncVaultKeys } from './keys.js';
 import { SyncQueue } from './queue.js';
+import { SyncRestoreData } from './restore-data.js';
+import { SyncSnapshots } from './snapshots.js';
 
 const tempDir = useTempDir();
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -19,7 +22,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function setup() {
+async function setup(fetcher?: typeof fetch) {
   const server = await startMockZuv();
   cleanups.push(() => server.close());
   async function peer(name: string, fetcher?: typeof fetch) {
@@ -139,7 +142,7 @@ async function setup() {
       },
     };
   }
-  const first = await peer('first');
+  const first = await peer('first', fetcher);
   const second = await peer('second');
   await first.client.json(
     'approved',
@@ -151,6 +154,87 @@ async function setup() {
 }
 
 describe('durable encrypted synchronization over HTTP', () => {
+  it.each(['reserve', 'commit'] as const)(
+    'reconciles RESET outbox receipts without rewriting an uncertain %s request',
+    async (point) => {
+      let blocked = false;
+      const { server, first } = await setup(async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (
+          blocked &&
+          init?.method === 'POST' &&
+          path.endsWith(point === 'reserve' ? '/blobs/reserve' : '/commits')
+        )
+          throw new TypeError('synthetic interrupted request');
+        return fetch(input, init);
+      });
+      await first.enable();
+      first.enqueue('Committed baseline');
+      await first.engine.run();
+      const oldId = first.enqueue('Unsent offline change') as string;
+      blocked = true;
+      await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+      const original = first.storage.sync.commits(first.opened.vaultId)[0];
+      if (!original) throw new Error('missing synthetic prepared commit');
+      expect(original.attempts).toBe(point === 'reserve' ? 0 : 1);
+      const nextId = first.enqueue('Later offline change') as string;
+      const oldRecord = first.storage.sync.getOperation(first.opened.vaultId, oldId);
+      if (!oldRecord) throw new Error('missing synthetic prepared operation');
+      server.sync.forceReset(first.opened.deviceId);
+      await first.client.getEntitlements();
+      const snapshots = new SyncSnapshots({ client: first.client, home: first.home });
+      const bootstrap = new SyncBootstrap({
+        storage: first.storage,
+        client: first.client,
+        home: first.home,
+        snapshots,
+        eligible: () => first.storage.sync.activeVault(),
+        data: new SyncRestoreData({
+          client: first.client,
+          storage: first.storage,
+          snapshots,
+          cache: new SyncBlobCache(join(first.home, 'sync/blobs')),
+          keys: new SyncVaultKeys({
+            client: first.client,
+            secrets: first.options.secrets,
+            onSecret: () => {},
+          }),
+        }),
+      });
+      const signal = new AbortController().signal;
+      const { job } = await bootstrap.prepare(signal);
+      await bootstrap.apply(job.jobId, signal, async () => () => {});
+      await bootstrap.acknowledge(job.jobId, signal);
+      await bootstrap.enable(job.jobId, signal);
+      if (point === 'commit') {
+        await expect(first.engine.reconcileReset(job.jobId, signal)).rejects.toMatchObject({
+          code: 'RECOVERY_REQUIRED',
+        });
+        expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([original]);
+        expect(first.storage.sync.draft(first.opened.vaultId, nextId)?.parents).toEqual([oldId]);
+      } else {
+        await first.engine.reconcileReset(job.jobId, signal);
+        expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([]);
+        expect(
+          first.storage.sync
+            .commits(first.opened.vaultId, false)
+            .find((commit) => commit.commitId === original.commitId),
+        ).toMatchObject({ ...original, rebased: true });
+        const drafts = first.storage.sync.drafts(first.opened.vaultId);
+        expect(drafts).toHaveLength(2);
+        const replacement = drafts.find((draft) => draft.opId !== nextId);
+        expect(replacement?.opId).not.toBe(oldId);
+        expect(replacement?.parents).toEqual((oldRecord.envelope as { parents: string[] }).parents);
+        expect(drafts.find((draft) => draft.opId === nextId)?.parents).toEqual([replacement?.opId]);
+        bootstrap.finish(job.jobId, signal);
+        blocked = false;
+        await first.engine.run();
+        expect(first.storage.sync.counts(first.opened.vaultId).pending).toBe(0);
+      }
+      expect(first.storage.sync.getOperation(first.opened.vaultId, oldId)).toEqual(oldRecord);
+    },
+  );
+
   it('enforces a smaller server plaintext limit before key release or paid upload', async () => {
     const { server, first } = await setup();
     await first.enable();

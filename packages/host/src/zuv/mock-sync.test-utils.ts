@@ -55,7 +55,8 @@ export class MockSyncGateway {
   >();
   exports = 0;
   readonly retiredOperations = new Set<string>();
-  readonly acknowledgements: Array<{ deviceId: string; cursor: string }> = [];
+  readonly resettingDevices = new Set<string>();
+  readonly acknowledgements: Array<{ deviceId: string; cursor: string; restoreId?: string }> = [];
   readonly attempts = { uploads: 0, downloads: 0, reservations: 0, commits: 0 };
   pendingCommits = false;
   failDownloads = false;
@@ -68,6 +69,13 @@ export class MockSyncGateway {
     return vault;
   }
 
+  forceReset(deviceId: string): void {
+    this.resettingDevices.add(deviceId);
+    for (const vault of this.#vaults.values()) {
+      const scope = vault.scopes.get(deviceId);
+      if (scope) vault.scopes.set(deviceId, { ...scope, enabled: false });
+    }
+  }
   entitlements(userId: string, deviceId: string) {
     const vault = this.#vaults.get(userId);
     return {
@@ -247,14 +255,17 @@ export class MockSyncGateway {
         ? vault.downloads.get(path.split('/').at(-1) as string)
         : undefined;
     const restoreId =
-      path === '/sync/v1/downloads' && method === 'POST'
-        ? schemas.download.parse(value).restoreId
-        : (downloadTicket?.restoreId ?? url.searchParams.get('restoreId'));
+      path === '/sync/v1/devices/ack' && method === 'POST'
+        ? schemas.ack.parse(value).restoreId
+        : path === '/sync/v1/downloads' && method === 'POST'
+          ? schemas.download.parse(value).restoreId
+          : (downloadTicket?.restoreId ?? url.searchParams.get('restoreId'));
     const restore = restoreId ? this.#restores.get(restoreId) : undefined;
     const restoring =
       Boolean(restoreId) &&
       ((path === '/sync/v1/changes' && method === 'GET') ||
         (path === '/sync/v1/downloads' && method === 'POST') ||
+        (path === '/sync/v1/devices/ack' && method === 'POST') ||
         downloadTicket !== undefined);
     if (
       restoring &&
@@ -293,6 +304,7 @@ export class MockSyncGateway {
       return { value: { approved: true } };
     }
     if (path === '/sync/v1/scopes' && method === 'PUT') {
+      if (this.resettingDevices.has(deviceId)) throw new MockSyncError('RESET_REQUIRED');
       const input = schemas.scopes.parse(value);
       if (input.expectedRevision !== scopes.revision) throw new MockSyncError('REVISION_CONFLICT');
       if (input.enabled && !vault.trusted.has(deviceId))
@@ -302,6 +314,16 @@ export class MockSyncGateway {
       vault.scopes.set(deviceId, result);
       return { value: result };
     }
+    if (path === '/sync/v1/devices/ack' && method === 'POST' && restore) {
+      const input = schemas.ack.parse(value);
+      if (input.cursor !== restore.response.snapshotCursor)
+        throw new MockSyncError('RESET_REQUIRED');
+      this.resettingDevices.delete(deviceId);
+      this.acknowledgements.push({ deviceId, cursor: input.cursor, restoreId: input.restoreId });
+      return { value: { applied: true } };
+    }
+    if (this.resettingDevices.has(deviceId) && !restoring)
+      throw new MockSyncError('RESET_REQUIRED');
     if (!scopes.enabled && !restoring) throw new MockSyncError('SCOPE_DISABLED', 403);
     if (this.budgetPaused && !restoring) throw new MockSyncError('BUDGET_PAUSED', 503);
     const allowed = (entityType: string, projectId?: string) => {

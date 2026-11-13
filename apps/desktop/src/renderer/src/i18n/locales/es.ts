@@ -1749,6 +1749,16 @@ export const messages: Messages = {
   'sync.localVersion': 'Versión local',
   'sync.mergeResult': 'Resultado de fusión',
   'sync.manualMerge': 'Fusión manual',
+  'sync.rebuild': 'Reconstruir sincronización',
+  'sync.applySnapshot': 'Aplicar instantánea',
+  'sync.fetchAgain': 'Obtener de nuevo',
+  'sync.resetConsequences':
+    'Descarga los datos de la nube del ámbito seleccionado y reconstruye el índice. Se conservan los cambios locales sin sincronizar y el historial.',
+  'sync.resetApplyConsequences':
+    'Aplica la instantánea verificada y restaura el ámbito de sincronización. Se conservan los cambios locales; los conflictos requieren una selección.',
+  'sync.resetStaged': '{done}/{total} preparados',
+  'sync.resetApplied': '{done}/{total} aplicados',
+  'sync.pauseReset': 'Pausar recuperación',
   'sync.projects': 'Proyectos',
   'sync.includeHistory': 'Incluir historial existente',
   'sync.saveScope': 'Guardar y activar',

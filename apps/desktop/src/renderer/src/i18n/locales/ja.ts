@@ -1728,6 +1728,16 @@ export const messages: Messages = {
   'sync.localVersion': 'ローカル版',
   'sync.mergeResult': 'マージ結果',
   'sync.manualMerge': '手動マージ',
+  'sync.rebuild': '同期を再構築',
+  'sync.applySnapshot': 'スナップショットを適用',
+  'sync.fetchAgain': '再取得',
+  'sync.resetConsequences':
+    '選択範囲のクラウドデータを取得し、同期インデックスを再構築します。未同期のローカル変更と変更履歴は保持されます。',
+  'sync.resetApplyConsequences':
+    '検証済みスナップショットを適用し、選択した同期範囲を復元します。未同期のローカル変更は保持され、競合するバージョンは選択が必要です。',
+  'sync.resetStaged': '{done}/{total} 件を保存済み',
+  'sync.resetApplied': '{done}/{total} 件を適用済み',
+  'sync.pauseReset': '復元を一時停止',
   'sync.projects': 'プロジェクト',
   'sync.includeHistory': '既存の履歴を含める',
   'sync.saveScope': '保存して有効化',

@@ -1,0 +1,113 @@
+{
+  "protocolVersion": "0.179.0",
+  "methods": {
+    "sync.resetPrepare": {
+      "params": [
+        {},
+        {
+          "restart": true
+        }
+      ],
+      "result": [
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "pending": 1,
+          "quarantined": 0,
+          "conflicts": 0,
+          "state": "reset_required",
+          "reset": {
+            "jobId": "srj_synthetic",
+            "phase": "staged",
+            "busy": false,
+            "pendingBefore": 1,
+            "operations": 3,
+            "selected": 2,
+            "staged": 2,
+            "applied": 0
+          }
+        }
+      ]
+    },
+    "sync.resetApply": {
+      "params": [
+        {
+          "jobId": "srj_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "pending": 1,
+          "quarantined": 0,
+          "conflicts": 0,
+          "state": "reset_required",
+          "reset": {
+            "jobId": "srj_synthetic",
+            "phase": "staged",
+            "busy": false,
+            "pendingBefore": 1,
+            "operations": 3,
+            "selected": 2,
+            "staged": 2,
+            "applied": 0
+          }
+        }
+      ]
+    },
+    "sync.resetCancel": {
+      "params": [
+        {
+          "jobId": "srj_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "pending": 1,
+          "quarantined": 0,
+          "conflicts": 0,
+          "state": "reset_required",
+          "reset": {
+            "jobId": "srj_synthetic",
+            "phase": "staged",
+            "busy": false,
+            "pendingBefore": 1,
+            "operations": 3,
+            "selected": 2,
+            "staged": 2,
+            "applied": 0
+          }
+        }
+      ]
+    },
+    "sync.status": {
+      "params": [{}],
+      "result": [
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "pending": 1,
+          "quarantined": 0,
+          "conflicts": 0,
+          "state": "reset_required",
+          "reset": {
+            "jobId": "srj_synthetic",
+            "phase": "staged",
+            "busy": false,
+            "pendingBefore": 1,
+            "operations": 3,
+            "selected": 2,
+            "staged": 2,
+            "applied": 0
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

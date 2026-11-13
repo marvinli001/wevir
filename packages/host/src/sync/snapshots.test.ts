@@ -157,6 +157,99 @@ async function fixture(fault: 'none' | 'page' | 'export' | 'manifest' = 'none') 
 }
 
 describe('fixed recoverable snapshot metadata', () => {
+  it('applies each restored revision atomically, resumes after a projection crash and ACKs only the fixed snapshot', async () => {
+    const h = await fixture();
+    const home = join(tempDir(), 'receiver');
+    let storage = openStorage({ dataDir: home });
+    cleanups.push(() => storage.close());
+    storage.transaction(() => {
+      storage.sync.bindVault({
+        vaultId: h.vault.vaultId,
+        accountId: h.vault.accountId,
+        deviceId: h.vault.deviceId,
+        originHostId: h.vault.originHostId,
+        appliedCursor: h.vault.appliedCursor,
+      });
+      storage.sync.setScopes(h.vault.vaultId, h.vault);
+      storage.db
+        .prepare('UPDATE sync_vaults SET device_seq = ? WHERE vault_id = ?')
+        .run(h.vault.deviceSeq, h.vault.vaultId);
+    });
+    storage.db.exec('CREATE TABLE restored_synthetic (op_id TEXT PRIMARY KEY, value TEXT) STRICT');
+    storage.transaction(() =>
+      new SyncQueue(storage).enqueue({
+        vaultId: h.vault.vaultId,
+        entityType: 'memory',
+        localKey: 'receiver-offline',
+        content: { schema: 'synthetic/1', text: 'pending receiver work' },
+      }),
+    );
+    const pending = storage.sync.drafts(h.vault.vaultId);
+    const snapshots = new SyncSnapshots({ client: h.client, home });
+    const bootstrap = () =>
+      new SyncBootstrap({
+        storage,
+        client: h.client,
+        snapshots,
+        home,
+        data: new SyncRestoreData({
+          client: h.client,
+          storage,
+          cache: new SyncBlobCache(join(home, 'sync/blobs')),
+          keys: h.keys,
+          snapshots,
+        }),
+        eligible: () => storage.sync.activeVault(),
+      });
+    h.mock.sync.forceReset(h.vault.deviceId);
+    await h.client.getEntitlements();
+    const current = bootstrap();
+    const prepared = await current.prepare(new AbortController().signal);
+    const descriptor = await snapshots.describe(prepared.job.jobId);
+    await expect(
+      current.acknowledge(prepared.job.jobId, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    let writes = 0;
+    let interrupted = false;
+    const project = async (operation: { opId: string }, record: { content: unknown }) => () => {
+      storage.db
+        .prepare('INSERT OR IGNORE INTO restored_synthetic(op_id,value) VALUES (?,?)')
+        .run(operation.opId, JSON.stringify(record.content));
+      if (++writes === 2 && !interrupted) {
+        interrupted = true;
+        throw new Error('synthetic apply crash');
+      }
+    };
+    await expect(
+      current.apply(prepared.job.jobId, new AbortController().signal, project),
+    ).rejects.toThrow('synthetic apply crash');
+    expect(storage.sync.bootstrapCounts(h.vault.vaultId, prepared.job.jobId).applied).toBe(1);
+    expect(storage.sync.activeVault()?.appliedCursor).toBe(h.vault.appliedCursor);
+    expect(
+      h.mock.sync.acknowledgements.some((ack) => ack.restoreId === descriptor.exported.restoreId),
+    ).toBe(false);
+    storage.close();
+    storage = openStorage({ dataDir: home });
+    const resumed = bootstrap();
+    expect(
+      await resumed.apply(prepared.job.jobId, new AbortController().signal, project),
+    ).toMatchObject({ applied: 3, application: { state: 'applied' } });
+    expect(storage.db.prepare('SELECT COUNT(*) AS n FROM restored_synthetic').get()?.n).toBe(3);
+    expect(storage.sync.activeVault()?.appliedCursor).toBe(descriptor.exported.snapshotCursor);
+    expect(storage.sync.activeVault()?.deviceSeq).toBe(h.vault.deviceSeq);
+    expect(storage.sync.drafts(h.vault.vaultId)).toEqual(pending);
+    await resumed.acknowledge(prepared.job.jobId, new AbortController().signal);
+    expect(h.mock.sync.acknowledgements.at(-1)).toMatchObject({
+      restoreId: descriptor.exported.restoreId,
+      cursor: descriptor.exported.snapshotCursor,
+    });
+    expect(h.client.entitlements?.syncState).toBe('disabled');
+    await resumed.enable(prepared.job.jobId, new AbortController().signal);
+    expect(h.client.entitlements?.syncState).toBe('ready');
+    resumed.finish(prepared.job.jobId, new AbortController().signal);
+    expect(storage.sync.activeBootstrapJob(h.vault.vaultId)).toBeUndefined();
+  });
+
   it('stages selected event segments using the exact event tuple while excluding unselected content', async () => {
     const h = await fixture();
     const scopes = await h.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
@@ -308,6 +401,7 @@ describe('fixed recoverable snapshot metadata', () => {
       operations: 0,
       selected: 0,
       staged: 0,
+      applied: 0,
     });
   });
 

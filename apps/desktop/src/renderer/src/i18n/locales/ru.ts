@@ -1753,6 +1753,16 @@ export const messages: Messages = {
   'sync.localVersion': 'Локальная версия',
   'sync.mergeResult': 'Результат слияния',
   'sync.manualMerge': 'Ручное слияние',
+  'sync.rebuild': 'Перестроить синхронизацию',
+  'sync.applySnapshot': 'Применить снимок',
+  'sync.fetchAgain': 'Получить заново',
+  'sync.resetConsequences':
+    'Загружает облачные данные выбранной области и перестраивает индекс. Несинхронизированные локальные изменения и история версий сохраняются.',
+  'sync.resetApplyConsequences':
+    'Применяет проверенный снимок и восстанавливает область синхронизации. Локальные изменения сохраняются; конфликтующие версии требуют выбора.',
+  'sync.resetStaged': 'Подготовлено {done}/{total}',
+  'sync.resetApplied': 'Применено {done}/{total}',
+  'sync.pauseReset': 'Приостановить восстановление',
   'sync.projects': 'Проекты',
   'sync.includeHistory': 'Включить существующую историю',
   'sync.saveScope': 'Сохранить и включить',

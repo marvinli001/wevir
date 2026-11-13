@@ -24,6 +24,7 @@ import type { SyncBlobCache } from './cache.js';
 import { decryptPack, encryptPack, parseEnvelope, sha256 } from './crypto.js';
 import { MAX_AUTOMATIC_TRANSFERS, SyncDownloads } from './downloads.js';
 import type { SyncDraftPayload } from './queue.js';
+import { rebaseResetCommit } from './reset-queue.js';
 
 type Record = typeof packRecord._output;
 
@@ -76,6 +77,68 @@ export class SyncEngine {
       vault.deviceId === entitlements.identity.deviceId
       ? vault
       : undefined;
+  }
+
+  async reconcileReset(jobId: string, signal: AbortSignal): Promise<void> {
+    const { storage, client } = this.#options;
+    const vault = this.eligible();
+    if (!vault || storage.sync.bootstrapApplication(vault.vaultId, jobId)?.state !== 'acknowledged')
+      throw new ZuvRequestError('RECOVERY_REQUIRED');
+    for (const commit of storage.sync.commits(vault.vaultId)) {
+      if (!this.#commitInScope(vault, commit)) continue;
+      this.#guard(vault, signal);
+      try {
+        const result = await client.json(
+          'commitResult',
+          'GET',
+          `/api/wevir/sync/v1/commits/${commit.commitId}`,
+          undefined,
+          { signal },
+        );
+        this.#guard(vault, signal);
+        this.#commitResult(
+          vault,
+          commit,
+          result,
+          validateSyncBatch(JSON.parse(commit.body)).operations,
+        );
+      } catch (error) {
+        if (!(error instanceof ZuvRequestError) || error.code !== 'NOT_FOUND') throw error;
+        this.#guard(vault, signal);
+        if (commit.attempts || commit.state !== 'queued')
+          throw new ZuvRequestError('RECOVERY_REQUIRED');
+        const batch = validateSyncBatch(JSON.parse(commit.body));
+        const verified = new Map<string, Record>();
+        for (const blobId of new Set(
+          batch.operations.flatMap((op) => (op.payload ? [op.payload.blobId] : [])),
+        )) {
+          const blob = storage.sync.blob(vault.vaultId, blobId);
+          if (!blob) throw new ZuvRequestError('INTEGRITY_FAILED');
+          const bytes = await this.#options.cache.read(
+            vault.vaultId,
+            blobId,
+            blob.cipherBytes,
+            blob.cipherSha256,
+          );
+          const key = await this.#options.key(vault.vaultId, blob.keyEpoch, signal);
+          try {
+            if (parseEnvelope(bytes).header.keyEpoch !== blob.keyEpoch)
+              throw new Error('outbox key epoch changed');
+            const records = await decryptPack(
+              bytes,
+              key,
+              batch.operations.filter((op) => op.payload?.blobId === blobId),
+              batch.recordManifest,
+            );
+            for (const record of records.records) verified.set(record.opId, record);
+          } catch {
+            throw new ZuvRequestError('INTEGRITY_FAILED');
+          }
+        }
+        this.#guard(vault, signal);
+        rebaseResetCommit(storage, vault, jobId, commit, verified);
+      }
+    }
   }
 
   async #run(signal: AbortSignal): Promise<boolean> {

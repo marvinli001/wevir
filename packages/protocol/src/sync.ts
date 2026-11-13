@@ -43,6 +43,28 @@ export const SyncStatusSchema = z.object({
     .optional(),
   errorCode: z.string().max(64).optional(),
   lastSyncAt: z.iso.datetime().optional(),
+  reset: z
+    .object({
+      jobId: id,
+      phase: z.enum([
+        'creating',
+        'metadata',
+        'records',
+        'staged',
+        'failed',
+        'applying',
+        'applied',
+        'acknowledged',
+      ]),
+      busy: z.boolean(),
+      pendingBefore: z.number().int().nonnegative(),
+      operations: z.number().int().nonnegative(),
+      selected: z.number().int().nonnegative(),
+      staged: z.number().int().nonnegative(),
+      applied: z.number().int().nonnegative(),
+      errorCode: z.string().max(64).optional(),
+    })
+    .optional(),
   includeHistory: z.boolean().optional(),
   projects: z
     .array(
@@ -185,6 +207,21 @@ export const SyncMethodSchemas = {
     permission: 'host.manage',
   },
   'sync.retry': { params: z.object({}), result: SyncStatusSchema, permission: 'host.manage' },
+  'sync.resetPrepare': {
+    params: z.object({ restart: z.boolean().optional() }),
+    result: SyncStatusSchema,
+    permission: 'host.manage',
+  },
+  'sync.resetApply': {
+    params: z.object({ jobId: id }),
+    result: SyncStatusSchema,
+    permission: 'host.manage',
+  },
+  'sync.resetCancel': {
+    params: z.object({ jobId: id }),
+    result: SyncStatusSchema,
+    permission: 'host.manage',
+  },
   'sync.devices': {
     params: z.object({}),
     result: z.object({

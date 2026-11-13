@@ -1747,6 +1747,16 @@ export const messages: Messages = {
   'sync.localVersion': 'Versione locale',
   'sync.mergeResult': 'Risultato unione',
   'sync.manualMerge': 'Unione manuale',
+  'sync.rebuild': 'Ricostruisci sincronizzazione',
+  'sync.applySnapshot': 'Applica snapshot',
+  'sync.fetchAgain': 'Scarica di nuovo',
+  'sync.resetConsequences':
+    'Scarica i dati cloud nell’ambito selezionato e ricostruisce l’indice. Le modifiche locali non sincronizzate e la cronologia vengono conservate.',
+  'sync.resetApplyConsequences':
+    'Applica lo snapshot verificato e ripristina l’ambito di sincronizzazione. Le modifiche locali restano disponibili; i conflitti richiedono una scelta.',
+  'sync.resetStaged': '{done}/{total} preparati',
+  'sync.resetApplied': '{done}/{total} applicati',
+  'sync.pauseReset': 'Sospendi recupero',
   'sync.projects': 'Progetti',
   'sync.includeHistory': 'Includi cronologia esistente',
   'sync.saveScope': 'Salva e attiva',

@@ -58,6 +58,7 @@ export function ZuvSyncSection({
   const [projectChoices, setProjectChoices] = useState<Record<string, string>>({});
   const [versionChoices, setVersionChoices] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [resetConfirm, setResetConfirm] = useState<'prepare' | 'apply' | 'restart'>();
   const [error, setError] = useState<string>();
   const [devices, setDevices] = useState<MethodResult<'sync.devices'>['devices']>();
   const [approving, setApproving] = useState<MethodResult<'sync.devices'>['devices'][number]>();
@@ -157,6 +158,10 @@ export function ZuvSyncSection({
       }
     });
   const projectScope = status?.binding?.enabled && status.binding.categories.includes('project');
+  const reset = status?.reset;
+  const resetBusy = reset?.busy || status?.state === 'configuring';
+  const resetReady =
+    reset && ['staged', 'applying', 'applied', 'acknowledged'].includes(reset.phase);
   return (
     <div className="space-y-3 border-t border-border pt-3" data-zuv-sync>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -346,14 +351,19 @@ export function ZuvSyncSection({
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" disabled={busy || !active || !status} onClick={edit}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || !!reset || resetBusy || !active || !status}
+            onClick={edit}
+          >
             {t('sync.scope')}
           </Button>
           {status?.binding?.enabled && (
             <Button
               size="sm"
               variant="ghost"
-              disabled={busy}
+              disabled={busy || resetBusy}
               onClick={() =>
                 void run(async () => {
                   setStatus(
@@ -374,7 +384,7 @@ export function ZuvSyncSection({
               <Button
                 size="sm"
                 variant="ghost"
-                disabled={busy}
+                disabled={busy || resetBusy || !!reset}
                 onClick={() =>
                   void run(async () => {
                     setStatus(await client.request('sync.retry', {}));
@@ -397,13 +407,118 @@ export function ZuvSyncSection({
               </Button>
             </>
           )}
+          {client.supports('sync_reset') && active && status?.binding?.enabled && !reset && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy || resetBusy}
+              onClick={() => setResetConfirm('prepare')}
+            >
+              {t('sync.rebuild')}
+            </Button>
+          )}
         </div>
+      )}
+      {reset && (
+        <div className="space-y-2 border-t border-border pt-2">
+          <p className="text-xs text-muted-foreground" role="status">
+            {t('sync.resetStaged', { done: reset.staged, total: reset.selected })}
+            {' · '}
+            {t('sync.resetApplied', { done: reset.applied, total: reset.selected })}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {!resetBusy && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !active}
+                onClick={() =>
+                  resetReady || !status.binding?.enabled
+                    ? setResetConfirm('apply')
+                    : void run(async () => {
+                        setStatus(await client.request('sync.resetPrepare', {}));
+                      })
+                }
+              >
+                {t(resetReady ? 'sync.applySnapshot' : 'source.recheck')}
+              </Button>
+            )}
+            {(reset.phase === 'failed' || reset.errorCode) && !resetBusy && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => setResetConfirm('restart')}
+              >
+                {t('sync.fetchAgain')}
+              </Button>
+            )}
+            {(resetBusy || !['applying', 'applied', 'acknowledged'].includes(reset.phase)) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    setStatus(await client.request('sync.resetCancel', { jobId: reset.jobId }));
+                  })
+                }
+              >
+                {t(resetBusy ? 'sync.pauseReset' : 'common.cancel')}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {resetConfirm && (
+        <ConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setResetConfirm(undefined);
+          }}
+          title={t(
+            resetConfirm === 'apply'
+              ? 'sync.applySnapshot'
+              : resetConfirm === 'restart'
+                ? 'sync.fetchAgain'
+                : 'sync.rebuild',
+          )}
+          confirmLabel={t(resetConfirm === 'apply' ? 'sync.applySnapshot' : 'sync.rebuild')}
+          failure={(value) => value}
+          onConfirm={async () => {
+            if (status?.binding && !status.binding.enabled && reset) {
+              await client.request('sync.configure', {
+                enabled: true,
+                categories: status.binding.categories,
+                projects: (status.projects ?? []).flatMap((project) =>
+                  project.workspaceId && status.binding?.projectIds.includes(project.projectId)
+                    ? [{ projectId: project.projectId, workspaceId: project.workspaceId }]
+                    : [],
+                ),
+                includeHistory: status.includeHistory,
+                expectedRevision: status.binding.revision,
+              });
+            }
+            setStatus(
+              resetConfirm === 'apply' && reset
+                ? await client.request('sync.resetApply', { jobId: reset.jobId })
+                : await client.request('sync.resetPrepare', {
+                    restart: resetConfirm === 'restart',
+                  }),
+            );
+            setEditing(false);
+          }}
+        >
+          <p>
+            {t(resetConfirm === 'apply' ? 'sync.resetApplyConsequences' : 'sync.resetConsequences')}
+          </p>
+        </ConfirmDialog>
       )}
       {client.supports('sync_memory_conflicts') &&
         status?.binding?.categories.includes('memory') && (
           <ZuvMemoryConflicts
             client={client}
-            disabled={busy || !active || !status.binding.enabled}
+            disabled={busy || !!reset || resetBusy || !active || !status.binding.enabled}
             onResolved={refresh}
           />
         )}

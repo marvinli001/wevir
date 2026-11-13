@@ -122,6 +122,124 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it.each([false, true])(
+    'rebuilds a reset device explicitly while preserving offline edits against remote deletion=%s',
+    async (deleted) => {
+      const { mock, first, second } = await fixture();
+      const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
+      await first.rpc.request('sync.configure', scope);
+      expect((await second.rpc.call('sync.configure', scope)).error).toMatchObject({
+        data: { code: 'RECOVERY_REQUIRED' },
+      });
+      const before = await second.rpc.request('sync.status');
+      await first.rpc.request('sync.approveDevice', { deviceId: before.binding.deviceId });
+      await second.rpc.request('sync.configure', scope);
+      await first.memory.save('global', undefined, {
+        name: 'reset-synthetic',
+        type: 'project',
+        description: 'Synthetic reset',
+        content: 'Original shared body',
+      });
+      await expect
+        .poll(
+          () =>
+            second.memory.read('global', undefined, 'reset-synthetic').then(
+              (note) => note.content,
+              () => '',
+            ),
+          { timeout: 8000 },
+        )
+        .toBe('Original shared body');
+      mock.sync.forceReset(before.binding.deviceId);
+      const local = await second.memory.read('global', undefined, 'reset-synthetic');
+      await second.memory.update('global', undefined, 'reset-synthetic', local.revision, {
+        content: 'Offline edit remains local',
+      });
+      const remote = await first.memory.read('global', undefined, 'reset-synthetic');
+      if (deleted)
+        await first.memory.delete('global', undefined, 'reset-synthetic', {
+          revision: remote.revision,
+        });
+      else
+        await first.memory.update('global', undefined, 'reset-synthetic', remote.revision, {
+          content: 'New server revision',
+        });
+      await first.rpc.request('sync.retry');
+      await expect
+        .poll(async () => (await first.rpc.request('sync.status')).pending, { timeout: 8000 })
+        .toBe(0);
+      const exports = mock.sync.exports;
+      await second.rpc.request('sync.retry');
+      expect(mock.sync.exports).toBe(exports);
+      await second.rpc.request('sync.resetPrepare');
+      await expect
+        .poll(
+          async () => {
+            const reset = (await second.rpc.request('sync.status')).reset;
+            return reset?.busy ? 'busy' : reset?.phase;
+          },
+          { timeout: 8000 },
+        )
+        .toBe('staged');
+      const staged = await second.rpc.request('sync.status');
+      expect(staged.reset).toMatchObject({ selected: 2, staged: 2, applied: 0 });
+      expect(mock.sync.resettingDevices.has(before.binding.deviceId)).toBe(true);
+      expect((await second.memory.read('global', undefined, 'reset-synthetic')).content).toBe(
+        'Offline edit remains local',
+      );
+      expect((await second.rpc.call('sync.configure', scope)).error).toMatchObject({
+        data: { code: 'RECOVERY_REQUIRED' },
+      });
+      await second.rpc.call('sync.configure', { enabled: false, categories: [], projects: [] });
+      expect((await second.rpc.request('sync.status')).binding.enabled).toBe(false);
+      expect(
+        (await second.rpc.call('sync.resetApply', { jobId: staged.reset.jobId })).error,
+      ).toMatchObject({ data: { code: 'SCOPE_DISABLED' } });
+      await second.rpc.request('sync.configure', {
+        ...scope,
+        expectedRevision: staged.binding.revision,
+      });
+      await second.rpc.request('sync.resetApply', { jobId: staged.reset.jobId });
+      await expect
+        .poll(async () => (await second.rpc.request('sync.status')).reset, { timeout: 8000 })
+        .toBeUndefined();
+      expect(mock.sync.resettingDevices.has(before.binding.deviceId)).toBe(false);
+      expect(
+        mock.sync.acknowledgements.filter(
+          (ack) => ack.deviceId === before.binding.deviceId && ack.restoreId,
+        ),
+      ).toHaveLength(1);
+      expect((await second.memory.read('global', undefined, 'reset-synthetic')).content).toBe(
+        'Offline edit remains local',
+      );
+      await expect
+        .poll(async () => (await second.rpc.request('sync.memoryConflicts')).conflicts.length, {
+          timeout: 8000,
+        })
+        .toBe(1);
+      expect(second.adapter.deleted).toEqual([]);
+      if (deleted) {
+        const conflict = (await second.rpc.request('sync.memoryConflicts')).conflicts[0];
+        const preview = await second.rpc.request('sync.previewMemoryMerge', {
+          entityId: conflict.entityId,
+        });
+        expect(preview.versions.some((version: { deleted?: boolean }) => version.deleted)).toBe(
+          true,
+        );
+        expect(
+          preview.versions.some((version: { markdown?: string }) =>
+            version.markdown?.includes('Offline edit remains local'),
+          ),
+        ).toBe(true);
+        await expect(
+          first.memory.read('global', undefined, 'reset-synthetic'),
+        ).rejects.toBeDefined();
+      }
+      expect(mock.errors).toEqual([]);
+    },
+    20000,
+  );
+
   it('previews and explicitly merges concurrent memory edits through the Host while retaining both revisions', async () => {
     const { mock, first, second } = await fixture();
     const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };

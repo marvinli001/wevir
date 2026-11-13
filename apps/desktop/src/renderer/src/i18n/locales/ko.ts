@@ -1717,6 +1717,16 @@ export const messages: Messages = {
   'sync.localVersion': '로컬 버전',
   'sync.mergeResult': '병합 결과',
   'sync.manualMerge': '수동 병합',
+  'sync.rebuild': '동기화 재구축',
+  'sync.applySnapshot': '스냅샷 적용',
+  'sync.fetchAgain': '다시 가져오기',
+  'sync.resetConsequences':
+    '선택한 범위의 클라우드 데이터를 내려받고 동기화 색인을 재구축합니다. 동기화되지 않은 로컬 변경과 버전 기록은 보존됩니다.',
+  'sync.resetApplyConsequences':
+    '검증된 스냅샷을 적용하고 선택한 동기화 범위를 복원합니다. 로컬 변경은 보존되며 충돌 버전은 선택이 필요합니다.',
+  'sync.resetStaged': '{done}/{total}개 준비됨',
+  'sync.resetApplied': '{done}/{total}개 적용됨',
+  'sync.pauseReset': '복구 일시 중지',
   'sync.projects': '프로젝트',
   'sync.includeHistory': '기존 기록 포함',
   'sync.saveScope': '저장 및 활성화',

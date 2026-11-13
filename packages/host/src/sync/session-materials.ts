@@ -27,7 +27,7 @@ import { newId } from '../ids.js';
 import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sha256 } from './crypto.js';
-import type { SyncMaterialRevision } from './queue.js';
+import type { SyncApplyContext, SyncMaterialRevision } from './queue.js';
 import { type SyncDraftPayload, SyncQueue } from './queue.js';
 
 type Record = typeof packRecord._output;
@@ -294,7 +294,11 @@ export class SyncSessionMaterials {
     });
   }
 
-  async prepare(op: SyncMaterialRevision, record: Record): Promise<() => void> {
+  async prepare(
+    op: SyncMaterialRevision,
+    record: Record,
+    context: SyncApplyContext = {},
+  ): Promise<() => void> {
     const raw = record.content as { schema?: string };
     if (
       ![
@@ -410,7 +414,7 @@ export class SyncSessionMaterials {
           source: body.source,
           localId: source.localSessionId,
         });
-      this.#apply(op, body, mapped, record.projectId as string);
+      this.#apply(op, body, mapped, record.projectId as string, context);
     };
   }
 
@@ -524,7 +528,13 @@ export class SyncSessionMaterials {
     return draft && ((draft.content as SyncDraftPayload).body as Body);
   }
 
-  #apply(op: SyncMaterialRevision, body: Body, ref: SyncContentRefRecord, projectId: string): void {
+  #apply(
+    op: SyncMaterialRevision,
+    body: Body,
+    ref: SyncContentRefRecord,
+    projectId: string,
+    context: SyncApplyContext = {},
+  ): void {
     const { storage } = this.#options;
     const source = storage.sync
       .sources(op.vaultId)
@@ -543,7 +553,8 @@ export class SyncSessionMaterials {
     const conflict =
       previous?.revision &&
       previous.revision !== op.opId &&
-      !op.parents.includes(previous.revision);
+      !op.parents.includes(previous.revision) &&
+      previous.revision !== context.replaceRevision;
     if (conflict) {
       storage.sync.putMaterialJournal({
         vaultId: op.vaultId,

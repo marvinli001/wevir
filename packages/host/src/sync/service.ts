@@ -20,6 +20,7 @@ import type { ZuvAccounts } from '../zuv/accounts.js';
 import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { SyncArtifacts } from './artifacts.js';
+import { SyncBootstrap } from './bootstrap.js';
 import { SyncBlobCache } from './cache.js';
 import { SyncEventCapture } from './capture.js';
 import { SyncProjectCatalog } from './catalog.js';
@@ -59,6 +60,7 @@ export class SyncService {
   readonly #keys: SyncVaultKeys;
   readonly #settings: SyncSettings;
   readonly #catalog: SyncProjectCatalog;
+  readonly #bootstrap: SyncBootstrap;
   readonly #memoryConflicts: SyncMemoryConflicts;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #running: Promise<void> | undefined;
@@ -69,6 +71,8 @@ export class SyncService {
   #configuring = false;
   #configurationDone: Promise<void> | undefined;
   #finishConfiguration: (() => void) | undefined;
+  #resetTask: Promise<void> | undefined;
+  #resetAbort: AbortController | undefined;
   constructor(options: SyncServiceOptions) {
     this.#options = options;
     this.#settings = new SyncSettings(options);
@@ -102,9 +106,16 @@ export class SyncService {
     });
     const cache = new SyncBlobCache(join(options.home, 'sync/blobs'));
     const snapshots = new SyncSnapshots(options);
+    const data = new SyncRestoreData({ ...options, cache, snapshots, keys: this.#keys });
+    this.#bootstrap = new SyncBootstrap({
+      ...options,
+      snapshots,
+      data,
+      eligible: () => this.#consented(),
+    });
     this.#catalog = new SyncProjectCatalog({
       snapshots,
-      data: new SyncRestoreData({ ...options, cache, snapshots, keys: this.#keys }),
+      data,
       eligible: () => this.#consented(),
     });
     this.#engine = new SyncEngine({
@@ -199,6 +210,7 @@ export class SyncService {
     clearTimeout(this.#timer);
     this.#engine.stop();
     this.#catalog.stop();
+    this.#resetAbort?.abort();
     this.#initialized = false;
   }
   async suspend(): Promise<void> {
@@ -223,6 +235,9 @@ export class SyncService {
     const counts = vault
       ? storage.sync.counts(vault.vaultId)
       : { pending: 0, quarantined: 0, conflicts: 0 };
+    const resetJob = vault && storage.sync.activeBootstrapJob(vault.vaultId);
+    const application =
+      resetJob && storage.sync.bootstrapApplication(resetJob.vaultId, resetJob.jobId);
     let state: SyncStatus['state'] = !vault?.enabled
       ? keys?.keyState === 'approval-required'
         ? 'approval_required'
@@ -232,11 +247,13 @@ export class SyncService {
       if (this.#catalog.busy) state = 'syncing';
       if (
         client.entitlements?.subscriptionState !== 'active' ||
-        client.entitlements.syncState === 'paused'
+        ['paused', 'disabled'].includes(client.entitlements.syncState)
       )
         state = 'paused';
       if (counts.quarantined || counts.conflicts || this.#errorCode === 'LOCAL_STORAGE_ERROR')
         state = 'attention';
+      if (resetJob) state = this.#resetTask ? 'syncing' : 'reset_required';
+      else if (this.#resetTask) state = 'configuring';
     }
     return SyncStatusSchema.parse({
       protocol: 'wevir-sync/1',
@@ -260,6 +277,18 @@ export class SyncService {
         })),
       }),
       ...counts,
+      ...(resetJob && {
+        reset: {
+          jobId: resetJob.jobId,
+          phase: application?.state ?? resetJob.state,
+          busy: this.#resetTask !== undefined,
+          pendingBefore: resetJob.pendingBefore,
+          ...storage.sync.bootstrapCounts(resetJob.vaultId, resetJob.jobId),
+          ...((this.#errorCode ?? application?.errorCode ?? resetJob.errorCode) && {
+            errorCode: this.#errorCode ?? application?.errorCode ?? resetJob.errorCode,
+          }),
+        },
+      }),
       state: state ?? 'disabled',
       ...((this.#errorCode ?? transport?.errorCode) && {
         errorCode: this.#errorCode ?? transport?.errorCode,
@@ -270,6 +299,50 @@ export class SyncService {
 
   async configure(params: SyncConfigureParams): Promise<SyncStatus> {
     if (this.#configuring) throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    const current = this.#options.storage.sync.activeVault();
+    if (
+      params.enabled &&
+      current &&
+      this.#options.storage.sync.activeBootstrapJob(current.vaultId)
+    ) {
+      const identity = this.#options.client.entitlements;
+      const bindings = this.#options.storage.sync.projects(current.vaultId);
+      if (
+        current.enabled ||
+        this.#closed ||
+        this.#options.client.changingIdentity ||
+        this.#options.client.requiresLogin ||
+        !this.#options.client.signedIn ||
+        identity?.subscriptionState !== 'active' ||
+        identity.identity.userId !== current.accountId ||
+        identity.identity.deviceId !== current.deviceId ||
+        params.expectedRevision !== current.revision ||
+        params.categories.length !== current.categories.length ||
+        new Set(params.categories).size !== current.categories.length ||
+        params.categories.some((category) => !current.categories.includes(category)) ||
+        params.projects.length !== current.projectIds.length ||
+        new Set(params.projects.map((project) => project.projectId)).size !==
+          current.projectIds.length ||
+        params.projects.some(
+          (project) =>
+            !current.projectIds.includes(project.projectId ?? '') ||
+            !bindings.some(
+              (binding) =>
+                binding.projectId === project.projectId &&
+                binding.workspaceId === project.workspaceId,
+            ),
+        ) ||
+        !!params.includeHistory !== this.#options.storage.sync.includeHistory(current.vaultId)
+      )
+        throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
+      const job = this.#options.storage.sync.activeBootstrapJob(current.vaultId);
+      if (!job) throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+      this.#options.storage.transaction(() => {
+        this.#options.storage.sync.setScopes(current.vaultId, { ...current, enabled: true });
+        this.#options.storage.sync.reconsentBootstrap(current.vaultId, job.jobId, current.revision);
+      });
+      return this.status();
+    }
     this.#configuring = true;
     this.#configurationDone = new Promise((resolve) => {
       this.#finishConfiguration = resolve;
@@ -458,10 +531,126 @@ export class SyncService {
   }
 
   async retry(): Promise<SyncStatus> {
+    const vault = this.#options.storage.sync.activeVault();
+    if (vault && this.#options.storage.sync.activeBootstrapJob(vault.vaultId))
+      return this.resetPrepare();
     await this.#running?.catch(() => {});
     this.#errorCode = undefined;
     this.#engine.restart();
     await this.flush();
+    return this.status();
+  }
+
+  resetPrepare(restart = false): SyncStatus {
+    return this.#launchReset(undefined, restart);
+  }
+  resetApply(jobId: string): SyncStatus {
+    return this.#launchReset(jobId, false);
+  }
+  async resetCancel(jobId: string): Promise<SyncStatus> {
+    const { storage } = this.#options;
+    const vault = storage.sync.activeVault();
+    const job = vault && storage.sync.activeBootstrapJob(vault.vaultId);
+    if (!job || job.jobId !== jobId) throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    const task = this.#resetTask;
+    this.#resetAbort?.abort();
+    await task;
+    if (this.#resetTask && this.#resetTask !== task)
+      throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    const application = storage.sync.bootstrapApplication(job.vaultId, jobId);
+    if (!application) {
+      storage.transaction(() => storage.sync.closeBootstrapJob(job.vaultId, jobId));
+      if (this.#options.client.entitlements?.syncState === 'ready') {
+        this.#errorCode = undefined;
+        storage.sync.setVaultTransport(job.vaultId, {
+          ...storage.sync.vaultTransport(job.vaultId),
+          state: 'pending',
+          errorCode: undefined,
+          retryAt: 0,
+        });
+      }
+    }
+    return this.status();
+  }
+  #launchReset(jobId: string | undefined, restart: boolean): SyncStatus {
+    if (this.#closed || this.#configuring)
+      throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    const vault = this.#consented();
+    if (!vault) throw this.#failure(new ZuvRequestError('SCOPE_DISABLED'));
+    const { storage } = this.#options;
+    const current = storage.sync.activeBootstrapJob(vault.vaultId);
+    if (jobId && current?.jobId !== jobId)
+      throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    this.#configuring = true;
+    this.#configurationDone = new Promise((resolve) => {
+      this.#finishConfiguration = resolve;
+    });
+    this.stop();
+    this.#resetAbort = new AbortController();
+    const signal = this.#resetAbort.signal;
+    this.#errorCode = undefined;
+    this.#resetTask = (async () => {
+      await this.#running?.catch(() => {});
+      await this.#catalog.drain();
+      signal.throwIfAborted();
+      await this.#refresh();
+      signal.throwIfAborted();
+      const selected = this.#consented();
+      if (!selected || selected.vaultId !== vault.vaultId || selected.revision !== vault.revision)
+        throw new ZuvRequestError('SCOPE_DISABLED');
+      await this.#scan(selected, false, false);
+      this.#capture.prepare();
+      if (!jobId) {
+        if (restart && current)
+          storage.transaction(() => storage.sync.closeBootstrapJob(vault.vaultId, current.jobId));
+        if (!current || restart) await this.#bootstrap.prepare(signal);
+        else if (current.state !== 'staged') await this.#bootstrap.resume(current.jobId, signal);
+      } else {
+        await this.#bootstrap.apply(jobId, signal, (op, record, context) =>
+          this.#materials.prepareApply(op, record, context),
+        );
+        await this.#bootstrap.acknowledge(jobId, signal);
+        await this.#bootstrap.enable(jobId, signal);
+        await this.#engine.reconcileReset(jobId, signal);
+        await this.#bootstrap.reconcile(jobId, signal, (op, record, context) =>
+          this.#materials.prepareApply(op, record, context),
+        );
+        this.#bootstrap.finish(jobId, signal);
+        storage.sync.setVaultTransport(vault.vaultId, {
+          ...storage.sync.vaultTransport(vault.vaultId),
+          state: 'pending',
+          errorCode: undefined,
+          retryAt: 0,
+        });
+      }
+    })()
+      .catch((error) => {
+        this.#errorCode =
+          error instanceof ZuvRequestError
+            ? error.code
+            : signal.aborted
+              ? 'SCOPE_DISABLED'
+              : 'LOCAL_STORAGE_ERROR';
+        storage.sync.setVaultTransport(vault.vaultId, {
+          ...storage.sync.vaultTransport(vault.vaultId),
+          state: 'reset_required',
+          errorCode: this.#errorCode,
+          retryAt: 0,
+        });
+      })
+      .finally(() => {
+        this.#materials.notify();
+        this.#resetTask = undefined;
+        this.#resetAbort = undefined;
+        this.#configuring = false;
+        this.#finishConfiguration?.();
+        this.#configurationDone = undefined;
+        this.#finishConfiguration = undefined;
+        if (!this.#closed && !this.#options.client.changingIdentity) {
+          this.#engine.restart();
+          this.#schedule(0);
+        }
+      });
     return this.status();
   }
 
@@ -475,6 +664,9 @@ export class SyncService {
   async projectCatalog(enable = false) {
     if (this.#configuring || this.#closed)
       throw this.#failure(new ZuvRequestError('SCOPE_DISABLED'));
+    const active = this.#options.storage.sync.activeVault();
+    if (active && this.#options.storage.sync.activeBootstrapJob(active.vaultId))
+      throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
     if (enable && !this.#consented()?.categories.includes('project')) {
       const { storage } = this.#options;
       const current = storage.sync.activeVault();
@@ -519,6 +711,8 @@ export class SyncService {
         !vault.projectIds.includes(params.projectId)
       )
         throw new ZuvRequestError('SCOPE_DISABLED');
+      if (this.#options.storage.sync.activeBootstrapJob(vault.vaultId))
+        throw new ZuvRequestError('RECOVERY_REQUIRED');
       const { storage } = this.#options;
       this.#capture.projects();
       const result = storage.transaction(() => {
@@ -586,6 +780,9 @@ export class SyncService {
   async #memoryOperation<T>(operation: () => Promise<T>): Promise<T> {
     if (this.#closed || this.#configuring)
       throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    const active = this.#options.storage.sync.activeVault();
+    if (active && this.#options.storage.sync.activeBootstrapJob(active.vaultId))
+      throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
     this.#configuring = true;
     this.#configurationDone = new Promise((resolve) => {
       this.#finishConfiguration = resolve;
@@ -667,6 +864,8 @@ export class SyncService {
     const { storage, client } = this.#options;
     try {
       if (this.#configuring || this.#catalog.busy) return;
+      const active = storage.sync.activeVault();
+      if (active && storage.sync.activeBootstrapJob(active.vaultId)) return;
       if (!client.signedIn || client.requiresLogin || !storage.sync.activeVault()?.enabled) return;
       if (Date.now() - this.#lastRefresh >= 60000) await this.#refresh();
       const vault = this.#consented();

@@ -7,6 +7,10 @@ export interface SyncDraftPayload {
   events?: typeof packRecord._output.events;
 }
 export type SyncMaterialRevision = Omit<SyncOperation, 'protocol' | 'deviceSeq' | 'payload'>;
+export interface SyncApplyContext {
+  replaceRevision?: string;
+  preserveRevision?: boolean;
+}
 
 import type { Storage, SyncEntityRecord } from '@wevir/storage';
 import { newId } from '../ids.js';

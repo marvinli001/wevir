@@ -5,6 +5,7 @@ import {
   jcs,
   matchRecord,
   packRecord,
+  type SyncOperation,
   schemas,
   validateOperation,
 } from '@wevir/protocol/sync';
@@ -18,6 +19,7 @@ import { newId } from '../ids.js';
 import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { eventDigest, sha256 } from './crypto.js';
+import type { SyncApplyContext } from './queue.js';
 import type { SyncRestoreData } from './restore-data.js';
 import type { SyncSnapshots } from './snapshots.js';
 
@@ -29,6 +31,11 @@ interface BootstrapOptions {
   home: string;
   eligible: () => SyncVaultRecord | undefined;
 }
+type PrepareApply = (
+  operation: SyncOperation,
+  record: typeof packRecord._output,
+  context: SyncApplyContext,
+) => Promise<() => void>;
 export class SyncBootstrap {
   readonly #options: BootstrapOptions;
   constructor(options: BootstrapOptions) {
@@ -37,6 +44,8 @@ export class SyncBootstrap {
 
   async prepare(signal: AbortSignal) {
     const vault = this.#vault();
+    if (this.#options.storage.sync.activeBootstrapJob(vault.vaultId))
+      throw new ZuvRequestError('REVISION_CONFLICT');
     const job: SyncBootstrapJob = {
       vaultId: vault.vaultId,
       jobId: newId('srj'),
@@ -65,7 +74,11 @@ export class SyncBootstrap {
     const vault = this.#vault();
     const job = this.#options.storage.sync.bootstrapJob(vault.vaultId, jobId);
     if (!job) throw new ZuvRequestError('RECOVERY_REQUIRED');
-    return { job, ...this.#options.storage.sync.bootstrapCounts(vault.vaultId, jobId) };
+    return {
+      job,
+      ...this.#options.storage.sync.bootstrapCounts(vault.vaultId, jobId),
+      application: this.#options.storage.sync.bootstrapApplication(vault.vaultId, jobId),
+    };
   }
   jobs() {
     const vault = this.#vault();
@@ -98,6 +111,258 @@ export class SyncBootstrap {
         this.#options.storage.sync.putSnapshotRoot(job.vaultId, jobId, root.entityId, root.opId);
     });
     return roots.length;
+  }
+
+  async apply(jobId: string, signal: AbortSignal, prepareApply: PrepareApply) {
+    const { job, application } = this.status(jobId);
+    this.#guard(job, signal);
+    if (job.state !== 'staged') throw new ZuvRequestError('RECOVERY_REQUIRED');
+    if (application && application.state !== 'applying') return this.status(jobId);
+    const descriptor = await this.#options.snapshots.describe(jobId);
+    // Verify every stored record before exposing the first business revision.
+    for await (const _record of this.records(jobId, signal)) {
+      /* verify all records */
+    }
+    await this.installRoots(jobId, signal);
+    const { storage } = this.#options;
+    storage.transaction(() =>
+      storage.sync.putBootstrapApplication({
+        vaultId: job.vaultId,
+        jobId,
+        snapshotCursor: descriptor.exported.snapshotCursor,
+        state: 'applying',
+      }),
+    );
+    try {
+      for (const entry of this.#entries(job, true)) {
+        this.#guard(job, signal);
+        if (entry.applied) continue;
+        const { operation, recordManifest, record } = this.#record(entry);
+        storage.transaction(() =>
+          storage.sync.putOperation({
+            vaultId: job.vaultId,
+            opId: operation.opId,
+            deviceId: operation.deviceId,
+            deviceSeq: operation.deviceSeq,
+            entityId: operation.entityId,
+            entityType: operation.entityType,
+            ...(recordManifest.projectId && { projectId: recordManifest.projectId }),
+            envelope: operation,
+            manifest: recordManifest,
+            digest: entry.digest,
+            direction: 'inbox',
+            state: 'received',
+          }),
+        );
+        const stored = storage.sync.getOperation(job.vaultId, operation.opId);
+        if (!stored) throw new ZuvRequestError('INTEGRITY_FAILED');
+        let materialize: (() => void) | undefined;
+        if (stored.direction !== 'outbox' && !['applied', 'committed'].includes(stored.state)) {
+          if (
+            storage.sync.missingParents(job.vaultId, operation.entityId, operation.parents).length
+          )
+            throw new ZuvRequestError('MISSING_PARENT');
+          try {
+            materialize = await prepareApply(operation, record, {});
+          } catch (error) {
+            if (
+              error instanceof ZuvRequestError &&
+              ['INTEGRITY_FAILED', 'UPGRADE_REQUIRED'].includes(error.code)
+            )
+              storage.sync.markOperation(job.vaultId, operation.opId, 'quarantined', error.code);
+            throw error;
+          }
+        }
+        this.#guard(job, signal);
+        storage.transaction(() => {
+          storage.sync.putRestoredRecord(job.vaultId, operation.opId, entry.digest, record);
+          if (stored.direction === 'outbox')
+            storage.sync.markOperation(job.vaultId, operation.opId, 'committed');
+          else if (!['applied', 'committed'].includes(stored.state)) {
+            materialize?.();
+            storage.sync.applyHeads(
+              job.vaultId,
+              operation.entityId,
+              operation.opId,
+              operation.parents,
+            );
+            storage.sync.markOperation(job.vaultId, operation.opId, 'applied');
+          }
+          storage.sync.markBootstrapEntryApplied(job.vaultId, jobId, operation.opId);
+        });
+      }
+      this.#guard(job, signal);
+      storage.transaction(() => storage.sync.reconcileBootstrapHeads(job.vaultId, jobId));
+      await this.#projectHeads(job, signal, prepareApply);
+      this.#guard(job, signal);
+      storage.transaction(() => {
+        storage.sync.restartPull(job.vaultId, job.fromCursor, descriptor.exported.snapshotCursor);
+        storage.sync.putBootstrapApplication({
+          vaultId: job.vaultId,
+          jobId,
+          snapshotCursor: descriptor.exported.snapshotCursor,
+          state: 'applied',
+        });
+      });
+      return this.status(jobId);
+    } catch (error) {
+      storage.transaction(() =>
+        storage.sync.putBootstrapApplication({
+          vaultId: job.vaultId,
+          jobId,
+          snapshotCursor: descriptor.exported.snapshotCursor,
+          state: 'applying',
+          errorCode: error instanceof ZuvRequestError ? error.code : 'LOCAL_STORAGE_ERROR',
+        }),
+      );
+      throw error;
+    }
+  }
+  async reconcile(jobId: string, signal: AbortSignal, prepareApply: PrepareApply) {
+    const { job, application } = this.status(jobId);
+    this.#guard(job, signal);
+    if (!application || application.state === 'applying')
+      throw new ZuvRequestError('RECOVERY_REQUIRED');
+    this.#options.storage.transaction(() =>
+      this.#options.storage.sync.reconcileBootstrapHeads(job.vaultId, jobId),
+    );
+    await this.#projectHeads(job, signal, prepareApply);
+    return this.status(jobId);
+  }
+  async acknowledge(jobId: string, signal: AbortSignal) {
+    const { job, application } = this.status(jobId);
+    this.#guard(job, signal);
+    if (!application || application.state === 'applying')
+      throw new ZuvRequestError('RECOVERY_REQUIRED');
+    if (application.state === 'acknowledged') return this.status(jobId);
+    const descriptor = await this.#options.snapshots.describe(jobId);
+    if (application.snapshotCursor !== descriptor.exported.snapshotCursor)
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    await this.#options.client.json(
+      'applied',
+      'POST',
+      '/api/wevir/sync/v1/devices/ack',
+      {
+        cursor: application.snapshotCursor,
+        restoreId: descriptor.exported.restoreId,
+      },
+      { signal },
+    );
+    this.#guard(job, signal);
+    this.#options.storage.transaction(() =>
+      this.#options.storage.sync.putBootstrapApplication({ ...application, state: 'acknowledged' }),
+    );
+    return this.status(jobId);
+  }
+  async enable(jobId: string, signal: AbortSignal) {
+    const { job, application } = this.status(jobId);
+    this.#guard(job, signal);
+    if (application?.state !== 'acknowledged') throw new ZuvRequestError('RECOVERY_REQUIRED');
+    if (this.#options.client.entitlements?.subscriptionState !== 'active')
+      throw new ZuvRequestError('SUBSCRIPTION_REQUIRED');
+    if (application.scopeRevision) return this.status(jobId);
+    const devices = await this.#options.client.json(
+      'devices',
+      'GET',
+      '/api/wevir/sync/v1/devices',
+      undefined,
+      { signal },
+    );
+    const own = devices.devices.find((device) => device.deviceId === job.deviceId);
+    const expected = application.scopeAttempt ?? job.scopeRevision;
+    if (
+      !own ||
+      (own.revision !== expected &&
+        (!application.scopeAttempt || own.revision !== String(BigInt(expected) + 1n)))
+    )
+      throw new ZuvRequestError('REVISION_CONFLICT');
+    this.#guard(job, signal);
+    this.#options.storage.transaction(() =>
+      this.#options.storage.sync.putBootstrapApplication({
+        ...application,
+        scopeAttempt: own.revision,
+      }),
+    );
+    const selected = await this.#options.client.json(
+      'scopesUpdated',
+      'PUT',
+      '/api/wevir/sync/v1/scopes',
+      {
+        expectedRevision: own.revision,
+        enabled: true,
+        categories: job.categories,
+        projectIds: job.projectIds,
+      },
+      { signal },
+    );
+    if (
+      !selected.enabled ||
+      selected.revision !== String(BigInt(own.revision) + 1n) ||
+      jcs(selected.categories) !== jcs(job.categories) ||
+      jcs(selected.projectIds) !== jcs(job.projectIds)
+    )
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    this.#guard(job, signal);
+    this.#options.storage.transaction(() => {
+      this.#options.storage.sync.setScopes(job.vaultId, selected);
+      this.#options.storage.sync.putBootstrapApplication({
+        ...application,
+        scopeAttempt: own.revision,
+        scopeRevision: selected.revision,
+      });
+    });
+    await this.#options.client.getEntitlements();
+    this.#guard(job, signal);
+    return this.status(jobId);
+  }
+  finish(jobId: string, signal: AbortSignal) {
+    const { job, application } = this.status(jobId);
+    this.#guard(job, signal);
+    if (application?.state !== 'acknowledged') throw new ZuvRequestError('RECOVERY_REQUIRED');
+    this.#options.storage.transaction(() =>
+      this.#options.storage.sync.closeBootstrapJob(job.vaultId, jobId),
+    );
+    return this.status(jobId);
+  }
+  async #projectHeads(job: SyncBootstrapJob, signal: AbortSignal, prepareApply: PrepareApply) {
+    const { storage } = this.#options;
+    const heads = new Map<string, string[]>();
+    for (const candidate of storage.sync.bootstrapHeadCandidates(job.vaultId, job.jobId)) {
+      const values = heads.get(candidate.entityId) ?? [];
+      values.push(candidate.opId);
+      heads.set(candidate.entityId, values);
+    }
+    for (const [entityId, values] of heads) {
+      if (values.length !== 1 || storage.sync.hasPendingEntity(job.vaultId, entityId)) continue;
+      const opId = values[0] as string;
+      const entry = storage.sync.bootstrapEntry(job.vaultId, job.jobId, opId);
+      if (!entry) throw new ZuvRequestError('INTEGRITY_FAILED');
+      const { operation, record } = this.#record(entry);
+      if (
+        operation.entityType === 'event-segment' ||
+        (record.content as { schema?: string })?.schema === 'wevir-chunk/1'
+      )
+        continue;
+      const material = storage.sync.entity(job.vaultId, entityId);
+      const previous = material?.revision
+        ? storage.sync.getOperation(job.vaultId, material.revision)
+        : undefined;
+      const context: SyncApplyContext =
+        previous && ['applied', 'committed'].includes(previous.state)
+          ? { replaceRevision: previous.opId }
+          : {};
+      const apply = await prepareApply(operation, record, context);
+      this.#guard(job, signal);
+      storage.transaction(() => {
+        apply();
+        if (
+          storage.sync.entity(job.vaultId, entityId)?.revision === opId &&
+          storage.sync.materialJournal(job.vaultId, opId)?.state !== 'conflict' &&
+          !storage.sync.hasPendingEntity(job.vaultId, entityId)
+        )
+          storage.sync.clearSnapshotProjectionConflicts(job.vaultId, entityId);
+      });
+    }
   }
 
   async #stage(
@@ -220,14 +485,21 @@ export class SyncBootstrap {
   #guard(job: SyncBootstrapJob, signal: AbortSignal) {
     signal.throwIfAborted();
     const vault = this.#vault();
+    const application = this.#options.storage.sync.bootstrapApplication(job.vaultId, job.jobId);
+    const cursorMatches =
+      job.fromCursor === vault.appliedCursor ||
+      (application?.state !== 'applying' && application?.snapshotCursor === vault.appliedCursor);
+    const revisionMatches =
+      job.scopeRevision === vault.revision || application?.scopeRevision === vault.revision;
     if (
+      this.#options.storage.sync.activeBootstrapJob(job.vaultId)?.jobId !== job.jobId ||
       job.vaultId !== vault.vaultId ||
       job.accountId !== vault.accountId ||
       job.deviceId !== vault.deviceId ||
       job.hostId !== vault.originHostId ||
       job.origin !== this.#options.client.transport.origin ||
-      job.scopeRevision !== vault.revision ||
-      job.fromCursor !== vault.appliedCursor ||
+      !revisionMatches ||
+      !cursorMatches ||
       jcs(job.categories) !== jcs(vault.categories) ||
       jcs(job.projectIds) !== jcs(vault.projectIds)
     )
@@ -257,6 +529,7 @@ export class SyncBootstrap {
     )
       throw new ZuvRequestError('AUTH_REQUIRED');
     const hash = createHash('sha256').update('[');
+    const bindings = new Map<string, string>();
     let count = 0;
     for (const entry of this.#entries(job)) {
       const body = jcs({ operation: entry.envelope, recordManifest: entry.manifest });
@@ -264,6 +537,10 @@ export class SyncBootstrap {
         throw new ZuvRequestError('INTEGRITY_FAILED');
       const operation = validateOperation(entry.envelope);
       const manifest = schemas.recordManifest.parse(entry.manifest);
+      const binding = jcs([operation.entityType, manifest.projectId ?? null]);
+      if (bindings.has(operation.entityId) && bindings.get(operation.entityId) !== binding)
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      bindings.set(operation.entityId, binding);
       const selected =
         job.categories.includes(operation.entityType) &&
         (!manifest.projectId || job.projectIds.includes(manifest.projectId));

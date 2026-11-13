@@ -100,6 +100,12 @@ export function createSyncMaterialRepository(db: SqliteDatabase) {
         JSON.stringify(ancestors.map((row) => text(row, 'op_id'))),
       );
     },
+    clearSnapshotProjectionConflicts(vaultId: string, entityId: string): void {
+      if (!db.isTransaction) throw new Error('sync snapshot projection requires a transaction');
+      db.prepare(
+        "DELETE FROM sync_material_journal WHERE vault_id = ? AND entity_id = ? AND state = 'conflict'",
+      ).run(vaultId, entityId);
+    },
     owner(localKey: string): string | undefined {
       const row = db
         .prepare('SELECT vault_id FROM sync_resource_owners WHERE local_key = ?')
