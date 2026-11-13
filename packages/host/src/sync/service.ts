@@ -32,6 +32,7 @@ import { SyncMemoryConflicts } from './memory-conflicts.js';
 import { SyncQueue } from './queue.js';
 import { SyncRestoreData } from './restore-data.js';
 import { SyncSettings } from './settings.js';
+import { SyncSettingsConflicts } from './settings-conflicts.js';
 import { SyncSnapshots } from './snapshots.js';
 
 export interface SyncServiceOptions {
@@ -62,6 +63,7 @@ export class SyncService {
   readonly #catalog: SyncProjectCatalog;
   readonly #bootstrap: SyncBootstrap;
   readonly #memoryConflicts: SyncMemoryConflicts;
+  readonly #settingsConflicts: SyncSettingsConflicts;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #running: Promise<void> | undefined;
   #closed = false;
@@ -76,6 +78,11 @@ export class SyncService {
   constructor(options: SyncServiceOptions) {
     this.#options = options;
     this.#settings = new SyncSettings(options);
+    this.#settingsConflicts = new SyncSettingsConflicts({
+      ...options,
+      settingsSync: this.#settings,
+      eligible: () => (this.#closed ? undefined : this.#consented()),
+    });
     this.#keys = new SyncVaultKeys({
       client: options.client,
       secrets: options.secrets,
@@ -770,6 +777,19 @@ export class SyncService {
     } catch (error) {
       throw this.#failure(error);
     }
+  }
+  settingsConflicts(after?: string) {
+    try {
+      return this.#settingsConflicts.list(after);
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+  previewSettingsMerge(entityId: string) {
+    return this.#memoryOperation(() => this.#settingsConflicts.preview(entityId));
+  }
+  resolveSettings(input: MethodParams<'sync.resolveSettings'>) {
+    return this.#memoryOperation(() => this.#settingsConflicts.resolve(input));
   }
   previewMemoryMerge(entityId: string) {
     return this.#memoryOperation(() => this.#memoryConflicts.preview(entityId));

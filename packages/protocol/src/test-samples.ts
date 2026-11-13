@@ -3377,6 +3377,55 @@ export const episode: Episode = {
 };
 
 export const methodSamples: MethodSamples = {
+  'sync.settingsConflicts': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ conflicts: [] }], invalid: [{}] },
+  },
+  'sync.previewSettingsMerge': {
+    params: { valid: [{ entityId: 'settings_agentInstructions' }], invalid: [{}] },
+    result: {
+      valid: [
+        {
+          entityId: 'settings_agentInstructions',
+          key: 'agentInstructions',
+          expectedHeads: ['operation_left', 'operation_right'],
+          localRevision: 'operation_left',
+          valueFingerprint: 'A'.repeat(43),
+          localValues: { agentInstructions: 'Left' },
+          mergeState: 'unavailable',
+          versions: [
+            { opId: 'operation_left', parents: [], values: { agentInstructions: 'Left' } },
+            { opId: 'operation_right', parents: [], values: { agentInstructions: 'Right' } },
+          ],
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.resolveSettings': {
+    params: {
+      valid: [
+        {
+          entityId: 'settings_agentInstructions',
+          expectedHeads: ['operation_left', 'operation_right'],
+          localRevision: 'operation_left',
+          valueFingerprint: 'A'.repeat(43),
+          values: { agentInstructions: 'Resolved' },
+        },
+      ],
+      invalid: [
+        {},
+        {
+          entityId: 'settings_autoMemory',
+          expectedHeads: ['operation_left', 'operation_right'],
+          localRevision: 'operation_left',
+          valueFingerprint: 'A'.repeat(43),
+          values: { gatewayPrivacy: { enabled: true } },
+        },
+      ],
+    },
+    result: { valid: [{ opId: 'operation_resolved' }], invalid: [{}] },
+  },
   'sync.memoryConflicts': {
     params: { valid: [{}], invalid: [null] },
     result: { valid: [{ conflicts: [] }], invalid: [{}] },

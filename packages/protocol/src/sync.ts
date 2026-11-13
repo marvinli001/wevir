@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SessionIdSchema, WorkspaceIdSchema } from './common.js';
+import { SyncSettingsValuesSchema } from './sync-settings.js';
 import { decimal, digest, entityType, id, PROTOCOL, schemas } from './sync-wire.js';
 
 export const SyncStreamRefSchema = z.object({
@@ -129,7 +130,51 @@ const resolutionHeads = z
   .max(32)
   .refine((heads) => new Set(heads).size === heads.length);
 const fileFingerprint = z.union([digest, z.literal('missing')]);
+const settingsVersion = z.object({
+  opId: id,
+  parents: z.array(id).max(32),
+  values: SyncSettingsValuesSchema,
+});
 export const SyncMethodSchemas = {
+  'sync.settingsConflicts': {
+    params: z.object({ after: id.optional() }),
+    result: z.object({
+      conflicts: z
+        .array(
+          z.object({ entityId: id, key: SyncSettingsValuesSchema.keyof(), heads: resolutionHeads }),
+        )
+        .max(100),
+      next: id.optional(),
+    }),
+    permission: 'host.manage',
+  },
+  'sync.previewSettingsMerge': {
+    params: z.object({ entityId: id }),
+    result: z.object({
+      entityId: id,
+      key: SyncSettingsValuesSchema.keyof(),
+      expectedHeads: resolutionHeads,
+      localRevision: id,
+      valueFingerprint: digest,
+      localValues: SyncSettingsValuesSchema,
+      versions: z.array(settingsVersion).min(2).max(32),
+      base: settingsVersion.optional(),
+      merged: SyncSettingsValuesSchema.optional(),
+      mergeState: z.enum(['clean', 'conflict', 'unavailable']),
+    }),
+    permission: 'host.manage',
+  },
+  'sync.resolveSettings': {
+    params: z.object({
+      entityId: id,
+      expectedHeads: resolutionHeads,
+      localRevision: id,
+      valueFingerprint: digest,
+      values: SyncSettingsValuesSchema,
+    }),
+    result: z.object({ opId: id }),
+    permission: 'host.manage',
+  },
   'sync.memoryConflicts': {
     params: z.object({ after: id.optional() }),
     result: z.object({

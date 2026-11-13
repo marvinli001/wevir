@@ -1,0 +1,70 @@
+{
+  "protocolVersion": "0.180.0",
+  "methods": {
+    "sync.settingsConflicts": {
+      "params": [{}],
+      "result": [
+        {
+          "conflicts": []
+        }
+      ]
+    },
+    "sync.previewSettingsMerge": {
+      "params": [
+        {
+          "entityId": "settings_agentInstructions"
+        }
+      ],
+      "result": [
+        {
+          "entityId": "settings_agentInstructions",
+          "key": "agentInstructions",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "valueFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "mergeState": "unavailable",
+          "versions": [
+            {
+              "opId": "operation_left",
+              "parents": [],
+              "values": {
+                "agentInstructions": "Left"
+              }
+            },
+            {
+              "opId": "operation_right",
+              "parents": [],
+              "values": {
+                "agentInstructions": "Right"
+              }
+            }
+          ],
+          "localValues": {
+            "agentInstructions": "Left"
+          }
+        }
+      ]
+    },
+    "sync.resolveSettings": {
+      "params": [
+        {
+          "entityId": "settings_agentInstructions",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "valueFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "values": {
+            "agentInstructions": "Resolved"
+          }
+        }
+      ],
+      "result": [
+        {
+          "opId": "operation_resolved"
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

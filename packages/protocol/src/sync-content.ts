@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { SessionIdSchema } from './common.js';
 import { EpisodeIdSchema, EpisodeSchema } from './context.js';
-import { HostSettingsSchema, MemoryNameSchema, SessionForkedFromSchema } from './entities.js';
+import { MemoryNameSchema, SessionForkedFromSchema } from './entities.js';
 import { RetroSummarySchema } from './retro.js';
 import { SyncStreamRefSchema } from './sync.js';
+import { SyncSettingsContentSchema } from './sync-settings.js';
 import { decimal, id } from './sync-wire.js';
+
+export { SyncSettingsContentSchema, SyncSettingsValuesSchema } from './sync-settings.js';
 
 export const SyncRelativePathSchema = z
   .string()
@@ -88,23 +91,6 @@ export const SyncMemoryContentSchema = z.object({
     .max(128 * 1024)
     .optional(),
   deleted: z.boolean().optional(),
-});
-export const SyncSettingsValuesSchema = HostSettingsSchema.pick({
-  sendWhileBusy: true,
-  autoMemory: true,
-  autoEpisodes: true,
-  ruleFiles: true,
-  agentInstructions: true,
-  outputStyle: true,
-  writingStyle: true,
-  notifications: true,
-})
-  .partial()
-  .strict();
-export const SyncSettingsContentSchema = z.object({
-  schema: z.literal('wevir-settings/1'),
-  values: SyncSettingsValuesSchema,
-  exclusions: z.array(z.string().max(128)).max(128),
 });
 export const SyncChunkContentSchema = z.object({
   schema: z.literal('wevir-chunk/1'),

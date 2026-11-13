@@ -4,7 +4,7 @@ import {
   SyncSettingsContentSchema,
   SyncSettingsValuesSchema,
 } from '@wevir/protocol';
-import { jcs, type packRecord } from '@wevir/protocol/sync';
+import { jcs, packRecord } from '@wevir/protocol/sync';
 import type {
   Storage,
   SyncLocalWriteRecord,
@@ -123,6 +123,68 @@ export class SyncSettings {
       }
     });
   }
+  async resolve(
+    vault: SyncVaultRecord,
+    input: { entityId: string; localRevision: string; expectedHeads: string[]; values: Values },
+    check: () => void,
+  ) {
+    const key = Object.keys(input.values)[0] as Key;
+    const entity = this.#storage.sync.entity(vault.vaultId, input.entityId);
+    if (!entity || Object.keys(input.values).length !== 1 || input.entityId !== `settings_${key}`)
+      throw new ZuvRequestError('INVALID_REQUEST');
+    const intent: SyncLocalWriteRecord = {
+      id: newId('sop'),
+      vaultId: vault.vaultId,
+      entityId: input.entityId,
+      entityType: 'settings',
+      localKey: entity.localKey,
+      path: this.#path,
+      content: this.#body(key, input.values[key]),
+      kind: 'put',
+      parents: input.expectedHeads,
+      nextHash: sha256(jcs(input.values[key])),
+      state: 'pending',
+      resolution: true,
+    };
+    this.#storage.transaction(() => {
+      check();
+      this.#storage.sync.putLocalWrite(intent);
+    });
+    try {
+      const apply = await this.prepare(
+        {
+          vaultId: vault.vaultId,
+          opId: intent.id,
+          entityId: input.entityId,
+          entityType: 'settings',
+          deviceId: vault.deviceId,
+          kind: 'resolve',
+          parents: intent.parents,
+          clientTime: new Date().toISOString(),
+        },
+        packRecord.parse({
+          opId: intent.id,
+          entityId: input.entityId,
+          kind: 'resolve',
+          parents: intent.parents,
+          content: intent.content,
+        }),
+        { replaceRevision: input.localRevision },
+      );
+      this.#storage.transaction(() => {
+        check();
+        apply();
+        if (this.#storage.sync.materialJournal(vault.vaultId, intent.id)?.state !== 'applied')
+          throw new ZuvRequestError('REVISION_CONFLICT');
+        this.#finish(intent);
+      });
+      return { opId: intent.id };
+    } catch (error) {
+      if (sha256(jcs(this.#values(this.#settings.get())[key] ?? null)) !== intent.nextHash)
+        this.#storage.sync.abandonLocalWrite(intent.id);
+      throw error;
+    }
+  }
   async prepare(
     op: SyncMaterialRevision,
     record: typeof packRecord._output,
@@ -207,6 +269,8 @@ export class SyncSettings {
           fingerprint: nextHash,
           opId: op.opId,
         });
+        if (op.kind === 'resolve')
+          this.#storage.sync.clearMaterialConflicts(op.vaultId, op.entityId, op.parents);
       }
     };
   }
@@ -232,12 +296,18 @@ export class SyncSettings {
   #finish(pending: SyncLocalWriteRecord): void {
     if (!this.#storage.sync.localWrites(pending.vaultId).some((value) => value.id === pending.id))
       return;
-    const opId = this.#queue.enqueue({ ...pending, entityType: 'settings' });
+    const opId = this.#queue.enqueue({
+      ...pending,
+      entityType: 'settings',
+      ...(pending.resolution && { opId: pending.id, kind: 'resolve' }),
+    });
     this.#storage.sync.putFileBaseline({
       ...pending,
       fingerprint: pending.nextHash,
       ...(opId && { opId }),
     });
     this.#storage.sync.removeLocalWrite(pending.id);
+    if (pending.resolution)
+      this.#storage.sync.clearMaterialConflicts(pending.vaultId, pending.entityId, pending.parents);
   }
 }

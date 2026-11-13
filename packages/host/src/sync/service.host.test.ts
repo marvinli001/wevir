@@ -122,6 +122,107 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it('merges a conflicting preference field explicitly without replacing unrelated or excluded settings', async () => {
+    const { mock, first, second } = await fixture();
+    const scope = { enabled: true, categories: ['settings'], projects: [], includeHistory: false };
+    await first.rpc.request('sync.configure', scope);
+    await second.rpc.call('sync.configure', scope);
+    const pending = await second.rpc.request('sync.status');
+    await first.rpc.request('sync.approveDevice', { deviceId: pending.binding.deviceId });
+    await second.rpc.request('sync.configure', scope);
+    await first.rpc.request('settings.update', {
+      settings: {
+        agentInstructions: 'Alpha\n\nMiddle\n\nOmega',
+        notifications: { completed: true, failed: true },
+      },
+    });
+    await expect
+      .poll(async () => (await second.rpc.request('settings.get')).settings.agentInstructions, {
+        timeout: 8000,
+      })
+      .toBe('Alpha\n\nMiddle\n\nOmega');
+    const commits = mock.sync.attempts.commits;
+    mock.sync.pendingCommits = true;
+    await Promise.all([
+      first.rpc.request('settings.update', {
+        settings: {
+          agentInstructions: 'Local alpha\n\nMiddle\n\nOmega',
+          promptSuggestions: false,
+          notifications: { completed: false, failed: true },
+        },
+      }),
+      second.rpc.request('settings.update', {
+        settings: {
+          agentInstructions: 'Alpha\n\nMiddle\n\nRemote omega',
+          notifications: { completed: true, failed: false },
+        },
+      }),
+    ]);
+    await expect
+      .poll(() => mock.sync.attempts.commits, { timeout: 8000 })
+      .toBeGreaterThanOrEqual(commits + 2);
+    mock.sync.pendingCommits = false;
+    mock.sync.finalize();
+    await expect
+      .poll(async () => (await first.rpc.request('sync.settingsConflicts')).conflicts.length, {
+        timeout: 8000,
+      })
+      .toBe(2);
+    const preview = await first.rpc.request('sync.previewSettingsMerge', {
+      entityId: 'settings_agentInstructions',
+    });
+    expect(preview).toMatchObject({
+      key: 'agentInstructions',
+      mergeState: 'clean',
+      merged: { agentInstructions: 'Local alpha\n\nMiddle\n\nRemote omega' },
+    });
+    expect(
+      (await first.rpc.call('sync.resolveSettings', { ...preview, values: { autoMemory: false } }))
+        .error,
+    ).toMatchObject({ data: { code: 'INVALID_REQUEST' } });
+    const resolved = await first.rpc.request('sync.resolveSettings', {
+      ...preview,
+      values: preview.merged,
+    });
+    expect(resolved.opId).toMatch(/^sop_/);
+    expect(
+      (await first.rpc.call('sync.resolveSettings', { ...preview, values: preview.merged })).error,
+    ).toMatchObject({ data: { code: 'REVISION_CONFLICT' } });
+    const notifications = await first.rpc.request('sync.previewSettingsMerge', {
+      entityId: 'settings_notifications',
+    });
+    expect(notifications).toMatchObject({
+      mergeState: 'clean',
+      merged: { notifications: { completed: false, failed: false } },
+    });
+    await first.rpc.request('sync.resolveSettings', {
+      ...notifications,
+      values: notifications.merged,
+    });
+    for (const peer of [first, second]) {
+      await expect
+        .poll(async () => (await peer.rpc.request('settings.get')).settings.agentInstructions, {
+          timeout: 8000,
+        })
+        .toBe('Local alpha\n\nMiddle\n\nRemote omega');
+      await expect
+        .poll(async () => (await peer.rpc.request('sync.settingsConflicts')).conflicts, {
+          timeout: 8000,
+        })
+        .toEqual([]);
+      await expect
+        .poll(async () => (await peer.rpc.request('sync.status')).conflicts, { timeout: 8000 })
+        .toBe(0);
+      expect(peer.adapter.endpoints.size).toBe(0);
+      expect((await peer.rpc.request('settings.get')).settings.notifications).toMatchObject({
+        completed: false,
+        failed: false,
+      });
+    }
+    expect((await second.rpc.request('settings.get')).settings.promptSuggestions).toBe(true);
+    expect((await first.rpc.request('settings.get')).settings.promptSuggestions).toBe(false);
+    expect(mock.errors).toEqual([]);
+  }, 30000);
   it.each([false, true])(
     'rebuilds a reset device explicitly while preserving offline edits against remote deletion=%s',
     async (deleted) => {
