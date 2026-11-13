@@ -12,6 +12,7 @@ import { ZuvRequestError } from './transport.js';
 export class ZuvAccounts implements EngineAccounts {
   readonly kinds = ['zuv'] as const;
   readonly client: ZuvClient;
+  readonly #deviceName: string;
   readonly #listeners = new Set<(state: AccountState) => void>();
   #connection: NonNullable<AccountState['zuv']>['connection'] = 'online';
   #lastError: string | undefined;
@@ -21,8 +22,9 @@ export class ZuvAccounts implements EngineAccounts {
   #closed = false;
   #failures = 0;
 
-  constructor(client: ZuvClient) {
+  constructor(client: ZuvClient, deviceName = hostname()) {
     this.client = client;
+    this.#deviceName = deviceName.slice(0, 100);
   }
 
   async load(): Promise<void> {
@@ -50,7 +52,7 @@ export class ZuvAccounts implements EngineAccounts {
     this.#lastError = undefined;
     this.#failures = 0;
     try {
-      const started = await this.client.beginEnrollment(hostname().slice(0, 100));
+      const started = await this.client.beginEnrollment(this.#deviceName);
       this.#connection = 'online';
       this.#schedule(started.intervalMs);
     } catch (error) {

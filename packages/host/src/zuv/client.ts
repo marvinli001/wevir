@@ -274,15 +274,22 @@ export class ZuvClient {
     method: 'GET' | 'POST' | 'PUT',
     path: string,
     value?: unknown,
+    options?: { signal?: AbortSignal; maxBytes?: number },
   ): Promise<(typeof schemas)[N]['_output']> {
     const body = value === undefined ? undefined : Buffer.from(jcs(value));
     const proof = await this.#proof();
     return this.transport.json<(typeof schemas)[N]['_output']>(
-      { method, path, body, proof },
+      { ...options, method, path, body, proof },
       {
         parse: (value) => schemas[name].parse(value) as (typeof schemas)[N]['_output'],
       },
     );
+  }
+
+  async transfer(
+    input: Omit<Parameters<ZuvTransport['request']>[0], 'proof'>,
+  ): ReturnType<ZuvTransport['request']> {
+    return this.transport.request({ ...input, proof: await this.#proof() });
   }
 
   async authorizeInference(

@@ -2,6 +2,7 @@ import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { schemas } from '@wevir/protocol/sync';
+import { MockSyncError, MockSyncGateway } from './mock-sync.test-utils.js';
 
 type PublicKey = { kty: 'OKP'; crv: 'Ed25519'; x: string };
 const digest = (value: string | Uint8Array) =>
@@ -9,6 +10,7 @@ const digest = (value: string | Uint8Array) =>
 const id = (prefix: string) => `${prefix}_${randomUUID()}`;
 
 export async function startMockZuv() {
+  const sync = new MockSyncGateway();
   const enrollments = new Map<
     string,
     { publicKey: PublicKey; challenge: string; approved: boolean }
@@ -60,7 +62,10 @@ export async function startMockZuv() {
         chunks.push(bytes);
       }
       const raw = Buffer.concat(chunks);
-      const body = raw.length ? JSON.parse(raw.toString()) : undefined;
+      const body =
+        raw.length && req.headers['content-type'] !== 'application/octet-stream'
+          ? JSON.parse(raw.toString())
+          : undefined;
       let response: unknown;
       if (path === '/api/wevir/enrollment/start') {
         const input = schemas.enrollmentStart.parse(body);
@@ -123,27 +128,37 @@ export async function startMockZuv() {
         if (!deviceId || !key || !token) throw new Error('missing identity');
         proof(req, raw, key, token);
         if (path === '/api/wevir/entitlements') {
-          response = schemas.entitlements.parse({
-            protocol: 'wevir-sync/1',
-            vault: null,
-            identity: { userId: 'user_synthetic', deviceId },
-            deviceScopes: ['identity', 'inference', 'sync', 'recovery'],
-            subscriptionState: 'active',
-            syncState: 'disabled',
-            quota: { physicalBytes: 0, capacityBytes: 1024 ** 3 },
-            retentionUntil: null,
-            recovery: { eligible: false, requiresApproval: false },
-            limits: { blobBytes: 4194304 },
-          });
+          response = schemas.entitlements.parse(sync.entitlements('user_synthetic', deviceId));
         } else if (path === '/api/wevir/v1/models')
           response = {
             object: 'list',
             data: [{ id: 'synthetic-model', object: 'model', owned_by: 'synthetic' }],
           };
-        else throw new Error('unexpected route');
+        else {
+          const result = sync.handle(
+            'user_synthetic',
+            deviceId,
+            new URL(req.url as string, originFor()),
+            req.method as string,
+            body,
+            raw,
+          );
+          if (result.bytes) {
+            res.setHeader('content-type', 'application/octet-stream');
+            res.end(result.bytes);
+            return;
+          }
+          res.statusCode = result.status ?? 200;
+          response = result.value;
+        }
       }
       res.end(JSON.stringify(response));
     } catch (error) {
+      if (error instanceof MockSyncError) {
+        res.writeHead(error.status);
+        res.end(JSON.stringify({ error: { code: error.code, message: error.code } }));
+        return;
+      }
       errors.push(error instanceof Error ? error.message : 'mock failure');
       res.writeHead(400);
       res.end(JSON.stringify({ error: { code: 'INVALID_REQUEST', message: 'INVALID_REQUEST' } }));
@@ -152,6 +167,7 @@ export async function startMockZuv() {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return {
     origin: originFor(),
+    sync,
     requests,
     errors,
     approve(url: string) {

@@ -1,5 +1,6 @@
 import { createPrivateKey, generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { isIP } from 'node:net';
+import { setTimeout as delay } from 'node:timers/promises';
 import { type ErrorCode, jcs, LIMITS, schemas } from '@wevir/protocol/sync';
 import { sha256 } from '../sync/crypto.js';
 
@@ -103,6 +104,7 @@ export class ZuvTransport {
     proof?: { key: ZuvDeviceKey; secret: string; authorization?: boolean };
     maxBytes?: number;
     signal?: AbortSignal;
+    transfer?: { bytesPerSecond: number; chunkBytes: number; timeoutMs: number };
   }): Promise<{ bytes: Buffer; status: number; headers: Headers }> {
     const url = new URL(input.path, this.origin);
     if (
@@ -114,31 +116,60 @@ export class ZuvTransport {
     )
       throw new Error('invalid ZUV route');
     const headers: Record<string, string> = { accept: 'application/json' };
-    if (input.body !== undefined) {
+    const bodyBytes = input.body === undefined ? undefined : new Uint8Array(input.body);
+    if (bodyBytes !== undefined) {
       headers['content-type'] = input.contentType ?? 'application/json';
-      headers['content-length'] = String(input.body.byteLength);
+      headers['content-length'] = String(bodyBytes.byteLength);
     }
     if (input.proof) {
       headers.dpop = deviceProof({
         ...input.proof,
         method: input.method,
         url: url.href,
-        body: input.body,
+        body: bodyBytes,
         now: this.#options.now?.(),
       });
       if (input.proof.authorization !== false) headers.authorization = `DPoP ${input.proof.secret}`;
     }
     const signal = AbortSignal.any([
-      AbortSignal.timeout(LIMITS.transferMs),
+      AbortSignal.timeout(
+        Math.min(input.transfer?.timeoutMs ?? LIMITS.transferMs, LIMITS.transferMs),
+      ),
       ...(input.signal ? [input.signal] : []),
       ...(this.#options.signal ? [this.#options.signal] : []),
     ]);
+    const transfer = input.transfer;
+    if (
+      transfer &&
+      (transfer.bytesPerSecond < 1 || transfer.chunkBytes < 1 || transfer.timeoutMs < 1)
+    )
+      throw new ZuvRequestError('QUOTA_EXCEEDED');
+    const started = performance.now();
+    let sent = 0;
+    const paced =
+      transfer && bodyBytes
+        ? new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              signal.throwIfAborted();
+              const wait = started + (sent * 1000) / transfer.bytesPerSecond - performance.now();
+              if (wait > 0) await delay(wait, undefined, { signal });
+              const end = Math.min(
+                bodyBytes.length,
+                sent + Math.min(transfer.chunkBytes, LIMITS.transferChunkBytes),
+              );
+              controller.enqueue(bodyBytes.subarray(sent, end));
+              sent = end;
+              if (sent === bodyBytes.length) controller.close();
+            },
+          })
+        : undefined;
     let response: Response;
     try {
       response = await (this.#options.fetch ?? fetch)(url, {
         method: input.method,
         headers,
-        ...(input.body !== undefined && { body: new Uint8Array(input.body) }),
+        ...(bodyBytes !== undefined && { body: paced ?? bodyBytes }),
+        ...(paced && { duplex: 'half' as const }),
         redirect: 'error',
         cache: 'no-store',
         credentials: 'omit',
@@ -155,6 +186,7 @@ export class ZuvTransport {
     }
     const chunks: Uint8Array[] = [];
     let size = 0;
+    let consumed = 0;
     const reader = response.body?.getReader();
     if (reader) {
       try {
@@ -166,6 +198,21 @@ export class ZuvTransport {
             await reader.cancel();
             throw new ZuvRequestError('INVALID_RESPONSE', response.status);
           }
+          if (transfer)
+            for (
+              let offset = 0;
+              offset < chunk.value.byteLength;
+              offset += Math.min(transfer.chunkBytes, LIMITS.transferChunkBytes)
+            ) {
+              const piece = chunk.value.subarray(
+                offset,
+                offset + Math.min(transfer.chunkBytes, LIMITS.transferChunkBytes),
+              );
+              const wait =
+                started + (consumed * 1000) / transfer.bytesPerSecond - performance.now();
+              if (wait > 0) await delay(wait, undefined, { signal });
+              consumed += piece.byteLength;
+            }
           chunks.push(chunk.value);
         }
       } catch (error) {

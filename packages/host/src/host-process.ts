@@ -185,7 +185,9 @@ export type ShutdownTrigger =
 
 export interface StartHostOptions {
   /** 隔离测试替换 ZUV origin、传输与时钟；产品入口使用固定的正式来源。 */
-  zuv?: Omit<ZuvClientOptions, 'secrets' | 'onSecret' | 'onIdentityChanging'>;
+  zuv?: Omit<ZuvClientOptions, 'secrets' | 'onSecret' | 'onIdentityChanging'> & {
+    deviceName?: string;
+  };
   /**
    * 只给测试（0.98.0，permissions.ts）：hello 后让某条连接以受限的身份与权限工作。wevir-host 与桌面的入口不传它，Host 也不从
    * 环境变量读，省略时每条连接都是本机身份、全部权限。
@@ -460,7 +462,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         if (vault) sessionsDb.sync.detachVault(vault.vaultId);
       },
     });
-    const zuv = new ZuvAccounts(zuvClient);
+    const zuv = new ZuvAccounts(zuvClient, options.zuv?.deviceName);
     zuvAccounts = zuv;
     await zuv.load().catch(() => logger.warn('ZUV credentials unreadable'));
     adapter.bindGatewayAuth?.(zuvGatewayAuth(zuvClient));

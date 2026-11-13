@@ -1,5 +1,6 @@
 import type { SqliteDatabase, SqlRow } from './driver.js';
 import { integer, json, optionalText, text, toJson } from './rows.js';
+import { createSyncQueueRepository } from './sync-queue.js';
 
 export interface SyncVaultRecord {
   vaultId: string;
@@ -72,13 +73,31 @@ export function createSyncRepository(db: SqliteDatabase) {
   const requireTransaction = () => {
     if (!db.isTransaction) throw new Error('sync mutation requires a storage transaction');
   };
+  const missingParents = (
+    vaultId: string,
+    entityId: string,
+    parents: readonly string[],
+  ): string[] =>
+    parents.filter((parent) => {
+      const op = db
+        .prepare(
+          'SELECT entity_id, heads_applied FROM sync_operations WHERE vault_id = ? AND op_id = ?',
+        )
+        .get(vaultId, parent);
+      return !op || op.entity_id !== entityId || !integer(op, 'heads_applied');
+    });
   return {
+    ...createSyncQueueRepository(db),
     counts(vaultId: string): { pending: number; quarantined: number; conflicts: number } {
       const pending = db
         .prepare(
-          "SELECT COUNT(*) AS n FROM sync_operations WHERE vault_id = ? AND direction = 'outbox' AND state IN ('queued', 'pending')",
+          `SELECT (
+            (SELECT COUNT(*) FROM sync_operations WHERE vault_id = :vaultId AND direction = 'outbox' AND state IN ('queued', 'pending')) +
+            (SELECT COUNT(*) FROM sync_drafts WHERE vault_id = :vaultId) +
+            (SELECT COUNT(*) FROM sync_event_captures WHERE vault_id = :vaultId AND through_seq > prepared_seq)
+          ) AS n`,
         )
-        .get(vaultId);
+        .get({ vaultId });
       const quarantined = db
         .prepare(
           "SELECT COUNT(*) AS n FROM sync_operations WHERE vault_id = ? AND state = 'quarantined'",
@@ -188,6 +207,21 @@ export function createSyncRepository(db: SqliteDatabase) {
         'INSERT OR IGNORE INTO sync_sources (vault_id, host_id, session_id, stream_id, local_session_id, mirrored) VALUES (?, ?, ?, ?, ?, ?)',
       ).run(...args, source.localSessionId ?? null, Number(source.mirrored));
     },
+    sources(vaultId: string): SyncSourceRecord[] {
+      return db
+        .prepare('SELECT * FROM sync_sources WHERE vault_id = ? ORDER BY rowid')
+        .all(vaultId)
+        .map((row) => ({
+          vaultId: text(row, 'vault_id'),
+          hostId: text(row, 'host_id'),
+          sessionId: text(row, 'session_id'),
+          streamId: text(row, 'stream_id'),
+          ...(optionalText(row, 'local_session_id') !== undefined && {
+            localSessionId: text(row, 'local_session_id'),
+          }),
+          mirrored: Boolean(integer(row, 'mirrored')),
+        }));
+    },
     sourceEvent(
       source: Pick<SyncSourceRecord, 'vaultId' | 'hostId' | 'sessionId' | 'streamId'>,
       seq: string,
@@ -205,6 +239,7 @@ export function createSyncRepository(db: SqliteDatabase) {
       ).run(...args, sha256);
     },
     getOperation,
+    missingParents,
     putOperation(op: SyncOperationRecord): boolean {
       requireTransaction();
       const current = getOperation(op.vaultId, op.opId);
@@ -282,15 +317,8 @@ export function createSyncRepository(db: SqliteDatabase) {
       if (!current || current.entity_id !== entityId)
         throw new SyncStorageError('INTEGRITY_FAILED');
       if (integer(current, 'heads_applied')) return;
-      for (const parent of parents) {
-        const op = db
-          .prepare(
-            'SELECT entity_id, heads_applied FROM sync_operations WHERE vault_id = ? AND op_id = ?',
-          )
-          .get(vaultId, parent);
-        if (!op || op.entity_id !== entityId || !integer(op, 'heads_applied'))
-          throw new SyncStorageError('MISSING_PARENT');
-      }
+      if (missingParents(vaultId, entityId, parents).length)
+        throw new SyncStorageError('MISSING_PARENT');
       for (const parent of parents)
         db.prepare('DELETE FROM sync_heads WHERE vault_id = ? AND entity_id = ? AND op_id = ?').run(
           vaultId,

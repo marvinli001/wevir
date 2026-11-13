@@ -99,6 +99,8 @@ export interface RulesState {
 
 export interface EventStoreOptions {
   storage: Storage;
+  /** 与事件业务写入同事务的持久捕获；只允许同步 SQLite 写入。 */
+  onAppendInTransaction?: (events: readonly WevirEvent[]) => void;
   /** 增量合并窗口，默认 `DELTA_WINDOW_MS`。 */
   deltaWindowMs?: number;
   toolOutputWindowMs?: number;
@@ -153,6 +155,7 @@ export class EventStore {
   readonly #deltaWindowMs: number;
   readonly #toolOutputWindowMs: number;
   readonly #onError: (error: unknown) => void;
+  readonly #onAppendInTransaction: EventStoreOptions['onAppendInTransaction'];
   readonly #bus: EventBus;
   readonly #projections = new Map<SessionId, SessionProjection>();
   readonly #buffers = new Map<SessionId, DeltaBuffer>();
@@ -167,6 +170,7 @@ export class EventStore {
 
   constructor(options: EventStoreOptions) {
     this.#storage = options.storage;
+    this.#onAppendInTransaction = options.onAppendInTransaction;
     this.#deltaWindowMs = options.deltaWindowMs ?? DELTA_WINDOW_MS;
     this.#toolOutputWindowMs = options.toolOutputWindowMs ?? TOOL_OUTPUT_WINDOW_MS;
     this.#onError =
@@ -672,6 +676,7 @@ export class EventStore {
       }
       this.#storage.sessions.update(sessionId, toCachePatch(projection));
       this.#putRecovery(sessionId, projection);
+      this.#onAppendInTransaction?.(events);
       return { events, projection };
     });
     this.#cache(sessionId, projection);
@@ -711,6 +716,7 @@ export class EventStore {
         projection.lastSeq - (this.#checkpointSeq.get(sessionId) ?? 0) >= this.#checkpointInterval;
       if (checkpoint) this.#putCheckpoint(sessionId, projection);
       inTransaction?.(events.slice(deltas.length));
+      this.#onAppendInTransaction?.(events);
       return { events, projection, checkpoint };
     });
 

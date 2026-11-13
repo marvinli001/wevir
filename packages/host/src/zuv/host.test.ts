@@ -30,7 +30,7 @@ describe('ZUV account on isolated Hosts', () => {
         importEnv: {},
         adapter: new EchoAdapter(),
         engine: 'echo',
-        zuv: { origin: mock.origin, allowLoopback: true },
+        zuv: { origin: mock.origin, allowLoopback: true, deviceName: `Synthetic ${name}` },
         logger: createLogger({ mirror: () => {} }),
       });
       cleanups.push(() => host.shutdown());

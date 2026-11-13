@@ -34,6 +34,43 @@ async function server(
 }
 
 describe('ZUV device transport', () => {
+  it('paces binary chunks while signing the exact streamed bytes and honoring the transfer deadline', async () => {
+    const body = Buffer.alloc(8192, 42);
+    const key = newZuvDeviceKey();
+    const origin = await server(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const actual = Buffer.concat(chunks);
+      expect(actual).toEqual(body);
+      const proof = JSON.parse(
+        Buffer.from(String(req.headers.dpop).split('.')[1] as string, 'base64url').toString(),
+      );
+      expect(proof.bht).toBe(sha256(actual));
+      expect(req.headers['content-length']).toBe(String(actual.length));
+      res.end('{}');
+    });
+    const transport = new ZuvTransport({ origin, allowLoopback: true });
+    const started = performance.now();
+    await transport.request({
+      method: 'PUT',
+      path: '/api/wevir/sync/v1/uploads/upload_fixture',
+      body,
+      contentType: 'application/octet-stream',
+      proof: { key, secret: 'synthetic-token' },
+      transfer: { bytesPerSecond: 65536, chunkBytes: 4096, timeoutMs: 1000 },
+    });
+    expect(performance.now() - started).toBeGreaterThanOrEqual(40);
+    const blocked = await server((req) => {
+      req.resume();
+    });
+    await expect(
+      new ZuvTransport({ origin: blocked, allowLoopback: true }).request({
+        method: 'GET',
+        path: '/api/wevir/sync/v1/downloads/download_fixture',
+        transfer: { bytesPerSecond: 65536, chunkBytes: 4096, timeoutMs: 20 },
+      }),
+    ).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+  });
   it('signs and sends the identical final bytes, a query-free htu and a fresh proof per attempt', async () => {
     const key = newZuvDeviceKey();
     const claims: Array<Record<string, unknown>> = [];

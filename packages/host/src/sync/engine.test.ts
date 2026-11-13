@@ -1,0 +1,437 @@
+import { join } from 'node:path';
+import type { RecordManifest, SyncOperation } from '@wevir/protocol/sync';
+import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { newId } from '../ids.js';
+import { useTempDir } from '../test-utils.js';
+import { ZuvClient, type ZuvClientOptions } from '../zuv/client.js';
+import { startMockZuv } from '../zuv/mock.test-utils.js';
+import { ZuvRequestError } from '../zuv/transport.js';
+import { SyncBlobCache } from './cache.js';
+import { encryptPack, sha256 } from './crypto.js';
+import { SyncEngine } from './engine.js';
+import { SyncVaultKeys } from './keys.js';
+import { SyncQueue } from './queue.js';
+
+const tempDir = useTempDir();
+const cleanups: Array<() => Promise<void> | void> = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+async function setup() {
+  const server = await startMockZuv();
+  cleanups.push(() => server.close());
+  async function peer(name: string, fetcher?: typeof fetch) {
+    const home = join(tempDir(), name);
+    const options: ZuvClientOptions = {
+      origin: server.origin,
+      allowLoopback: true,
+      secrets: new FileSecretStore(home),
+      ...(fetcher && { fetch: fetcher }),
+    };
+    let storage: Storage = openStorage({ dataDir: home });
+    let client = new ZuvClient(options);
+    await client.load();
+    const start = await client.beginEnrollment(`Synthetic ${name}`);
+    server.approve(start.verificationUri);
+    await client.pollEnrollment();
+    await client.getEntitlements();
+    const opened = await client.json('vaultOpened', 'POST', '/api/wevir/sync/v1/vaults/open', {
+      protocol: 'wevir-sync/1',
+      consent: true,
+    });
+    storage.transaction(() => {
+      storage.sync.bindVault({
+        vaultId: opened.vaultId,
+        deviceId: opened.deviceId,
+        originHostId: opened.originHostId,
+        accountId: 'user_synthetic',
+        appliedCursor: opened.cursor,
+      });
+      storage.sync.setVaultTransport(opened.vaultId, {
+        keyEpoch: opened.keyEpoch,
+        state: 'disabled',
+        retryAt: 0,
+      });
+    });
+    const createEngine = () => {
+      const keys = new SyncVaultKeys({ client, secrets: options.secrets, onSecret: () => {} });
+      return new SyncEngine({
+        storage,
+        client,
+        cache: new SyncBlobCache(join(home, 'sync/blobs')),
+        key: (vaultId, keyEpoch, signal) => keys.unlock(vaultId, keyEpoch, signal),
+        prepareApply: async (operation, record) => {
+          const content = record.content as { schema: string; localKey: string; text: string };
+          if (
+            content?.schema !== 'synthetic-memory/1' ||
+            typeof content.localKey !== 'string' ||
+            typeof content.text !== 'string'
+          )
+            throw new ZuvRequestError('UPGRADE_REQUIRED');
+          return () => {
+            const material = storage.sync.localEntity(opened.vaultId, content.localKey);
+            const existing = storage.sync.entity(opened.vaultId, operation.entityId);
+            const canApply =
+              !material ||
+              (material.entityId === operation.entityId &&
+                (!material.revision || operation.parents.includes(material.revision)));
+            storage.sync.putEntity({
+              vaultId: opened.vaultId,
+              entityId: operation.entityId,
+              entityType: operation.entityType,
+              localKey: content.localKey,
+              revision: canApply ? operation.opId : (existing?.revision ?? operation.opId),
+              materialized: canApply || existing?.materialized === true,
+            });
+          };
+        },
+      });
+    };
+    let engine = createEngine();
+    cleanups.push(async () => {
+      engine.stop();
+      await client.close();
+      if (storage.db.isOpen) storage.close();
+    });
+    return {
+      home,
+      opened,
+      options,
+      get storage() {
+        return storage;
+      },
+      get client() {
+        return client;
+      },
+      get engine() {
+        return engine;
+      },
+      async enable() {
+        const scopes = await client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+          expectedRevision: '0',
+          enabled: true,
+          categories: ['memory'],
+          projectIds: [],
+        });
+        storage.sync.setScopes(opened.vaultId, scopes);
+        await client.getEntitlements();
+      },
+      enqueue(text: string, localKey = 'global/note.md') {
+        return storage.transaction(() =>
+          new SyncQueue(storage).enqueue({
+            vaultId: opened.vaultId,
+            entityType: 'memory',
+            localKey,
+            content: { schema: 'synthetic-memory/1', localKey, text },
+          }),
+        );
+      },
+      async reopen() {
+        engine.stop();
+        await client.close();
+        storage.close();
+        storage = openStorage({ dataDir: home });
+        client = new ZuvClient(options);
+        await client.load();
+        engine = createEngine();
+      },
+    };
+  }
+  const first = await peer('first');
+  const second = await peer('second');
+  await first.client.json(
+    'approved',
+    'POST',
+    `/api/wevir/sync/v1/devices/${second.opened.deviceId}/approve`,
+    { keyEpoch: '1' },
+  );
+  return { server, first, second };
+}
+
+describe('durable encrypted synchronization over HTTP', () => {
+  it('enforces a smaller server plaintext limit before key release or paid upload', async () => {
+    const { server, first } = await setup();
+    await first.enable();
+    server.sync.limitOverrides.plainBytes = 32;
+    await first.client.getEntitlements();
+    first.enqueue('synthetic body above the server limit');
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
+    expect(server.sync.attempts).toMatchObject({
+      uploads: 0,
+      downloads: 0,
+      reservations: 0,
+      commits: 0,
+    });
+    expect(server.requests.some((path) => path.endsWith('/keys/unlock'))).toBe(false);
+    expect(first.storage.sync.drafts(first.opened.vaultId)).toHaveLength(1);
+  });
+  it('rolls projection and applied marker back together and resumes from the cached pack', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    const opId = first.enqueue('synthetic apply transaction') as string;
+    await first.engine.run();
+    const mark = second.storage.sync.markOperation.bind(second.storage.sync);
+    const interrupted = vi
+      .spyOn(second.storage.sync, 'markOperation')
+      .mockImplementationOnce((vaultId, id, state, errorCode) => {
+        if (state === 'applied') throw new Error('synthetic apply interruption');
+        mark(vaultId, id, state, errorCode);
+      });
+    await expect(second.engine.run()).rejects.toThrow('synthetic apply interruption');
+    interrupted.mockRestore();
+    expect(second.storage.sync.localEntity(first.opened.vaultId, 'global/note.md')).toBeUndefined();
+    expect(second.storage.sync.getOperation(first.opened.vaultId, opId)?.state).toBe('received');
+    await second.reopen();
+    await second.engine.run();
+    expect(second.storage.sync.getOperation(first.opened.vaultId, opId)?.state).toBe('applied');
+    expect(server.sync.attempts.downloads).toBe(1);
+  });
+
+  it('keeps applied data when cursor advancement is interrupted and never ACKs an incomplete page', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    const opId = first.enqueue('synthetic cursor interruption') as string;
+    await first.engine.run();
+    vi.spyOn(second.storage.sync, 'applyPage').mockImplementationOnce(() => {
+      throw new Error('synthetic cursor interruption');
+    });
+    await expect(second.engine.run()).rejects.toThrow('synthetic cursor interruption');
+    expect(second.storage.sync.getOperation(first.opened.vaultId, opId)?.state).toBe('applied');
+    expect(second.storage.sync.getVault(first.opened.vaultId)?.appliedCursor).toBe(
+      second.opened.cursor,
+    );
+    expect(
+      server.sync.acknowledgements.filter((value) => value.deviceId === second.opened.deviceId),
+    ).toEqual([]);
+    await second.reopen();
+    await second.engine.run();
+    expect(second.storage.sync.operations(first.opened.vaultId, 'inbox', 'applied')).toHaveLength(
+      1,
+    );
+    expect(server.sync.attempts.downloads).toBe(1);
+    expect(
+      server.sync.acknowledgements.filter((value) => value.deviceId === second.opened.deviceId),
+    ).toHaveLength(1);
+  });
+  it('does no transfer before explicit scopes, then applies a pack once and keeps independent identical notes', async () => {
+    const { server, first, second } = await setup();
+    const count = server.requests.length;
+    expect(await first.engine.run()).toBe(false);
+    expect(server.requests).toHaveLength(count);
+    await first.enable();
+    await second.enable();
+    const opId = first.enqueue('synthetic note') as string;
+    await first.engine.run();
+    await second.engine.run();
+    const stored = second.storage.sync.getOperation(first.opened.vaultId, opId);
+    expect(stored).toMatchObject({
+      state: 'applied',
+      record: { content: { text: 'synthetic note' } },
+    });
+    expect(server.sync.attempts).toMatchObject({ uploads: 1, downloads: 1, commits: 1 });
+    await second.engine.run();
+    expect(server.sync.attempts.downloads).toBe(1);
+    first.enqueue('same independent text', 'global/one.md');
+    first.enqueue('same independent text', 'global/two.md');
+    await first.engine.run();
+    await second.engine.run();
+    expect(second.storage.sync.entities(first.opened.vaultId)).toHaveLength(3);
+    expect(second.storage.sync.getVault(first.opened.vaultId)?.appliedCursor).not.toBe(
+      second.opened.cursor,
+    );
+    expect(server.errors).toEqual([]);
+  });
+
+  it('retains both concurrent revisions instead of advancing the local material to an unmerged remote head', async () => {
+    const { first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    const base = first.enqueue('base') as string;
+    await first.engine.run();
+    await second.engine.run();
+    const left = first.enqueue('left') as string;
+    const right = second.enqueue('right') as string;
+    await first.engine.run();
+    await second.engine.run();
+    await first.engine.run();
+    const entityId = first.storage.sync.getOperation(first.opened.vaultId, base)
+      ?.entityId as string;
+    for (const peer of [first, second]) {
+      expect(peer.storage.sync.heads(first.opened.vaultId, entityId).sort()).toEqual(
+        [left, right].sort(),
+      );
+      expect(peer.storage.sync.getOperation(first.opened.vaultId, left)?.record).toMatchObject({
+        content: { text: 'left' },
+      });
+      expect(peer.storage.sync.getOperation(first.opened.vaultId, right)?.record).toMatchObject({
+        content: { text: 'right' },
+      });
+    }
+    expect(first.storage.sync.localEntity(first.opened.vaultId, 'global/note.md')?.revision).toBe(
+      left,
+    );
+    expect(second.storage.sync.localEntity(first.opened.vaultId, 'global/note.md')?.revision).toBe(
+      right,
+    );
+  });
+
+  it('keeps the immutable outbox after an accepted upload loses its response and restarts with the same IDs', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    let lost = false;
+    first.options.fetch = async (input, init) => {
+      const result = await fetch(input, init);
+      if (new URL(String(input)).pathname.includes('/uploads/') && !lost) {
+        lost = true;
+        await result.arrayBuffer();
+        throw new Error('synthetic lost response');
+      }
+      return result;
+    };
+    await first.reopen();
+    const opId = first.enqueue('survives interrupted upload') as string;
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    const before = first.storage.sync.commits(first.opened.vaultId)[0];
+    expect(before).toBeDefined();
+    await first.reopen();
+    await first.engine.run();
+    await second.engine.run();
+    const after = first.storage.sync.commits(first.opened.vaultId, false)[0];
+    expect(after).toMatchObject({
+      commitId: before?.commitId,
+      body: before?.body,
+      state: 'committed',
+    });
+    expect(second.storage.sync.operations(first.opened.vaultId, 'inbox', 'applied')).toHaveLength(
+      1,
+    );
+    expect(second.storage.sync.getOperation(first.opened.vaultId, opId)?.state).toBe('applied');
+    expect(server.sync.attempts.uploads).toBe(2);
+    expect(server.sync.attempts.commits).toBe(1);
+  });
+
+  it('does not delete a pending commit or expose its prepared records and polls without another upload', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    server.sync.pendingCommits = true;
+    first.enqueue('pending snapshot');
+    await first.engine.run();
+    await second.engine.run();
+    const commit = first.storage.sync.commits(first.opened.vaultId)[0];
+    expect(commit?.state).toBe('pending');
+    expect(second.storage.sync.operations(first.opened.vaultId, 'inbox', 'applied')).toEqual([]);
+    server.sync.finalize();
+    first.storage.transaction(() =>
+      first.storage.sync.putCommit({ ...(commit as NonNullable<typeof commit>), retryAt: 0 }),
+    );
+    await first.engine.run();
+    await second.engine.run();
+    expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([]);
+    expect(server.sync.attempts).toMatchObject({ uploads: 1, downloads: 1, commits: 1 });
+  });
+
+  it('quarantines an authenticated wrong record reference before application or applied ACK, with no download loop', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    const base = first.enqueue('local good copy') as string;
+    await first.engine.run();
+    await second.engine.run();
+    const entityId = first.storage.sync.getOperation(first.opened.vaultId, base)
+      ?.entityId as string;
+    const key = await first.client.json('unlocked', 'POST', '/api/wevir/sync/v1/keys/unlock', {
+      keyEpoch: '1',
+    });
+    const blobId = newId('sbl');
+    const opId = newId('sop');
+    const bytes = await encryptPack({
+      vaultId: first.opened.vaultId,
+      blobId,
+      keyEpoch: '1',
+      vaultKey: Buffer.from(key.keyMaterial, 'base64url'),
+      records: {
+        v: 1,
+        records: [
+          {
+            opId: newId('wrong'),
+            entityId,
+            kind: 'put',
+            parents: [base],
+            content: {
+              schema: 'synthetic-memory/1',
+              localKey: 'global/note.md',
+              text: 'must not replace good data',
+            },
+          },
+        ],
+      },
+    });
+    const upload = await first.client.json(
+      'blobReserved',
+      'POST',
+      '/api/wevir/sync/v1/blobs/reserve',
+      { blobId, cipherBytes: bytes.length, cipherSha256: sha256(bytes), purpose: 'memory' },
+    );
+    await first.client.transfer({
+      method: 'PUT',
+      path: `/api/wevir/sync/v1/uploads/${upload.uploadId}`,
+      body: bytes,
+      contentType: 'application/octet-stream',
+    });
+    const operation: SyncOperation = {
+      protocol: 'wevir-sync/1',
+      vaultId: first.opened.vaultId,
+      opId,
+      deviceId: first.opened.deviceId,
+      deviceSeq: '2',
+      entityType: 'memory',
+      entityId,
+      kind: 'put',
+      parents: [base],
+      payload: { blobId, recordIndex: 0 },
+      clientTime: new Date().toISOString(),
+    };
+    const recordManifest: RecordManifest = { opId, blobId, recordIndex: 0 };
+    await first.client.json('commitResult', 'POST', '/api/wevir/sync/v1/commits', {
+      commitId: newId('scm'),
+      operations: [operation],
+      recordManifest: [recordManifest],
+    });
+    const before = second.storage.sync.getVault(first.opened.vaultId)?.appliedCursor;
+    const ackCount = server.sync.acknowledgements.filter(
+      (value) => value.deviceId === second.opened.deviceId,
+    ).length;
+    await expect(second.engine.run()).rejects.toMatchObject({ code: 'INTEGRITY_FAILED' });
+    const downloads = server.sync.attempts.downloads;
+    await expect(second.engine.run()).rejects.toMatchObject({ code: 'INTEGRITY_FAILED' });
+    expect(server.sync.attempts.downloads).toBe(downloads);
+    expect(second.storage.sync.getVault(first.opened.vaultId)?.appliedCursor).toBe(before);
+    expect(
+      server.sync.acknowledgements.filter((value) => value.deviceId === second.opened.deviceId),
+    ).toHaveLength(ackCount);
+    expect(second.storage.sync.localEntity(first.opened.vaultId, 'global/note.md')?.revision).toBe(
+      base,
+    );
+    expect(second.storage.sync.getOperation(first.opened.vaultId, opId)?.state).toBe('quarantined');
+  });
+
+  it('bounds automatic paid download attempts across repeated runs and restart', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    first.enqueue('download retry budget');
+    await first.engine.run();
+    server.sync.failDownloads = true;
+    for (let attempt = 0; attempt < 3; attempt++)
+      await expect(second.engine.run()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+    await second.reopen();
+    await expect(second.engine.run()).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    expect(server.sync.attempts.downloads).toBe(3);
+  });
+});
