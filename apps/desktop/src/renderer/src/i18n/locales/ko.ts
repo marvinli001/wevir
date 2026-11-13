@@ -2,6 +2,37 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'sync.bundles': '파일 패키지',
+  'sync.localData': '로컬 자료',
+  'sync.currentAccount': '현재 계정',
+  'sync.choosePackage': '패키지 선택',
+  'sync.bound': '연결됨',
+  'sync.noBundles': '패키지 없음',
+  'sync.packageTarget': '로컬 대상',
+  'sync.managedCopy': '별도 사본',
+  'sync.applyPackage': '버전 적용',
+  'sync.resumeApply': '적용 재개',
+  'sync.moreFiles': '파일 더 보기',
+  'sync.binaryFile': '바이너리 파일',
+  'sync.truncatedFile': '내용 잘림',
+  'sync.currentFiles': '로컬 파일 편집',
+  'sync.newFile': '새 파일',
+  'sync.fileName': '파일 이름',
+  'sync.saveFile': '파일 저장',
+  'sync.deleteFile': '파일 삭제',
+  'sync.pauseApply': '적용 일시 중지',
+  'sync.applyPackageConsequences':
+    '관리 파일을 교체합니다. 원본 버전과 Skill 활성화 및 신뢰 설정은 유지됩니다。',
+  'sync.deleteFileConsequences':
+    '로컬 대상에서 파일을 삭제하고 변경 사항을 동기화합니다. 이전 버전은 보존됩니다.',
+  'sync.moreVersions': '버전 더 보기',
+  'sync.rebindPackage': '대상 변경',
+  'sync.keepLocalPackage': '로컬 파일 유지',
+  'sync.keepLocalPackageConsequences':
+    '로컬 파일을 새 버전으로 동기화합니다. 다른 버전과 중단된 적용의 백업은 보존됩니다.',
+  'sync.applyPaused': '적용 일시 중지됨',
+  'sync.applyConflict': '로컬 파일 충돌',
+  'sync.applyingPackage': '적용 중',
   'hook.action.blocked': '차단됨',
   'hook.action.denied': '거부됨',
   'hook.action.allowed': '훅에서 허용',

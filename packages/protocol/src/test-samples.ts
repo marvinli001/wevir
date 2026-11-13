@@ -3491,6 +3491,129 @@ export const methodSamples: MethodSamples = {
       invalid: [{}],
     },
   },
+  'sync.cancelBundle': {
+    params: { valid: [{ vaultId: 'vault_fixture', entityId: 'bundle_fixture' }], invalid: [{}] },
+    result: { valid: [{ cancelled: true }], invalid: [{}] },
+  },
+  'sync.bundleVaults': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ vaults: [] }], invalid: [{}] },
+  },
+  'sync.bundles': {
+    params: { valid: [{ vaultId: 'vault_fixture' }], invalid: [{}] },
+    result: { valid: [{ bundles: [] }], invalid: [{}] },
+  },
+  'sync.bundlePreview': {
+    params: { valid: [{ vaultId: 'vault_fixture', entityId: 'bundle_fixture' }], invalid: [{}] },
+    result: {
+      valid: [
+        {
+          vaultId: 'vault_fixture',
+          entityId: 'bundle_fixture',
+          heads: ['operation_fixture'],
+          versions: [
+            {
+              opId: 'operation_fixture',
+              parents: [],
+              name: 'Fixture',
+              deleted: false,
+              files: [],
+              fileCount: 0,
+              bytes: 0,
+            },
+          ],
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.bundleTargets': {
+    params: { valid: [{ vaultId: 'vault_fixture', entityId: 'bundle_fixture' }], invalid: [{}] },
+    result: { valid: [{ targets: [] }], invalid: [{}] },
+  },
+  'sync.bundleVersions': {
+    params: { valid: [{ vaultId: 'vault_fixture', entityId: 'bundle_fixture' }], invalid: [{}] },
+    result: { valid: [{ versions: [] }], invalid: [{}] },
+  },
+  'sync.keepLocalBundle': {
+    params: {
+      valid: [
+        {
+          vaultId: 'vault_fixture',
+          entityId: 'bundle_fixture',
+          expectedHeads: ['operation_fixture'],
+          targetId: 'target_fixture',
+          fingerprint: 'A'.repeat(43),
+        },
+      ],
+      invalid: [{}],
+    },
+    result: { valid: [{ opId: 'operation_fixture' }], invalid: [{}] },
+  },
+  'sync.applyBundle': {
+    params: {
+      valid: [
+        {
+          vaultId: 'vault_fixture',
+          entityId: 'bundle_fixture',
+          expectedHeads: ['operation_fixture'],
+          selectedOpId: 'operation_fixture',
+          targetId: 'target_fixture',
+          fingerprint: 'A'.repeat(43),
+        },
+      ],
+      invalid: [{}],
+    },
+    result: { valid: [{ opId: 'operation_fixture' }], invalid: [{}] },
+  },
+  'sync.bundleFile': {
+    params: {
+      valid: [
+        {
+          vaultId: 'vault_fixture',
+          entityId: 'bundle_fixture',
+          opId: 'operation_fixture',
+          path: 'file.txt',
+        },
+      ],
+      invalid: [{}],
+    },
+    result: {
+      valid: [
+        {
+          path: 'file.txt',
+          sha256: 'A'.repeat(43),
+          bytes: 0,
+          text: '',
+          binary: false,
+          truncated: false,
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.editBundleFile': {
+    params: {
+      valid: [
+        {
+          vaultId: 'vault_fixture',
+          entityId: 'bundle_fixture',
+          path: 'file.txt',
+          text: 'Edit',
+          fingerprint: 'A'.repeat(43),
+        },
+      ],
+      invalid: [{}],
+    },
+    result: { valid: [{ opId: 'operation_fixture' }], invalid: [{}] },
+  },
+  'sync.retryBundle': {
+    params: {
+      valid: [{ vaultId: 'vault_fixture', entityId: 'bundle_fixture', opId: 'operation_fixture' }],
+      invalid: [{}],
+    },
+    result: { valid: [{ opId: 'operation_fixture' }], invalid: [{}] },
+  },
   'sync.settingsConflicts': {
     params: { valid: [{}], invalid: [null] },
     result: { valid: [{ conflicts: [] }], invalid: [{}] },

@@ -1,4 +1,5 @@
-import { randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionId, WorkspaceId } from '@wevir/protocol';
@@ -47,6 +48,14 @@ async function fixture(withTools = false) {
     const project = join(base, 'project');
     await mkdir(userHome, { recursive: true });
     await mkdir(project, { recursive: true });
+    execFileSync('git', ['init', '--quiet', '--template=', project], {
+      env: {
+        PATH: process.env.PATH,
+        HOME: userHome,
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: join(userHome, 'gitconfig'),
+      },
+    });
     const adapter = new SummaryEcho(withTools);
     const host = await startHost({
       home,
@@ -122,6 +131,358 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it('keeps skill activation local while resolving binary package conflicts on two bound Hosts', async () => {
+    const { first, second, mock } = await fixture();
+    const packagePath = (peer: Peer) => join(peer.userHome, '.agents/skills/synthetic-package');
+    const initial =
+      '---\nname: synthetic-package\ndescription: Synthetic package\n---\n\nInitial instructions';
+    const binary = randomBytes(256 * 1024);
+    for (const peer of [first, second]) {
+      await mkdir(packagePath(peer), { recursive: true });
+      await writeFile(join(packagePath(peer), 'SKILL.md'), initial);
+      await writeFile(join(packagePath(peer), 'binary.bin'), binary);
+    }
+    const skills = (await first.rpc.request('plugins.list')).skills;
+    const skill = skills.find((item: { name: string }) => item.name === 'synthetic-package');
+    if (!skill) throw new Error('missing synthetic skill');
+    await first.rpc.request('skill.setEnabled', { id: skill.id, enabled: true });
+    const scope = {
+      enabled: true,
+      categories: ['skill-bundle', 'artifact'],
+      projects: [],
+      includeHistory: true,
+    };
+    const state = await first.rpc.request('sync.configure', scope);
+    await second.rpc.call('sync.configure', scope);
+    const pending = await second.rpc.request('sync.status');
+    await first.rpc.request('sync.approveDevice', { deviceId: pending.binding.deviceId });
+    await second.rpc.request('sync.configure', scope);
+    const vaultId = state.binding.vaultId;
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('sync.bundles', { vaultId })).bundles.filter(
+            (b: { category: string }) => b.category === 'skill-bundle',
+          ).length,
+        { timeout: 8000 },
+      )
+      .toBeGreaterThan(0);
+    const source = (await first.rpc.request('sync.bundles', { vaultId })).bundles.find(
+      (b: { category: string }) => b.category === 'skill-bundle',
+    );
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc.request('sync.bundles', { vaultId })).bundles.some(
+            (b: { entityId: string }) => b.entityId === source.entityId,
+          ),
+        { timeout: 8000 },
+      )
+      .toBe(true);
+    for (const peer of [first, second]) {
+      const preview = await peer.rpc.request('sync.bundlePreview', {
+        vaultId,
+        entityId: source.entityId,
+      });
+      const native = (
+        await peer.rpc.request('sync.bundleTargets', { vaultId, entityId: source.entityId })
+      ).targets.find(
+        (target: { managed: boolean; name: string }) =>
+          !target.managed && target.name === 'synthetic-package',
+      );
+      if (!native) throw new Error('missing external skill target');
+      await peer.rpc.request('sync.applyBundle', {
+        vaultId,
+        entityId: source.entityId,
+        expectedHeads: preview.heads,
+        selectedOpId: preview.heads[0],
+        targetId: native.targetId,
+        fingerprint: native.fingerprint,
+      });
+    }
+    const baseline = mock.sync
+      .acceptedOperations(source.entityId)
+      .map((operation) => operation.opId);
+    mock.sync.pendingEntities.add(source.entityId);
+    const changed = randomBytes(256 * 1024);
+    await writeFile(join(packagePath(first), 'binary.bin'), changed);
+    const local = await second.rpc.request('sync.bundleFile', {
+      vaultId,
+      entityId: source.entityId,
+      path: 'SKILL.md',
+    });
+    await second.rpc.request('sync.editBundleFile', {
+      vaultId,
+      entityId: source.entityId,
+      path: 'SKILL.md',
+      text: `${initial}\n\nSecond Host edit`,
+      fingerprint: local.fingerprint,
+      localRevision: local.localRevision,
+    });
+    await expect
+      .poll(
+        () =>
+          mock.sync
+            .acceptedOperations(source.entityId)
+            .filter((operation) => !baseline.includes(operation.opId)).length,
+        { timeout: 8000 },
+      )
+      .toBe(2);
+    const branches = mock.sync
+      .acceptedOperations(source.entityId)
+      .filter((operation) => !baseline.includes(operation.opId));
+    expect(new Set(branches.map((operation) => operation.deviceId)).size).toBe(2);
+    expect(branches[0]?.parents).toEqual(branches[1]?.parents);
+    mock.sync.pendingEntities.delete(source.entityId);
+    mock.sync.finalize();
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc.request('sync.bundlePreview', { vaultId, entityId: source.entityId }))
+            .heads.length,
+        { timeout: 15000 },
+      )
+      .toBe(2);
+    const preview = await second.rpc.request('sync.bundlePreview', {
+      vaultId,
+      entityId: source.entityId,
+    });
+    let binaryVersion: string | undefined, textVersion: string | undefined;
+    for (const version of preview.versions) {
+      const md = await second.rpc.request('sync.bundleFile', {
+        vaultId,
+        entityId: source.entityId,
+        opId: version.opId,
+        path: 'SKILL.md',
+      });
+      if (md.text?.includes('Second Host edit')) textVersion = version.opId;
+      const file = version.files.find((file: { path: string }) => file.path === 'binary.bin');
+      if (file?.sha256 === createHash('sha256').update(changed).digest('base64url'))
+        binaryVersion = version.opId;
+    }
+    if (!binaryVersion || !textVersion) throw new Error('missing preserved binary/text revisions');
+    const target = (
+      await second.rpc.request('sync.bundleTargets', { vaultId, entityId: source.entityId })
+    ).targets.find((target: { targetId: string }) => target.targetId === preview.binding.targetId);
+    if (!target) throw new Error('missing bound target');
+    await second.rpc.request('sync.applyBundle', {
+      vaultId,
+      entityId: source.entityId,
+      selectedOpId: binaryVersion,
+      expectedHeads: preview.heads,
+      targetId: target.targetId,
+      fingerprint: target.fingerprint,
+      localRevision: preview.binding.revision,
+    });
+    for (const peer of [first, second]) {
+      await expect
+        .poll(() => readFile(join(packagePath(peer), 'binary.bin')), { timeout: 10000 })
+        .toEqual(changed);
+      await expect
+        .poll(
+          async () =>
+            (await peer.rpc.request('sync.bundlePreview', { vaultId, entityId: source.entityId }))
+              .heads.length,
+          { timeout: 10000 },
+        )
+        .toBe(1);
+    }
+    expect(
+      (
+        await second.rpc.request('sync.bundleFile', {
+          vaultId,
+          entityId: source.entityId,
+          opId: textVersion,
+          path: 'SKILL.md',
+        })
+      ).text,
+    ).toContain('Second Host edit');
+    expect(
+      (await first.rpc.request('plugins.list')).skills.find(
+        (s: { name: string }) => s.name === 'synthetic-package',
+      ).enabled,
+    ).toBe(true);
+    expect(
+      (await second.rpc.request('plugins.list')).skills.find(
+        (s: { name: string }) => s.name === 'synthetic-package',
+      ).enabled,
+    ).toBe(false);
+    expect(first.adapter.endpoints.size).toBe(0);
+    expect(second.adapter.endpoints.size).toBe(0);
+    expect(mock.errors).toEqual([]);
+  }, 40000);
+  it('binds one rule package on two Hosts, returns native edits and retains the replaced local resource', async () => {
+    const { first, second, mock } = await fixture();
+    await writeFile(join(first.project, 'AGENTS.md'), 'Initial first rule');
+    await writeFile(join(second.project, 'AGENTS.md'), 'Original second rule');
+    const scope = {
+      enabled: true,
+      categories: ['project', 'rule', 'artifact'],
+      includeHistory: true,
+    };
+    const configured = await first.rpc.request('sync.configure', {
+      ...scope,
+      projects: [{ workspaceId: first.workspaceId }],
+    });
+    const target = {
+      ...scope,
+      projects: [{ workspaceId: second.workspaceId, projectId: configured.binding.projectIds[0] }],
+    };
+    await second.rpc.call('sync.configure', target);
+    const pending = await second.rpc.request('sync.status');
+    await first.rpc.request('sync.approveDevice', { deviceId: pending.binding.deviceId });
+    await second.rpc.request('sync.configure', target);
+    const vaultId = configured.binding.vaultId;
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('sync.bundles', { vaultId })).bundles.filter(
+            (b: { category: string }) => b.category === 'rule',
+          ).length,
+        { timeout: 8000 },
+      )
+      .toBeGreaterThan(0);
+    const original = (await first.rpc.request('sync.bundles', { vaultId })).bundles.find(
+      (b: { category: string }) => b.category === 'rule',
+    );
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc.request('sync.bundles', { vaultId })).bundles.some(
+            (b: { entityId: string }) => b.entityId === original.entityId,
+          ),
+        { timeout: 8000 },
+      )
+      .toBe(true);
+    for (const peer of [first, second]) {
+      const preview = await peer.rpc.request('sync.bundlePreview', {
+        vaultId,
+        entityId: original.entityId,
+      });
+      const targets = (
+        await peer.rpc.request('sync.bundleTargets', { vaultId, entityId: original.entityId })
+      ).targets;
+      const native = targets.find(
+        (item: { managed: boolean; name: string }) => !item.managed && item.name === 'AGENTS.md',
+      );
+      if (!native) throw new Error('missing native rule target');
+      await peer.rpc.request('sync.applyBundle', {
+        vaultId,
+        entityId: original.entityId,
+        expectedHeads: preview.heads,
+        selectedOpId: preview.heads[0],
+        targetId: native.targetId,
+        fingerprint: native.fingerprint,
+      });
+    }
+    expect(await readFile(join(second.project, 'AGENTS.md'), 'utf8')).toBe('Initial first rule');
+    const local = await second.rpc.request('sync.bundleFile', {
+      vaultId,
+      entityId: original.entityId,
+      path: 'AGENTS.md',
+    });
+    await second.rpc.request('sync.editBundleFile', {
+      vaultId,
+      entityId: original.entityId,
+      path: 'AGENTS.md',
+      text: 'Edited on second Host',
+      fingerprint: local.fingerprint,
+      localRevision: local.localRevision,
+    });
+    await expect
+      .poll(() => readFile(join(first.project, 'AGENTS.md'), 'utf8'), { timeout: 8000 })
+      .toBe('Edited on second Host');
+    await writeFile(join(first.project, 'AGENTS.md'), 'Returned from first Host');
+    await expect
+      .poll(() => readFile(join(second.project, 'AGENTS.md'), 'utf8'), { timeout: 8000 })
+      .toBe('Returned from first Host');
+    await expect
+      .poll(
+        async () => {
+          const packages = (await second.rpc.request('sync.bundles', { vaultId })).bundles;
+          for (const item of packages) {
+            if (item.entityId === original.entityId) continue;
+            const preview = await second.rpc.request('sync.bundlePreview', {
+              vaultId,
+              entityId: item.entityId,
+            });
+            const file = await second.rpc.request('sync.bundleFile', {
+              vaultId,
+              entityId: item.entityId,
+              opId: preview.heads[0],
+              path: 'AGENTS.md',
+            });
+            if (file.text === 'Original second rule') return true;
+          }
+          return false;
+        },
+        { timeout: 8000 },
+      )
+      .toBe(true);
+    await first.rpc.request('sync.retry', {});
+    await second.rpc.request('sync.retry', {});
+    const bound = await second.rpc.request('sync.bundlePreview', {
+      vaultId,
+      entityId: original.entityId,
+    });
+    const separate = (
+      await second.rpc.request('sync.bundleTargets', { vaultId, entityId: original.entityId })
+    ).targets.find((target: { managed: boolean }) => target.managed);
+    const rebind = await second.rpc.request('sync.applyBundle', {
+      vaultId,
+      entityId: original.entityId,
+      expectedHeads: bound.heads,
+      selectedOpId: bound.heads[0],
+      targetId: separate.targetId,
+      fingerprint: separate.fingerprint,
+      localRevision: bound.binding.revision,
+      expectedTargetId: bound.binding.targetId,
+    });
+    expect(await readFile(join(second.project, 'AGENTS.md'), 'utf8')).toBe(
+      'Returned from first Host',
+    );
+    const copy = await second.rpc.request('sync.bundleFile', {
+      vaultId,
+      entityId: original.entityId,
+      path: 'AGENTS.md',
+    });
+    const saved = await second.rpc.request('sync.editBundleFile', {
+      vaultId,
+      entityId: original.entityId,
+      path: 'AGENTS.md',
+      text: 'Edited independent copy',
+      fingerprint: copy.fingerprint,
+      localRevision: copy.localRevision,
+    });
+    await expect
+      .poll(() => readFile(join(first.project, 'AGENTS.md'), 'utf8'), { timeout: 8000 })
+      .toBe('Edited independent copy');
+    expect(await readFile(join(second.project, 'AGENTS.md'), 'utf8')).toBe(
+      'Returned from first Host',
+    );
+    expect(
+      (
+        await second.rpc.request('sync.bundleVersions', { vaultId, entityId: original.entityId })
+      ).versions.some((version: { opId: string }) => version.opId === rebind.opId),
+    ).toBe(true);
+    await second.rpc.request('account.logout', { kind: 'zuv' });
+    expect(
+      (
+        await second.rpc.request('sync.bundleFile', {
+          vaultId,
+          entityId: original.entityId,
+          opId: saved.opId,
+          path: 'AGENTS.md',
+        })
+      ).text,
+    ).toBe('Edited independent copy');
+    expect(
+      (await second.rpc.call('sync.bundleTargets', { vaultId, entityId: original.entityId })).error,
+    ).toMatchObject({ data: { code: 'SCOPE_DISABLED' } });
+    expect(first.adapter.endpoints.size).toBe(0);
+    expect(second.adapter.endpoints.size).toBe(0);
+    expect(mock.errors).toEqual([]);
+  }, 30000);
   it('merges a conflicting preference field explicitly without replacing unrelated or excluded settings', async () => {
     const { mock, first, second } = await fixture();
     const scope = { enabled: true, categories: ['settings'], projects: [], includeHistory: false };
@@ -837,6 +1198,122 @@ describe('full Host material synchronization with synthetic identities', () => {
         (row: { title: string }) => row.title === 'Synthetic side session',
       ),
     ).toBe(false);
+    const mirroredRoot = (
+      await second.rpc.request('session.list', { workspaceId: second.workspaceId })
+    ).sessions.find(
+      (row: { origin?: { sessionId?: string } }) => row.origin?.sessionId === root.id,
+    );
+    await expect
+      .poll(
+        async () => {
+          const sides = (
+            await second.rpc.request('session.list', {
+              workspaceId: second.workspaceId,
+              sideOf: mirroredRoot.id,
+            })
+          ).sessions;
+          return sides.find(
+            (row: { origin?: { sessionId?: string } }) => row.origin?.sessionId === side.id,
+          )?.forkedFrom;
+        },
+        { timeout: 8000 },
+      )
+      .toMatchObject({ sessionId: mirroredRoot.id });
+  }, 30000);
+  it('reads handoff constraints, note revisions and task references on another Host without execution', async () => {
+    const { first, second, mock } = await fixture();
+    const create = vi.spyOn(second.adapter, 'createSession');
+    await linkSessions(first, second);
+    await first.rpc.request('provider.upsert', {
+      id: 'synthetic-other',
+      kind: 'openai-compatible',
+      displayName: 'Synthetic other',
+      api: 'openai-responses',
+      baseURL: 'https://synthetic.invalid/v1',
+      models: [{ id: 'synthetic-model' }],
+      defaultModelId: 'synthetic-model',
+    });
+    await first.memory.save('global', undefined, {
+      name: 'synthetic-handoff-note',
+      type: 'reference',
+      description: 'Synthetic handoff note',
+      content: 'Synthetic retained note body',
+    });
+    const note = await first.memory.read('global', undefined, 'synthetic-handoff-note');
+    const session = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.send', {
+      sessionId: session.id,
+      clientMessageId: 'synthetic-handoff-message',
+      content: [{ type: 'text', text: 'Synthetic handoff task' }],
+    });
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('session.get', { sessionId: session.id })).session.state,
+        { timeout: 8000 },
+      )
+      .toBe('idle');
+    await first.rpc.request('session.configure', {
+      sessionId: session.id,
+      providerId: 'synthetic-other',
+      handoff: {
+        constraints: ['Synthetic must-carry constraint'],
+        notes: [{ scope: 'global', name: 'synthetic-handoff-note' }],
+        episode: true,
+      },
+    });
+    let mirroredId: string | undefined;
+    await expect
+      .poll(
+        async () => {
+          const rows = (
+            await second.rpc.request('session.list', { workspaceId: second.workspaceId })
+          ).sessions;
+          mirroredId = rows.find(
+            (row: { origin?: { sessionId?: string } }) => row.origin?.sessionId === session.id,
+          )?.id;
+          return mirroredId;
+        },
+        { timeout: 8000 },
+      )
+      .toBeTruthy();
+    const { subscriptionId } = await second.rpc.request('events.subscribe', {
+      sessionId: mirroredId,
+      sinceSeq: 0,
+    });
+    await second.rpc.untilTrue(
+      () => second.rpc.events(subscriptionId).some((event) => event.type === 'session.handoff'),
+      'synchronized handoff receipt',
+    );
+    const handoff = second.rpc
+      .events(subscriptionId)
+      .find((event) => event.type === 'session.handoff');
+    if (handoff?.type !== 'session.handoff') throw new Error('missing synchronized handoff');
+    expect(handoff.payload.context).toContain('Synthetic must-carry constraint');
+    expect(handoff.payload.context).toContain('Synthetic retained note body');
+    expect(handoff.payload.context).toContain('Synthetic handoff task');
+    expect(handoff.payload.notes).toEqual([
+      { scope: 'global', name: 'synthetic-handoff-note', revision: note.revision },
+    ]);
+    expect(handoff.payload.episode).toBeDefined();
+    expect(handoff.syncOrigin).toMatchObject({ sessionId: session.id });
+    const covered = handoff.payload.covered;
+    expect(covered).toBeDefined();
+    expect(
+      second.rpc
+        .events(subscriptionId)
+        .some((event) => event.syncOrigin?.seq === String(covered?.toSeq)),
+    ).toBe(true);
+    const remote = (await second.rpc.request('session.get', { sessionId: mirroredId })).session;
+    expect(remote).toMatchObject({ readOnly: { reason: 'synchronized' }, state: 'closed' });
+    expect(create).not.toHaveBeenCalled();
+    expect(mock.errors).toEqual([]);
   }, 30000);
   it('synchronizes replica names and archive changes without injecting received state into the native source stream', async () => {
     const { first, second } = await fixture();

@@ -191,6 +191,10 @@ export interface SessionRepository {
   /** 归档或取消归档（`undefined`）；会话不存在时返回 false。 */
   setArchived(id: string, archivedAt: string | undefined): boolean;
   setSyncedSide(id: string): boolean;
+  setSyncedRelations(
+    id: string,
+    relations: Pick<SessionRecord, 'parentSessionId' | 'forkedFrom'>,
+  ): boolean;
   /**
    * 会话换了目录（0.81.0，`session.move`）：改 `cwd` 与 `worktrees`（空数组清掉）；会话不存在时返回 false。
    */
@@ -385,6 +389,15 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
             "UPDATE sessions SET side = 1 WHERE id = ? AND json_extract(origin, '$.kind') = 'synced'",
           )
           .run(id),
+      );
+    },
+    setSyncedRelations(id, { parentSessionId, forkedFrom }) {
+      return changed(
+        db
+          .prepare(
+            "UPDATE sessions SET parent_session_id=?,forked_from=? WHERE id=? AND json_extract(origin,'$.kind')='synced'",
+          )
+          .run(parentSessionId ?? null, forkedFrom ? JSON.stringify(forkedFrom) : null, id),
       );
     },
     setLocation(id, { cwd, worktrees }) {

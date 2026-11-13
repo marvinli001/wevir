@@ -87,6 +87,111 @@ function fixture() {
   return { storage, materials, directory, ensureSource, op, record, source };
 }
 describe('task source identity boundary', () => {
+  it('maps a delayed parent and fork through source identities without changing a native session', async () => {
+    const h = fixture();
+    h.storage.transaction(() => {
+      h.storage.sync.bindVault({
+        vaultId: h.op.vaultId,
+        accountId: 'account_synthetic',
+        deviceId: 'device_local',
+        originHostId: 'device_local',
+        appliedCursor: 'initial',
+      });
+      h.storage.workspaces.insert({
+        id: 'ws_synthetic',
+        rootPath: '/synthetic/project',
+        displayName: 'Synthetic',
+        createdAt: h.op.clientTime,
+        updatedAt: h.op.clientTime,
+      });
+    });
+    h.ensureSource.mockImplementation((vaultId, source) => {
+      const found = h.storage.sync
+        .sources(vaultId)
+        .find((value) => value.streamId === source.streamId);
+      if (found) return found;
+      const localSessionId = `ses_local_${source.sessionId.slice(4)}`;
+      h.storage.sessions.insert({
+        id: localSessionId,
+        workspaceId: 'ws_synthetic',
+        cwd: '/synthetic/project',
+        engine: 'sync',
+        engineSessionId: `engine_${localSessionId}`,
+        providerId: 'sync',
+        modelId: 'sync',
+        title: '',
+        titleSource: 'first_prompt',
+        state: 'closed',
+        lastSeq: 0,
+        createdAt: h.op.clientTime,
+        updatedAt: h.op.clientTime,
+        origin: {
+          kind: 'synced',
+          vaultId,
+          hostId: source.hostId,
+          sessionId: source.sessionId,
+          streamId: source.streamId,
+        },
+      });
+      const mapped = { vaultId, ...source, localSessionId, mirrored: true };
+      h.storage.sync.putSource(mapped);
+      return mapped;
+    });
+    let index = 0;
+    const apply = async (sessionId: string, parentSessionId?: string) => {
+      const op = {
+        ...h.op,
+        entityId: sessionId,
+        opId: `operation_${++index}`,
+        deviceSeq: String(index),
+      };
+      const source = {
+        ...h.source,
+        hostId: 'host_bound',
+        sessionId,
+        streamId: `stream_${sessionId}`,
+      };
+      const record = {
+        ...h.record,
+        entityId: sessionId,
+        opId: op.opId,
+        content: {
+          ...h.record.content,
+          source,
+          sessionId,
+          ...(parentSessionId && {
+            parentSessionId,
+            side: true,
+            forkedFrom: { sessionId: parentSessionId },
+          }),
+        },
+      };
+      const finish = await h.materials.prepare(op, record);
+      h.storage.transaction(() => {
+        h.storage.sync.putOperation({
+          ...op,
+          projectId: record.projectId,
+          envelope: op,
+          manifest: {},
+          digest: 'synthetic_digest',
+          record,
+          direction: 'inbox',
+          state: 'applied',
+        });
+        finish();
+      });
+    };
+    await apply('ses_child', 'ses_parent');
+    expect(h.storage.sessions.get('ses_local_child')?.parentSessionId).toBeUndefined();
+    await apply('ses_parent');
+    expect(h.storage.sessions.get('ses_local_child')).toMatchObject({
+      parentSessionId: 'ses_local_parent',
+      forkedFrom: { sessionId: 'ses_local_parent' },
+      side: true,
+    });
+    expect(h.storage.sessions.get('ses_parent')).toBeUndefined();
+    expect(h.storage.sessions.get('ses_local_parent')?.parentSessionId).toBeUndefined();
+  });
   it('does not accept a content header that claims a different Host from the registered device', async () => {
     const h = fixture();
     await expect(h.materials.prepare(h.op, h.record)).rejects.toMatchObject({

@@ -35,7 +35,7 @@ export interface SyncEngineOptions {
   client: ZuvClient;
   cache: SyncBlobCache;
   key: (vaultId: string, epoch: string, signal: AbortSignal) => Promise<Uint8Array>;
-  prepareApply: (op: SyncOperation, record: Record) => Promise<() => void>;
+  prepareApply: (op: SyncOperation, record: Record, signal?: AbortSignal) => Promise<() => void>;
 }
 
 export class SyncEngine {
@@ -240,10 +240,12 @@ export class SyncEngine {
     const { storage, cache } = this.#options;
     if (storage.sync.commits(vault.vaultId).some((commit) => this.#commitInScope(vault, commit)))
       return;
+    // A later bundle revision can reference chunks queued after an earlier bundle draft.
     const drafts = storage.sync.drafts(
       vault.vaultId,
       this.#limit('operations', LIMITS.operations),
       vault,
+      true,
     );
     const groups = new Map<
       string,
@@ -669,7 +671,7 @@ export class SyncEngine {
         throw new ZuvRequestError('MISSING_PARENT');
       let apply: () => void;
       try {
-        apply = await this.#options.prepareApply(op, record);
+        apply = await this.#options.prepareApply(op, record, signal);
       } catch (error) {
         if (
           error instanceof ZuvRequestError &&

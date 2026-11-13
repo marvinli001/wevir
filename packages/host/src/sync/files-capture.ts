@@ -18,6 +18,12 @@ export interface SyncBundleRoot {
   projectId?: string;
   metadata?: unknown;
   paths?: readonly string[];
+  exclusions?: readonly string[];
+  entityId?: string;
+  opId?: string;
+  parents?: string[];
+  kind?: 'put' | 'delete' | 'resolve';
+  expectedFingerprint?: string;
 }
 
 export class SyncFilesCapture {
@@ -321,6 +327,7 @@ export class SyncFilesCapture {
     root: SyncBundleRoot,
     initialize: boolean,
     includeHistory: boolean,
+    signal?: AbortSignal,
   ): Promise<((localKey: string, metadata?: unknown) => string | undefined) | undefined> {
     if (
       !vault.categories.includes(root.category) ||
@@ -330,6 +337,7 @@ export class SyncFilesCapture {
     const owner = this.#storage.sync.owner(root.localKey);
     if (owner && owner !== vault.vaultId) return;
     const guard = () => {
+      signal?.throwIfAborted();
       const current = this.#eligible ? this.#eligible() : this.#storage.sync.activeVault();
       if (
         !current?.enabled ||
@@ -341,18 +349,37 @@ export class SyncFilesCapture {
         (root.projectId && !current.projectIds.includes(root.projectId))
       )
         throw new ZuvRequestError('SCOPE_DISABLED');
+      if (
+        root.entityId &&
+        !root.opId &&
+        this.#storage.sync.pendingBundleApplication(vault.vaultId, root.entityId)
+      )
+        throw new ZuvRequestError('REVISION_CONFLICT');
     };
-    const { files, exclusions } = await snapshotBundle({ ...root, guard });
+    const binding = root.entityId
+      ? this.#storage.sync.bundleBinding(vault.vaultId, root.entityId)
+      : undefined;
+    const snapshot = await snapshotBundle({ ...root, guard }, Boolean(binding));
+    const { files, exclusions } = snapshot;
+    const deleted =
+      root.kind === 'delete' ||
+      snapshot.deleted ||
+      (Boolean(binding?.manifest.deleted) && !files.length);
     return (localKey, metadata = root.metadata) => {
       guard();
       if (!this.#storage.db.isTransaction)
         throw new Error('sync bundle capture requires a transaction');
-      const fingerprint = bundleFingerprint({ files, exclusions, metadata });
-      let entity = this.#storage.sync.localEntity(vault.vaultId, localKey);
+      const fingerprint = bundleFingerprint({ files, exclusions, metadata, deleted });
+      if (root.expectedFingerprint && fingerprint !== root.expectedFingerprint)
+        throw new ZuvRequestError('REVISION_CONFLICT');
+      let entity = root.entityId
+        ? this.#storage.sync.entity(vault.vaultId, root.entityId)
+        : this.#storage.sync.localEntity(vault.vaultId, localKey);
       const baseline = entity && this.#storage.sync.fileBaseline(vault.vaultId, entity.entityId);
       if (
+        !root.opId &&
         baseline?.fingerprint === fingerprint &&
-        !(initialize && includeHistory && !entity?.revision)
+        !(initialize && includeHistory && !baseline?.opId)
       )
         return;
       if (!(initialize && !includeHistory) && !vault.categories.includes('artifact'))
@@ -410,11 +437,22 @@ export class SyncFilesCapture {
         initialize && !includeHistory
           ? undefined
           : this.#queue.enqueue({
+              ...(root.opId && { opId: root.opId }),
               vaultId: vault.vaultId,
               entityId: entity.entityId,
               entityType: root.category as EntityType,
               ...(root.projectId && { projectId: root.projectId }),
               localKey,
+              kind: root.kind ?? (deleted ? 'delete' : 'put'),
+              parents:
+                root.parents ??
+                (binding
+                  ? binding.revision
+                    ? [binding.revision]
+                    : []
+                  : baseline?.opId
+                    ? [baseline.opId]
+                    : undefined),
               content: {
                 schema: 'wevir-bundle/1',
                 category: root.category,
@@ -433,6 +471,23 @@ export class SyncFilesCapture {
         fingerprint,
         ...(opId && { opId }),
       });
+      if (binding)
+        this.#storage.sync.putBundleBinding({
+          ...binding,
+          revision: opId ?? binding.revision,
+          fingerprint,
+          manifest: {
+            files: files.map((file) => ({
+              path: file.path,
+              bytes: file.bytes.length,
+              sha256: file.sha256,
+              executable: file.executable,
+            })),
+            exclusions,
+            ...(metadata !== undefined && { metadata }),
+            ...(deleted && { deleted: true }),
+          },
+        });
       return opId;
     };
   }

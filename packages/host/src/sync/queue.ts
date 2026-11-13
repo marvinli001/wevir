@@ -10,6 +10,7 @@ export type SyncMaterialRevision = Omit<SyncOperation, 'protocol' | 'deviceSeq' 
 export interface SyncApplyContext {
   replaceRevision?: string;
   preserveRevision?: boolean;
+  signal?: AbortSignal;
 }
 
 import type { Storage, SyncEntityRecord } from '@wevir/storage';
@@ -48,7 +49,8 @@ export class SyncQueue {
       ...input.source,
     };
     const fingerprint = sha256(jcs({ kind, content: payload }));
-    if (existing?.fingerprint === fingerprint && kind !== 'resolve') return undefined;
+    if (existing?.fingerprint === fingerprint && kind !== 'resolve' && input.opId === undefined)
+      return undefined;
     const opId = input.opId ?? newId('sop');
     const entity: SyncEntityRecord = {
       vaultId: input.vaultId,

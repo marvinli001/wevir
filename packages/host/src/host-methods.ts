@@ -1577,6 +1577,61 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'image.read': (params) => imageStore().read(params),
 
     'settings.get': () => ({ settings: settings.get() }),
+    'sync.cancelBundle': ({ vaultId, entityId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.cancelBundle(vaultId, entityId);
+    },
+    'sync.bundleVaults': () => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.bundleVaults();
+    },
+    'sync.bundles': ({ vaultId, after }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.bundleList(vaultId, after);
+    },
+    'sync.bundlePreview': ({ vaultId, entityId, fileOffset, opId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.bundlePreview(vaultId, entityId, fileOffset, opId);
+    },
+    'sync.bundleVersions': ({ vaultId, entityId, after }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.bundleVersions(vaultId, entityId, after);
+    },
+    'sync.keepLocalBundle': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.keepLocalBundle(params);
+    },
+    'sync.bundleTargets': ({ vaultId, entityId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.bundleTargets(vaultId, entityId);
+    },
+    'sync.applyBundle': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.applyBundle(params);
+    },
+    'sync.bundleFile': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.bundleFile(params);
+    },
+    'sync.editBundleFile': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.editBundleFile(params);
+    },
+    'sync.retryBundle': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.retryBundle(params);
+    },
     'sync.settingsConflicts': ({ after }) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });

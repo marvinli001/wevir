@@ -15,6 +15,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { NoticeBanner } from './settings-ui';
+import { ZuvBundles } from './zuv-bundles';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
 import { ZuvSessionConflicts } from './zuv-session-conflicts';
 import { ZuvSettingsConflicts } from './zuv-settings-conflicts';
@@ -529,6 +530,13 @@ export function ZuvSyncSection({
             onResolved={refresh}
           />
         )}
+      {client.supports('sync_bundles') && (
+        <ZuvBundles
+          client={client}
+          currentVaultId={status?.binding?.vaultId}
+          writable={!!active && !!status?.binding?.enabled && !busy && !reset && !resetBusy}
+        />
+      )}
       {client.supports('sync_settings_conflicts') &&
         status?.binding?.categories.includes('settings') && (
           <ZuvSettingsConflicts

@@ -415,13 +415,20 @@ export class SyncSessionMaterials {
           localId: source.localSessionId,
         });
       this.#apply(op, body, mapped, record.projectId as string, context);
+      if (body.schema === 'wevir-session/1') this.reconcile(op.vaultId);
     };
   }
 
   reconcile(vaultId: string): void {
     const { storage } = this.#options;
     for (const ref of storage.sync.contentRefs(vaultId)) {
-      if (ref.kind === 'session') continue;
+      if (ref.kind === 'session') {
+        const declaration = storage.sync.sessionDeclaration(vaultId, ref.entityId);
+        const local = ref.localId && storage.sessions.get(ref.localId);
+        if (declaration && local)
+          this.#relations(vaultId, SyncSessionContentSchema.parse(declaration), ref.source, local);
+        continue;
+      }
       const entity = storage.sync.entity(vaultId, ref.entityId);
       if (!entity?.revision) continue;
       const stored = storage.sync.getOperation(vaultId, entity.revision);
@@ -645,6 +652,7 @@ export class SyncSessionMaterials {
         throw new ZuvRequestError('INTEGRITY_FAILED');
       if (body.schema === 'wevir-session/1' && body.side)
         storage.sessions.setSyncedSide(session.id);
+      if (body.schema === 'wevir-session/1') this.#relations(op.vaultId, body, ref.source, session);
       storage.sessions.update(session.id, {
         title: body.title,
         titleSource: body.titleSource,
@@ -766,6 +774,33 @@ export class SyncSessionMaterials {
     return { value: tree(value), unmapped };
   }
 
+  #relations(
+    vaultId: string,
+    body: typeof SyncSessionContentSchema._output,
+    source: SyncContentRefRecord['source'],
+    local: SessionRecord,
+  ) {
+    if (local.origin?.kind !== 'synced') return;
+    const mapper = this.#mapper(vaultId, source, local);
+    const parentSessionId = body.parentSessionId && mapper.session(body.parentSessionId);
+    const forkedId = body.forkedFrom && mapper.session(body.forkedFrom.sessionId);
+    for (const id of [parentSessionId, forkedId]) {
+      const seen = new Set([local.id]);
+      let next = id;
+      while (next) {
+        if (seen.has(next) || seen.size > 1024) throw new ZuvRequestError('INTEGRITY_FAILED');
+        seen.add(next);
+        const session = this.#options.storage.sessions.get(next);
+        next = session?.parentSessionId ?? session?.forkedFrom?.sessionId;
+      }
+    }
+    this.#options.storage.sessions.setSyncedRelations(local.id, {
+      ...(parentSessionId && { parentSessionId }),
+      ...(forkedId && { forkedFrom: { ...body.forkedFrom, sessionId: forkedId } }),
+    });
+    this.#touched.add(local.id as SessionId);
+  }
+
   #mapper(vaultId: string, source: SyncContentRefRecord['source'], local: SessionRecord) {
     const { storage } = this.#options;
     const native = storage.sync
@@ -781,14 +816,16 @@ export class SyncSessionMaterials {
       );
     const missing = new Set<string>();
     const session = (id: string) => {
+      if (id === source.sessionId) return local.id;
       const found = storage.sync
-        .sources(vaultId)
+        .contentRefs(vaultId)
         .find(
           (value) =>
-            value.hostId === source.hostId &&
-            value.deviceId === source.deviceId &&
-            value.sessionId === id,
-        )?.localSessionId;
+            value.kind === 'session' &&
+            value.entityId === id &&
+            value.source.hostId === source.hostId &&
+            value.source.deviceId === source.deviceId,
+        )?.localId;
       if (!found) missing.add(`s:${id}`);
       return found;
     };

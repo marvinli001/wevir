@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SessionIdSchema, WorkspaceIdSchema } from './common.js';
+import { BundleMethodSchemas } from './sync-bundles.js';
 import { SyncSettingsValuesSchema } from './sync-settings.js';
 import { decimal, digest, entityType, id, PROTOCOL, schemas } from './sync-wire.js';
 
@@ -136,6 +137,7 @@ const settingsVersion = z.object({
   values: SyncSettingsValuesSchema,
 });
 export const SyncMethodSchemas = {
+  ...BundleMethodSchemas,
   'sync.settingsConflicts': {
     params: z.object({ after: id.optional() }),
     result: z.object({
