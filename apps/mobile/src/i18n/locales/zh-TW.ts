@@ -446,6 +446,7 @@ export const zhTW: Messages = {
   'notice.movedToWorktree': '已移到工作樹',
   'notice.movedToLocal': '已移回本機',
   'readOnly.imported': '已匯入',
+  'readOnly.synchronized': '同步歷史',
   'readOnly.engine_session_not_found': '引擎工作階段不存在',
   'readOnly.engine_session_incompatible': '引擎版本與此工作階段不相容',
   'readOnly.engine_session_corrupted': '引擎工作階段記錄已損毀',

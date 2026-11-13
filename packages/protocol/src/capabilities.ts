@@ -83,6 +83,7 @@ export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
  * 每次握手时给出。
  */
 export const HOST_FEATURES = {
+  cloudSync: 'cloud_sync',
   /** 0.171.0：Host 管理的 ZUV 设备账号。 */
   zuvAccount: 'zuv_account',
   /** 0.170.0：本地同步绑定、队列与冲突数量；不表示网络传输已启用。 */
@@ -628,6 +629,7 @@ export const HOST_FEATURES = {
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
+  cloud_sync: z.boolean().optional(),
   zuv_account: z.boolean().optional(),
   sync_metadata: z.boolean().optional(),
   plugins: z.boolean().optional(),

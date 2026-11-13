@@ -128,6 +128,8 @@ import {
   polishInput,
 } from './speech/polish.js';
 import { SpeechService } from './speech/service.js';
+import { syncBundleRoots } from './sync/roots.js';
+import { SyncService } from './sync/service.js';
 import { boardEventRecorder, boardEventTasks, TaskBoardStore } from './task-board.js';
 import { loadTerminalModules, TerminalService } from './terminals.js';
 import { defaultPromptsDir, loadTitleInstructions } from './title.js';
@@ -187,6 +189,7 @@ export interface StartHostOptions {
   /** 隔离测试替换 ZUV origin、传输与时钟；产品入口使用固定的正式来源。 */
   zuv?: Omit<ZuvClientOptions, 'secrets' | 'onSecret' | 'onIdentityChanging'> & {
     deviceName?: string;
+    syncIntervalMs?: number;
   };
   /**
    * 只给测试（0.98.0，permissions.ts）：hello 后让某条连接以受限的身份与权限工作。wevir-host 与桌面的入口不传它，Host 也不从
@@ -358,6 +361,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let dictation: SpeechService | undefined;
   let accounts: HostAccounts | undefined;
   let zuvAccounts: ZuvAccounts | undefined;
+  let syncService: SyncService | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
   let sessionList: SessionListFeed | undefined;
@@ -378,6 +382,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     startup.mark('database_maintenance');
     const store = new EventStore({
       storage,
+      onAppendInTransaction: (events) => syncService?.record(events),
       onError: (error) => logger.error('event store error', { error }),
     });
     events = store;
@@ -449,6 +454,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const settings = new HostSettingsStore({
       path: homePath(home, 'settingsFile'),
       onWarning: (message, fields) => logger.warn(message, fields),
+      beforeWrite: (next) => syncService?.beforeSettingsWrite(next),
     });
     // 回合快照（0.20.0）：只认还开着的会话，清理时删掉别的会话留下的 ref。
     const sessionsDb = storage;
@@ -457,7 +463,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...options.zuv,
       secrets,
       onSecret: (value) => logger.addSecret(value),
-      onIdentityChanging: () => {
+      onIdentityChanging: async () => {
+        await syncService?.suspend();
         const vault = sessionsDb.sync.activeVault();
         if (vault) sessionsDb.sync.detachVault(vault.vaultId);
       },
@@ -592,7 +599,31 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const memory = new MemoryStore({
       dir: homePath(home, 'memoryDir'),
       workspacePath: (id) => memoryStorage.workspaces.get(id)?.rootPath,
+      beforeWrite: (path, markdown) => syncService?.beforeMemoryWrite(path, markdown),
     });
+    const sync = new SyncService({
+      storage,
+      events: store,
+      secrets,
+      client: zuvClient,
+      accounts: zuv,
+      home,
+      memoryDir: memory.dir,
+      images,
+      settings,
+      onSecret: (value) => logger.addSecret(value),
+      intervalMs: options.zuv?.syncIntervalMs,
+      bundleRoots: (vault) =>
+        syncBundleRoots({
+          vault,
+          storage: sessionsDb,
+          plugins,
+          images,
+          userHome: options.userHome ?? options.pluginUserHome,
+          env: options.importEnv,
+        }),
+    });
+    syncService = sync;
     // 写作风格（0.95.0）：档案与建档期间的样本；放了太久的样本启动时删掉。
     const writingStyle = new WritingStyleStore({ dir: homePath(home, 'writingStyleDir') });
     writingStyle.pruneStale().catch((error: unknown) => {
@@ -1762,6 +1793,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       events: store,
       methods: keepMethods(
         createHostMethods({
+          sync,
           plugins,
           mcpOAuth,
           storage,
@@ -1830,6 +1862,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         pending_messages: true,
         host_settings: true,
         sync_metadata: true,
+        cloud_sync: true,
         zuv_account: true,
         ...(adapter.bindGatewayPrivacy !== undefined && { gateway_privacy: true }),
         workspace_git: true,
@@ -2068,7 +2101,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         push: pushService,
       },
       shutdown: (trigger = { kind: 'api' }) => {
-        const zuvClosed = zuv.close();
+        const zuvClosed = Promise.all([sync.close(), zuv.close()]);
         episodeService.dispose();
         contexts.dispose();
         stopMemoryContextIndex();
@@ -2117,6 +2150,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       releaseRuntimeFileSync: () => runtimeFile.releaseSync(),
     };
+    sync.start();
     requestShutdown = options.onShutdownRequest ?? ((trigger) => void host.shutdown(trigger));
     logger.info('host ready', {
       url,
@@ -2137,6 +2171,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await backgroundProcesses?.close().catch(() => {});
     await userTerminals?.dispose().catch(() => {});
     await iosSimulators?.dispose().catch(() => {});
+    await syncService?.close();
     await zuvAccounts?.close();
     accounts?.dispose();
     automations?.dispose();

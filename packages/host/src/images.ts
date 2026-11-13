@@ -202,6 +202,41 @@ export class ImageStore {
     }
     return undefined;
   }
+  syncAsset(imageId: ImageId): Promise<StoredImage | undefined> {
+    return this.#find(imageId);
+  }
+  async importSynced(part: UserImagePart, path: string): Promise<boolean> {
+    const parsed = UserImagePartSchema.parse(part);
+    const info = await stat(path);
+    if (info.size !== parsed.size || info.size > TOOL_IMAGE_MAX_BYTES) return false;
+    const bytes = await readFile(path);
+    const header = sniffImage(bytes);
+    if (!header || header.mimeType !== parsed.mimeType) return false;
+    const existing = await this.#find(parsed.imageId);
+    if (existing)
+      return (
+        existing.part.mimeType === parsed.mimeType && (await readFile(existing.path)).equals(bytes)
+      );
+    await mkdir(this.#dir, { recursive: true, mode: 0o700 });
+    for (const [target, content] of [
+      [join(this.#dir, fileName(parsed)), bytes],
+      [join(this.#dir, `${parsed.imageId}.json`), Buffer.from(JSON.stringify(parsed))],
+    ] as const) {
+      try {
+        const file = await open(target, 'wx', 0o600);
+        try {
+          await file.writeFile(content);
+          await file.sync();
+        } finally {
+          await file.close();
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        if (!(await readFile(target)).equals(content)) return false;
+      }
+    }
+    return true;
+  }
 
   /** 挪出 `staged/`；同一张图片被两条消息同时用到时，后一个发现已经挪走了就算成功。 */
   async #unstage(part: UserImagePart): Promise<void> {

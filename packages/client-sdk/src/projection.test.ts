@@ -111,6 +111,71 @@ function approval(toolCallId: string): ApprovalRequest {
 }
 
 describe('TranscriptProjection：增量与已提交消息（domain-model §6.3）', () => {
+  it('keeps synchronized source history inert across historical resumes, approvals and UI requests', () => {
+    const { list, add, turn } = events();
+    add('session.read_only', { reason: 'synchronized', message: 'Synced history' });
+    add('session.resumed', {});
+    turn();
+    add('tool.started', {
+      turnId: TURN,
+      toolCallId: 'call_1',
+      toolName: 'shell',
+      display: { kind: 'shell' },
+      input: {},
+    });
+    add('approval.requested', { approval: approval('call_1') });
+    add('session.state_changed', {
+      from: 'running',
+      to: 'awaiting_approval',
+      reason: 'approval_requested',
+    });
+    add('ui.show', { target: { kind: 'changes' } });
+    const transcript = projectTranscript(list);
+    expect(transcript).toMatchObject({
+      state: 'closed',
+      readOnly: { reason: 'synchronized' },
+      pendingApprovals: [],
+      pendingQuestions: [],
+      pendingMessages: [],
+      railCards: [],
+    });
+    expect(transcript.approvals.get(APPROVAL)?.status).toBe('pending');
+    expect(transcript.activeTurnId).toBeUndefined();
+    expect(transcript.uiShow).toBeUndefined();
+    const source: Session = {
+      id: SES,
+      workspaceId: 'ws_synthetic',
+      cwd: '/synthetic/local',
+      engine: { kind: 'sync', sessionId: 'synthetic' },
+      providerId: 'synthetic',
+      modelId: 'synthetic',
+      title: 'Synthetic',
+      titleSource: 'user',
+      state: 'closed',
+      readOnly: {
+        reason: 'synchronized',
+        message: 'Synced history',
+        since: '2026-11-13T00:00:00.000Z',
+      },
+      createdAt: '2026-11-13T00:00:00.000Z',
+      updatedAt: '2026-11-13T00:00:00.000Z',
+      lastSeq: 0,
+      origin: {
+        kind: 'synced',
+        vaultId: 'vault_synthetic',
+        hostId: 'host_synthetic',
+        sessionId: SES,
+      },
+    };
+    const live = list.reduce(applySessionEvent, source);
+    expect(live).toMatchObject({
+      state: 'closed',
+      readOnly: source.readOnly,
+      engine: source.engine,
+      cwd: source.cwd,
+    });
+    expect(live.activeTurn).toBeUndefined();
+  });
   it('模型、档位与速度的变更在时间线留一行，权限变更与重复配置不留行', () => {
     const { list, add } = events();
     add('session.configured', { modelId: 'deepseek-chat', permissionMode: 'full_access' });

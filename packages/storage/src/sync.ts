@@ -1,5 +1,6 @@
 import type { SqliteDatabase, SqlRow } from './driver.js';
 import { integer, json, optionalText, text, toJson } from './rows.js';
+import { createSyncMaterialRepository } from './sync-materials.js';
 import { createSyncQueueRepository } from './sync-queue.js';
 
 export interface SyncVaultRecord {
@@ -41,6 +42,7 @@ export interface SyncSourceRecord {
   streamId: string;
   localSessionId?: string;
   mirrored: boolean;
+  deviceId?: string;
 }
 
 export class SyncStorageError extends Error {
@@ -88,6 +90,7 @@ export function createSyncRepository(db: SqliteDatabase) {
     });
   return {
     ...createSyncQueueRepository(db),
+    ...createSyncMaterialRepository(db),
     counts(vaultId: string): { pending: number; quarantined: number; conflicts: number } {
       const pending = db
         .prepare(
@@ -105,9 +108,12 @@ export function createSyncRepository(db: SqliteDatabase) {
         .get(vaultId);
       const conflicts = db
         .prepare(
-          'SELECT COUNT(*) AS n FROM (SELECT entity_id FROM sync_heads WHERE vault_id = ? GROUP BY entity_id HAVING COUNT(*) > 1)',
+          `SELECT COUNT(*) AS n FROM (
+            SELECT entity_id FROM sync_heads WHERE vault_id = ? GROUP BY entity_id HAVING COUNT(*) > 1
+            UNION SELECT entity_id FROM sync_material_journal WHERE vault_id = ? AND state = 'conflict'
+          )`,
         )
-        .get(vaultId);
+        .get(vaultId, vaultId);
       return {
         pending: Number(pending?.n),
         quarantined: Number(quarantined?.n),
@@ -204,8 +210,13 @@ export function createSyncRepository(db: SqliteDatabase) {
       )
         throw new SyncStorageError('INTEGRITY_FAILED');
       db.prepare(
-        'INSERT OR IGNORE INTO sync_sources (vault_id, host_id, session_id, stream_id, local_session_id, mirrored) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(...args, source.localSessionId ?? null, Number(source.mirrored));
+        'INSERT OR IGNORE INTO sync_sources (vault_id, host_id, session_id, stream_id, local_session_id, mirrored, device_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(
+        ...args,
+        source.localSessionId ?? null,
+        Number(source.mirrored),
+        source.deviceId ?? null,
+      );
     },
     sources(vaultId: string): SyncSourceRecord[] {
       return db
@@ -220,12 +231,14 @@ export function createSyncRepository(db: SqliteDatabase) {
             localSessionId: text(row, 'local_session_id'),
           }),
           mirrored: Boolean(integer(row, 'mirrored')),
+          ...(optionalText(row, 'device_id') && { deviceId: text(row, 'device_id') }),
         }));
     },
     sourceEvent(
       source: Pick<SyncSourceRecord, 'vaultId' | 'hostId' | 'sessionId' | 'streamId'>,
       seq: string,
       sha256: string,
+      localSeq?: number,
     ): void {
       const args = [source.vaultId, source.hostId, source.sessionId, source.streamId, seq];
       const current = db
@@ -235,8 +248,8 @@ export function createSyncRepository(db: SqliteDatabase) {
         .get(...args);
       if (current && current.sha256 !== sha256) throw new SyncStorageError('INTEGRITY_FAILED');
       db.prepare(
-        'INSERT OR IGNORE INTO sync_source_events (vault_id, host_id, session_id, stream_id, seq, sha256) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(...args, sha256);
+        'INSERT OR IGNORE INTO sync_source_events (vault_id, host_id, session_id, stream_id, seq, sha256, local_seq) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(...args, sha256, localSeq ?? null);
     },
     getOperation,
     missingParents,

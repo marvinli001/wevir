@@ -30,6 +30,7 @@ export class SyncQueue {
   }): string | undefined {
     if (!this.#storage.db.isTransaction)
       throw new Error('sync enqueue requires a business transaction');
+    if (!this.#storage.sync.claimResource(input.localKey, input.vaultId)) return undefined;
     const existing =
       input.entityId === undefined
         ? this.#storage.sync.localEntity(input.vaultId, input.localKey)

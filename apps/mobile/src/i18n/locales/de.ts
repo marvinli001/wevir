@@ -455,6 +455,7 @@ export const de: Messages = {
   'notice.movedToWorktree': 'In Worktree verschoben',
   'notice.movedToLocal': 'Zurück nach lokal verschoben',
   'readOnly.imported': 'Importiert',
+  'readOnly.synchronized': 'Synchronisierter Verlauf',
   'readOnly.engine_session_not_found': 'Engine-Sitzung nicht vorhanden',
   'readOnly.engine_session_incompatible': 'Engine-Version mit dieser Sitzung nicht kompatibel',
   'readOnly.engine_session_corrupted': 'Engine-Sitzungsprotokoll beschädigt',

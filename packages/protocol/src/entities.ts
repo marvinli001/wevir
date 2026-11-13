@@ -996,6 +996,7 @@ export type TitleSource = z.infer<typeof TitleSourceSchema>;
  */
 export const SessionReadOnlyReasonSchema = z.enum([
   'imported',
+  'synchronized',
   'engine_session_not_found',
   'engine_session_incompatible',
   'engine_session_corrupted',
@@ -2181,6 +2182,13 @@ export const SessionOriginSchema = z.discriminatedUnion('kind', [
   SuggestedTaskOriginSchema,
   ImportedSessionOriginSchema,
   HistorySessionOriginSchema,
+  z.object({
+    kind: z.literal('synced'),
+    vaultId: z.string().min(8).max(128),
+    hostId: z.string().min(8).max(128),
+    sessionId: SessionIdSchema,
+    streamId: z.string().min(8).max(128).optional(),
+  }),
 ]);
 export type SessionOrigin = z.infer<typeof SessionOriginSchema>;
 

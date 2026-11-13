@@ -12,6 +12,7 @@ export class HostSettingsStore {
   readonly #path: string | undefined;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #listeners = new Set<(settings: HostSettings) => void>();
+  readonly #beforeWrite: ((next: HostSettings) => (() => void) | undefined) | undefined;
   #settings: HostSettings = { ...DEFAULT_HOST_SETTINGS };
   #queue: Promise<unknown> = Promise.resolve();
   #privacyLoadFailed = false;
@@ -20,9 +21,11 @@ export class HostSettingsStore {
     options: {
       path?: string;
       onWarning?: (message: string, fields?: Record<string, unknown>) => void;
+      beforeWrite?: (next: HostSettings) => (() => void) | undefined;
     } = {},
   ) {
     this.#path = options.path;
+    this.#beforeWrite = options.beforeWrite;
     this.#onWarning =
       options.onWarning ?? ((message, fields) => console.warn('[wevir-host]', message, fields));
   }
@@ -81,8 +84,19 @@ export class HostSettingsStore {
   }
 
   /** 改给出的字段，写文件，值变了时通知监听者。返回改后的全部设置。 */
-  update(patch: Partial<HostSettings>): Promise<HostSettings> {
+  update(patch: Partial<HostSettings>, expected?: Partial<HostSettings>): Promise<HostSettings> {
     const result = this.#queue.then(async () => {
+      if (
+        expected &&
+        Object.keys(expected).some(
+          (key) =>
+            !isDeepStrictEqual(
+              this.#settings[key as keyof HostSettings],
+              expected[key as keyof HostSettings],
+            ),
+        )
+      )
+        throw new SettingsRevisionError();
       if (this.#privacyLoadFailed && patch.gatewayPrivacy === undefined)
         throw new Error(
           'Gateway privacy settings could not be loaded; save privacy settings first',
@@ -96,8 +110,10 @@ export class HostSettingsStore {
             : next[key] !== this.#settings[key],
         );
       if (!changed) return this.get();
+      const committed = this.#beforeWrite?.(next);
       await this.#save(next);
       this.#settings = next;
+      committed?.();
       if (patch.gatewayPrivacy !== undefined) this.#privacyLoadFailed = false;
       for (const listener of this.#listeners) listener(this.get());
       return this.get();
@@ -131,6 +147,8 @@ export class HostSettingsStore {
     }
   }
 }
+
+export class SettingsRevisionError extends Error {}
 
 function definedOnly<T extends object>(patch: T): Partial<T> {
   return Object.fromEntries(

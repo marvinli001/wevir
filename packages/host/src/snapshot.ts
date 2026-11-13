@@ -1006,7 +1006,22 @@ export function toSession(record: SessionRecord, projection: SessionProjection):
     };
   }
   if (record.side) session.side = true;
-  if (record.origin?.kind === 'imported') {
+  if (record.origin?.kind === 'synced') {
+    session.origin = {
+      kind: 'synced',
+      vaultId: record.origin.vaultId,
+      hostId: record.origin.hostId,
+      sessionId: record.origin.sessionId as SessionId,
+      ...(record.origin.streamId && { streamId: record.origin.streamId }),
+    };
+    session.state = 'closed';
+    session.readOnly = {
+      reason: 'synchronized',
+      message: 'Synced history',
+      since: record.createdAt,
+    };
+    delete session.activeTurn;
+  } else if (record.origin?.kind === 'imported') {
     session.origin = { ...record.origin };
   } else if (record.origin?.kind === 'history') {
     session.origin = {

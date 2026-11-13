@@ -49,6 +49,16 @@ export interface SessionRecord {
    */
   origin?:
     | {
+        kind: 'synced';
+        vaultId: string;
+        hostId: string;
+        sessionId: string;
+        streamId?: string;
+        role?: undefined;
+        taskId?: undefined;
+        opinionId?: undefined;
+      }
+    | {
         kind: 'imported';
         app: 'claude' | 'codex';
         externalId: string;

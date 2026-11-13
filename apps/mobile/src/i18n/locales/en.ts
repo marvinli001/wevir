@@ -453,6 +453,7 @@ export const en: Messages = {
   'notice.movedToWorktree': 'Moved to worktree',
   'notice.movedToLocal': 'Moved back to local',
   'readOnly.imported': 'Imported',
+  'readOnly.synchronized': 'Synced history',
   'readOnly.engine_session_not_found': 'Engine session not found',
   'readOnly.engine_session_incompatible': 'Engine version incompatible with this session',
   'readOnly.engine_session_corrupted': 'Engine session log corrupted',

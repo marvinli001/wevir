@@ -21,6 +21,47 @@ const session: Session = {
 };
 
 describe('external import compatibility', () => {
+  it('keeps synchronized histories read-only for clients predating cloud synchronization', () => {
+    const synced: Session = {
+      ...session,
+      origin: {
+        kind: 'synced',
+        vaultId: 'vault_synthetic',
+        hostId: 'host_synthetic',
+        sessionId: session.id,
+      },
+      readOnly: { message: '', since: at, reason: 'synchronized' },
+    };
+    for (const version of ['0.154.0', '0.171.0']) {
+      expect(adaptResultForClient('session.get', { session: synced }, {}, version)).toMatchObject({
+        session: { readOnly: { reason: 'engine_session_incompatible' } },
+      });
+      expect(
+        (
+          adaptResultForClient('session.get', { session: synced }, {}, version) as {
+            session: Session;
+          }
+        ).session.origin,
+      ).toBeUndefined();
+      expect(
+        adaptEventForClient(
+          {
+            type: 'session.read_only',
+            seq: 2,
+            sessionId: session.id,
+            ts: at,
+            source: 'host',
+            payload: { reason: 'synchronized', message: '' },
+          },
+          {},
+          version,
+        ),
+      ).toMatchObject({ payload: { reason: 'engine_session_incompatible' } });
+    }
+    expect(adaptResultForClient('session.get', { session: synced }, {}, '0.172.0')).toEqual({
+      session: synced,
+    });
+  });
   it('downgrades new origin/reason values for pre-import clients in snapshots and lists', () => {
     const result = adaptResultForClient(
       'session.get',

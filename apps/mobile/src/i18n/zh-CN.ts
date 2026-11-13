@@ -446,6 +446,7 @@ export const zhCN = {
   'notice.movedToWorktree': '已移到工作树',
   'notice.movedToLocal': '已移回本地',
   'readOnly.imported': '已导入',
+  'readOnly.synchronized': '同步历史',
   'readOnly.engine_session_not_found': '引擎会话不存在',
   'readOnly.engine_session_incompatible': '引擎版本不兼容此会话',
   'readOnly.engine_session_corrupted': '引擎会话日志已损坏',

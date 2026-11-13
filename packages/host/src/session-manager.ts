@@ -2942,7 +2942,7 @@ export class SessionManager {
     this.#assertOpen();
     const runtime = this.#runtime(params.sessionId);
     this.#assertNotChild(runtime);
-    if (this.#record(runtime).origin?.kind === 'imported') {
+    if (['imported', 'synced'].includes(this.#record(runtime).origin?.kind ?? '')) {
       throw new HostError('INVALID_STATE', 'imported sessions are read-only', {
         state: this.#snapshot(runtime).session.state,
       });
@@ -4197,7 +4197,7 @@ export class SessionManager {
       const { session } = snapshot;
       if (session.state !== 'error' && session.state !== 'closed') return session;
       const record = this.#record(runtime);
-      if (record.origin?.kind === 'imported') {
+      if (record.origin?.kind === 'imported' || record.origin?.kind === 'synced') {
         throw new HostError('INVALID_STATE', 'imported sessions are read-only', {
           state: session.state,
         });

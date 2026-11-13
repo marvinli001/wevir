@@ -123,7 +123,7 @@ export function RecoveryPanel({
   const [busy, run] = useOnce();
   const [failure, setFailure] = useState<string>();
   if (readOnly === undefined && !error) return null;
-  const imported = readOnly?.reason === 'imported';
+  const imported = readOnly?.reason === 'imported' || readOnly?.reason === 'synchronized';
   const tone = imported
     ? theme.mutedForeground
     : readOnly !== undefined

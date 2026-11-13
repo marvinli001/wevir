@@ -450,6 +450,7 @@ export const ko: Messages = {
   'notice.movedToWorktree': '워크트리로 이동됨',
   'notice.movedToLocal': '로컬로 되돌림',
   'readOnly.imported': '가져옴',
+  'readOnly.synchronized': '동기화된 기록',
   'readOnly.engine_session_not_found': '엔진 세션 없음',
   'readOnly.engine_session_incompatible': '엔진 버전이 이 세션과 호환되지 않음',
   'readOnly.engine_session_corrupted': '엔진 세션 로그 손상됨',

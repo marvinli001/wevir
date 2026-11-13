@@ -1081,6 +1081,8 @@ export class RpcConnection {
       if (this.#capabilities.title_source_generated !== true) {
         change.upserted = change.upserted.map(adaptSession);
       }
+      if (compareProtocolVersions(this.#protocolVersion, '0.172.0') < 0)
+        change.upserted = change.upserted.map(sessionBeforeSync);
       if (compareProtocolVersions(this.#protocolVersion, '0.155.0') < 0) {
         change.upserted = change.upserted.map(sessionBeforeImports);
       }
@@ -1684,6 +1686,12 @@ export function adaptEventForClient(
   protocolVersion: string = PROTOCOL_VERSION,
 ): WevirEvent {
   if (
+    compareProtocolVersions(protocolVersion, '0.172.0') < 0 &&
+    event.type === 'session.read_only' &&
+    event.payload.reason === 'synchronized'
+  )
+    return { ...event, payload: { ...event.payload, reason: 'engine_session_incompatible' } };
+  if (
     compareProtocolVersions(protocolVersion, '0.155.0') < 0 &&
     event.type === 'session.read_only' &&
     event.payload.reason === 'imported'
@@ -1821,6 +1829,19 @@ export function adaptResultForClient(
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   let value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  if (compareProtocolVersions(protocolVersion, '0.172.0') < 0) {
+    if (method === 'session.list') {
+      const list = value as MethodResult<'session.list'>;
+      value = { ...list, sessions: list.sessions.map(sessionBeforeSync) };
+    } else if (
+      method === 'session.get' ||
+      method === 'session.resume' ||
+      method === 'session.createFromHistory'
+    ) {
+      const item = value as { session: Session };
+      value = { ...item, session: sessionBeforeSync(item.session) };
+    }
+  }
   if (compareProtocolVersions(protocolVersion, '0.155.0') < 0) {
     if (method === 'import.scan') {
       const { sessions: _sessions, ...scan } = value as MethodResult<'import.scan'>;
@@ -2070,6 +2091,17 @@ function adaptSession(session: Session): Session {
   return session.titleSource === 'generated'
     ? { ...session, titleSource: 'first_prompt' }
     : session;
+}
+
+function sessionBeforeSync(session: Session): Session {
+  if (session.origin?.kind !== 'synced' && session.readOnly?.reason !== 'synchronized')
+    return session;
+  const { origin, readOnly, ...rest } = session;
+  return {
+    ...rest,
+    ...(origin && origin.kind !== 'synced' && { origin }),
+    ...(readOnly && { readOnly: { ...readOnly, reason: 'engine_session_incompatible' } }),
+  };
 }
 
 function sessionBeforeImports(session: Session): Session {

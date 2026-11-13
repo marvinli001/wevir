@@ -44,7 +44,7 @@ export interface ZuvClientOptions extends Omit<ZuvTransportOptions, 'origin'> {
   origin?: string;
   secrets: SecretStore;
   onSecret?: (secret: string) => void;
-  onIdentityChanging?: () => void;
+  onIdentityChanging?: () => void | Promise<void>;
 }
 
 export class ZuvClient {
@@ -130,7 +130,7 @@ export class ZuvClient {
     deviceType: 'desktop' | 'cli' | 'mobile' | 'browser' = 'desktop',
   ): Promise<Enrollment> {
     const generation = ++this.#generation;
-    this.#options.onIdentityChanging?.();
+    await this.#options.onIdentityChanging?.();
     const key = newZuvDeviceKey();
     const verifier = randomBytes(32).toString('base64url');
     this.#remember(key.privateKey, verifier);
@@ -221,7 +221,7 @@ export class ZuvClient {
 
   async logout(): Promise<void> {
     this.#generation++;
-    this.#options.onIdentityChanging?.();
+    await this.#options.onIdentityChanging?.();
     await this.cancelEnrollment();
     await this.#persist(() => this.#options.secrets.delete(IDENTITY_SECRET));
     this.#identity = undefined;

@@ -454,6 +454,7 @@ export const ru: Messages = {
   'notice.movedToWorktree': 'Перенесено в рабочее дерево',
   'notice.movedToLocal': 'Возвращено в локальную папку',
   'readOnly.imported': 'Импортирован',
+  'readOnly.synchronized': 'Синхронизированная история',
   'readOnly.engine_session_not_found': 'Сессия движка не найдена',
   'readOnly.engine_session_incompatible': 'Версия движка несовместима с этой сессией',
   'readOnly.engine_session_corrupted': 'Журнал сессии движка повреждён',

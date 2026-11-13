@@ -454,6 +454,7 @@ export const ja: Messages = {
   'notice.movedToWorktree': 'ワークツリーへ移動しました',
   'notice.movedToLocal': 'ローカルに戻しました',
   'readOnly.imported': 'インポート済み',
+  'readOnly.synchronized': '同期された履歴',
   'readOnly.engine_session_not_found': 'エンジンセッションが存在しません',
   'readOnly.engine_session_incompatible':
     'エンジンのバージョンがこのセッションと互換性がありません',

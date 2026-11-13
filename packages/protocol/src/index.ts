@@ -40,6 +40,7 @@ export * from './search-ranking.js';
 export * from './simulator.js';
 export * from './speech.js';
 export * from './sync.js';
+export * from './sync-content.js';
 export * from './sync-validation.js';
 export type { BlobHeader, RecordManifest, SyncOperation } from './sync-wire.js';
 export * from './terminals.js';

@@ -213,6 +213,15 @@ export class EventStore {
       }
     }
   }
+  projectionChanged(events: readonly WevirEvent[]): void {
+    const ids = [...new Set(events.map((event) => event.sessionId))];
+    for (const id of ids) {
+      this.#projections.delete(id);
+      this.#checkpointSeq.delete(id);
+    }
+    this.touch(ids);
+    this.#bus.publishProjection(events);
+  }
 
   append<I extends AppendInput>(sessionId: SessionId, input: I): WevirEventOf<I['type']> {
     return this.appendMany(sessionId, [input])[0] as WevirEventOf<I['type']>;
@@ -774,7 +783,7 @@ export class EventStore {
   #catchUp(sessionId: SessionId): SessionProjection {
     const cached = this.#projections.get(sessionId);
     const lastSeq = this.#storage.events.lastSeq(sessionId);
-    if (cached?.lastSeq === lastSeq) return cached;
+    if (cached?.lastSeq === lastSeq) return this.#readOnlyProjection(sessionId, cached);
     if (!cached && !this.#storage.sessions.get(sessionId))
       throw new SessionNotFoundError(sessionId);
     // 缓存比库还新只可能是库被换掉了，重新读入。
@@ -785,7 +794,7 @@ export class EventStore {
     })) {
       projection = applyEvent(projection, fromRecord(record));
     }
-    return projection;
+    return this.#readOnlyProjection(sessionId, projection);
   }
 
   /** 库里可以接着重放的检查点（`seq` 不超过 `lastSeq`、投影代码相同、读得出来）；没有时是初始状态。记下检查点到哪儿。 */
@@ -837,8 +846,29 @@ export class EventStore {
 
   #cache(sessionId: SessionId, projection: SessionProjection): void {
     this.#projections.delete(sessionId);
-    this.#projections.set(sessionId, projection);
+    this.#projections.set(sessionId, this.#readOnlyProjection(sessionId, projection));
     this.#evict();
+  }
+
+  #readOnlyProjection(sessionId: SessionId, projection: SessionProjection): SessionProjection {
+    const record = this.#storage.sessions.get(sessionId);
+    if (record?.origin?.kind !== 'synced') return projection;
+    return {
+      ...projection,
+      state: 'closed',
+      activeTurn: undefined,
+      pendingApprovals: [],
+      pendings: new Map(),
+      questions: new Map(),
+      current: projection.current
+        ? {
+            ...projection.current,
+            engineSessionId: record.engineSessionId,
+            providerId: record.providerId,
+          }
+        : undefined,
+      readOnly: { reason: 'synchronized', message: 'Synced history', since: record.createdAt },
+    };
   }
 
   #evict(): void {

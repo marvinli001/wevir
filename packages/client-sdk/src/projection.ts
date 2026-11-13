@@ -611,6 +611,7 @@ export class TranscriptProjection {
   #activeTurnId: TurnId | undefined;
   #title = '';
   #readOnly: SessionReadOnly | undefined;
+  #sourceReadOnly: SessionReadOnly | undefined;
   #configuration: ModelConfiguration | undefined;
   #engineSegments: readonly TranscriptEngineSegment[] = [];
   #routingDecision: RoutingDecision | undefined;
@@ -693,6 +694,7 @@ export class TranscriptProjection {
     this.#activeTurnId = undefined;
     this.#title = '';
     this.#readOnly = undefined;
+    this.#sourceReadOnly = undefined;
     this.#configuration = undefined;
     this.#engineSegments = [];
     this.#routingDecision = undefined;
@@ -778,6 +780,7 @@ export class TranscriptProjection {
       case 'session.read_only': {
         const { reason, message } = event.payload;
         this.#readOnly = { reason, message, since: event.ts };
+        if (reason === 'synchronized') this.#sourceReadOnly = this.#readOnly;
         this.#notice(event, { kind: 'read_only', reason, message });
         return;
       }
@@ -1184,26 +1187,28 @@ export class TranscriptProjection {
       messages,
       engineSegments: this.#engineSegments,
       approvals,
-      pendingApprovals,
-      state: this.#state,
-      activeTurnId: this.#activeTurnId,
+      pendingApprovals: this.#sourceReadOnly ? [] : pendingApprovals,
+      state: this.#sourceReadOnly ? 'closed' : this.#state,
+      activeTurnId: this.#sourceReadOnly ? undefined : this.#activeTurnId,
       title: this.#title,
-      readOnly: this.#readOnly,
+      readOnly: this.#sourceReadOnly ?? this.#readOnly,
       lastError: this.#lastError,
       usage: this.#usage,
-      subagents: this.#subagents,
+      subagents: this.#sourceReadOnly
+        ? this.#subagents.map((value) => ({ ...value, pendingApprovals: [] }))
+        : this.#subagents,
       parent: this.#parent,
-      pendingMessages: this.#pending,
-      pendingQuestions: [...this.#questions.values()].filter(
-        (question) => question.status === 'pending',
-      ),
+      pendingMessages: this.#sourceReadOnly ? [] : this.#pending,
+      pendingQuestions: this.#sourceReadOnly
+        ? []
+        : [...this.#questions.values()].filter((question) => question.status === 'pending'),
       suggestedTasks: [...this.#tasks.values()],
       opinions: [...this.#opinions.values()],
       insights: [...this.#insights.values()],
-      uiShow: this.#uiShow,
-      railCards: this.#railCards,
+      uiShow: this.#sourceReadOnly ? undefined : this.#uiShow,
+      railCards: this.#sourceReadOnly ? [] : this.#railCards,
       goal: this.#goal,
-      autoContinue: this.#autoContinue,
+      autoContinue: this.#sourceReadOnly ? undefined : this.#autoContinue,
       collaborationMode: this.#collaborationMode,
       latestPlan: this.#latestPlan,
       redoTurnIds: this.#redo,

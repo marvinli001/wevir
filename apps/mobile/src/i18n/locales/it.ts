@@ -455,6 +455,7 @@ export const it: Messages = {
   'notice.movedToWorktree': 'Spostato in worktree',
   'notice.movedToLocal': 'Riportato in locale',
   'readOnly.imported': 'Importata',
+  'readOnly.synchronized': 'Cronologia sincronizzata',
   'readOnly.engine_session_not_found': 'Sessione del motore non trovata',
   'readOnly.engine_session_incompatible': 'Versione del motore incompatibile con la sessione',
   'readOnly.engine_session_corrupted': 'Log della sessione del motore danneggiato',

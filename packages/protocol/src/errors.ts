@@ -20,6 +20,7 @@ import {
 import { GitExpectedStateSchema } from './git.js';
 import { McpOAuthErrorReasonSchema } from './plugins.js';
 import { SpeechFailedDataSchema } from './speech.js';
+import { SyncFailureDataSchema } from './sync.js';
 import { ProtocolVersionSchema } from './version.js';
 
 /**
@@ -84,6 +85,7 @@ export const ErrorCode = {
    * 原因在 `data.reason`（取值同 `Connector.oauth.error`）。
    */
   MCP_OAUTH_FAILED: -32043,
+  SYNC_FAILED: -32044,
 
   /** 没有这个档案版本（0.85.0，`tuning.*`）。 */
   PROFILE_VERSION_NOT_FOUND: -32060,
@@ -126,6 +128,7 @@ export function errorCodeName(code: number): ErrorCodeName | undefined {
 
 /** 带结构化 `error.data` 的错误码。没列出的错误码不带 `data`。 */
 export const ErrorDataSchemas = {
+  SYNC_FAILED: SyncFailureDataSchema,
   EPISODE_NOT_FOUND: z.object({ id: EpisodeIdSchema }),
   METHOD_NOT_FOUND: z.object({
     hostVersion: z.string(),

@@ -23,6 +23,7 @@ export class SyncEventCapture {
 
   initialize(includeHistory: boolean): void {
     const vault = this.#eligible();
+    this.projects();
     if (!vault?.categories.includes('event-segment')) return;
     const projects = this.#storage.sync.projects(vault.vaultId);
     const mirrored = new Set(
@@ -40,9 +41,20 @@ export class SyncEventCapture {
           includeSide: true,
           archived: 'include',
         })) {
-          if (mirrored.has(session.id)) continue;
+          if (
+            mirrored.has(session.id) ||
+            this.#storage.sync.foreignSource(vault.vaultId, session.id)
+          )
+            continue;
           const source = this.#source(vault, session);
-          if (includeHistory) this.#metadata(vault, session, project.projectId, 0);
+          if (includeHistory)
+            this.#metadata(
+              vault,
+              session,
+              project.projectId,
+              this.#storage.sync.captureRange(vault.vaultId, session.id, source.streamId)
+                ?.preparedSeq ?? 0,
+            );
           this.#storage.sync.capture({
             vaultId: vault.vaultId,
             localSessionId: session.id,
@@ -52,6 +64,30 @@ export class SyncEventCapture {
             preparedSeq: includeHistory ? 0 : session.lastSeq,
           });
         }
+      }
+    });
+  }
+
+  projects(): void {
+    const vault = this.#eligible();
+    if (!vault?.categories.includes('project')) return;
+    this.#storage.transaction(() => {
+      for (const project of this.#storage.sync.projects(vault.vaultId)) {
+        if (!project.workspaceId || !vault.projectIds.includes(project.projectId)) continue;
+        const workspace = this.#storage.workspaces.get(project.workspaceId);
+        if (!workspace) continue;
+        this.#queue.enqueue({
+          vaultId: vault.vaultId,
+          entityId: project.projectId,
+          entityType: 'project',
+          projectId: project.projectId,
+          localKey: `project:${project.projectId}`,
+          content: {
+            schema: 'wevir-project/1',
+            projectId: project.projectId,
+            displayName: workspace.displayName,
+          },
+        });
       }
     });
   }
@@ -70,7 +106,12 @@ export class SyncEventCapture {
     );
     for (const sessionId of new Set(events.map((event) => event.sessionId))) {
       const session = this.#storage.sessions.get(sessionId);
-      if (!session || mirrored.has(session.id)) continue;
+      if (
+        !session ||
+        mirrored.has(session.id) ||
+        this.#storage.sync.foreignSource(vault.vaultId, session.id)
+      )
+        continue;
       const project = projects.find(
         (value) =>
           value.workspaceId === session.workspaceId && vault.projectIds.includes(value.projectId),
@@ -190,6 +231,7 @@ export class SyncEventCapture {
       localSessionId: session.id,
       streamId: newId('sst'),
       mirrored: false,
+      deviceId: vault.deviceId,
     };
     this.#storage.sync.putSource(source);
     return source;

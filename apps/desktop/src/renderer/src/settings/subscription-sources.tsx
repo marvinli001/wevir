@@ -67,6 +67,7 @@ import {
 import { SubscriptionContextWindow } from './subscription-context-window';
 import { LoginPanel, UpstreamList } from './subscription-upstreams';
 import { loginPrompt } from './subscription-upstreams-model';
+import { ZuvSyncSection } from './zuv-sync';
 
 /**
  * 设置 → 模型服务的“订阅”（0.19.0，照 T3 Code 的 Bring your own sub，desktop-tokens.md §32）：各种订阅排成一张三列的格子卡（最后一行补空格），
@@ -1389,6 +1390,7 @@ function SignedIn({
           <span className="text-xs text-muted-foreground">{t('source.logout.command')}</span>
         )}
       </div>
+      {account.kind === 'zuv' && <ZuvSyncSection client={client} account={account} />}
     </div>
   );
 }

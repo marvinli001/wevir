@@ -5756,7 +5756,160 @@ const episodeCases = [
     invalid: [{ id: 'ep_1' }],
   },
 ];
+const syncContentCases: Case[] = [
+  {
+    name: 'SyncRelativePath',
+    schema: protocol.SyncRelativePathSchema,
+    valid: ['SKILL.md', 'scripts/check.sh'],
+    invalid: ['../escape', '/absolute', 'C:/escape', 'a\\b', 'a//b', 'a/./b', 'a/../b'],
+  },
+  {
+    name: 'SyncProjectContent',
+    schema: protocol.SyncProjectContentSchema,
+    valid: [
+      { schema: 'wevir-project/1', projectId: 'project_synthetic', displayName: 'Synthetic' },
+    ],
+    invalid: [{ schema: 'wevir-project/1', projectId: 'short' }],
+  },
+  {
+    name: 'SyncSessionContent',
+    schema: protocol.SyncSessionContentSchema,
+    valid: [
+      {
+        schema: 'wevir-session/1',
+        sessionId: 'ses_synthetic',
+        throughSeq: '9007199254740993',
+        title: 'Synthetic',
+        titleSource: 'user',
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+        engine: 'echo',
+        createdAt: '2026-11-13T00:00:00.000Z',
+      },
+    ],
+    invalid: [
+      {
+        schema: 'wevir-session/1',
+        sessionId: 'ses_synthetic',
+        throughSeq: Number.MAX_SAFE_INTEGER,
+      },
+    ],
+  },
+  {
+    name: 'SyncEventStreamContent',
+    schema: protocol.SyncEventStreamContentSchema,
+    valid: [
+      {
+        schema: 'wevir-event-stream/1',
+        sessionId: 'ses_synthetic',
+        streamId: 'stream_synthetic',
+        exclusions: ['engine.raw'],
+      },
+    ],
+    invalid: [
+      {
+        schema: 'wevir-event-stream/1',
+        sessionId: 'ses_synthetic',
+        streamId: 'stream_synthetic',
+        exclusions: ['user.message'],
+      },
+    ],
+  },
+  {
+    name: 'SyncMemoryContent',
+    schema: protocol.SyncMemoryContentSchema,
+    valid: [
+      { schema: 'wevir-memory/1', scope: 'global', name: 'synthetic-note', markdown: 'Synthetic' },
+      { schema: 'wevir-memory/1', scope: 'project', name: 'synthetic-note', deleted: true },
+    ],
+    invalid: [
+      { schema: 'wevir-memory/1', scope: 'global', name: '../escape', markdown: 'Synthetic' },
+    ],
+  },
+  {
+    name: 'SyncSettingsValues',
+    schema: protocol.SyncSettingsValuesSchema,
+    valid: [{ outputStyle: 'concise', autoMemory: false }],
+    invalid: [
+      { computerUse: true },
+      { remote: { enabled: true } },
+      { promptSuggestions: true },
+      { autoTuning: true },
+    ],
+  },
+  {
+    name: 'SyncSettingsContent',
+    schema: protocol.SyncSettingsContentSchema,
+    valid: [
+      {
+        schema: 'wevir-settings/1',
+        values: { autoMemory: false },
+        exclusions: ['remote', 'computerUse'],
+      },
+    ],
+    invalid: [{ schema: 'wevir-settings/1', values: { autoTuning: true }, exclusions: [] }],
+  },
+  {
+    name: 'SyncChunkContent',
+    schema: protocol.SyncChunkContentSchema,
+    valid: [
+      {
+        schema: 'wevir-chunk/1',
+        ownerId: 'bundle_synthetic',
+        index: 0,
+        data: '',
+        sha256: '47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU',
+      },
+    ],
+    invalid: [
+      {
+        schema: 'wevir-chunk/1',
+        ownerId: 'bundle_synthetic',
+        index: 0,
+        data: 'YQ==',
+        sha256: '47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU',
+      },
+    ],
+  },
+  {
+    name: 'SyncBundleContent',
+    schema: protocol.SyncBundleContentSchema,
+    valid: [
+      {
+        schema: 'wevir-bundle/1',
+        category: 'skill-bundle',
+        name: 'Synthetic',
+        files: [
+          {
+            path: 'SKILL.md',
+            bytes: 0,
+            sha256: '47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU',
+            parts: [],
+          },
+        ],
+        exclusions: ['.env'],
+      },
+    ],
+    invalid: [
+      {
+        schema: 'wevir-bundle/1',
+        category: 'skill-bundle',
+        name: 'Synthetic',
+        files: [
+          {
+            path: '../escape',
+            bytes: 0,
+            sha256: '47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU',
+            parts: [],
+          },
+        ],
+        exclusions: [],
+      },
+    ],
+  },
+];
 const allCases = [
+  ...syncContentCases,
   ...episodeCases,
   ...standaloneCases,
   ...approvalRuleCases,

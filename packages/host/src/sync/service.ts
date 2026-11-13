@@ -1,0 +1,421 @@
+import { join } from 'node:path';
+import { type SyncConfigureParams, type SyncStatus, SyncStatusSchema } from '@wevir/protocol';
+import type { SecretStore, Storage, SyncVaultRecord } from '@wevir/storage';
+import { HostError } from '../errors.js';
+import type { EventStore } from '../event-store.js';
+import { newId } from '../ids.js';
+import type { ImageStore } from '../images.js';
+import type { HostSettingsStore } from '../settings.js';
+import type { ZuvAccounts } from '../zuv/accounts.js';
+import type { ZuvClient } from '../zuv/client.js';
+import { ZuvRequestError } from '../zuv/transport.js';
+import { SyncBlobCache } from './cache.js';
+import { SyncEventCapture } from './capture.js';
+import { SyncEngine } from './engine.js';
+import { type SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
+import { SyncVaultKeys } from './keys.js';
+import { SyncMaterials } from './materials.js';
+import { SyncSettings } from './settings.js';
+
+export interface SyncServiceOptions {
+  storage: Storage;
+  events: EventStore;
+  secrets: SecretStore;
+  client: ZuvClient;
+  accounts: ZuvAccounts;
+  home: string;
+  memoryDir: string;
+  images: ImageStore;
+  settings: HostSettingsStore;
+  onSecret: (value: string) => void;
+  bundleRoots: (vault: SyncVaultRecord) => Promise<SyncBundleRoot[]>;
+  intervalMs?: number;
+}
+
+export class SyncService {
+  readonly #options: SyncServiceOptions;
+  readonly #engine: SyncEngine;
+  readonly #materials: SyncMaterials;
+  readonly #capture: SyncEventCapture;
+  readonly #files: SyncFilesCapture;
+  readonly #keys: SyncVaultKeys;
+  readonly #settings: SyncSettings;
+  #timer: ReturnType<typeof setTimeout> | undefined;
+  #running: Promise<void> | undefined;
+  #closed = false;
+  #initialized = false;
+  #lastRefresh = 0;
+  #errorCode: string | undefined;
+  constructor(options: SyncServiceOptions) {
+    this.#options = options;
+    this.#settings = new SyncSettings(options);
+    this.#materials = new SyncMaterials({ ...options, settingsSync: this.#settings });
+    this.#keys = new SyncVaultKeys({
+      client: options.client,
+      secrets: options.secrets,
+      onSecret: options.onSecret,
+    });
+    this.#capture = new SyncEventCapture({
+      storage: options.storage,
+      eligible: () => this.#consented(),
+    });
+    this.#files = new SyncFilesCapture(options);
+    this.#engine = new SyncEngine({
+      storage: options.storage,
+      client: options.client,
+      cache: new SyncBlobCache(join(options.home, 'sync/blobs')),
+      key: (vaultId, epoch, signal) => this.#keys.unlock(vaultId, epoch, signal),
+      prepareApply: (op, record) => this.#materials.prepareApply(op, record),
+    });
+  }
+
+  start(): void {
+    this.#schedule(0);
+  }
+  record = (events: Parameters<SyncEventCapture['record']>[0]): void => {
+    this.#capture.record(events);
+  };
+  beforeMemoryWrite = (path: string, markdown?: string): (() => void) | undefined => {
+    const vault = this.#consented();
+    return vault && this.#fileWrite(() => this.#files.beforeMemoryWrite(vault, path, markdown));
+  };
+  beforeSettingsWrite = (
+    next: Parameters<SyncSettings['beforeWrite']>[1],
+  ): (() => void) | undefined => {
+    const vault = this.#consented();
+    return vault && this.#fileWrite(() => this.#settings.beforeWrite(vault, next));
+  };
+
+  #fileWrite(stage: () => (() => void) | undefined): (() => void) | undefined {
+    try {
+      const commit = stage();
+      return (
+        commit &&
+        (() => {
+          try {
+            commit();
+          } catch {
+            this.#errorCode = 'LOCAL_STORAGE_ERROR';
+          }
+        })
+      );
+    } catch {
+      this.#errorCode = 'LOCAL_STORAGE_ERROR';
+      return;
+    }
+  }
+
+  stop(): void {
+    clearTimeout(this.#timer);
+    this.#engine.stop();
+    this.#initialized = false;
+  }
+  async suspend(): Promise<void> {
+    this.stop();
+    await this.#running?.catch(() => {});
+  }
+  async close(): Promise<void> {
+    this.#closed = true;
+    this.stop();
+    await this.#running?.catch(() => {});
+  }
+
+  status(): SyncStatus {
+    const { storage, client } = this.#options;
+    const vault = storage.sync.activeVault();
+    const transport = vault && storage.sync.vaultTransport(vault.vaultId);
+    const keys = client.entitlements?.vault;
+    const counts = vault
+      ? storage.sync.counts(vault.vaultId)
+      : { pending: 0, quarantined: 0, conflicts: 0 };
+    let state: SyncStatus['state'] = !vault?.enabled
+      ? keys?.keyState === 'approval-required'
+        ? 'approval_required'
+        : 'disabled'
+      : (transport?.state as SyncStatus['state']);
+    if (vault?.enabled) {
+      if (
+        client.entitlements?.subscriptionState !== 'active' ||
+        client.entitlements.syncState === 'paused'
+      )
+        state = 'paused';
+      if (counts.quarantined || counts.conflicts || this.#errorCode === 'LOCAL_STORAGE_ERROR')
+        state = 'attention';
+    }
+    return SyncStatusSchema.parse({
+      protocol: 'wevir-sync/1',
+      artifactRevision: 1,
+      ...(vault && {
+        binding: {
+          vaultId: vault.vaultId,
+          deviceId: vault.deviceId,
+          enabled: vault.enabled,
+          revision: vault.revision,
+          categories: vault.categories,
+          projectIds: vault.projectIds,
+        },
+        includeHistory: storage.sync.includeHistory(vault.vaultId),
+        projects: storage.sync.projects(vault.vaultId).map((value) => ({
+          ...value,
+          displayName:
+            storage.sync.projectName(vault.vaultId, value.projectId) ??
+            (value.workspaceId && storage.workspaces.get(value.workspaceId)?.displayName) ??
+            value.projectId,
+        })),
+      }),
+      ...counts,
+      state: state ?? 'disabled',
+      ...((this.#errorCode ?? transport?.errorCode) && {
+        errorCode: this.#errorCode ?? transport?.errorCode,
+      }),
+      ...(transport?.lastSyncAt && { lastSyncAt: transport.lastSyncAt }),
+    });
+  }
+
+  async configure(params: SyncConfigureParams): Promise<SyncStatus> {
+    this.stop();
+    await this.#running?.catch(() => {});
+    this.#errorCode = undefined;
+    const { storage, client } = this.#options;
+    let vault = storage.sync.activeVault();
+    try {
+      if (!params.enabled) {
+        if (vault) {
+          storage.sync.setScopes(vault.vaultId, { ...vault, enabled: false });
+          storage.sync.setVaultTransport(vault.vaultId, {
+            ...storage.sync.vaultTransport(vault.vaultId),
+            state: 'disabled',
+            errorCode: undefined,
+            retryAt: 0,
+          });
+          if (client.signedIn && !client.requiresLogin) {
+            const result = await client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+              expectedRevision: vault.revision,
+              enabled: false,
+              categories: vault.categories,
+              projectIds: vault.projectIds,
+            });
+            storage.sync.setScopes(vault.vaultId, result);
+          }
+        }
+        return this.status();
+      }
+      if (!client.signedIn || client.requiresLogin) throw new ZuvRequestError('AUTH_REQUIRED');
+      await this.#refresh();
+      const entitlements = client.entitlements;
+      if (
+        entitlements?.subscriptionState !== 'active' ||
+        !entitlements.deviceScopes.includes('sync')
+      )
+        throw new ZuvRequestError('SUBSCRIPTION_REQUIRED');
+      if (
+        !params.categories.length ||
+        new Set(params.categories).size !== params.categories.length ||
+        new Set(params.projects.map((value) => value.workspaceId)).size !== params.projects.length
+      )
+        throw new ZuvRequestError('INVALID_REQUEST');
+      if (
+        (params.categories.includes('session') || params.categories.includes('event-segment')) &&
+        !['project', 'session', 'event-segment'].every((value) =>
+          params.categories.includes(value as (typeof params.categories)[number]),
+        )
+      )
+        throw new ZuvRequestError('INVALID_REQUEST');
+      if (
+        params.categories.some((value) => ['rule', 'skill-bundle'].includes(value)) &&
+        !params.categories.includes('artifact')
+      )
+        throw new ZuvRequestError('INVALID_REQUEST');
+      if (params.projects.length && !params.categories.includes('project'))
+        throw new ZuvRequestError('INVALID_REQUEST');
+      for (const project of params.projects)
+        if (!storage.workspaces.get(project.workspaceId))
+          throw new ZuvRequestError('INVALID_REQUEST');
+      if (
+        vault &&
+        params.expectedRevision !== undefined &&
+        params.expectedRevision !== vault.revision
+      )
+        throw new ZuvRequestError('REVISION_CONFLICT');
+      if (vault) storage.sync.setScopes(vault.vaultId, { ...vault, enabled: false });
+      const opened = await client.json('vaultOpened', 'POST', '/api/wevir/sync/v1/vaults/open', {
+        protocol: 'wevir-sync/1',
+        consent: true,
+      });
+      storage.transaction(() =>
+        storage.sync.bindVault({
+          vaultId: opened.vaultId,
+          accountId: entitlements.identity.userId,
+          deviceId: opened.deviceId,
+          originHostId: opened.originHostId,
+          appliedCursor: opened.cursor,
+        }),
+      );
+      vault = storage.sync.getVault(opened.vaultId) as SyncVaultRecord;
+      storage.sync.setVaultTransport(vault.vaultId, {
+        keyEpoch: opened.keyEpoch,
+        state: 'configuring',
+        retryAt: 0,
+      });
+      const projects = params.projects.map((project) => ({
+        projectId:
+          project.projectId ??
+          storage.sync
+            .projects(opened.vaultId)
+            .find((value) => value.workspaceId === project.workspaceId)?.projectId ??
+          newId('spr'),
+        workspaceId: project.workspaceId,
+      }));
+      for (const project of projects)
+        storage.sync.bindProject(vault.vaultId, project.projectId, project.workspaceId);
+      await client.getEntitlements();
+      await this.#keys.unlock(vault.vaultId, opened.keyEpoch, new AbortController().signal);
+      const selected = await client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+        expectedRevision: vault.revision,
+        enabled: true,
+        categories: params.categories,
+        projectIds: projects.map((value) => value.projectId),
+      });
+      storage.sync.setScopes(vault.vaultId, selected);
+      storage.sync.setIncludeHistory(vault.vaultId, params.includeHistory === true);
+      await client.getEntitlements();
+      this.#engine.restart();
+      this.#capture.initialize(params.includeHistory === true);
+      const enabled = this.#consented();
+      if (enabled) await this.#scan(enabled, true, params.includeHistory === true);
+      this.#initialized = true;
+      storage.sync.setVaultTransport(vault.vaultId, {
+        keyEpoch: opened.keyEpoch,
+        state: 'pending',
+        retryAt: 0,
+      });
+      this.#schedule(0);
+      return this.status();
+    } catch (error) {
+      this.#errorCode = error instanceof ZuvRequestError ? error.code : 'LOCAL_STORAGE_ERROR';
+      if (vault)
+        storage.sync.setVaultTransport(vault.vaultId, {
+          ...storage.sync.vaultTransport(vault.vaultId),
+          state: this.#errorCode === 'RECOVERY_REQUIRED' ? 'approval_required' : 'paused',
+          errorCode: this.#errorCode,
+          retryAt: 0,
+        });
+      throw this.#failure(error);
+    }
+  }
+
+  async retry(): Promise<SyncStatus> {
+    this.#errorCode = undefined;
+    this.#engine.restart();
+    await this.flush();
+    return this.status();
+  }
+
+  flush(): Promise<void> {
+    this.#running ??= this.#flush().finally(() => {
+      this.#running = undefined;
+    });
+    return this.#running;
+  }
+
+  async devices() {
+    try {
+      return await this.#options.client.json('devices', 'GET', '/api/wevir/sync/v1/devices');
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+
+  async approveDevice(deviceId: string) {
+    const vault = this.#options.storage.sync.activeVault();
+    if (!vault) throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
+    try {
+      return await this.#options.client.json(
+        'approved',
+        'POST',
+        `/api/wevir/sync/v1/devices/${deviceId}/approve`,
+        { keyEpoch: this.#options.storage.sync.vaultTransport(vault.vaultId).keyEpoch },
+      );
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+
+  #consented(): SyncVaultRecord | undefined {
+    const vault = this.#options.storage.sync.activeVault();
+    const identity = this.#options.client.entitlements;
+    return vault?.enabled &&
+      this.#options.client.signedIn &&
+      !this.#options.client.requiresLogin &&
+      identity?.subscriptionState === 'active' &&
+      identity.identity.userId === vault.accountId &&
+      identity.identity.deviceId === vault.deviceId
+      ? vault
+      : undefined;
+  }
+  async #refresh(): Promise<void> {
+    await this.#options.accounts.read('zuv', { refresh: true });
+    this.#lastRefresh = Date.now();
+  }
+
+  async #scan(vault: SyncVaultRecord, initialize: boolean, includeHistory: boolean): Promise<void> {
+    this.#capture.projects();
+    await this.#files.recoverWrites(vault);
+    await this.#files.memory(vault, initialize, includeHistory);
+    this.#settings.capture(vault, initialize, includeHistory);
+    if (vault.categories.some((value) => ['rule', 'skill-bundle', 'artifact'].includes(value)))
+      for (const root of await this.#options.bundleRoots(vault))
+        await this.#files.bundle(vault, root, initialize, includeHistory);
+  }
+
+  async #flush(): Promise<void> {
+    const { storage, client } = this.#options;
+    try {
+      if (!client.signedIn || client.requiresLogin || !storage.sync.activeVault()?.enabled) return;
+      if (Date.now() - this.#lastRefresh >= 60000) await this.#refresh();
+      const vault = this.#consented();
+      if (!vault) {
+        this.#initialized = false;
+        return;
+      }
+      const transport = storage.sync.vaultTransport(vault.vaultId);
+      if (
+        ['attention', 'reset_required', 'revoked'].includes(transport.state) ||
+        transport.retryAt > Date.now()
+      )
+        return;
+      if (!this.#initialized) {
+        this.#capture.initialize(true);
+        this.#initialized = true;
+      }
+      await this.#scan(vault, false, false);
+      this.#capture.prepare();
+      await this.#engine.run();
+      this.#errorCode = undefined;
+    } catch (error) {
+      this.#errorCode = error instanceof ZuvRequestError ? error.code : 'LOCAL_STORAGE_ERROR';
+      throw this.#failure(error);
+    } finally {
+      this.#materials.notify();
+    }
+  }
+
+  #schedule(delay: number): void {
+    clearTimeout(this.#timer);
+    if (this.#closed) return;
+    this.#timer = setTimeout(() => {
+      void this.flush()
+        .catch(() => {})
+        .finally(() => this.#schedule(this.#options.intervalMs ?? 5000));
+    }, delay);
+    this.#timer.unref?.();
+  }
+  #failure(error: unknown): HostError<'SYNC_FAILED'> {
+    const code = error instanceof ZuvRequestError ? error.code : 'LOCAL_STORAGE_ERROR';
+    return new HostError('SYNC_FAILED', code, {
+      code,
+      ...(error instanceof ZuvRequestError &&
+        error.retryAfterMs && { retryAfterMs: error.retryAfterMs }),
+    });
+  }
+}

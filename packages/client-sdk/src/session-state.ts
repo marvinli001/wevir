@@ -186,6 +186,15 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
     default:
       break;
   }
+  if (session.origin?.kind === 'synced') {
+    next.state = 'closed';
+    next.cwd = session.cwd;
+    next.engine = session.engine;
+    next.readOnly = session.readOnly;
+    delete next.activeTurn;
+    delete next.awaitingInput;
+    delete next.autoContinue;
+  }
   return next;
 }
 

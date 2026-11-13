@@ -32,7 +32,7 @@ export function RecoveryPanel({
 }) {
   const [resuming, setResuming] = useState(false);
   const [failure, setFailure] = useState<string>();
-  const imported = readOnly?.reason === 'imported';
+  const imported = readOnly?.reason === 'imported' || readOnly?.reason === 'synchronized';
   if (!readOnly && state !== 'error') return null;
 
   const resume = async () => {

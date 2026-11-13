@@ -3377,6 +3377,49 @@ export const episode: Episode = {
 };
 
 export const methodSamples: MethodSamples = {
+  'sync.configure': {
+    params: {
+      valid: [{ enabled: false, categories: [], projects: [] }],
+      invalid: [{ enabled: true }],
+    },
+    result: {
+      valid: [
+        {
+          protocol: 'wevir-sync/1',
+          artifactRevision: 1,
+          pending: 0,
+          quarantined: 0,
+          conflicts: 0,
+          state: 'disabled',
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.devices': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ devices: [] }], invalid: [{}] },
+  },
+  'sync.approveDevice': {
+    params: { valid: [{ deviceId: 'device_synthetic' }], invalid: [{}, { deviceId: 'short' }] },
+    result: { valid: [{ approved: true }], invalid: [{ approved: false }] },
+  },
+  'sync.retry': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [
+        {
+          protocol: 'wevir-sync/1',
+          artifactRevision: 1,
+          pending: 0,
+          quarantined: 0,
+          conflicts: 0,
+          state: 'idle',
+        },
+      ],
+      invalid: [{}],
+    },
+  },
   'sync.status': {
     params: { valid: [{}], invalid: [null] },
     result: {
@@ -10103,6 +10146,7 @@ type ErrorDataSamples = {
 };
 
 export const errorDataSamples: ErrorDataSamples = {
+  SYNC_FAILED: { valid: { code: 'BUDGET_PAUSED', retryAfterMs: 60000 }, invalid: {} },
   EPISODE_NOT_FOUND: { valid: { id: 'ep_1' }, invalid: {} },
   METHOD_NOT_FOUND: {
     valid: { hostVersion: '0.0.0', hint: '请升级 Wevir Host' },

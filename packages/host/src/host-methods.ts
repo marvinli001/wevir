@@ -102,6 +102,7 @@ import { HostSettingsStore } from './settings.js';
 import { toHostError } from './simulator/errors.js';
 import type { SimulatorService } from './simulator/service.js';
 import type { SpeechService } from './speech/service.js';
+import type { SyncService } from './sync/service.js';
 import type { TerminalService } from './terminals.js';
 import type { AutoTuner } from './tuning/auto.js';
 import type { ProposalService } from './tuning/proposals.js';
@@ -167,6 +168,7 @@ export type HostMethodName = Exclude<MethodName, ConnectionMethodName>;
 export type HostMethods = { [M in HostMethodName]: MethodHandler<M> };
 
 export interface HostMethodsOptions {
+  sync?: SyncService;
   plugins?: PluginRegistry;
   /** 远程 MCP 服务的 OAuth 登录（0.97.0）。 */
   mcpOAuth?: McpOAuthService;
@@ -1528,7 +1530,28 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'image.read': (params) => imageStore().read(params),
 
     'settings.get': () => ({ settings: settings.get() }),
+    'sync.configure': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.configure(params);
+    },
+    'sync.retry': () => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.retry();
+    },
+    'sync.devices': () => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.devices();
+    },
+    'sync.approveDevice': ({ deviceId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.approveDevice(deviceId);
+    },
     'sync.status': () => {
+      if (options.sync) return options.sync.status();
       const vault = storage.sync.activeVault();
       return SyncStatusSchema.parse({
         protocol: 'wevir-sync/1',

@@ -13,11 +13,12 @@ export async function startMockZuv() {
   const sync = new MockSyncGateway();
   const enrollments = new Map<
     string,
-    { publicKey: PublicKey; challenge: string; approved: boolean }
+    { publicKey: PublicKey; challenge: string; approved: boolean; userId?: string }
   >();
   const grants = new Map<string, string>();
   const tokens = new Map<string, string>();
   const devices = new Map<string, PublicKey>();
+  const deviceUsers = new Map<string, string>();
   const seen = new Set<string>();
   const requests: string[] = [];
   const errors: string[] = [];
@@ -92,6 +93,7 @@ export async function startMockZuv() {
           const deviceId = id('device');
           const grant = id('grant');
           devices.set(deviceId, enrollment.publicKey);
+          deviceUsers.set(deviceId, enrollment.userId ?? 'user_synthetic');
           grants.set(grant, deviceId);
           enrollments.delete(input.enrollmentId);
           response = {
@@ -128,7 +130,9 @@ export async function startMockZuv() {
         if (!deviceId || !key || !token) throw new Error('missing identity');
         proof(req, raw, key, token);
         if (path === '/api/wevir/entitlements') {
-          response = schemas.entitlements.parse(sync.entitlements('user_synthetic', deviceId));
+          response = schemas.entitlements.parse(
+            sync.entitlements(deviceUsers.get(deviceId) as string, deviceId),
+          );
         } else if (path === '/api/wevir/v1/models')
           response = {
             object: 'list',
@@ -136,7 +140,7 @@ export async function startMockZuv() {
           };
         else {
           const result = sync.handle(
-            'user_synthetic',
+            deviceUsers.get(deviceId) as string,
             deviceId,
             new URL(req.url as string, originFor()),
             req.method as string,
@@ -170,10 +174,11 @@ export async function startMockZuv() {
     sync,
     requests,
     errors,
-    approve(url: string) {
+    approve(url: string, userId = 'user_synthetic') {
       const enrollment = enrollments.get(new URL(url).searchParams.get('id') as string);
       if (!enrollment) throw new Error('enrollment not found');
       enrollment.approved = true;
+      enrollment.userId = userId;
     },
     close: () =>
       new Promise<void>((resolve, reject) => {

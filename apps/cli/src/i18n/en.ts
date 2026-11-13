@@ -426,6 +426,7 @@ Also:
   'readOnly.engine_session_incompatible': 'session format unreadable by the current engine version',
   'readOnly.engine_session_corrupted': 'engine session log corrupted',
   'readOnly.imported': 'imported',
+  'readOnly.synchronized': 'synced history',
   'approvalEnd.turn_cancelled': 'Approval cancelled (turn cancelled)',
   'approvalEnd.session_closed': 'Approval cancelled (session closed)',
   'approvalEnd.engine_exited': 'Approval cancelled (engine exited)',

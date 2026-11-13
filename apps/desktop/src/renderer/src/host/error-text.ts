@@ -101,6 +101,7 @@ const RPC_ERROR_TEXT: Record<Exclude<ErrorCodeName, 'ENGINE_ERROR'>, PlainMessag
   PUSH_GATEWAY_ERROR: 'rpcError.PUSH_GATEWAY_ERROR',
   CHANNEL_NOT_FOUND: 'rpcError.CHANNEL_NOT_FOUND',
   SIMULATOR_FAILED: 'rpcError.SIMULATOR_FAILED',
+  SYNC_FAILED: 'rpcError.SYNC_FAILED',
 };
 
 const RPC_DETAIL: ReadonlySet<ErrorCodeName> = new Set([

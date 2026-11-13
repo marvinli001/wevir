@@ -125,6 +125,24 @@ function mock() {
 }
 
 describe('Host-owned ZUV identity', () => {
+  it('waits for the prior vault application to drain before clearing its identity', async () => {
+    const h = mock();
+    await h.login();
+    let release = () => {};
+    const draining = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const peer = new ZuvClient({ ...h.options, onIdentityChanging: () => draining });
+    await peer.load();
+    const loggingOut = peer.logout();
+    expect(peer.signedIn).toBe(true);
+    expect(h.values.size).toBeGreaterThan(0);
+    release();
+    await loggingOut;
+    expect(peer.signedIn).toBe(false);
+    expect(h.values.size).toBe(0);
+    await peer.close();
+  });
   it('rejects late network responses after close without overwriting credentials', async () => {
     const h = mock();
     await h.login();

@@ -72,6 +72,10 @@ export class EventBus {
     }
   }
 
+  publishProjection(events: readonly WevirEvent[]): void {
+    for (const event of events) this.#deliverSubscribers(event);
+  }
+
   #deliver(event: WevirEvent): void {
     for (const listener of [...this.#everything]) {
       try {
@@ -80,6 +84,10 @@ export class EventBus {
         this.#onError(error);
       }
     }
+    this.#deliverSubscribers(event);
+  }
+
+  #deliverSubscribers(event: WevirEvent): void {
     const set = this.#subscriptions.get(event.sessionId);
     if (!set) return;
     for (const subscription of [...set]) {

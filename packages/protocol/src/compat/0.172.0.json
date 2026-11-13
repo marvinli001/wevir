@@ -1,0 +1,116 @@
+{
+  "protocolVersion": "0.172.0",
+  "methods": {
+    "sync.configure": {
+      "params": [
+        {
+          "enabled": false,
+          "categories": [],
+          "projects": []
+        }
+      ],
+      "result": [
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "pending": 0,
+          "quarantined": 0,
+          "conflicts": 0,
+          "state": "disabled"
+        }
+      ]
+    },
+    "sync.retry": {
+      "params": [{}],
+      "result": [
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "pending": 0,
+          "quarantined": 0,
+          "conflicts": 0,
+          "state": "disabled"
+        }
+      ]
+    },
+    "sync.devices": {
+      "params": [{}],
+      "result": [
+        {
+          "devices": []
+        }
+      ]
+    },
+    "sync.approveDevice": {
+      "params": [
+        {
+          "deviceId": "device_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "approved": true
+        }
+      ]
+    },
+    "session.get": {
+      "params": [
+        {
+          "sessionId": "ses_1"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_1",
+            "workspaceId": "ws_1",
+            "cwd": "/workspace/demo",
+            "engine": {
+              "kind": "imported",
+              "sessionId": "external-demo"
+            },
+            "providerId": "claude",
+            "modelId": "demo",
+            "title": "Counter",
+            "titleSource": "first_prompt",
+            "state": "closed",
+            "createdAt": "2026-10-01T10:00:00.000Z",
+            "updatedAt": "2026-10-01T10:00:00.000Z",
+            "lastSeq": 2,
+            "origin": {
+              "kind": "synced",
+              "vaultId": "vault_synthetic",
+              "hostId": "host_synthetic",
+              "sessionId": "ses_synthetic"
+            },
+            "readOnly": {
+              "reason": "synchronized",
+              "message": "",
+              "since": "2026-10-01T10:00:00.000Z"
+            }
+          },
+          "pendingApprovals": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": [
+    {
+      "name": "SYNC_FAILED",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32044,
+          "message": "BUDGET_PAUSED",
+          "data": {
+            "code": "BUDGET_PAUSED",
+            "retryAfterMs": 60000
+          }
+        }
+      }
+    }
+  ]
+}

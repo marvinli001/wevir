@@ -21,7 +21,7 @@
 // 布局：`<数据目录>/memory/global/<名字>.md`，`<数据目录>/memory/projects/<工作区 ID>/<名字>.md`。
 
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   type ImportedFrom,
@@ -169,6 +169,7 @@ export interface MemoryStoreOptions {
   dir: string;
   now?: () => Date;
   workspacePath?: (workspaceId: string) => string | undefined;
+  beforeWrite?: (path: string, markdown?: string) => (() => void) | undefined;
 }
 
 /** 读出来的一份文件：笔记加上认不出的 frontmatter 字段（改写时原样写回）。 */
@@ -183,6 +184,7 @@ export class MemoryStore {
   readonly dir: string;
   readonly #now: () => Date;
   readonly #workspacePath: MemoryStoreOptions['workspacePath'];
+  readonly #beforeWrite: MemoryStoreOptions['beforeWrite'];
   /** 同一个范围的写入排队：几个会话同时存取时不会互相覆盖或超出上限。 */
   readonly #queues = new Map<string, Promise<unknown>>();
   readonly #listeners = new Set<(change: MemoryChange) => void>();
@@ -191,6 +193,7 @@ export class MemoryStore {
     this.dir = options.dir;
     this.#now = options.now ?? (() => new Date());
     this.#workspacePath = options.workspacePath;
+    this.#beforeWrite = options.beforeWrite;
   }
 
   /** 笔记变了时调用 `listener`（`memory.changed`）。返回退订函数。 */
@@ -606,7 +609,7 @@ export class MemoryStore {
           return { conflict: publicNote(loaded.note) };
         }
       }
-      await rm(file, { force: true });
+      await this.#removeFile(file);
       return {};
     });
     if (result.conflict === undefined) this.#emit(scope, workspaceId, name);
@@ -616,7 +619,11 @@ export class MemoryStore {
   /** 项目没了不会再回来（删助理）：这个项目的笔记整个删掉。 */
   async removeProject(workspaceId: string): Promise<void> {
     const dir = this.#dir('project', workspaceId);
-    await this.#exclusive(dir, () => rm(dir, { recursive: true, force: true }));
+    await this.#exclusive(dir, async () => {
+      for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => []))
+        if (entry.isFile() && isNoteFile(entry.name)) await this.#removeFile(join(dir, entry.name));
+      await rm(dir, { recursive: true, force: true });
+    });
   }
 
   /**
@@ -729,7 +736,7 @@ export class MemoryStore {
       .slice(MEMORY_SUPERSEDED_KEEP)
       .map((note) => note.name);
     const dir = this.#dir(scope, workspaceId);
-    for (const name of old) await rm(join(dir, `${name}.md`), { force: true });
+    for (const name of old) await this.#removeFile(join(dir, `${name}.md`));
     return old;
   }
 
@@ -738,10 +745,24 @@ export class MemoryStore {
     const text = renderNote(note);
     await mkdir(dir, { recursive: true, mode: 0o700 });
     const tmp = join(dir, `.${note.name}.${randomBytes(4).toString('hex')}.tmp`);
-    await writeFile(tmp, text, { mode: 0o600 });
+    const file = await open(tmp, 'wx', 0o600);
+    try {
+      await file.writeFile(text);
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    const committed = this.#beforeWrite?.(join(dir, `${note.name}.md`), text);
     await rename(tmp, join(dir, `${note.name}.md`));
+    committed?.();
     const { extra: _extra, ...rest } = note;
     return { ...rest, revision: revisionOf(text) };
+  }
+
+  async #removeFile(path: string): Promise<void> {
+    const committed = this.#beforeWrite?.(path);
+    await rm(path, { force: true });
+    committed?.();
   }
 
   async #readScope(
@@ -1010,6 +1031,10 @@ function renderNote(note: Omit<StoredNote, 'revision'>): string {
 }
 
 /** 读回一份文件；frontmatter 不对的（用户手改坏了）返回 `undefined`，不让一份坏文件拖垮整个索引。 */
+export function validMemoryMarkdown(scope: MemoryScope, name: string, text: string): boolean {
+  return parseNote(scope, name, text) !== undefined;
+}
+
 function parseNote(scope: MemoryScope, name: string, text: string): StoredNote | undefined {
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text.replace(/\r\n/g, '\n'));
   if (match === null) return undefined;

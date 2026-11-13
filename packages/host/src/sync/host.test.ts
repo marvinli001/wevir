@@ -45,6 +45,7 @@ describe('isolated Host sync metadata', () => {
       expect(await client.request('sync.status')).toEqual({
         protocol: 'wevir-sync/1',
         artifactRevision: 1,
+        state: 'disabled',
         pending: 0,
         quarantined: 0,
         conflicts: 0,

@@ -213,7 +213,11 @@ describe('same-transaction source event capture', () => {
         } as WevirEvent,
       ]),
     );
-    expect(h.storage.sync.drafts(h.vault.vaultId)).toEqual([]);
+    expect(
+      h.storage.sync
+        .drafts(h.vault.vaultId)
+        .map((value) => h.storage.sync.entity(h.vault.vaultId, value.entityId)?.entityType),
+    ).toEqual(['project']);
     expect(h.storage.sync.captures(h.vault.vaultId)).toEqual([]);
   });
 });
