@@ -35,6 +35,7 @@ import { sendErrorKey } from '../../lib/session-actions';
 import { useBot, useBotAccess, useBotProjects, useBotStore, useTimeline } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
 import { usePhotoAttachments } from '../../state/photo-attachments';
+import { useComputer } from '../../state/registry';
 import { SPACE, TEXT, useTheme } from '../../theme';
 
 /** 隔了这么久的两条之间插一行时间。 */
@@ -88,6 +89,7 @@ function scrollToEnd(list: FlatList<Item> | null, animated: boolean) {
 }
 
 function BotChat({ bot }: { bot: Bot }) {
+  const computer = useComputer(bot.computer);
   const theme = useTheme();
   const router = useRouter();
   const navigation = useNavigation();
@@ -399,7 +401,9 @@ function BotChat({ bot }: { bot: Bot }) {
               </Text>
             )}
             <Composer
-              draftKey={`bot:${bot.key}`}
+              key={computer?.record.routeId ?? bot.key}
+              draftKey={`${computer?.record.routeId ?? 'unassigned'}/bot:${bot.id}`}
+              canSend={access.online}
               onSend={send}
               {...(group && { placeholder: t('bot.groupPlaceholder', { name: bot.name }) })}
               {...(access.composer && {

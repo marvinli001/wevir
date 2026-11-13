@@ -13,6 +13,7 @@ import { SplashGate } from '@/layout/splash';
 import { NotificationCoordinator } from '@/notifications/notification-coordinator';
 import { capabilities } from '@/platform/platform';
 import { router } from '@/routes/router';
+import { OfflineLibrary } from '@/session/offline-library';
 import { RestartConfirm } from '@/updates/restart-confirm';
 
 export function App() {
@@ -26,6 +27,7 @@ export function App() {
           <SplashGate />
           <TooltipProvider delay={500}>
             <RouterProvider router={router} />
+            <OfflineLibrary />
             {/* 内置浏览器（0.33.0）：登记为浏览器提供方，转交 agent 的浏览器命令。外壳没有的功能不登记（platform/platform.ts）。 */}
             {platform.browserPane && <BrowserCoordinator />}
             {/* 电脑操作（0.114.0）：登记为提供方，弹授权框，Esc 停下时取消回合。 */}

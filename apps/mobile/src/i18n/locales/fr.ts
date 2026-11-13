@@ -1,6 +1,9 @@
 import type { Messages } from '../zh-CN';
 
 export const fr: Messages = {
+  'draft.failed': 'Stockage local indisponible ; brouillon non enregistré',
+  'draft.sendUnknown': 'Résultat inconnu ; brouillon conservé',
+  'draft.notExecuted': 'Brouillon · non exécuté',
   'common.listSeparator': ', ',
   'handoff.detail.attempt': 'Tentative',
   'handoff.detail.budgetUsed': '{used} / {budget} octets',

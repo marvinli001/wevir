@@ -1,6 +1,9 @@
 import type { Messages } from '../zh-CN';
 
 export const de: Messages = {
+  'draft.failed': 'Lokaler Speicher nicht verfügbar; Entwurf nicht gespeichert',
+  'draft.sendUnknown': 'Sendeergebnis unklar; Entwurf bleibt erhalten',
+  'draft.notExecuted': 'Entwurf · nicht ausgeführt',
   'common.listSeparator': ', ',
   'handoff.detail.attempt': 'Versuch',
   'handoff.detail.budgetUsed': '{used} / {budget} Byte',

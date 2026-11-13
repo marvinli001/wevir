@@ -102,6 +102,9 @@ export class ComputerCache implements SessionCache {
         PRAGMA user_version = ${SCHEMA_VERSION};
       `);
     }
+    await db.execAsync(
+      'CREATE TABLE IF NOT EXISTS drafts (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)',
+    );
     return new ComputerCache(db, now);
   }
 
@@ -160,6 +163,29 @@ export class ComputerCache implements SessionCache {
 
   close(): Promise<void> {
     return this.#db.closeAsync();
+  }
+  async loadDraft(key: string): Promise<string> {
+    const row = await this.#db.getFirstAsync<{ value: string }>(
+      'SELECT value FROM drafts WHERE key = ?',
+      key,
+    );
+    return row?.value ?? '';
+  }
+  async saveDraft(key: string, value: string): Promise<void> {
+    if (value === '') await this.#db.runAsync('DELETE FROM drafts WHERE key = ?', key);
+    else
+      await this.#db.runAsync(
+        'INSERT OR REPLACE INTO drafts (key, value) VALUES (?, ?)',
+        key,
+        value,
+      );
+  }
+  async forgetDrafts(scope: string): Promise<void> {
+    await this.#db.runAsync(
+      'DELETE FROM drafts WHERE substr(key, 1, ?) = ?',
+      scope.length + 1,
+      `${scope}/`,
+    );
   }
 }
 

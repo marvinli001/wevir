@@ -5,6 +5,7 @@
 // 转写，文字放到光标处，不自动发送。不能听写时麦克风灰着。
 // 给了 `draftKey` 时没发出的字记在 state/drafts.ts，离开页面再回来还在。
 
+import { isRpcError } from '@wevir/client-sdk';
 import type { PendingDelivery } from '@wevir/protocol';
 import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
@@ -22,7 +23,7 @@ import {
 import { type MessageKey, t } from '../i18n';
 import { insertDictation, type SpeechClient } from '../lib/dictation';
 import { type Dictation, useDictation } from '../state/dictation';
-import { readDraft, writeDraft } from '../state/drafts';
+import { loadDraft, readDraft, writeDraft } from '../state/drafts';
 import { TEXT, useTheme } from '../theme';
 import { type MenuSection, MenuTrigger } from './menu';
 import { GLASS, Icon } from './ui';
@@ -78,9 +79,37 @@ export function Composer({
 }) {
   const theme = useTheme();
   const [text, setText] = useState(() => (draftKey !== undefined ? readDraft(draftKey) : ''));
+  const [draftReady, setDraftReady] = useState(draftKey === undefined);
+  const [loadedDraftKey, setLoadedDraftKey] = useState<string>();
+  const [sendUncertain, setSendUncertain] = useState(false);
+  const [draftError, setDraftError] = useState(false);
+  const edited = useRef(false);
   useEffect(() => {
-    if (draftKey !== undefined) writeDraft(draftKey, text);
-  }, [draftKey, text]);
+    if (draftKey === undefined) return;
+    let active = true;
+    void loadDraft(draftKey).then(
+      (value) => {
+        if (active) {
+          if (!edited.current) setText(value);
+          setDraftReady(true);
+          setLoadedDraftKey(draftKey);
+        }
+      },
+      () => {
+        if (active) setDraftError(true);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [draftKey]);
+  useEffect(() => {
+    if (draftKey !== undefined && loadedDraftKey === draftKey && (draftReady || edited.current))
+      void writeDraft(draftKey, text).then(
+        () => setDraftError(false),
+        () => setDraftError(true),
+      );
+  }, [draftKey, draftReady, loadedDraftKey, text]);
   const cursor = useRef(0);
   const dictation = useDictation({
     client: speech,
@@ -105,12 +134,15 @@ export function Composer({
     if (empty || sending || uploading || dictating || !canSend) return;
     const value = text;
     setSending(true);
-    setText('');
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     onSend(value)
+      .then(() => {
+        setSendUncertain(false);
+        setText((current) => (current === value ? '' : current));
+      })
       .catch((error: unknown) => {
+        setSendUncertain(!isRpcError(error));
         console.warn('[wevir] could not send', error);
-        setText(value);
       })
       .finally(() => setSending(false));
   };
@@ -221,6 +253,19 @@ export function Composer({
 
   const content = (
     <View style={styles.column}>
+      {draftError && (
+        <Text accessibilityRole="alert" style={{ color: theme.destructive }}>
+          {t('draft.failed')}
+        </Text>
+      )}
+      {sendUncertain && (
+        <Text accessibilityRole="alert" style={{ color: theme.destructive }}>
+          {t('draft.sendUnknown')}
+        </Text>
+      )}
+      {!canSend && text !== '' && !sendUncertain && (
+        <Text style={{ color: theme.mutedForeground }}>{t('draft.notExecuted')}</Text>
+      )}
       {attachments.length > 0 && (
         <ScrollView
           horizontal
@@ -288,7 +333,10 @@ export function Composer({
         {dictating && <RecordingBar dictation={dictation} />}
         <TextInput
           value={text}
-          onChangeText={setText}
+          onChangeText={(value) => {
+            edited.current = true;
+            setText(value);
+          }}
           onSelectionChange={(e) => {
             cursor.current = e.nativeEvent.selection.end;
           }}

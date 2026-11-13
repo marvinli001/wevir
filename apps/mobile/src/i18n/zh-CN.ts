@@ -2,6 +2,9 @@
 // 照仓库的界面文案规矩：名词短语，书面语，只留错误的原因与处理、确认框里的后果。
 
 export const zhCN = {
+  'draft.failed': '本机存储不可用，草稿未保存',
+  'draft.sendUnknown': '发送结果未确认，草稿已保留',
+  'draft.notExecuted': '草稿 · 未执行',
   'common.listSeparator': '、',
   'handoff.detail.attempt': '第几次',
   'handoff.detail.budgetUsed': '{used} / {budget} 字节',

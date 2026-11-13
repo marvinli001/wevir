@@ -27,6 +27,7 @@ import {
   withNativeOrigin,
 } from '../lib/remote';
 import { fileStorage, loadDeviceKey, loadIdentity } from '../lib/storage';
+import { forgetDrafts } from './drafts';
 import { type AppPushRegistrar, createPushRegistrar } from './push-registrar';
 
 const remoteDeps: RemoteDeps = {
@@ -41,7 +42,10 @@ function createRegistry(): { registry: ComputerRegistry; push: AppPushRegistrar 
   const registry: ComputerRegistry = new ComputerRegistry(fileStorage, {
     cache: cacheProvider({
       open: openComputerCache,
-      remove: deleteComputerCache,
+      remove: async (routeId) => {
+        await deleteComputerCache(routeId);
+        await forgetDrafts(routeId);
+      },
       warn: (message, error) => console.warn(`[wevir] ${message}`, error),
     }),
     connect: remoteConnect(remoteDeps, loadDeviceKey),
