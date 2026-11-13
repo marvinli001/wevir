@@ -126,10 +126,15 @@ export type InstallSourceInspection =
   /** 不是文件夹、ZIP 或 `SKILL.md`。 */
   | { kind: 'unsupported' };
 
-/** 窗口标题栏的形态。macOS 隐藏了系统标题栏，红绿灯浮在页面左上角，由页面的顶栏充当标题栏。 */
+/**
+ * 窗口标题栏的形态。macOS 与 Windows 隐藏了系统标题栏，由页面的顶栏充当标题栏：macOS 的红绿灯浮在页面左上角，Windows 的
+ * 最小化、最大化与关闭按钮浮在右上角。
+ */
 export interface WindowChrome {
   /** 红绿灯此刻浮在页面左上角（macOS 且不在全屏）：左上角的顶栏要给它们让出位置。 */
   trafficLights: boolean;
+  /** 系统的窗口按钮此刻浮在页面右上角（Windows 且不在全屏）：右上角的顶栏要给它们让出位置。 */
+  captionButtons: boolean;
   /** 系统能给窗口加材质（macOS 的 vibrancy；Windows 11 22H2 起的 Mica，shared/theme.ts 的 supportsWindowMaterial）。 */
   material: boolean;
 }
@@ -505,6 +510,8 @@ export const IPC_CHANNELS = {
   setPreventSleep: 'wevir:set-prevent-sleep',
   /** 主进程 → 渲染进程的推送。 */
   windowChrome: 'wevir:window-chrome',
+  /** preload 在界面缩放比例变了之后通知主进程（Windows 的窗口按钮要跟着顶栏变高变矮），不经 `window.wevir`。 */
+  windowZoomChanged: 'wevir:window-zoom-changed',
   getLowGpu: 'wevir:get-low-gpu',
   lowGpu: 'wevir:low-gpu',
   notify: 'wevir:notify',

@@ -77,6 +77,7 @@ import {
   DISK_CACHE_MAX_BYTES,
 } from './storage.js';
 import { StorageUsageReader } from './storage-reader.js';
+import { titleBarOverlay } from './title-bar.js';
 import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
 import {
@@ -391,7 +392,12 @@ function run(): void {
     if (!isThemeMode(mode)) throw new Error('theme mode must be system, light or dark');
     nativeTheme.themeSource = mode;
     window.setBackgroundColor(windowBackground());
+    applyTitleBarOverlay(window);
     rememberWindowAppearance({ ...windowAppearance, themeMode: mode });
+  });
+  // 界面缩放比例变了（preload 通知，不带参数）：比例从窗口自己读，不信页面送来的数。
+  ipcMain.handle(IPC_CHANNELS.windowZoomChanged, async (event): Promise<void> => {
+    applyTitleBarOverlay(assertSender(event));
   });
   ipcMain.handle(IPC_CHANNELS.setWindowAppearance, async (event, value: unknown): Promise<void> => {
     const window = assertSender(event);
@@ -851,8 +857,9 @@ function run(): void {
     // 跟随系统时系统换了深浅色：页面自己重画，窗口底色也要跟上，否则缩放、最大化时露出的未绘制区域还是上一个主题的颜色
     // （没有系统材质的窗口才看得到：Linux、Windows 10、关了半透明窗口）。
     nativeTheme.on('updated', () => {
-      if (mainWindow && !mainWindow.isDestroyed())
-        mainWindow.setBackgroundColor(windowBackground());
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.setBackgroundColor(windowBackground());
+      applyTitleBarOverlay(mainWindow);
     });
     mainWindow.once('show', () => markInstallStartup('windowAt'));
     // 建好窗口（页面开始载入）之后再设图标：程序坞图标要解码一张 1024 px 的 PNG，不让页面等它；窗口在首帧之前不显示。
@@ -935,23 +942,38 @@ function windowBackground(): string {
 }
 
 /**
- * macOS 隐藏系统标题栏，由页面的顶栏（高 44 px，h-11）充当标题栏，红绿灯浮在它的左侧、垂直居中。页面给
- * 红绿灯让出的宽度在渲染进程的 index.css（--traffic-lights-inset）。其他平台仍用系统标题栏。
+ * macOS 与 Windows 隐藏系统标题栏，由页面的顶栏（高 44 px，h-11）充当标题栏。
+ *
+ * - macOS：红绿灯浮在顶栏的左侧、垂直居中，页面让出的宽度在渲染进程的 index.css（--traffic-lights-inset）。
+ * - Windows：最小化、最大化与关闭按钮由系统画在顶栏的右侧（titleBarOverlay，参数见 title-bar.ts），页面让出
+ *   --caption-buttons-inset。没有系统标题栏也就没有菜单栏，菜单的快捷键照常可用。
+ * - Linux 仍用系统标题栏：各桌面环境的窗口按钮位置与样式不一。
  */
-const HIDDEN_TITLE_BAR = process.platform === 'darwin';
+const TRAFFIC_LIGHTS = process.platform === 'darwin';
+const CAPTION_BUTTONS = process.platform === 'win32';
 const TRAFFIC_LIGHT_POSITION = { x: 16, y: 15 };
 
-/** 红绿灯浮在页面上的时候：隐藏了系统标题栏，且不在全屏（全屏时系统把它们收进菜单栏）。 */
+/** 系统的窗口按钮浮在页面上的时候：隐藏了系统标题栏，且不在全屏（macOS 全屏时把红绿灯收进菜单栏，Windows 全屏时不画按钮）。 */
 function windowChrome(window: BrowserWindow): WindowChrome {
+  const floating = !window.isFullScreen();
   return {
-    trafficLights: HIDDEN_TITLE_BAR && !window.isFullScreen(),
+    trafficLights: TRAFFIC_LIGHTS && floating,
+    captionButtons: CAPTION_BUTTONS && floating,
     material: MATERIAL_SUPPORTED,
   };
 }
 
+/** Windows 的窗口按钮：图形颜色跟界面深浅色，高跟界面缩放比例（主题变了、缩放变了、页面加载完成时重设）。 */
+function applyTitleBarOverlay(window: BrowserWindow): void {
+  if (!CAPTION_BUTTONS || window.isDestroyed()) return;
+  window.setTitleBarOverlay(
+    titleBarOverlay(nativeTheme.shouldUseDarkColors, window.webContents.getZoomFactor()),
+  );
+}
+
 /**
- * 半透明窗口的系统材质（设置 → 外观，默认开）：macOS 用 vibrancy，跟随系统深浅色；Windows 11 22H2 起用 Mica，连系统标题栏
- * 一起。其他系统没有材质，窗口照常不透明（shared/theme.ts 的 supportsWindowMaterial）。
+ * 半透明窗口的系统材质（设置 → 外观，默认开）：macOS 用 vibrancy，跟随系统深浅色；Windows 11 22H2 起用 Mica，从页面的
+ * 顶栏与壳透出来（没有系统标题栏）。其他系统没有材质，窗口照常不透明（shared/theme.ts 的 supportsWindowMaterial）。
  */
 const MATERIAL_SUPPORTED = supportsWindowMaterial(process.platform, process.getSystemVersion());
 const MAC_VIBRANCY = 'under-window';
@@ -1033,9 +1055,14 @@ function createWindow(): BrowserWindow {
     minHeight: min.height,
     title: 'Wevir',
     ...(icon !== undefined && { icon }),
-    ...(HIDDEN_TITLE_BAR && {
+    ...(TRAFFIC_LIGHTS && {
       titleBarStyle: 'hidden',
       trafficLightPosition: TRAFFIC_LIGHT_POSITION,
+    }),
+    // 界面缩放比例要等页面加载后才读得到，先按 1 算，dom-ready 时重设。
+    ...(CAPTION_BUTTONS && {
+      titleBarStyle: 'hidden',
+      titleBarOverlay: titleBarOverlay(nativeTheme.shouldUseDarkColors, 1),
     }),
     backgroundColor: windowBackground(),
     ...(windowMaterial() &&
@@ -1054,8 +1081,8 @@ function createWindow(): BrowserWindow {
       spellcheck: false,
     },
   });
-  // Windows / Linux 不显示 Electron 默认菜单栏（File Edit View Window）；菜单仍在，快捷键照常可用。
-  if (process.platform !== 'darwin') window.setMenuBarVisibility(false);
+  // Linux 不显示 Electron 默认菜单栏（File Edit View Window）；菜单仍在，快捷键照常可用。Windows 隐藏了系统标题栏，本来就没有菜单栏。
+  if (process.platform === 'linux') window.setMenuBarVisibility(false);
   window.once('ready-to-show', () => {
     mark('readyToShow');
     if (state.maximized) window.maximize();
@@ -1067,7 +1094,11 @@ function createWindow(): BrowserWindow {
     window.webContents.send(IPC_CHANNELS.windowChrome, windowChrome(window));
   window.on('enter-full-screen', pushWindowChrome);
   window.on('leave-full-screen', pushWindowChrome);
-  window.webContents.on('dom-ready', pushWindowChrome);
+  window.webContents.on('dom-ready', () => {
+    pushWindowChrome();
+    // 界面缩放比例按站点记着，上次放大过的话这时才读得到。
+    applyTitleBarOverlay(window);
+  });
   window.webContents.once('did-finish-load', () => mark('rendererLoaded'));
   void window.loadURL(devServerUrl ?? APP_ENTRY_URL);
   return window;
