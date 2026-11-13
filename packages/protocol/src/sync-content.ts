@@ -143,7 +143,15 @@ export const SyncBundleContentSchema = z.object({
   metadata: z.json().optional(),
 });
 
+export const SyncSharedFilesMetadataSchema = z.object({
+  schema: z.literal('wevir-shared-files/1'),
+  source: SyncStreamRefSchema,
+  seq: decimal,
+  capture: z.enum(['shared', 'backfill']),
+});
+
 export const SYNC_CONTENT_SCHEMAS = {
+  sharedFiles: SyncSharedFilesMetadataSchema,
   project: SyncProjectContentSchema,
   session: SyncSessionContentSchema,
   'event-stream': SyncEventStreamContentSchema,

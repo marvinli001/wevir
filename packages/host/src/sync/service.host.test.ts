@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionId, WorkspaceId } from '@wevir/protocol';
-import type { TitleRequest } from '@wevir/runtime-adapter';
+import type { AppToolsEndpoint, SessionConfig, TitleRequest } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startHost } from '../host-process.js';
@@ -13,6 +14,15 @@ import { startMockZuv } from '../zuv/mock.test-utils.js';
 const tempDir = useTempDir();
 const cleanups: Array<() => Promise<void> | void> = [];
 class SummaryEcho extends EchoAdapter {
+  constructor(readonly appTools = false) {
+    super();
+  }
+  readonly endpoints = new Map<string, AppToolsEndpoint | undefined>();
+  override async createSession(config: SessionConfig) {
+    const session = await super.createSession(config);
+    this.endpoints.set(session.engineSessionId, config.appTools);
+    return session;
+  }
   summary = '';
   readonly deleted: string[] = [];
   override async deleteSession(id: string): Promise<void> {
@@ -26,7 +36,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function fixture() {
+async function fixture(withTools = false) {
   const mock = await startMockZuv();
   cleanups.push(() => mock.close());
   const boot = async (name: string) => {
@@ -36,7 +46,7 @@ async function fixture() {
     const project = join(base, 'project');
     await mkdir(userHome, { recursive: true });
     await mkdir(project, { recursive: true });
-    const adapter = new SummaryEcho();
+    const adapter = new SummaryEcho(withTools);
     const host = await startHost({
       home,
       userHome,
@@ -79,7 +89,7 @@ async function fixture() {
 }
 
 type Peer = Awaited<ReturnType<typeof fixture>>['first'];
-async function linkSessions(first: Peer, second: Peer, includeHistory = true) {
+async function linkSessions(first: Peer, second: Peer, includeHistory = true, artifacts = false) {
   await first.rpc.request('provider.upsert', {
     id: 'synthetic-api',
     kind: 'openai-compatible',
@@ -91,7 +101,7 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true) {
   });
   const params = {
     enabled: true,
-    categories: ['project', 'session', 'event-segment'],
+    categories: ['project', 'session', 'event-segment', ...(artifacts ? ['artifact'] : [])],
     includeHistory,
   };
   const selected = await first.rpc.request('sync.configure', {
@@ -111,6 +121,151 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true) {
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it('reads immutable text, binary and HTML artifacts by source event without falling back to local files', async () => {
+    const { first, second } = await fixture(true);
+    await linkSessions(first, second, true, true);
+    const session = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    const binary = randomBytes(256 * 1024);
+    await writeFile(join(first.project, 'report.md'), 'Synthetic version one');
+    await writeFile(join(first.project, 'archive.bin'), binary);
+    await writeFile(join(first.project, 'page.html'), '<h1>Synthetic artifact</h1>');
+    await writeFile(join(first.project, '.env.test'), 'synthetic-not-a-real-secret');
+    await writeFile(join(first.project, 'not-shared.txt'), 'Synthetic private sibling');
+    await writeFile(join(second.project, 'report.md'), 'Synthetic unrelated local file');
+    const endpoint = first.adapter.endpoints.get(session.engine.sessionId);
+    if (!endpoint) throw new Error('missing synthetic tool endpoint');
+    const share = async (paths: string[]) => {
+      const response = await fetch(endpoint.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${endpoint.token}`,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: paths.length,
+          method: 'tools/call',
+          params: { name: 'wevir_share_file', arguments: { paths } },
+        }),
+      });
+      expect(await response.json()).toMatchObject({
+        result: { structuredContent: { shared: expect.any(Array) } },
+      });
+    };
+    await share(['report.md', 'archive.bin', 'page.html', '.env.test']);
+    await writeFile(join(first.project, 'report.md'), 'Synthetic version two');
+    let remoteId: SessionId | undefined;
+    await expect
+      .poll(
+        async () => {
+          remoteId = (await second.rpc.request('session.list', { workspaceId: second.workspaceId }))
+            .sessions[0]?.id;
+          return remoteId;
+        },
+        { timeout: 8000 },
+      )
+      .toBeDefined();
+    const scope = { workspaceId: second.workspaceId, sessionId: remoteId };
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc.request('workspace.readFile', { ...scope, path: 'report.md' })).text,
+        { timeout: 8000 },
+      )
+      .toBe('Synthetic version one');
+    const { subscriptionId } = await second.rpc.request('events.subscribe', {
+      sessionId: remoteId,
+      sinceSeq: 0,
+    });
+    await second.rpc.until(
+      () => second.rpc.events(subscriptionId).some((event) => event.type === 'file.shared'),
+      'source file event',
+    );
+    const firstShare = second.rpc
+      .events(subscriptionId)
+      .find((event) => event.type === 'file.shared');
+    if (!firstShare) throw new Error('missing synthetic file event');
+    const raw = await second.rpc.request('files.read', {
+      ...scope,
+      path: 'archive.bin',
+      artifactSeq: firstShare.seq,
+    });
+    expect(Buffer.from(raw.data, 'base64')).toEqual(binary);
+    const preview = await second.rpc.request('workspace.fileUrl', {
+      ...scope,
+      path: 'page.html',
+      artifactSeq: firstShare.seq,
+    });
+    expect(preview.url).toBeDefined();
+    expect(await readFile(preview.localPath, 'utf8')).toBe('<h1>Synthetic artifact</h1>');
+    const download = await second.rpc.request('workspace.fileUrl', {
+      ...scope,
+      path: 'archive.bin',
+      artifactSeq: firstShare.seq,
+    });
+    expect(download).toMatchObject({ unavailable: 'unsupported', localPath: expect.any(String) });
+    expect(await readFile(download.localPath)).toEqual(binary);
+    expect(await (await fetch(preview.url)).text()).toContain('<h1>Synthetic artifact</h1>');
+    for (const path of ['.env.test', 'not-shared.txt'])
+      expect(await second.rpc.request('workspace.readFile', { ...scope, path })).toMatchObject({
+        unavailable: 'not_found',
+      });
+    expect(
+      (
+        await second.rpc.call('workspace.writeFile', {
+          ...scope,
+          path: 'report.md',
+          text: 'Overwrite',
+        })
+      ).error,
+    ).toBeDefined();
+    expect(
+      (
+        await second.rpc.call('workspace.readFile', {
+          ...scope,
+          path: 'report.md',
+          folder: second.project,
+        })
+      ).error,
+    ).toBeDefined();
+    expect(
+      (
+        await second.rpc.request('workspace.readFile', {
+          workspaceId: second.workspaceId,
+          path: 'report.md',
+        })
+      ).text,
+    ).toBe('Synthetic unrelated local file');
+    await share(['report.md']);
+    await expect
+      .poll(
+        async () =>
+          (await second.rpc.request('workspace.readFile', { ...scope, path: 'report.md' })).text,
+        { timeout: 8000 },
+      )
+      .toBe('Synthetic version two');
+    expect(
+      (
+        await second.rpc.request('workspace.readFile', {
+          ...scope,
+          path: 'report.md',
+          artifactSeq: firstShare.seq,
+        })
+      ).text,
+    ).toBe('Synthetic version one');
+    expect(await readFile(join(second.project, 'report.md'), 'utf8')).toBe(
+      'Synthetic unrelated local file',
+    );
+    expect(second.adapter.endpoints.size).toBe(0);
+  }, 20000);
+
   it('keeps synchronized side sessions out of the top-level session list', async () => {
     const { first, second } = await fixture();
     await linkSessions(first, second);
@@ -175,6 +330,9 @@ describe('full Host material synchronization with synthetic identities', () => {
         { timeout: 8000 },
       )
       .toBe('Original native title');
+    // The title event can arrive before its resource revision; this case edits after both peers catch up.
+    await first.rpc.request('sync.retry', {});
+    await second.rpc.request('sync.retry', {});
     const before = (await first.rpc.request('session.get', { sessionId: created.id })).session
       .lastSeq;
     await second.rpc.request('session.rename', { sessionId: id, title: 'Renamed on second Host' });

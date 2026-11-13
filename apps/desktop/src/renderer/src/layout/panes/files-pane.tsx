@@ -63,6 +63,7 @@ export function useFileScope(context: PaneContext): FileScope | undefined {
       workspaceId: entry.workspace.id,
       ...(session && { sessionId: session.id as SessionId }),
       root: session?.cwd ?? entry.workspace.rootPath,
+      ...(session?.origin?.kind === 'synced' && { readOnly: true }),
     };
   }, [entry, sessionId]);
 }
@@ -83,6 +84,7 @@ export function FilesPane({ context }: { context: PaneContext }) {
   );
   if (!scope) return <Note>{t('files.noProject')}</Note>;
   if (!supported) return <Note>{t('files.unsupported')}</Note>;
+  if (scope.readOnly) return <Note>{t('files.unavailable')}</Note>;
   return (
     <FileLinkMenuProvider cwd={scope.root} attach={attach}>
       <FileBrowser scope={scope} refreshKey={refreshKey} />

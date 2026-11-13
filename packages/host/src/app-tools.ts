@@ -1883,7 +1883,7 @@ export class AppTools {
           }
         }
         const shared = [...files.values()];
-        this.#options.sessions.shareFiles(sessionId, shared);
+        await this.#options.sessions.shareFiles(sessionId, shared);
         return jsonResult({ shared: shared.map(({ path, name, size }) => ({ path, name, size })) });
       },
     };

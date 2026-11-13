@@ -1,5 +1,11 @@
 import { join } from 'node:path';
-import { type SyncConfigureParams, type SyncStatus, SyncStatusSchema } from '@wevir/protocol';
+import {
+  type SessionId,
+  type SharedFile,
+  type SyncConfigureParams,
+  type SyncStatus,
+  SyncStatusSchema,
+} from '@wevir/protocol';
 import type { SecretStore, Storage, SyncVaultRecord } from '@wevir/storage';
 import type { EpisodeChange } from '../episodes/service.js';
 import { HostError } from '../errors.js';
@@ -10,6 +16,7 @@ import type { HostSettingsStore } from '../settings.js';
 import type { ZuvAccounts } from '../zuv/accounts.js';
 import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
+import { SyncArtifacts } from './artifacts.js';
 import { SyncBlobCache } from './cache.js';
 import { SyncEventCapture } from './capture.js';
 import { SyncEngine } from './engine.js';
@@ -40,6 +47,7 @@ export class SyncService {
   readonly #materials: SyncMaterials;
   readonly #capture: SyncEventCapture;
   readonly #files: SyncFilesCapture;
+  readonly #artifacts: SyncArtifacts;
   readonly #keys: SyncVaultKeys;
   readonly #settings: SyncSettings;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -70,6 +78,12 @@ export class SyncService {
       nativeSource: (id) => this.#capture.source(id),
     });
     this.#files = new SyncFilesCapture(options);
+    this.#artifacts = new SyncArtifacts({
+      ...options,
+      files: this.#files,
+      eligible: () => this.#consented(),
+      source: (id) => this.#capture.source(id),
+    });
     this.#engine = new SyncEngine({
       storage: options.storage,
       client: options.client,
@@ -106,9 +120,20 @@ export class SyncService {
       this.#errorCode = 'LOCAL_STORAGE_ERROR';
     }
   };
+  prepareSharedFiles = async (sessionId: SessionId, files: readonly SharedFile[]) => {
+    try {
+      return await this.#artifacts.prepare(sessionId, files);
+    } catch (error) {
+      this.#errorCode = error instanceof ZuvRequestError ? error.code : 'LOCAL_STORAGE_ERROR';
+      return undefined;
+    }
+  };
+  artifactFile = (sessionId: string, path: string, seq?: number) =>
+    this.#artifacts.file(sessionId, path, seq);
   prepareRemoval = async (_sessionIds: readonly string[]): Promise<void> => {
     const vault = this.#consented();
     if (!vault) return;
+    await this.#artifacts.scan(vault, false, false);
     if (vault.categories.some((value) => ['artifact', 'rule', 'skill-bundle'].includes(value)))
       for (const root of await this.#options.bundleRoots(vault))
         await this.#files.bundle(vault, root, false, false);
@@ -444,6 +469,7 @@ export class SyncService {
     this.#capture.projects();
     await this.#files.recoverWrites(vault);
     await this.#files.memory(vault, initialize, includeHistory);
+    await this.#artifacts.scan(vault, initialize, includeHistory);
     this.#settings.capture(vault, initialize, includeHistory);
     this.#materials.sessions.scan(initialize, includeHistory);
     if (vault.categories.some((value) => ['rule', 'skill-bundle', 'artifact'].includes(value)))

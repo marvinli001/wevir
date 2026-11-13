@@ -161,7 +161,9 @@ export function SessionView({
   );
   // 助手消息里的文件链接（U32）：Host 有 `workspace_files` 时在文件窗格里打开（主会话与支线都用会话目录）。
   const filesEnabled =
-    view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
+    view.status === 'connected' &&
+    hostSupports(view.hello.features, 'workspace_files') &&
+    (session.origin?.kind !== 'synced' || hostSupports(view.hello.features, 'sync_artifacts'));
   // 会话附加文件夹里的文件（0.168.0）也在文件窗格里打开，其余目录外的在访达里显示。
   const multiFolderFiles =
     view.status === 'connected' && hostSupports(view.hello.features, 'multi_folder_files');
@@ -170,14 +172,19 @@ export function SessionView({
   const openLink = useMemo(
     () =>
       filesEnabled && panes
-        ? (href: string) => openFileLink(panes, session.cwd, href, linkFolders)
+        ? (href: string) =>
+            openFileLink(panes, session.cwd, href, linkFolders, session.origin?.kind === 'synced')
         : undefined,
-    [filesEnabled, panes, session.cwd, linkFolders],
+    [filesEnabled, panes, session.cwd, session.origin?.kind, linkFolders],
   );
   // 交给用户的文件（0.40.0）：点文件名在文件窗格里预览。
   const openSessionFile = useMemo(
-    () => (filesEnabled && panes ? (path: string) => openFile(panes, path) : undefined),
-    [filesEnabled, panes],
+    () =>
+      filesEnabled && panes
+        ? (path: string, seq?: number) =>
+            openFile(panes, path, undefined, session.origin?.kind === 'synced' ? seq : undefined)
+        : undefined,
+    [filesEnabled, panes, session.origin?.kind],
   );
   const transcriptRef = useRef<TranscriptViewHandle>(undefined);
   const [notice, setNotice] = useState<string>();
@@ -1078,7 +1085,11 @@ export function SessionView({
       ) : transcript && (state.caughtUp || state.hasEvents) ? (
         <OpenTurnChanges value={turnChanges}>
           <OpenFileLink value={openLink}>
-            <FileLinkMenuProvider cwd={session.cwd} attach={attachPath}>
+            <FileLinkMenuProvider
+              cwd={session.cwd}
+              attach={attachPath}
+              synchronized={session.origin?.kind === 'synced' ? session : undefined}
+            >
               <OpenSessionFile value={openSessionFile}>
                 <MessageActionsContext value={messageActions}>
                   <SessionTranscript

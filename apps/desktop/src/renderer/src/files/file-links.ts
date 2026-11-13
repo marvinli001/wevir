@@ -17,7 +17,12 @@ export const OpenFileLink = createContext<((href: string) => void) | undefined>(
  * 在文件窗格里打开会话文件夹里的一个文件（`path` 相对会话目录，0.40.0 的文件卡片用）。会话视图在 Host 有 `workspace_files` 时
  * 提供；没有时卡片改用系统的默认应用。
  */
-export const OpenSessionFile = createContext<((path: string) => void) | undefined>(undefined);
+export const OpenSessionFile = createContext<
+  ((path: string, artifactSeq?: number) => void) | undefined
+>(undefined);
+export const SynchronizedFiles = createContext<Pick<Session, 'id' | 'workspaceId'> | undefined>(
+  undefined,
+);
 
 /**
  * 会话的附加文件夹（不含会话目录本身），规则同“变更”与 Host 的校验：会话自己的 `extraRoots`；旧会话没有时用项目的附加文件夹，
@@ -72,17 +77,20 @@ export function openFileLink(
   cwd: string,
   href: string,
   folders: readonly string[] = [],
+  synchronized = false,
 ): void {
   const target = parseFileHref(href);
   if (!target) return;
   const relative = toRelativePath(target.path, cwd);
   if (relative === undefined) {
-    const inFolder = target.path.endsWith('/') ? undefined : folderFilePath(target.path, folders);
+    const inFolder =
+      synchronized || target.path.endsWith('/') ? undefined : folderFilePath(target.path, folders);
     if (inFolder !== undefined) {
       openFile(panes, inFolder, target.line);
       return;
     }
     if (
+      !synchronized &&
       capabilities().localFiles &&
       (target.path.startsWith('/') || /^[a-z]:[\\/]/i.test(target.path))
     ) {

@@ -1,6 +1,20 @@
 {
   "valid": [
     {
+      "schema": "sharedFiles",
+      "value": {
+        "schema": "wevir-shared-files/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "seq": "12",
+        "capture": "shared"
+      }
+    },
+    {
       "schema": "project",
       "value": {
         "schema": "wevir-project/1",
@@ -197,6 +211,20 @@
     }
   ],
   "invalid": [
+    {
+      "schema": "sharedFiles",
+      "value": {
+        "schema": "wevir-shared-files/1",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "seq": "-1",
+        "capture": "shared"
+      }
+    },
     {
       "schema": "session-state",
       "value": {

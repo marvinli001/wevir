@@ -94,6 +94,17 @@ describe('openPane', () => {
     expect(state.auxVisible).toBe(true);
   });
 
+  it('同一路径的不可变产物版本分别打开，再点旧版本仍选中原标签', () => {
+    const state = opened(
+      { kind: 'file', params: { path: 'report.md', artifactSeq: '12' } },
+      { kind: 'file', params: { path: 'report.md', artifactSeq: '18' } },
+      { kind: 'file', params: { path: 'report.md', artifactSeq: '12' } },
+    );
+    expect(tabCount(state)).toBe(2);
+    expect(state.groups[0]?.tabs.map((tab) => tab.params?.artifactSeq)).toEqual(['12', '18']);
+    expect(state.groups[0]?.activeTabId).toBe('id1');
+  });
+
   it('已经开着同一个就激活它，不重复开', () => {
     const state = opened(
       { kind: 'file', params: { path: 'a.ts' } },

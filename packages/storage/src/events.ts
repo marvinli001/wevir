@@ -61,6 +61,8 @@ export interface EventRepository {
     options?: {
       turnId?: string;
       omitToolOutput?: boolean;
+      afterSeq?: number;
+      limit?: number;
     },
   ): IterableIterator<EventRecord>;
   /** 会话里最大的 `seq`；没有事件时为 0。 */
@@ -153,12 +155,16 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
           : 'payload';
         query =
           db.prepare(`SELECT session_id, seq, ts, type, source, ${payload} AS payload FROM events
-          WHERE session_id = :sessionId AND type IN (${types.map((_, index) => `:type${index}`).join(', ')})
+          WHERE session_id = :sessionId AND seq > :afterSeq AND type IN (${types.map((_, index) => `:type${index}`).join(', ')})
           ${options?.turnId !== undefined ? "AND json_extract(payload, '$.turnId') = :turnId" : ''}
-          ORDER BY seq`);
+          ORDER BY seq LIMIT :limit`);
         typedQueries.set(key, query);
       }
-      const params: SqlParams = { sessionId };
+      const params: SqlParams = {
+        sessionId,
+        afterSeq: options?.afterSeq ?? 0,
+        limit: options?.limit ?? -1,
+      };
       types.forEach((type, index) => {
         params[`type${index}`] = type;
       });

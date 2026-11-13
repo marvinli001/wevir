@@ -20,11 +20,19 @@ export function useFileReveal(path: string): FileReveal | undefined {
 }
 
 /** 打开文件窗格（同一个文件已开着就切过去），可带要跳到的行。 */
-export function openFile(panes: PaneController | undefined, path: string, line?: number): void {
+export function openFile(
+  panes: PaneController | undefined,
+  path: string,
+  line?: number,
+  artifactSeq?: number,
+): void {
   if (line !== undefined) {
     reveals.set((current) => new Map(current).set(path, { line, id: ++revealCounter }));
   }
-  panes?.open({ kind: 'file', params: { path } });
+  panes?.open({
+    kind: 'file',
+    params: { path, ...(artifactSeq !== undefined && { artifactSeq: String(artifactSeq) }) },
+  });
 }
 
 /** 打开文件树。 */

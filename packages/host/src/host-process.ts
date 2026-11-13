@@ -383,6 +383,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const store = new EventStore({
       storage,
       onAppendInTransaction: (events) => syncService?.record(events),
+      onPrepareSharedFiles: async (id, files) => syncService?.prepareSharedFiles(id, files),
       onPrepareRemoval: async (ids) => {
         await syncService?.prepareRemoval(ids);
       },
@@ -1871,6 +1872,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         host_settings: true,
         sync_metadata: true,
         cloud_sync: true,
+        sync_artifacts: true,
         zuv_account: true,
         ...(adapter.bindGatewayPrivacy !== undefined && { gateway_privacy: true }),
         workspace_git: true,

@@ -31,6 +31,7 @@ import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import { capabilities, platformApi } from '@/platform/platform';
 import { insertMention } from '@/session/composer';
+import { SynchronizedFiles } from './file-links';
 import { type FileLinkPaths, type FileTarget, fileLinkPaths, fileTargetPaths } from './file-path';
 import { openInEditor, useEditors } from './files-store';
 
@@ -94,8 +95,10 @@ export function FileLinkMenuProvider({
   cwd,
   attach,
   children,
+  synchronized,
 }: {
   cwd: string;
+  synchronized?: Pick<Session, 'id' | 'workspaceId'>;
   attach?: ((path: string) => void) | undefined;
   children: ReactNode;
 }) {
@@ -112,26 +115,31 @@ export function FileLinkMenuProvider({
     [cwd],
   );
   return (
-    <ShowFileLinkMenu value={show}>
-      {children}
-      {menu && (
-        <FileLinkMenu
-          state={menu}
-          open={open}
-          onClose={() => setOpen(false)}
-          {...(attach && { attach })}
-        />
-      )}
-    </ShowFileLinkMenu>
+    <SynchronizedFiles value={synchronized}>
+      <ShowFileLinkMenu value={show}>
+        {children}
+        {menu && (
+          <FileLinkMenu
+            state={menu}
+            synchronized={synchronized !== undefined}
+            open={open}
+            onClose={() => setOpen(false)}
+            {...(attach && { attach })}
+          />
+        )}
+      </ShowFileLinkMenu>
+    </SynchronizedFiles>
   );
 }
 
 function FileLinkMenu({
+  synchronized,
   state,
   open,
   onClose,
   attach,
 }: {
+  synchronized: boolean;
   state: MenuState;
   open: boolean;
   onClose: () => void;
@@ -143,7 +151,7 @@ function FileLinkMenu({
     [x, y],
   );
   // 本机的文件才能用编辑器、默认应用打开与在访达中显示。
-  const local = capabilities().localFiles ? paths.absolute : undefined;
+  const local = !synchronized && capabilities().localFiles ? paths.absolute : undefined;
   const target = paths.absolute ?? paths.relative ?? paths.name;
   return (
     <DropdownMenu open={open} onOpenChange={(next) => !next && onClose()}>

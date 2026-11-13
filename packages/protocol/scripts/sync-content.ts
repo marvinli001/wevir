@@ -43,6 +43,7 @@ const task = EpisodeSchema.parse({
   title: 'Synthetic task',
 });
 const values = {
+  sharedFiles: { schema: 'wevir-shared-files/1', source, seq: '12', capture: 'shared' },
   project: {
     schema: 'wevir-project/1',
     projectId: 'project_synthetic',
@@ -135,6 +136,7 @@ for (const [name, value] of Object.entries(values))
 write('fixtures.json', {
   valid: Object.entries(values).map(([schema, value]) => ({ schema, value })),
   invalid: [
+    { schema: 'sharedFiles', value: { ...values.sharedFiles, seq: '-1' } },
     { schema: 'session-state', value: { ...values['session-state'], archivedAt: 'invalid' } },
     { schema: 'settings', value: { ...values.settings, values: { computerUse: true } } },
     {

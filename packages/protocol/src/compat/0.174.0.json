@@ -1,0 +1,74 @@
+{
+  "protocolVersion": "0.174.0",
+  "methods": {
+    "workspace.readFile": {
+      "params": [
+        {
+          "workspaceId": "ws_synthetic",
+          "sessionId": "ses_synthetic",
+          "path": "report.md",
+          "artifactSeq": 12
+        }
+      ],
+      "result": []
+    },
+    "workspace.fileUrl": {
+      "params": [
+        {
+          "workspaceId": "ws_synthetic",
+          "sessionId": "ses_synthetic",
+          "path": "report.md",
+          "artifactSeq": 12
+        }
+      ],
+      "result": [
+        {
+          "path": "report.md",
+          "url": "http://127.0.0.1:1/files/synthetic/report.md",
+          "localPath": "/synthetic/sync/materials/report.md"
+        }
+      ]
+    },
+    "workspace.officePdf": {
+      "params": [
+        {
+          "workspaceId": "ws_synthetic",
+          "sessionId": "ses_synthetic",
+          "path": "report.md",
+          "artifactSeq": 12
+        }
+      ],
+      "result": []
+    },
+    "files.read": {
+      "params": [
+        {
+          "workspaceId": "ws_synthetic",
+          "sessionId": "ses_synthetic",
+          "path": "report.md",
+          "artifactSeq": 12
+        }
+      ],
+      "result": []
+    },
+    "host.hello": {
+      "params": [],
+      "result": [
+        {
+          "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "hostVersion": "0.0.0",
+          "protocolVersion": "0.174.0",
+          "minProtocolVersion": "0.1.0",
+          "features": {
+            "multi_folder_changes": true,
+            "sync_artifacts": true
+          },
+          "permissions": ["host.manage", "session.read", "session.write"]
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

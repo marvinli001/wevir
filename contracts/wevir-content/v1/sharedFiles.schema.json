@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "wevir-shared-files/1"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "hostId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "deviceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        "sessionId": {
+          "type": "string",
+          "pattern": "^ses_[0-9A-Za-z]{1,64}$"
+        },
+        "streamId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        }
+      },
+      "required": ["hostId", "deviceId", "sessionId", "streamId"],
+      "additionalProperties": false
+    },
+    "seq": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,38})$"
+    },
+    "capture": {
+      "type": "string",
+      "enum": ["shared", "backfill"]
+    }
+  },
+  "required": ["schema", "source", "seq", "capture"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:content:1:sharedFiles"
+}

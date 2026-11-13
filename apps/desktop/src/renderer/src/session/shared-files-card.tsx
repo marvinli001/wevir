@@ -6,7 +6,9 @@ import { useContext, useEffect, useState } from 'react';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { useFileContextMenu } from '@/files/file-link-menu';
-import { OpenSessionFile } from '@/files/file-links';
+import { OpenSessionFile, SynchronizedFiles } from '@/files/file-links';
+import { useSyncArtifactsSupported } from '@/files/files-data';
+import { useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
 import { IS_MAC } from '@/lib/shortcuts';
@@ -32,17 +34,33 @@ export function SharedFilesCard({ part }: { part: ChatPartOf<'files'> }) {
       className="my-3 divide-y divide-border overflow-hidden rounded-xl border border-border bg-background"
     >
       {part.files.map((file) => (
-        <SharedFileRow key={file.path} file={file} absolute={sharedFilePath(cwd, file)} />
+        <SharedFileRow
+          key={file.path}
+          file={file}
+          absolute={sharedFilePath(cwd, file)}
+          seq={Number(part.key.slice(2))}
+        />
       ))}
     </ul>
   );
 }
 
-function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string }) {
+function SharedFileRow({
+  file,
+  absolute,
+  seq,
+}: {
+  file: SharedFile;
+  absolute: string;
+  seq: number;
+}) {
+  const synchronized = useContext(SynchronizedFiles);
+  const { client } = useHostConnection();
+  const artifactsSupported = useSyncArtifactsSupported();
   const openInPane = useContext(OpenSessionFile);
   const [state, setState] = useState<{ kind: 'saved' } | { kind: 'error'; message: string }>();
   // 系统应用、另存为与访达只对这台电脑上的文件有用（platform/platform.ts 的 `localFiles`）。
-  const local = capabilities().localFiles;
+  const local = !synchronized && capabilities().localFiles;
   const external = local && canOpenExternally(absolute);
   const onContextMenu = useFileContextMenu(absolute);
   const Icon = fileIcon(file.name);
@@ -66,13 +84,24 @@ function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string 
     );
   };
   const open = () => {
-    if (openInPane) openInPane(file.path);
+    if (openInPane) openInPane(file.path, seq);
     else if (external) run(() => platformApi().openPath(absolute));
     else if (local) run(() => platformApi().revealPath(absolute));
   };
   const saveAs = () =>
     run(async () => {
-      if ((await platformApi().saveFileAs(absolute, file.name)) === 'saved') {
+      let source = absolute;
+      if (synchronized) {
+        const snapshot = await client?.request('workspace.fileUrl', {
+          workspaceId: synchronized.workspaceId,
+          sessionId: synchronized.id,
+          artifactSeq: seq,
+          path: file.path,
+        });
+        if (!snapshot?.localPath) throw new Error(t('files.unavailable'));
+        source = snapshot.localPath;
+      }
+      if ((await platformApi().saveFileAs(source, file.name)) === 'saved') {
         setState({ kind: 'saved' });
       }
     });
@@ -118,7 +147,7 @@ function SharedFileRow({ file, absolute }: { file: SharedFile; absolute: string 
           <ExternalLink />
         </IconButton>
       )}
-      {local && (
+      {capabilities().localFiles && (!synchronized || artifactsSupported) && (
         <IconButton
           label={t('sharedFile.saveAs')}
           size="icon-xs"

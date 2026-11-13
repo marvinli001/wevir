@@ -791,6 +791,8 @@ export type WorkspaceListDirResult = z.infer<typeof WorkspaceListDirResultSchema
 export const WorkspaceReadFileParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
+  /** 不可变产物对应的本机会话事件序号。 */
+  artifactSeq: z.int().min(1).optional(),
   /** 0.168.0：源文件夹的绝对路径（会话的附加文件夹），`path` 相对它；Host 按 realpath 校验允许列表。省略时沿用会话或工作区目录。 */
   folder: z.string().min(1).optional(),
   /** 相对路径，`/` 分隔。 */
@@ -842,6 +844,8 @@ export const WORKSPACE_WRITE_TEXT_MAX_BYTES = 1024 * 1024;
 export const WorkspaceFileUrlParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
+  /** 不可变产物对应的本机会话事件序号。 */
+  artifactSeq: z.int().min(1).optional(),
   /** 0.168.0：源文件夹的绝对路径（会话的附加文件夹），`path` 相对它；Host 按 realpath 校验允许列表。省略时沿用会话或工作区目录。 */
   folder: z.string().min(1).optional(),
   /** 相对路径，`/` 分隔。 */
@@ -851,6 +855,8 @@ export const WorkspaceFileUrlParamsSchema = z.object({
 /** 文件不存在、不是普通文件或在目录外时只有 `unavailable: 'not_found'`（开放字符串）。 */
 export const WorkspaceFileUrlResultSchema = z.object({
   path: z.string().min(1),
+  /** 已核验产物的本机副本路径，仅本机外壳用于显式另存为。 */
+  localPath: z.string().min(1).optional(),
   /** 这个文件的地址；目录里的其他文件按相对路径从它解析。 */
   url: z.string().min(1).optional(),
   size: z.int().min(0).optional(),
@@ -901,6 +907,8 @@ export const FilesReadParamsSchema = z
   .object({
     workspaceId: WorkspaceIdSchema.optional(),
     sessionId: SessionIdSchema.optional(),
+    /** 不可变产物对应的本机会话事件序号。 */
+    artifactSeq: z.int().min(1).optional(),
     /** 相对路径，`/` 分隔。 */
     path: z.string().min(1).max(1024),
     /** 从第几个字节读，省略为 0。 */

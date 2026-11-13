@@ -26,12 +26,16 @@ export interface FileScope {
   sessionId?: SessionId;
   /** 附加文件夹的绝对路径（`multi_folder_files`），这时 `root` 与它相同。 */
   folder?: string;
+  artifactSeq?: number;
+  readOnly?: boolean;
   /** 这个目录的绝对路径（给外部编辑器与访达）。 */
   root: string;
 }
 
-export function scopeKey(scope: Pick<FileScope, 'workspaceId' | 'sessionId' | 'folder'>): string {
-  const base = `${scope.workspaceId}:${scope.sessionId ?? ''}`;
+export function scopeKey(
+  scope: Pick<FileScope, 'workspaceId' | 'sessionId' | 'folder' | 'artifactSeq'>,
+): string {
+  const base = `${scope.workspaceId}:${scope.sessionId ?? ''}:${scope.artifactSeq ?? ''}`;
   return scope.folder === undefined ? base : `${base}:${scope.folder}`;
 }
 
@@ -40,11 +44,13 @@ export function scopeParams(scope: FileScope): {
   workspaceId: WorkspaceId;
   sessionId?: SessionId;
   folder?: string;
+  artifactSeq?: number;
 } {
   return {
     workspaceId: scope.workspaceId,
     ...(scope.sessionId !== undefined && { sessionId: scope.sessionId }),
     ...(scope.folder !== undefined && { folder: scope.folder }),
+    ...(scope.artifactSeq !== undefined && { artifactSeq: scope.artifactSeq }),
   };
 }
 
@@ -52,6 +58,11 @@ export function scopeParams(scope: FileScope): {
 export function useFilesSupported(): boolean {
   const { view } = useHostConnection();
   return view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
+}
+
+export function useSyncArtifactsSupported(): boolean {
+  const { view } = useHostConnection();
+  return view.status === 'connected' && hostSupports(view.hello.features, 'sync_artifacts');
 }
 
 /** Host 声明了 `multi_folder_files`（0.168.0）：文件方法能读写会话的附加文件夹。 */

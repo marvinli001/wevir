@@ -69,6 +69,7 @@ export const OfficeChangedParamsSchema = z.object({ status: OfficeEngineStatusSc
 export const WorkspaceOfficePdfParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   sessionId: SessionIdSchema.optional(),
+  artifactSeq: z.int().min(1).optional(),
   /** 0.168.0：源文件夹的绝对路径，同 `workspace.readFile`。 */
   folder: z.string().min(1).optional(),
   /** 相对路径，`/` 分隔。 */

@@ -110,6 +110,8 @@ export function isPaneKind(value: unknown): value is PaneKind {
  */
 export function paneIdentity(kind: PaneKind, params: PaneParams | undefined): string | undefined {
   const spec = PANE_KIND_SPECS[kind];
+  if (kind === 'file' && params?.path && params.artifactSeq)
+    return `file:${params.path}:artifact:${params.artifactSeq}`;
   if (!spec.multiple) return kind;
   const value = spec.identityParam === undefined ? undefined : params?.[spec.identityParam];
   return value === undefined ? undefined : `${kind}:${value}`;

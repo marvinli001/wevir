@@ -363,6 +363,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }
     const session = storage.sessions.get(sessionId);
     if (!session || session.workspaceId !== workspaceId) throw sessionNotFound(sessionId);
+    if (session.origin?.kind === 'synced')
+      throw invalidParams(['sessionId'], 'synchronized history has no local working directory');
     return session.cwd;
   };
   const changeDirectory = async (
@@ -404,10 +406,26 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     sessionId: string | undefined,
     path: string,
     folder?: string,
+    artifactSeq?: number,
   ): Promise<{ root: string; file: Awaited<ReturnType<typeof statWorkspaceFile>> }> => {
     if (!isSafeRelativePath(path)) {
       throw invalidParams(['path'], 'path must be a relative path inside the directory');
     }
+    if (sessionId) {
+      const session = storage.sessions.get(sessionId);
+      if (!session || session.workspaceId !== workspaceId) throw sessionNotFound(sessionId);
+      if (session.origin?.kind === 'synced') {
+        if (folder) throw invalidParams(['folder'], 'synchronized files do not use local folders');
+        return (
+          (await options.sync?.artifactFile(sessionId, path, artifactSeq)) ?? {
+            root: '',
+            file: undefined,
+          }
+        );
+      }
+    }
+    if (artifactSeq !== undefined)
+      throw invalidParams(['artifactSeq'], 'artifactSeq requires synchronized history');
     const { dir: root } = await changeDirectory(workspaceId, sessionId, folder);
     return { root, file: await statWorkspaceFile(root, path) };
   };
@@ -946,26 +964,49 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     // 0.168.0 起可带 `folder`（会话的附加文件夹，校验同变更方法）。
-    'workspace.readFile': async ({ workspaceId, sessionId, folder, path }) => {
+    'workspace.readFile': async ({ workspaceId, sessionId, folder, path, artifactSeq }) => {
       if (!isSafeRelativePath(path)) {
         throw invalidParams(['path'], 'path must be a relative path inside the directory');
       }
-      return readWorkspaceFile((await changeDirectory(workspaceId, sessionId, folder)).dir, path);
+      const { root, file } = await resolveWorkspaceFile(
+        workspaceId,
+        sessionId,
+        path,
+        folder,
+        artifactSeq,
+      );
+      return file ? readWorkspaceFile(root, path) : { path, unavailable: 'not_found' };
     },
 
     // 0.32.0：文件预览的流式地址与编辑的写回。
-    'workspace.fileUrl': async ({ workspaceId, sessionId, folder, path }) => {
-      const { root, file } = await resolveWorkspaceFile(workspaceId, sessionId, path, folder);
+    'workspace.fileUrl': async ({ workspaceId, sessionId, folder, path, artifactSeq }) => {
+      const { root, file } = await resolveWorkspaceFile(
+        workspaceId,
+        sessionId,
+        path,
+        folder,
+        artifactSeq,
+      );
       if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
       // 令牌下只读得到能预览的类型（file-urls.ts），其余的文件不发地址。
-      if (!isServablePath(path, true)) return { path, unavailable: 'unsupported' };
+      const local =
+        sessionId && storage.sessions.get(sessionId)?.origin?.kind === 'synced'
+          ? { localPath: file.real }
+          : {};
+      if (!isServablePath(path, true)) return { path, ...local, unavailable: 'unsupported' };
       const { url, expiresAt } = options.fileUrls.issue(root, path);
-      return { path, url, size: file.size, mtimeMs: file.mtimeMs, expiresAt };
+      return { path, ...local, url, size: file.size, mtimeMs: file.mtimeMs, expiresAt };
     },
 
     // 0.138.0：办公文档转成 PDF，地址指向 Host 的 PDF 缓存（同一套令牌）。
-    'workspace.officePdf': async ({ workspaceId, sessionId, folder, path }) => {
-      const { file } = await resolveWorkspaceFile(workspaceId, sessionId, path, folder);
+    'workspace.officePdf': async ({ workspaceId, sessionId, folder, path, artifactSeq }) => {
+      const { file } = await resolveWorkspaceFile(
+        workspaceId,
+        sessionId,
+        path,
+        folder,
+        artifactSeq,
+      );
       if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
       if (options.office === undefined) return { path, unavailable: 'engine_missing' };
       try {
@@ -1009,7 +1050,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     // 0.102.0：分块读文件（远程客户端用，`/files/` 只服务本机）。只给 sessionId 时工作区由会话定。
-    'files.read': async ({ workspaceId, sessionId, path, offset, length }) => {
+    'files.read': async ({ workspaceId, sessionId, path, artifactSeq, offset, length }) => {
       let workspace: string | undefined = workspaceId;
       if (workspace === undefined && sessionId !== undefined) {
         const session = storage.sessions.get(sessionId);
@@ -1019,7 +1060,13 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (workspace === undefined) {
         throw invalidParams(['workspaceId'], 'workspaceId or sessionId is required');
       }
-      const { file } = await resolveWorkspaceFile(workspace, sessionId, path);
+      const { file } = await resolveWorkspaceFile(
+        workspace,
+        sessionId,
+        path,
+        undefined,
+        artifactSeq,
+      );
       if (!file) throw invalidParams(['path'], 'path is not an existing file inside the directory');
       try {
         return await readFileChunk(file.real, path, offset, length);

@@ -1,8 +1,10 @@
 import type { Dirent } from 'node:fs';
-import { lstat, readdir, readFile } from 'node:fs/promises';
+import { lstat, open, readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
+import { FILES_READ_FILE_MAX_BYTES } from '@wevir/protocol';
 import { type EntityType, jcs } from '@wevir/protocol/sync';
 import type { Storage, SyncLocalWriteRecord, SyncVaultRecord } from '@wevir/storage';
+import { isSafeRelativePath } from '../git-diff.js';
 import { newId } from '../ids.js';
 import { MEMORY_NAME_PATTERN } from '../memory.js';
 import { ZuvRequestError } from '../zuv/transport.js';
@@ -16,6 +18,7 @@ export interface SyncBundleRoot {
   path: string;
   projectId?: string;
   metadata?: unknown;
+  paths?: readonly string[];
 }
 const EXCLUDED =
   /^(?:\.git|\.ssh|\.aws|\.gnupg|node_modules|dist|build|target|\.cache|\.next|\.venv|venv|coverage|__pycache__|\.npmrc|\.netrc|\.pypirc|\.git-credentials|secrets\.json|auth\.json|settings\.local\.json|\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx)|id_(?:rsa|ed25519))$/i;
@@ -294,6 +297,16 @@ export class SyncFilesCapture {
     initialize: boolean,
     includeHistory: boolean,
   ): Promise<void> {
+    const commit = await this.prepareBundle(vault, root, initialize, includeHistory);
+    if (commit) this.#storage.transaction(() => commit(root.localKey, root.metadata));
+  }
+
+  async prepareBundle(
+    vault: SyncVaultRecord,
+    root: SyncBundleRoot,
+    initialize: boolean,
+    includeHistory: boolean,
+  ): Promise<((localKey: string, metadata?: unknown) => string | undefined) | undefined> {
     if (
       !vault.categories.includes(root.category) ||
       (root.projectId && !vault.projectIds.includes(root.projectId))
@@ -320,11 +333,34 @@ export class SyncFilesCapture {
         return;
       }
       if (!info.isFile() || files.length >= 10000) throw new ZuvRequestError('QUOTA_EXCEEDED');
+      if (root.paths && info.size > FILES_READ_FILE_MAX_BYTES)
+        throw new ZuvRequestError('QUOTA_EXCEEDED');
       totalBytes += info.size;
       if (totalBytes > 64 * 1024 * 1024) throw new ZuvRequestError('QUOTA_EXCEEDED');
-      const bytes = await readFile(path);
+      const handle = await open(path, 'r');
+      let bytes: Buffer;
+      try {
+        const opened = await handle.stat();
+        if (!opened.isFile() || opened.ino !== info.ino || opened.size !== info.size)
+          throw new ZuvRequestError('REVISION_CONFLICT');
+        bytes = Buffer.alloc(info.size + 1);
+        let offset = 0;
+        while (offset < bytes.length) {
+          const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+          if (bytesRead === 0) break;
+          offset += bytesRead;
+        }
+        bytes = bytes.subarray(0, offset);
+      } finally {
+        await handle.close();
+      }
       const after = await lstat(path);
-      if (info.ino !== after.ino || info.mtimeMs !== after.mtimeMs || info.size !== after.size)
+      if (
+        info.ino !== after.ino ||
+        info.mtimeMs !== after.mtimeMs ||
+        info.size !== after.size ||
+        bytes.length !== info.size
+      )
         throw new ZuvRequestError('REVISION_CONFLICT');
       files.push({
         path: name || basename(path),
@@ -333,42 +369,68 @@ export class SyncFilesCapture {
         executable: Boolean(info.mode & 0o111),
       });
     };
-    if (top.isDirectory()) {
+    if (root.paths) {
+      for (const path of root.paths) {
+        if (!isSafeRelativePath(path)) throw new ZuvRequestError('INTEGRITY_FAILED');
+        let current = root.path;
+        const parts = path.split('/');
+        if (parts.some((part) => EXCLUDED.test(part))) {
+          exclusions.push(path);
+          continue;
+        }
+        try {
+          for (const part of parts) {
+            current = join(current, part);
+            if ((await lstat(current)).isSymbolicLink())
+              throw new ZuvRequestError('INTEGRITY_FAILED');
+          }
+          if (!(await lstat(current)).isFile()) throw new ZuvRequestError('INTEGRITY_FAILED');
+          await visit(current);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          exclusions.push(path);
+        }
+      }
+    } else if (top.isDirectory()) {
       for (const name of await readdir(root.path)) await visit(join(root.path, name));
     } else await visit(root.path);
-    const fingerprint = sha256(
-      jcs({
-        files: files.map((file) => ({
-          path: file.path,
-          sha256: file.sha256,
-          executable: file.executable,
-        })),
-        exclusions,
-        metadata: root.metadata ?? null,
-      }),
-    );
-    let entity = this.#storage.sync.localEntity(vault.vaultId, root.localKey);
-    const baseline = entity && this.#storage.sync.fileBaseline(vault.vaultId, entity.entityId);
-    if (
-      baseline?.fingerprint === fingerprint &&
-      !(initialize && includeHistory && !entity?.revision)
-    )
-      return;
-    if (!(initialize && !includeHistory) && !vault.categories.includes('artifact'))
-      throw new ZuvRequestError('SCOPE_DISABLED');
-    this.#storage.transaction(() => {
+    return (localKey, metadata = root.metadata) => {
+      if (!this.#storage.db.isTransaction)
+        throw new Error('sync bundle capture requires a transaction');
+      const fingerprint = sha256(
+        jcs({
+          files: files.map((file) => ({
+            path: file.path,
+            sha256: file.sha256,
+            executable: file.executable,
+          })),
+          exclusions,
+          metadata: metadata ?? null,
+        }),
+      );
+      let entity = this.#storage.sync.localEntity(vault.vaultId, localKey);
+      const baseline = entity && this.#storage.sync.fileBaseline(vault.vaultId, entity.entityId);
+      if (
+        baseline?.fingerprint === fingerprint &&
+        !(initialize && includeHistory && !entity?.revision)
+      )
+        return;
+      if (!(initialize && !includeHistory) && !vault.categories.includes('artifact'))
+        throw new ZuvRequestError('SCOPE_DISABLED');
+      const owner = this.#storage.sync.owner(localKey);
+      if (owner && owner !== vault.vaultId) return;
       if (!entity) {
         entity = {
           vaultId: vault.vaultId,
           entityId: newId('sbun'),
           entityType: root.category as EntityType,
           ...(root.projectId && { projectId: root.projectId }),
-          localKey: root.localKey,
+          localKey,
           materialized: true,
         };
         this.#storage.sync.putEntity(entity);
       }
-      this.#storage.sync.claimResource(root.localKey, vault.vaultId);
+      this.#storage.sync.claimResource(localKey, vault.vaultId);
       const entries = files.map((file) => {
         const parts: Array<{ entityId: string; opId: string }> = [];
         if (!(initialize && !includeHistory))
@@ -412,14 +474,14 @@ export class SyncFilesCapture {
               entityId: entity.entityId,
               entityType: root.category as EntityType,
               ...(root.projectId && { projectId: root.projectId }),
-              localKey: root.localKey,
+              localKey,
               content: {
                 schema: 'wevir-bundle/1',
                 category: root.category,
                 name: root.name,
                 files: entries,
                 exclusions,
-                ...(root.metadata !== undefined && { metadata: root.metadata }),
+                ...(metadata !== undefined && { metadata }),
               },
             });
       this.#storage.sync.putFileBaseline({
@@ -431,6 +493,7 @@ export class SyncFilesCapture {
         fingerprint,
         ...(opId && { opId }),
       });
-    });
+      return opId;
+    };
   }
 }

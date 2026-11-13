@@ -58,6 +58,91 @@ function fixture() {
 }
 
 describe('durable local file capture', () => {
+  it('records absent and excluded shared paths without scanning siblings or retrying their upload', async () => {
+    const h = fixture();
+    h.storage.sync.setScopes(h.vault().vaultId, {
+      revision: '2',
+      enabled: true,
+      categories: ['artifact'],
+      projectIds: [],
+    });
+    const directory = join(h.home, 'shared');
+    await mkdir(directory);
+    await writeFile(join(directory, 'private.txt'), 'Synthetic sibling');
+    await h.capture.bundle(
+      h.vault(),
+      {
+        category: 'artifact',
+        name: 'Synthetic',
+        path: directory,
+        localKey: 'shared-missing',
+        paths: ['deleted.txt', '.env.test'],
+      },
+      false,
+      false,
+    );
+    const bodies = h.storage.sync
+      .drafts(h.vault().vaultId)
+      .map((draft) => (draft.content as SyncDraftPayload).body);
+    expect(bodies).toMatchObject([
+      { schema: 'wevir-bundle/1', files: [], exclusions: ['deleted.txt', '.env.test'] },
+    ]);
+  });
+
+  it('fixes selected file bytes with the business transaction and survives rollback and restart', async () => {
+    const h = fixture();
+    h.storage.sync.setScopes(h.vault().vaultId, {
+      revision: '2',
+      enabled: true,
+      categories: ['artifact'],
+      projectIds: [],
+    });
+    const directory = join(h.home, 'files');
+    await mkdir(directory);
+    await writeFile(join(directory, 'report.txt'), 'Synthetic before');
+    await writeFile(join(directory, 'unselected.txt'), 'Synthetic not selected');
+    const commit = await h.capture.prepareBundle(
+      h.vault(),
+      {
+        category: 'artifact',
+        name: 'Synthetic',
+        path: directory,
+        paths: ['report.txt'],
+        localKey: 'synthetic-pending',
+      },
+      false,
+      false,
+    );
+    if (!commit) throw new Error('missing prepared bundle');
+    expect(h.storage.sync.drafts(h.vault().vaultId)).toEqual([]);
+    await writeFile(join(directory, 'report.txt'), 'Synthetic after');
+    expect(() =>
+      h.storage.transaction(() => {
+        commit('shared-one');
+        throw new Error('Crash');
+      }),
+    ).toThrow('Crash');
+    expect(h.storage.sync.drafts(h.vault().vaultId)).toEqual([]);
+    h.storage.transaction(() => commit('shared-one'));
+    h.reopen();
+    const bodies = h.storage.sync
+      .drafts(h.vault().vaultId)
+      .map((draft) => (draft.content as SyncDraftPayload).body) as Array<{
+      schema: string;
+      data?: string;
+      files?: Array<{ path: string }>;
+    }>;
+    expect(
+      bodies.find((body) => body.schema === 'wevir-bundle/1')?.files?.map((file) => file.path),
+    ).toEqual(['report.txt']);
+    expect(
+      Buffer.from(
+        bodies.find((body) => body.schema === 'wevir-chunk/1')?.data ?? '',
+        'base64url',
+      ).toString(),
+    ).toBe('Synthetic before');
+  });
+
   it('keeps every saved revision and deletion before the next batch scan', async () => {
     const h = fixture();
     const saved = await h.memory.save('global', undefined, {

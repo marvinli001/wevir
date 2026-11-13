@@ -94,6 +94,24 @@ describe('events', () => {
     expect(s.events.lastSeq('ses_01')).toBe(6);
   });
 
+  it('按类型分页读取的水位按 seq，复用语句不会混入上一页参数', () => {
+    const s = storage();
+    seedSession(s);
+    for (let seq = 1; seq <= 5; seq++)
+      s.events.insert(event(seq, { type: seq % 2 ? 'file.shared' : 'usage.updated' }));
+    expect(
+      [...s.events.iterateTypes('ses_01', ['file.shared'], { limit: 2 })].map((event) => event.seq),
+    ).toEqual([1, 3]);
+    expect(
+      [...s.events.iterateTypes('ses_01', ['file.shared'], { afterSeq: 3, limit: 2 })].map(
+        (event) => event.seq,
+      ),
+    ).toEqual([5]);
+    expect([...s.events.iterateTypes('ses_01', ['file.shared'])].map((event) => event.seq)).toEqual(
+      [1, 3, 5],
+    );
+  });
+
   it('类型与回合查询等于全量过滤，工具正文可省略而元信息保留', () => {
     const s = storage();
     seedSession(s);

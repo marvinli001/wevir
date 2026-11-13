@@ -18,6 +18,7 @@ import {
   SessionIdSchema,
   type SessionRules,
   type SessionSnapshot,
+  type SharedFile,
   type SuggestedTask,
   type TaskId,
   type ToolOutput,
@@ -101,6 +102,10 @@ export interface EventStoreOptions {
   storage: Storage;
   /** 与事件业务写入同事务的持久捕获；只允许同步 SQLite 写入。 */
   onAppendInTransaction?: (events: readonly WevirEvent[]) => void;
+  onPrepareSharedFiles?: (
+    sessionId: SessionId,
+    files: readonly SharedFile[],
+  ) => Promise<((event: WevirEventOf<'file.shared'>) => void) | undefined>;
   onPrepareRemoval?: (sessionIds: readonly SessionId[]) => Promise<void>;
   onRemoveInTransaction?: (sessionIds: readonly SessionId[]) => void;
   onMetadataChanged?: (sessionIds: readonly SessionId[]) => void;
@@ -159,6 +164,7 @@ export class EventStore {
   readonly #toolOutputWindowMs: number;
   readonly #onError: (error: unknown) => void;
   readonly #onAppendInTransaction: EventStoreOptions['onAppendInTransaction'];
+  readonly #onPrepareSharedFiles: EventStoreOptions['onPrepareSharedFiles'];
   readonly #onPrepareRemoval: EventStoreOptions['onPrepareRemoval'];
   readonly #onRemoveInTransaction: EventStoreOptions['onRemoveInTransaction'];
   readonly #onMetadataChanged: EventStoreOptions['onMetadataChanged'];
@@ -177,6 +183,7 @@ export class EventStore {
   constructor(options: EventStoreOptions) {
     this.#storage = options.storage;
     this.#onAppendInTransaction = options.onAppendInTransaction;
+    this.#onPrepareSharedFiles = options.onPrepareSharedFiles;
     this.#onPrepareRemoval = options.onPrepareRemoval;
     this.#onRemoveInTransaction = options.onRemoveInTransaction;
     this.#onMetadataChanged = options.onMetadataChanged;
@@ -397,6 +404,10 @@ export class EventStore {
       this.#retained.delete(sessionId);
     }
     this.touch(sessionIds);
+  }
+
+  async prepareSharedFiles(sessionId: SessionId, files: readonly SharedFile[]) {
+    return this.#onPrepareSharedFiles?.(sessionId, files);
   }
 
   async prepareRemoval(sessionIds: readonly SessionId[]): Promise<void> {

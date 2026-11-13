@@ -5971,6 +5971,24 @@ const syncContentCases: Case[] = [
     ],
   },
   {
+    name: 'SyncSharedFilesMetadata',
+    schema: protocol.SyncSharedFilesMetadataSchema,
+    valid: [
+      {
+        schema: 'wevir-shared-files/1',
+        source: {
+          hostId: 'host_synthetic',
+          deviceId: 'device_synthetic',
+          sessionId: 'ses_synthetic',
+          streamId: 'stream_synthetic',
+        },
+        seq: '12',
+        capture: 'shared',
+      },
+    ],
+    invalid: [{ schema: 'wevir-shared-files/1', source: {}, seq: '-1', capture: 'invalid' }],
+  },
+  {
     name: 'SyncBundleContent',
     schema: protocol.SyncBundleContentSchema,
     valid: [

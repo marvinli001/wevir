@@ -70,6 +70,7 @@ import {
   useMultiFolderFilesSupported,
   useOfficePdf,
   useOfficePreviewSupported,
+  useSyncArtifactsSupported,
 } from '@/files/files-data';
 import {
   filePrefs,
@@ -107,6 +108,7 @@ const LINE_HEIGHT = 20;
 
 export function FilePane({ tab, context }: { tab: PaneTab; context: PaneContext }) {
   const supported = useFilesSupported();
+  const artifactsSupported = useSyncArtifactsSupported();
   const multiFolder = useMultiFolderFilesSupported();
   const base = useFileScope(context);
   const refreshKey = useScopeRefreshKey(context);
@@ -115,7 +117,10 @@ export function FilePane({ tab, context }: { tab: PaneTab; context: PaneContext 
   // 按内容比较：会话对象随事件换新，文件夹多半没变，scope 要保持同一个对象。
   const folderKey =
     session && context.entry && multiFolder
-      ? extraFolders(context.entry.workspace, session).join('\0')
+      ? (session.origin?.kind === 'synced'
+          ? []
+          : extraFolders(context.entry.workspace, session)
+        ).join('\0')
       : '';
   const target = useMemo(
     () =>
@@ -124,13 +129,29 @@ export function FilePane({ tab, context }: { tab: PaneTab; context: PaneContext 
         : undefined,
     [base, param, folderKey],
   );
+  const artifactSeq =
+    tab.params?.artifactSeq === undefined ? undefined : Number(tab.params.artifactSeq);
+  const scope = useMemo(
+    () =>
+      target && {
+        ...target.scope,
+        ...(target.scope.readOnly && artifactSeq !== undefined && { artifactSeq }),
+      },
+    [target, artifactSeq],
+  );
   if (!base || param === undefined) return <Note>{t('files.noProject')}</Note>;
-  if (!supported) return <Note>{t('files.unsupported')}</Note>;
-  if (!target) return <Note icon={FileWarning}>{t('files.unavailable')}</Note>;
+  if (!supported || (base.readOnly && !artifactsSupported))
+    return <Note>{t('files.unsupported')}</Note>;
+  if (
+    !target ||
+    !scope ||
+    (artifactSeq !== undefined && (!Number.isSafeInteger(artifactSeq) || artifactSeq < 1))
+  )
+    return <Note icon={FileWarning}>{t('files.unavailable')}</Note>;
   return (
     <FilePreview
-      key={param}
-      scope={target.scope}
+      key={`${param}:${artifactSeq ?? ''}`}
+      scope={scope}
       path={target.path}
       revealKey={param}
       refreshKey={refreshKey}
@@ -192,7 +213,7 @@ function FilePreview({
   const absolute = toAbsolutePath(path, scope.root);
   const { name, dir } = splitPath(path);
   const Icon = fileIcon(path);
-  const external = canOpenExternally(absolute);
+  const external = !scope.readOnly && canOpenExternally(absolute);
   const loading = pages ? pdf.loading : streamed ? url.loading : contents.loading;
   const showsSource = !streamed && result?.text !== undefined && !rendered;
   const refresh = useCallback(() => setManual((value) => value + 1), []);
@@ -263,7 +284,7 @@ function FilePreview({
           delimiter={filePreviewDelimiter({ name: path }) ?? ','}
         />
       );
-    } else if (preview && result.text !== undefined) {
+    } else if (preview && !scope.readOnly && result.text !== undefined) {
       body = (
         <EditableSource
           key={editorKey}
@@ -348,12 +369,14 @@ function FilePreview({
         <IconButton label={t('files.refresh')} onClick={refresh}>
           <RotateCw className={cn(loading && 'animate-spin')} />
         </IconButton>
-        <CopyPath path={absolute} />
+        <CopyPath path={scope.readOnly ? path : absolute} />
         {/* 系统应用、编辑器与访达只对这台电脑上的文件有用（platform/platform.ts 的 `localFiles`）。 */}
         {capabilities().localFiles && external && isStreamedView(view) && (
           <ExternalButtons absolute={absolute} />
         )}
-        {capabilities().localFiles && <OpenInMenu path={absolute} line={reveal?.line} />}
+        {!scope.readOnly && capabilities().localFiles && (
+          <OpenInMenu path={absolute} line={reveal?.line} />
+        )}
       </div>
       {offer && view !== 'office' && <OfficeEngineBar engine={engine} />}
       <div className="relative min-h-0 flex-1">{body}</div>

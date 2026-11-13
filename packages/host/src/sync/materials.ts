@@ -18,6 +18,7 @@ import {
   SyncMemoryContentSchema,
   SyncProjectContentSchema,
   SyncSessionContentSchema,
+  SyncSharedFilesMetadataSchema,
   type SyncStreamRef,
   UserImagePartSchema,
   type WevirEvent,
@@ -39,6 +40,7 @@ import type { ImageStore } from '../images.js';
 import { validMemoryMarkdown } from '../memory.js';
 import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
+import { sharedFilesKey } from './artifacts.js';
 import { sha256 } from './crypto.js';
 import { SyncQueue } from './queue.js';
 import { SyncSessionMaterials } from './session-materials.js';
@@ -55,6 +57,8 @@ export class SyncMaterials {
   readonly #images: ImageStore;
   readonly #queue: SyncQueue;
   readonly #settings: SyncSettings;
+  readonly #client: ZuvClient;
+  readonly #deviceHosts = new Map<string, string>();
   readonly sessions: SyncSessionMaterials;
   readonly #changed = new Map<SessionId, number>();
   constructor(options: {
@@ -76,6 +80,7 @@ export class SyncMaterials {
     this.#images = options.images;
     this.#queue = new SyncQueue(options.storage);
     this.#settings = options.settingsSync;
+    this.#client = options.client;
     this.sessions = new SyncSessionMaterials({
       ...options,
       ensureSource: (vaultId, source, projectId) => this.#ensureSource(vaultId, source, projectId),
@@ -559,6 +564,28 @@ export class SyncMaterials {
   async #prepareBundle(op: SyncOperation, record: MaterialRecord): Promise<() => void> {
     const body = SyncBundleContentSchema.parse(record.content);
     if (body.category !== op.entityType) throw new ZuvRequestError('INTEGRITY_FAILED');
+    let localKey = `bundle:${op.entityId}`;
+    if ((body.metadata as { schema?: string } | undefined)?.schema === 'wevir-shared-files/1') {
+      const metadata = SyncSharedFilesMetadataSchema.parse(body.metadata);
+      if (
+        op.entityType !== 'artifact' ||
+        !record.projectId ||
+        metadata.source.deviceId !== op.deviceId
+      )
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      if (!this.#deviceHosts.has(op.deviceId)) {
+        for (const device of (
+          await this.#client.json('devices', 'GET', '/api/wevir/sync/v1/devices')
+        ).devices)
+          this.#deviceHosts.set(device.deviceId, device.originHostId);
+      }
+      if (this.#deviceHosts.get(op.deviceId) !== metadata.source.hostId)
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      localKey = sharedFilesKey(metadata.source, metadata.seq);
+      const old = this.#storage.sync.localEntity(op.vaultId, localKey);
+      if (old && (old.entityId !== op.entityId || (old.revision && old.revision !== op.opId)))
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+    }
     const root = join(this.#home, 'sync/materials', op.vaultId, op.entityId, op.opId);
     await this.#safeDirectory(root, join(this.#home, 'sync'));
     const disk = await statfs(root, { bigint: true });
@@ -626,7 +653,7 @@ export class SyncMaterials {
         throw new ZuvRequestError('INTEGRITY_FAILED');
     }
     return () => {
-      this.#entity(op, `bundle:${op.entityId}`, record, false);
+      this.#entity(op, localKey, record, localKey.startsWith('shared-files:'));
     };
   }
 

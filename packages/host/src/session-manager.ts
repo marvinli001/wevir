@@ -3935,17 +3935,28 @@ export class SessionManager {
    * 应用级工具的 `wevir_share_file`（0.40.0）：在会话的流里写 `file.shared`，消息流在当时的位置出现文件卡片。会话有进行中的回合时
    * 带上它。
    */
-  shareFiles(sessionId: SessionId, files: readonly SharedFile[]): void {
+  async shareFiles(sessionId: SessionId, files: readonly SharedFile[]): Promise<void> {
+    this.#assertOpen();
+    const prepared = await this.#events.prepareSharedFiles(sessionId, files);
     this.#assertOpen();
     const runtime = this.#runtime(sessionId);
     const turnId = runtime.turn?.turnId;
-    this.#write(runtime, [
+    this.#write(
+      runtime,
+      [
+        {
+          type: 'file.shared',
+          source: 'host',
+          payload: { files: [...files], ...(turnId !== undefined && { turnId }) },
+        },
+      ],
       {
-        type: 'file.shared',
-        source: 'host',
-        payload: { files: [...files], ...(turnId !== undefined && { turnId }) },
+        inTransaction: (events) => {
+          const event = events.find((event) => event.type === 'file.shared');
+          if (event) prepared?.(event);
+        },
       },
-    ]);
+    );
   }
 
   /**
