@@ -76,21 +76,58 @@ export class SyncEventCapture {
     this.#storage.transaction(() => {
       for (const project of this.#storage.sync.projects(vault.vaultId)) {
         if (!project.workspaceId || !vault.projectIds.includes(project.projectId)) continue;
-        const workspace = this.#storage.workspaces.get(project.workspaceId);
-        if (!workspace) continue;
-        this.#queue.enqueue({
-          vaultId: vault.vaultId,
-          entityId: project.projectId,
-          entityType: 'project',
-          projectId: project.projectId,
-          localKey: `project:${project.projectId}`,
-          content: {
-            schema: 'wevir-project/1',
-            projectId: project.projectId,
-            displayName: workspace.displayName,
-          },
-        });
+        this.#project(vault, project.projectId, project.workspaceId);
       }
+    });
+  }
+
+  adoptProject(vaultId: string, projectId: string, workspaceId: string): void {
+    if (
+      this.#storage.sync.fileBaseline(vaultId, projectId) ||
+      this.#storage.sync.entity(vaultId, projectId)
+    )
+      return;
+    const workspace = this.#storage.workspaces.get(workspaceId);
+    if (!workspace) return;
+    this.#storage.sync.putFileBaseline({
+      vaultId,
+      entityId: projectId,
+      entityType: 'project',
+      projectId,
+      path: `sqlite:workspace:${workspaceId}`,
+      fingerprint: sha256(jcs({ displayName: workspace.displayName })),
+    });
+  }
+
+  #project(vault: SyncVaultRecord, projectId: string, workspaceId: string): void {
+    const workspace = this.#storage.workspaces.get(workspaceId);
+    if (!workspace) return;
+    const fingerprint = sha256(jcs({ displayName: workspace.displayName }));
+    const baseline = this.#storage.sync.fileBaseline(vault.vaultId, projectId);
+    if (baseline?.fingerprint === fingerprint) return;
+    const local = this.#storage.sync.entity(vault.vaultId, projectId);
+    const revision = local?.revision
+      ? this.#storage.sync.getOperation(vault.vaultId, local.revision)
+      : undefined;
+    const opId =
+      !baseline && revision?.direction === 'inbox'
+        ? undefined
+        : this.#queue.enqueue({
+            vaultId: vault.vaultId,
+            entityId: projectId,
+            entityType: 'project',
+            projectId,
+            localKey: `project:${projectId}`,
+            content: { schema: 'wevir-project/1', projectId, displayName: workspace.displayName },
+          });
+    this.#storage.sync.putFileBaseline({
+      vaultId: vault.vaultId,
+      entityId: projectId,
+      entityType: 'project',
+      projectId,
+      path: `sqlite:workspace:${workspaceId}`,
+      fingerprint,
+      ...(opId && { opId }),
     });
   }
 
@@ -326,18 +363,7 @@ export class SyncEventCapture {
     throughSeq: number,
     options: { baselineOnly?: boolean; force?: boolean } = {},
   ): void {
-    if (vault.categories.includes('project')) {
-      const workspace = this.#storage.workspaces.get(session.workspaceId);
-      if (workspace)
-        this.#queue.enqueue({
-          vaultId: vault.vaultId,
-          entityId: projectId,
-          entityType: 'project',
-          projectId,
-          localKey: `project:${projectId}`,
-          content: { schema: 'wevir-project/1', projectId, displayName: workspace.displayName },
-        });
-    }
+    if (vault.categories.includes('project')) this.#project(vault, projectId, session.workspaceId);
     if (!vault.categories.includes('session')) return;
     const native = this.#source(vault, session);
     const source = {

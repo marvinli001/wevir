@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select } from '@/components/ui/select';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
@@ -52,11 +53,21 @@ export function ZuvSyncSection({
   const [categories, setCategories] = useState<SyncConfigureParams['categories']>([]);
   const [projects, setProjects] = useState<WorkspaceId[]>([]);
   const [history, setHistory] = useState(false);
+  const [clouds, setClouds] = useState<MethodResult<'sync.projectCatalog'>['projects']>();
+  const [projectChoices, setProjectChoices] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [devices, setDevices] = useState<MethodResult<'sync.devices'>['devices']>();
   const [approving, setApproving] = useState<MethodResult<'sync.devices'>['devices'][number]>();
   const supported = client.supports('cloud_sync');
+  useEffect(() => {
+    if (account.status !== 'signed_in') {
+      setClouds(undefined);
+      setProjectChoices({});
+      setEditing(false);
+      setStatus(undefined);
+    }
+  }, [account.status]);
   const refresh = useCallback(
     async () => setStatus(await client.request('sync.status', {})),
     [client],
@@ -92,6 +103,13 @@ export function ZuvSyncSection({
         )
         .map((value) => value.workspaceId as WorkspaceId),
     );
+    setProjectChoices(
+      Object.fromEntries(
+        (status?.projects ?? []).flatMap((value) =>
+          value.workspaceId ? [[value.workspaceId, value.projectId]] : [],
+        ),
+      ),
+    );
     setHistory(status?.includeHistory ?? false);
     setEditing(true);
   };
@@ -120,15 +138,21 @@ export function ZuvSyncSection({
           ...(status?.binding && { expectedRevision: status.binding.revision }),
           projects: projects.map((workspaceId) => ({
             workspaceId,
-            ...(status?.projects?.find((value) => value.workspaceId === workspaceId)?.projectId && {
-              projectId: status.projects.find((value) => value.workspaceId === workspaceId)
-                ?.projectId,
-            }),
+            ...(projectChoices[workspaceId] && { projectId: projectChoices[workspaceId] }),
           })),
         }),
       );
       setEditing(false);
     });
+  const readClouds = () =>
+    run(async () => {
+      try {
+        setClouds((await client.request('sync.projectCatalog', { enable: true })).projects);
+      } finally {
+        await refresh();
+      }
+    });
+  const projectScope = status?.binding?.enabled && status.binding.categories.includes('project');
   return (
     <div className="space-y-3 border-t border-border pt-3" data-zuv-sync>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -166,23 +190,83 @@ export function ZuvSyncSection({
               </label>
             ))}
           </fieldset>
-          <fieldset disabled={busy} className="max-h-48 space-y-2 overflow-y-auto">
-            <legend className="mb-2 text-xs text-muted-foreground">{t('sync.projects')}</legend>
-            {workspaces.map((workspace) => (
-              <label key={workspace.id} className="flex min-w-0 items-center gap-2 text-sm">
-                <Checkbox
-                  checked={projects.includes(workspace.id)}
-                  onCheckedChange={(checked) =>
-                    setProjects((current) =>
-                      checked
-                        ? [...current, workspace.id]
-                        : current.filter((value) => value !== workspace.id),
-                    )
-                  }
-                />
-                <span className="truncate">{workspace.displayName}</span>
-              </label>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">{t('sync.projects')}</span>
+            {client.supports('sync_project_catalog') && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || !active}
+                onClick={() => void readClouds()}
+              >
+                {t(projectScope ? 'sync.cloudProjects' : 'sync.enableCatalog')}
+              </Button>
+            )}
+          </div>
+          <fieldset
+            disabled={busy}
+            className="max-h-48 space-y-3 overflow-y-auto"
+            aria-label={t('sync.projects')}
+          >
+            {workspaces.map((workspace) => {
+              const bound = status?.projects?.find((value) => value.workspaceId === workspace.id);
+              const choice = projectChoices[workspace.id] ?? '';
+              const options = [
+                { value: '', label: t('sync.newProject') },
+                ...(clouds ?? [])
+                  .filter(
+                    (project) =>
+                      project.projectId === choice ||
+                      (!Object.entries(projectChoices).some(
+                        ([key, value]) => key !== workspace.id && value === project.projectId,
+                      ) &&
+                        !status?.projects?.some(
+                          (value) =>
+                            value.workspaceId &&
+                            value.workspaceId !== workspace.id &&
+                            value.projectId === project.projectId,
+                        )),
+                  )
+                  .map((project) => ({
+                    value: project.projectId,
+                    label:
+                      project.versions.length === 1
+                        ? project.versions[0]?.displayName || project.projectId
+                        : `${project.projectId.slice(-8)} · ${t('sync.projectVersions', { count: project.versions.length })}`,
+                  })),
+              ];
+              if (bound && !options.some((value) => value.value === bound.projectId))
+                options.push({ value: bound.projectId, label: bound.displayName });
+              return (
+                <div key={workspace.id} className="space-y-1.5">
+                  <label className="flex min-w-0 items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={projects.includes(workspace.id)}
+                      onCheckedChange={(checked) =>
+                        setProjects((current) =>
+                          checked
+                            ? [...current, workspace.id]
+                            : current.filter((value) => value !== workspace.id),
+                        )
+                      }
+                    />
+                    <span className="truncate">{workspace.displayName}</span>
+                  </label>
+                  {projects.includes(workspace.id) && (clouds || bound) && (
+                    <Select
+                      value={choice}
+                      options={options}
+                      disabled={busy || bound !== undefined}
+                      aria-label={`${workspace.displayName} · ${t('sync.cloudProjects')}`}
+                      className="w-full min-w-0"
+                      onValueChange={(value) =>
+                        setProjectChoices((current) => ({ ...current, [workspace.id]: value }))
+                      }
+                    />
+                  )}
+                </div>
+              );
+            })}
           </fieldset>
           <label className="flex items-center gap-2 text-sm">
             <Checkbox checked={history} disabled={busy} onCheckedChange={setHistory} />
@@ -191,7 +275,7 @@ export function ZuvSyncSection({
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
-              disabled={busy || !active || !categories.length}
+              disabled={busy || !active || (!categories.length && !projects.length)}
               onClick={() => void save()}
             >
               {t('sync.saveScope')}

@@ -5971,6 +5971,22 @@ const syncContentCases: Case[] = [
     ],
   },
   {
+    name: 'SyncProjectCatalog',
+    schema: protocol.SyncProjectCatalogSchema,
+    valid: [
+      { projects: [] },
+      {
+        projects: [
+          {
+            projectId: 'project_fixture',
+            versions: [{ opId: 'operation_fixture', displayName: 'Synthetic', deleted: false }],
+          },
+        ],
+      },
+    ],
+    invalid: [{ projects: [{ projectId: 'project_fixture', versions: [] }] }],
+  },
+  {
     name: 'SyncSnapshotJob',
     schema: protocol.SyncSnapshotJobSchema,
     valid: [

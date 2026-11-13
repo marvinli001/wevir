@@ -71,7 +71,33 @@ export const SyncFailureDataSchema = z.object({
   retryAfterMs: z.number().int().positive().optional(),
 });
 
+export const SyncProjectCatalogSchema = z.object({
+  projects: z
+    .array(
+      z.object({
+        projectId: id,
+        versions: z
+          .array(
+            z.object({
+              opId: id,
+              displayName: z.string().max(256).optional(),
+              repoUrl: z.string().max(2048).optional(),
+              deleted: z.boolean(),
+            }),
+          )
+          .min(1)
+          .max(32),
+      }),
+    )
+    .max(1000),
+});
+
 export const SyncMethodSchemas = {
+  'sync.projectCatalog': {
+    params: z.object({ enable: z.boolean().optional() }),
+    result: SyncProjectCatalogSchema,
+    permission: 'host.manage',
+  },
   'sync.status': { params: z.object({}), result: SyncStatusSchema, permission: 'host.manage' },
   'sync.configure': {
     params: SyncConfigureParamsSchema,

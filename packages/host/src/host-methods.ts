@@ -1577,6 +1577,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'image.read': (params) => imageStore().read(params),
 
     'settings.get': () => ({ settings: settings.get() }),
+    'sync.projectCatalog': ({ enable }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.projectCatalog(enable);
+    },
     'sync.configure': (params) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });

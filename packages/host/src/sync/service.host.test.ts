@@ -266,6 +266,89 @@ describe('full Host material synchronization with synthetic identities', () => {
     expect(second.adapter.endpoints.size).toBe(0);
   }, 20000);
 
+  it('discovers encrypted project names explicitly before binding a different local directory', async () => {
+    const { mock, first, second } = await fixture();
+    await first.rpc.request('workspace.update', {
+      workspaceId: first.workspaceId,
+      displayName: 'Synthetic cloud project',
+    });
+    const initial = await first.rpc.request('sync.configure', {
+      enabled: true,
+      categories: ['project'],
+      projects: [{ workspaceId: first.workspaceId }],
+      includeHistory: false,
+    });
+    await first.rpc.request('sync.retry');
+    await expect.poll(async () => (await first.rpc.request('sync.status')).pending).toBe(0);
+    expect((await second.rpc.call('sync.projectCatalog')).error).toMatchObject({
+      data: { code: 'SCOPE_DISABLED' },
+    });
+    expect(mock.sync.exports).toBe(0);
+    expect((await second.rpc.call('sync.projectCatalog', { enable: true })).error).toMatchObject({
+      data: { code: 'RECOVERY_REQUIRED' },
+    });
+    const binding = (await second.rpc.request('sync.status')).binding;
+    await first.rpc.request('sync.approveDevice', { deviceId: binding.deviceId });
+    const nativeCreate = vi.spyOn(second.adapter, 'createSession');
+    const catalog = await second.rpc.request('sync.projectCatalog', { enable: true });
+    expect(catalog.projects).toMatchObject([
+      {
+        projectId: initial.binding.projectIds[0],
+        versions: [{ displayName: 'Synthetic cloud project', deleted: false }],
+      },
+    ]);
+    expect(catalog.projects[0].versions).toHaveLength(1);
+    expect((await second.rpc.request('sync.status')).binding.projectIds).toEqual([]);
+    expect(nativeCreate).not.toHaveBeenCalled();
+    await second.rpc.request('workspace.update', {
+      workspaceId: second.workspaceId,
+      displayName: 'Synthetic local label',
+    });
+    const state = await second.rpc.request('sync.status');
+    await second.rpc.request('sync.configure', {
+      enabled: true,
+      categories: ['project'],
+      projects: [{ workspaceId: second.workspaceId, projectId: catalog.projects[0].projectId }],
+      expectedRevision: state.binding.revision,
+      includeHistory: false,
+    });
+    await second.rpc.request('sync.retry');
+    await first.rpc.request('sync.retry');
+    const after = await first.rpc.request('sync.projectCatalog');
+    expect(after.projects[0].versions).toHaveLength(1);
+    expect(after.projects[0].versions[0].displayName).toBe('Synthetic cloud project');
+    expect(mock.errors).toEqual([]);
+  }, 20000);
+
+  it('lists every concurrent project-name head without picking the later commit', async () => {
+    const { mock, first, second } = await fixture();
+    await linkSessions(first, second);
+    await first.rpc.request('sync.retry');
+    await second.rpc.request('sync.retry');
+    const commits = mock.sync.attempts.commits;
+    mock.sync.pendingCommits = true;
+    await first.rpc.request('workspace.update', {
+      workspaceId: first.workspaceId,
+      displayName: 'Synthetic branch A',
+    });
+    await second.rpc.request('workspace.update', {
+      workspaceId: second.workspaceId,
+      displayName: 'Synthetic branch B',
+    });
+    await expect
+      .poll(() => mock.sync.attempts.commits, { timeout: 8000 })
+      .toBeGreaterThanOrEqual(commits + 2);
+    mock.sync.pendingCommits = false;
+    mock.sync.finalize();
+    const catalog = await first.rpc.request('sync.projectCatalog');
+    expect(catalog.projects[0].versions).toHaveLength(2);
+    expect(
+      new Set(
+        catalog.projects[0].versions.map((value: { displayName: string }) => value.displayName),
+      ),
+    ).toEqual(new Set(['Synthetic branch A', 'Synthetic branch B']));
+  }, 20000);
+
   it('replays newly enabled project ranges that earlier filtered pages had already skipped', async () => {
     const { first, second } = await fixture();
     await linkSessions(first, second);

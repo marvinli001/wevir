@@ -3377,6 +3377,10 @@ export const episode: Episode = {
 };
 
 export const methodSamples: MethodSamples = {
+  'sync.projectCatalog': {
+    params: { valid: [{}, { enable: true }], invalid: [null, { enable: 'true' }] },
+    result: { valid: [{ projects: [] }], invalid: [{}] },
+  },
   'sync.configure': {
     params: {
       valid: [{ enabled: false, categories: [], projects: [] }],

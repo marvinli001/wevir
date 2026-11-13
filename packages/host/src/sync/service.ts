@@ -19,11 +19,14 @@ import { ZuvRequestError } from '../zuv/transport.js';
 import { SyncArtifacts } from './artifacts.js';
 import { SyncBlobCache } from './cache.js';
 import { SyncEventCapture } from './capture.js';
+import { SyncProjectCatalog } from './catalog.js';
 import { SyncEngine } from './engine.js';
 import { type SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
 import { SyncVaultKeys } from './keys.js';
 import { SyncMaterials } from './materials.js';
+import { SyncRestoreData } from './restore-data.js';
 import { SyncSettings } from './settings.js';
+import { SyncSnapshots } from './snapshots.js';
 
 export interface SyncServiceOptions {
   storage: Storage;
@@ -50,6 +53,7 @@ export class SyncService {
   readonly #artifacts: SyncArtifacts;
   readonly #keys: SyncVaultKeys;
   readonly #settings: SyncSettings;
+  readonly #catalog: SyncProjectCatalog;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #running: Promise<void> | undefined;
   #closed = false;
@@ -84,10 +88,17 @@ export class SyncService {
       eligible: () => this.#consented(),
       source: (id) => this.#capture.source(id),
     });
+    const cache = new SyncBlobCache(join(options.home, 'sync/blobs'));
+    const snapshots = new SyncSnapshots(options);
+    this.#catalog = new SyncProjectCatalog({
+      snapshots,
+      data: new SyncRestoreData({ ...options, cache, snapshots, keys: this.#keys }),
+      eligible: () => this.#consented(),
+    });
     this.#engine = new SyncEngine({
       storage: options.storage,
       client: options.client,
-      cache: new SyncBlobCache(join(options.home, 'sync/blobs')),
+      cache,
       key: (vaultId, epoch, signal) => this.#keys.unlock(vaultId, epoch, signal),
       prepareApply: (op, record) => this.#materials.prepareApply(op, record),
     });
@@ -175,17 +186,20 @@ export class SyncService {
   stop(): void {
     clearTimeout(this.#timer);
     this.#engine.stop();
+    this.#catalog.stop();
     this.#initialized = false;
   }
   async suspend(): Promise<void> {
     this.stop();
     await this.#running?.catch(() => {});
+    await this.#catalog.drain();
     await this.#configurationDone;
   }
   async close(): Promise<void> {
     this.#closed = true;
     this.stop();
     await this.#running?.catch(() => {});
+    await this.#catalog.drain();
     await this.#configurationDone;
   }
 
@@ -203,6 +217,7 @@ export class SyncService {
         : 'disabled'
       : (transport?.state as SyncStatus['state']);
     if (vault?.enabled) {
+      if (this.#catalog.busy) state = 'syncing';
       if (
         client.entitlements?.subscriptionState !== 'active' ||
         client.entitlements.syncState === 'paused'
@@ -250,6 +265,7 @@ export class SyncService {
     try {
       this.stop();
       await this.#running?.catch(() => {});
+      await this.#catalog.drain();
       this.#errorCode = undefined;
       const { storage, client } = this.#options;
       let vault = storage.sync.activeVault();
@@ -311,6 +327,11 @@ export class SyncService {
           params.categories.some((value) => ['rule', 'skill-bundle'].includes(value)) &&
           !params.categories.includes('artifact')
         )
+          throw new ZuvRequestError('INVALID_REQUEST');
+        const explicitProjects = params.projects.flatMap((project) =>
+          project.projectId ? [project.projectId] : [],
+        );
+        if (new Set(explicitProjects).size !== explicitProjects.length)
           throw new ZuvRequestError('INVALID_REQUEST');
         if (params.projects.length && !params.categories.includes('project'))
           throw new ZuvRequestError('INVALID_REQUEST');
@@ -376,6 +397,13 @@ export class SyncService {
         storage.transaction(() => {
           if (changed) storage.sync.restartPull(vaultId, previousCursor, opened.cursor);
           storage.sync.setScopes(vaultId, selected);
+          for (const project of projects)
+            if (
+              params.projects.some(
+                (input) => input.workspaceId === project.workspaceId && input.projectId,
+              )
+            )
+              this.#capture.adoptProject(vaultId, project.projectId, project.workspaceId);
           storage.sync.setIncludeHistory(vaultId, params.includeHistory === true);
           storage.sync.setScopeInitialized(vaultId, false);
           storage.sync.setHistoryBackfillPending(vaultId, backfill);
@@ -430,6 +458,43 @@ export class SyncService {
       this.#running = undefined;
     });
     return this.#running;
+  }
+
+  async projectCatalog(enable = false) {
+    if (this.#configuring || this.#closed)
+      throw this.#failure(new ZuvRequestError('SCOPE_DISABLED'));
+    if (enable && !this.#consented()?.categories.includes('project')) {
+      const { storage } = this.#options;
+      const current = storage.sync.activeVault();
+      await this.configure({
+        enabled: true,
+        categories: current?.enabled
+          ? ([...new Set([...current.categories, 'project'])] as SyncConfigureParams['categories'])
+          : ['project'],
+        projects: current?.enabled
+          ? storage.sync
+              .projects(current.vaultId)
+              .filter((value) => value.workspaceId && current.projectIds.includes(value.projectId))
+              .map((value) => ({
+                projectId: value.projectId,
+                workspaceId:
+                  value.workspaceId as SyncConfigureParams['projects'][number]['workspaceId'],
+              }))
+          : [],
+        includeHistory: current?.enabled ? storage.sync.includeHistory(current.vaultId) : false,
+        ...(current && { expectedRevision: current.revision }),
+      });
+    }
+    await this.#running?.catch(() => {});
+    if (this.#configuring || this.#closed)
+      throw this.#failure(new ZuvRequestError('SCOPE_DISABLED'));
+    try {
+      return await this.#catalog.fetch();
+    } catch (error) {
+      throw this.#failure(error);
+    } finally {
+      if (!this.#closed && !this.#configuring) this.#schedule(0);
+    }
   }
 
   async devices() {
@@ -489,7 +554,7 @@ export class SyncService {
   async #flush(): Promise<void> {
     const { storage, client } = this.#options;
     try {
-      if (this.#configuring) return;
+      if (this.#configuring || this.#catalog.busy) return;
       if (!client.signedIn || client.requiresLogin || !storage.sync.activeVault()?.enabled) return;
       if (Date.now() - this.#lastRefresh >= 60000) await this.#refresh();
       const vault = this.#consented();

@@ -1,0 +1,35 @@
+{
+  "protocolVersion": "0.176.0",
+  "methods": {
+    "sync.projectCatalog": {
+      "params": [
+        {},
+        {
+          "enable": true
+        }
+      ],
+      "result": [
+        {
+          "projects": []
+        },
+        {
+          "projects": [
+            {
+              "projectId": "project_fixture",
+              "versions": [
+                {
+                  "opId": "operation_fixture",
+                  "displayName": "Synthetic",
+                  "deleted": false
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}
