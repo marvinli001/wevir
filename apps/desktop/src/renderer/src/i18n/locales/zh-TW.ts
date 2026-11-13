@@ -1706,6 +1706,8 @@ export const messages: Messages = {
   'sync.enableCatalog': '開啟並讀取專案',
   'sync.newProject': '新專案',
   'sync.projectVersions': '{count} 個版本',
+  'sync.selectVersion': '選擇版本',
+  'sync.useVersion': '使用此版本',
   'sync.projects': '專案',
   'sync.includeHistory': '包含既有歷史',
   'sync.saveScope': '儲存並開啟',

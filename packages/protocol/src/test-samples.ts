@@ -3381,6 +3381,26 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{}, { enable: true }], invalid: [null, { enable: 'true' }] },
     result: { valid: [{ projects: [] }], invalid: [{}] },
   },
+  'sync.resolveProject': {
+    params: {
+      valid: [
+        {
+          projectId: 'project_fixture',
+          expectedHeads: ['operation_left', 'operation_right'],
+          selectedOpId: 'operation_right',
+        },
+      ],
+      invalid: [
+        {},
+        {
+          projectId: 'project_fixture',
+          expectedHeads: ['operation_left', 'operation_left'],
+          selectedOpId: 'operation_left',
+        },
+      ],
+    },
+    result: { valid: [{ opId: 'operation_resolved' }], invalid: [{}] },
+  },
   'sync.configure': {
     params: {
       valid: [{ enabled: false, categories: [], projects: [] }],

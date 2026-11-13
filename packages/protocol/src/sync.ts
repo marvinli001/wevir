@@ -98,6 +98,19 @@ export const SyncMethodSchemas = {
     result: SyncProjectCatalogSchema,
     permission: 'host.manage',
   },
+  'sync.resolveProject': {
+    params: z.object({
+      projectId: id,
+      expectedHeads: z
+        .array(id)
+        .min(2)
+        .max(32)
+        .refine((heads) => new Set(heads).size === heads.length),
+      selectedOpId: id,
+    }),
+    result: z.object({ opId: id }),
+    permission: 'host.manage',
+  },
   'sync.status': { params: z.object({}), result: SyncStatusSchema, permission: 'host.manage' },
   'sync.configure': {
     params: SyncConfigureParamsSchema,

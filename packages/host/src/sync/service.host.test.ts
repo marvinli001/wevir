@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionId, WorkspaceId } from '@wevir/protocol';
+import { schemas } from '@wevir/protocol/sync';
 import type { AppToolsEndpoint, SessionConfig, TitleRequest } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -320,7 +321,7 @@ describe('full Host material synchronization with synthetic identities', () => {
     expect(mock.errors).toEqual([]);
   }, 20000);
 
-  it('lists every concurrent project-name head without picking the later commit', async () => {
+  it('keeps concurrent project names and resolves them through a new operation referencing every head', async () => {
     const { mock, first, second } = await fixture();
     await linkSessions(first, second);
     await first.rpc.request('sync.retry');
@@ -347,6 +348,72 @@ describe('full Host material synchronization with synthetic identities', () => {
         catalog.projects[0].versions.map((value: { displayName: string }) => value.displayName),
       ),
     ).toEqual(new Set(['Synthetic branch A', 'Synthetic branch B']));
+    await first.rpc.request('sync.retry');
+    await second.rpc.request('sync.retry');
+    expect((await first.rpc.request('sync.status')).projects[0].displayName).toBe(
+      'Synthetic branch A',
+    );
+    expect((await second.rpc.request('sync.status')).projects[0].displayName).toBe(
+      'Synthetic branch B',
+    );
+    const project = catalog.projects[0];
+    const expectedHeads = project.versions.map((value: { opId: string }) => value.opId);
+    const selectedOpId = project.versions.find(
+      (value: { displayName: string }) => value.displayName === 'Synthetic branch B',
+    ).opId;
+    const selection = { projectId: project.projectId, expectedHeads, selectedOpId };
+    expect(
+      (
+        await first.rpc.call('sync.resolveProject', {
+          ...selection,
+          expectedHeads: [selectedOpId, 'operation_stale'],
+        })
+      ).error,
+    ).toMatchObject({ data: { code: 'REVISION_CONFLICT' } });
+    expect(
+      (
+        await first.rpc.call('sync.resolveProject', {
+          ...selection,
+          selectedOpId: 'operation_other_project',
+        })
+      ).error,
+    ).toMatchObject({ data: { code: 'INVALID_REQUEST' } });
+    const resolved = await second.rpc.request('sync.resolveProject', selection);
+    expect((await second.rpc.call('sync.resolveProject', selection)).error).toMatchObject({
+      data: { code: 'REVISION_CONFLICT' },
+    });
+    await first.rpc.request('sync.retry');
+    await second.rpc.request('sync.retry');
+    await expect
+      .poll(async () => (await first.rpc.request('sync.status')).conflicts, { timeout: 8000 })
+      .toBe(0);
+    const after = await second.rpc.request('sync.projectCatalog');
+    expect(after.projects[0].versions).toEqual([
+      { opId: resolved.opId, displayName: 'Synthetic branch B', deleted: false },
+    ]);
+    const status = await first.rpc.request('sync.status');
+    const received = schemas.changes.parse(
+      mock.sync.handle(
+        'user_synthetic',
+        status.binding.deviceId,
+        new URL('/api/wevir/sync/v1/changes', mock.origin),
+        'GET',
+        undefined,
+        Buffer.alloc(0),
+      ).value,
+    );
+    const operation = received.operations.find((value) => value.opId === resolved.opId);
+    expect(operation?.kind).toBe('resolve');
+    expect(new Set(operation?.parents)).toEqual(new Set(expectedHeads));
+    expect(
+      (await first.rpc.request('workspace.list')).workspaces.find(
+        (value: { id: WorkspaceId }) => value.id === first.workspaceId,
+      )?.displayName,
+    ).toBe('Synthetic branch A');
+    expect((await second.rpc.request('sync.status')).projects[0].displayName).toBe(
+      'Synthetic branch B',
+    );
+    expect(mock.errors).toEqual([]);
   }, 20000);
 
   it('replays newly enabled project ranges that earlier filtered pages had already skipped', async () => {

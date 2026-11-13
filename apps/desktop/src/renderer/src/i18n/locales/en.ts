@@ -1721,6 +1721,8 @@ export const messages: Messages = {
   'sync.enableCatalog': 'Enable and read projects',
   'sync.newProject': 'New project',
   'sync.projectVersions': '{count} versions',
+  'sync.selectVersion': 'Choose a version',
+  'sync.useVersion': 'Use this version',
   'sync.projects': 'Projects',
   'sync.includeHistory': 'Include existing history',
   'sync.saveScope': 'Save and enable',

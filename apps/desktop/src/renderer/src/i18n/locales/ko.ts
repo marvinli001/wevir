@@ -1709,6 +1709,8 @@ export const messages: Messages = {
   'sync.enableCatalog': '활성화 및 프로젝트 읽기',
   'sync.newProject': '새 프로젝트',
   'sync.projectVersions': '버전 {count}개',
+  'sync.selectVersion': '버전 선택',
+  'sync.useVersion': '이 버전 사용',
   'sync.projects': '프로젝트',
   'sync.includeHistory': '기존 기록 포함',
   'sync.saveScope': '저장 및 활성화',

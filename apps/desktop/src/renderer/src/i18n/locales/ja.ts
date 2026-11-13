@@ -1720,6 +1720,8 @@ export const messages: Messages = {
   'sync.enableCatalog': '有効化してプロジェクトを取得',
   'sync.newProject': '新規プロジェクト',
   'sync.projectVersions': '{count} バージョン',
+  'sync.selectVersion': 'バージョンを選択',
+  'sync.useVersion': 'このバージョンを使用',
   'sync.projects': 'プロジェクト',
   'sync.includeHistory': '既存の履歴を含める',
   'sync.saveScope': '保存して有効化',

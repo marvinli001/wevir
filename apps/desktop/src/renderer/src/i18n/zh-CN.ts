@@ -1719,6 +1719,8 @@ export const zhCN = {
   'sync.enableCatalog': '开启并读取项目',
   'sync.newProject': '新项目',
   'sync.projectVersions': '{count} 个版本',
+  'sync.selectVersion': '选择版本',
+  'sync.useVersion': '使用此版本',
   'sync.projects': '项目',
   'sync.includeHistory': '包含已有历史',
   'sync.saveScope': '保存并开启',

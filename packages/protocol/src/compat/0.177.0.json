@@ -1,0 +1,22 @@
+{
+  "protocolVersion": "0.177.0",
+  "methods": {
+    "sync.resolveProject": {
+      "params": [
+        {
+          "projectId": "project_fixture",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "selectedOpId": "operation_right"
+        }
+      ],
+      "result": [
+        {
+          "opId": "operation_resolved"
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

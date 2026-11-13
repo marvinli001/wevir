@@ -55,6 +55,7 @@ export function ZuvSyncSection({
   const [history, setHistory] = useState(false);
   const [clouds, setClouds] = useState<MethodResult<'sync.projectCatalog'>['projects']>();
   const [projectChoices, setProjectChoices] = useState<Record<string, string>>({});
+  const [versionChoices, setVersionChoices] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [devices, setDevices] = useState<MethodResult<'sync.devices'>['devices']>();
@@ -64,6 +65,7 @@ export function ZuvSyncSection({
     if (account.status !== 'signed_in') {
       setClouds(undefined);
       setProjectChoices({});
+      setVersionChoices({});
       setEditing(false);
       setStatus(undefined);
     }
@@ -148,6 +150,7 @@ export function ZuvSyncSection({
     run(async () => {
       try {
         setClouds((await client.request('sync.projectCatalog', { enable: true })).projects);
+        setVersionChoices({});
       } finally {
         await refresh();
       }
@@ -210,6 +213,8 @@ export function ZuvSyncSection({
           >
             {workspaces.map((workspace) => {
               const bound = status?.projects?.find((value) => value.workspaceId === workspace.id);
+              const cloud =
+                bound && clouds?.find((project) => project.projectId === bound.projectId);
               const choice = projectChoices[workspace.id] ?? '';
               const options = [
                 { value: '', label: t('sync.newProject') },
@@ -264,6 +269,59 @@ export function ZuvSyncSection({
                       }
                     />
                   )}
+                  {projects.includes(workspace.id) &&
+                    cloud &&
+                    cloud.versions.length > 1 &&
+                    client.supports('sync_project_conflicts') && (
+                      <div className="space-y-2 rounded-lg border border-border p-2">
+                        {cloud.versions
+                          .filter((version) => version.deleted)
+                          .map((version) => (
+                            <p key={version.opId} className="text-xs text-muted-foreground">
+                              {t('rail.outputs.kind.deleted')} · {version.opId.slice(-8)}
+                            </p>
+                          ))}
+                        <Select
+                          value={versionChoices[cloud.projectId] ?? ''}
+                          options={[
+                            { value: '', label: t('sync.selectVersion') },
+                            ...cloud.versions
+                              .filter((version) => !version.deleted)
+                              .map((version) => ({
+                                value: version.opId,
+                                label: `${version.displayName || cloud.projectId} · ${version.opId.slice(-8)}`,
+                              })),
+                          ]}
+                          disabled={busy || !active}
+                          aria-label={`${workspace.displayName} · ${t('sync.selectVersion')}`}
+                          onValueChange={(value) =>
+                            setVersionChoices((current) => ({
+                              ...current,
+                              [cloud.projectId]: value,
+                            }))
+                          }
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy || !active || !versionChoices[cloud.projectId]}
+                          onClick={() =>
+                            void run(async () => {
+                              await client.request('sync.resolveProject', {
+                                projectId: cloud.projectId,
+                                expectedHeads: cloud.versions.map((version) => version.opId),
+                                selectedOpId: versionChoices[cloud.projectId] as string,
+                              });
+                              setClouds(undefined);
+                              setVersionChoices({});
+                              await refresh();
+                            })
+                          }
+                        >
+                          {t('sync.useVersion')}
+                        </Button>
+                      </div>
+                    )}
                 </div>
               );
             })}

@@ -134,6 +134,30 @@ function draft(entityId: string, content: unknown): SyncDraftRecord {
 }
 
 describe('untrusted synchronized packages', () => {
+  it('retains the materialized project name on concurrent edits until a revision resolves both heads', async () => {
+    const h = fixture();
+    const projectId = 'project_synthetic';
+    h.storage.transaction(() => h.storage.sync.bindProject(h.vault.vaultId, projectId));
+    const change = (displayName: string, parents: string[] = []) => ({
+      ...draft(projectId, { schema: 'wevir-project/1', projectId, displayName }),
+      parents,
+    });
+    const base = await h.apply(change('Synthetic base'), 'project', { projectId });
+    const left = await h.apply(change('Synthetic left', [base.opId]), 'project', { projectId });
+    const right = await h.apply(change('Synthetic right', [base.opId]), 'project', { projectId });
+    expect(h.storage.sync.projectName(h.vault.vaultId, projectId)).toBe('Synthetic left');
+    expect(new Set(h.storage.sync.heads(h.vault.vaultId, projectId))).toEqual(
+      new Set([left.opId, right.opId]),
+    );
+    const resolved = await h.apply(
+      { ...change('Synthetic right', [left.opId, right.opId]), kind: 'resolve' },
+      'project',
+      { projectId },
+    );
+    expect(h.storage.sync.projectName(h.vault.vaultId, projectId)).toBe('Synthetic right');
+    expect(h.storage.sync.heads(h.vault.vaultId, projectId)).toEqual([resolved.opId]);
+  });
+
   it('keeps independent source streams as related histories instead of interleaving their events', async () => {
     const h = fixture();
     const at = '2026-11-13T00:00:00.000Z';

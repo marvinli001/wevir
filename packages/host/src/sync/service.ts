@@ -1,11 +1,14 @@
 import { join } from 'node:path';
 import {
+  type MethodParams,
   type SessionId,
   type SharedFile,
   type SyncConfigureParams,
+  SyncProjectContentSchema,
   type SyncStatus,
   SyncStatusSchema,
 } from '@wevir/protocol';
+import { packRecord } from '@wevir/protocol/sync';
 import type { SecretStore, Storage, SyncVaultRecord } from '@wevir/storage';
 import type { EpisodeChange } from '../episodes/service.js';
 import { HostError } from '../errors.js';
@@ -24,6 +27,7 @@ import { SyncEngine } from './engine.js';
 import { type SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
 import { SyncVaultKeys } from './keys.js';
 import { SyncMaterials } from './materials.js';
+import { SyncQueue } from './queue.js';
 import { SyncRestoreData } from './restore-data.js';
 import { SyncSettings } from './settings.js';
 import { SyncSnapshots } from './snapshots.js';
@@ -494,6 +498,68 @@ export class SyncService {
       throw this.#failure(error);
     } finally {
       if (!this.#closed && !this.#configuring) this.#schedule(0);
+    }
+  }
+
+  resolveProject(params: MethodParams<'sync.resolveProject'>) {
+    try {
+      const vault = this.#consented();
+      if (
+        this.#closed ||
+        this.#configuring ||
+        !vault?.categories.includes('project') ||
+        !vault.projectIds.includes(params.projectId)
+      )
+        throw new ZuvRequestError('SCOPE_DISABLED');
+      const { storage } = this.#options;
+      this.#capture.projects();
+      const result = storage.transaction(() => {
+        const heads = storage.sync.heads(vault.vaultId, params.projectId);
+        const entity = storage.sync.entity(vault.vaultId, params.projectId);
+        if (
+          heads.length !== params.expectedHeads.length ||
+          heads.some((head) => !params.expectedHeads.includes(head)) ||
+          !entity?.revision ||
+          !heads.includes(entity.revision)
+        )
+          throw new ZuvRequestError('REVISION_CONFLICT');
+        if (!heads.includes(params.selectedOpId)) throw new ZuvRequestError('INVALID_REQUEST');
+        const selected = storage.sync.getOperation(vault.vaultId, params.selectedOpId);
+        const record = packRecord.safeParse(selected?.record);
+        const content = SyncProjectContentSchema.safeParse(
+          record.success ? record.data.content : undefined,
+        );
+        if (
+          !record.success ||
+          !content.success ||
+          selected?.entityType !== 'project' ||
+          selected.entityId !== params.projectId ||
+          record.data.projectId !== params.projectId ||
+          content.data.projectId !== params.projectId ||
+          !(
+            ['applied', 'committed'].includes(selected.state) ||
+            (selected.direction === 'outbox' && ['queued', 'pending'].includes(selected.state))
+          )
+        )
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        const opId = new SyncQueue(storage).enqueue({
+          vaultId: vault.vaultId,
+          entityId: params.projectId,
+          entityType: 'project',
+          projectId: params.projectId,
+          localKey: entity.localKey,
+          kind: 'resolve',
+          parents: heads,
+          content: content.data,
+        });
+        if (!opId) throw new ZuvRequestError('SCOPE_DISABLED');
+        storage.sync.setProjectName(vault.vaultId, params.projectId, content.data.displayName);
+        return { opId };
+      });
+      this.#schedule(0);
+      return result;
+    } catch (error) {
+      throw this.#failure(error);
     }
   }
 

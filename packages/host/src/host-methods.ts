@@ -1582,6 +1582,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
       return options.sync.projectCatalog(enable);
     },
+    'sync.resolveProject': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.resolveProject(params);
+    },
     'sync.configure': (params) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });

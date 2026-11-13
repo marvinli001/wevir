@@ -120,6 +120,7 @@ export class SyncEventCapture {
             localKey: `project:${projectId}`,
             content: { schema: 'wevir-project/1', projectId, displayName: workspace.displayName },
           });
+    if (opId) this.#storage.sync.setProjectName(vault.vaultId, projectId, workspace.displayName);
     this.#storage.sync.putFileBaseline({
       vaultId: vault.vaultId,
       entityId: projectId,

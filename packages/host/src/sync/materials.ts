@@ -103,7 +103,13 @@ export class SyncMaterials {
         if (body.projectId !== op.entityId || body.projectId !== record.projectId)
           throw new ZuvRequestError('INTEGRITY_FAILED');
         return () => {
-          this.#storage.sync.setProjectName(op.vaultId, body.projectId, body.displayName);
+          const current = this.#storage.sync.entity(op.vaultId, op.entityId);
+          if (
+            !current?.revision ||
+            current.revision === op.opId ||
+            op.parents.includes(current.revision)
+          )
+            this.#storage.sync.setProjectName(op.vaultId, body.projectId, body.displayName);
           this.#entity(op, `project:${body.projectId}`, record);
         };
       }
