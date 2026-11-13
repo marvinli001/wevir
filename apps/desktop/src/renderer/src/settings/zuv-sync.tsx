@@ -17,8 +17,8 @@ import { type PlainMessageKey, t } from '@/i18n';
 import { NoticeBanner } from './settings-ui';
 import { ZuvBundles } from './zuv-bundles';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
-import { ZuvSessionConflicts } from './zuv-session-conflicts';
 import { ZuvOutbox } from './zuv-outbox';
+import { ZuvSessionConflicts } from './zuv-session-conflicts';
 import { ZuvSettingsConflicts } from './zuv-settings-conflicts';
 
 const GROUPS: ReadonlyArray<{
