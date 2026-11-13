@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { SessionIdSchema } from './common.js';
 import { EpisodeIdSchema, EpisodeSchema } from './context.js';
-import { MemoryNameSchema, SessionForkedFromSchema } from './entities.js';
+import { MemoryNameSchema, SessionForkedFromSchema, SyncRecoveredFromSchema } from './entities.js';
 import { RetroSummarySchema } from './retro.js';
 import { SyncStreamRefSchema } from './sync.js';
 import { SyncSettingsContentSchema } from './sync-settings.js';
@@ -31,6 +31,7 @@ export const SyncProjectContentSchema = z.object({
 });
 export const SyncSessionContentSchema = z.object({
   schema: z.literal('wevir-session/1'),
+  recoveredFrom: SyncRecoveredFromSchema.optional(),
   sessionId: SessionIdSchema,
   throughSeq: decimal,
   title: z.string().max(2048),
@@ -48,6 +49,7 @@ export const SyncSessionContentSchema = z.object({
 });
 export const SyncEventStreamContentSchema = z.object({
   schema: z.literal('wevir-event-stream/1'),
+  recoveredFrom: SyncRecoveredFromSchema.optional(),
   sessionId: SessionIdSchema,
   streamId: id,
   exclusions: z.array(z.literal('engine.raw')).max(1),

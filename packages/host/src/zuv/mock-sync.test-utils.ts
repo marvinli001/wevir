@@ -38,6 +38,17 @@ type Vault = {
   operations: Array<{ operation: SyncOperation; manifest: RecordManifest }>;
   cursors: Map<string, number>;
   cursor: string;
+  executions: Map<
+    string,
+    {
+      deviceId: string;
+      runId: string;
+      epoch: string;
+      fencingToken: string;
+      expiresAt: string;
+      released: boolean;
+    }
+  >;
 };
 const newId = (prefix: string) => `${prefix}_${randomUUID()}`;
 
@@ -61,6 +72,15 @@ export class MockSyncGateway {
   pendingCommits = false;
   failDownloads = false;
   budgetPaused = false;
+  failExecutions = false;
+  executionLeaseMs?: number;
+  readonly executionRequests: Array<{ action: string; deviceId: string; input: unknown }> = [];
+  expireExecution(runId: string): void {
+    for (const vault of this.#vaults.values()) {
+      const value = vault.executions.get(runId);
+      if (value) value.expiresAt = new Date(0).toISOString();
+    }
+  }
   readonly limitOverrides: Record<string, number> = {};
 
   #vault(userId: string): Vault {
@@ -153,6 +173,7 @@ export class MockSyncGateway {
           operations: [],
           cursors: new Map([[cursor, 0]]),
           cursor,
+          executions: new Map(),
         };
         this.#vaults.set(userId, vault);
       }
@@ -178,6 +199,68 @@ export class MockSyncGateway {
     const vault = this.#vault(userId);
     const scopes = vault.scopes.get(deviceId);
     if (!scopes) throw new MockSyncError('SCOPE_DISABLED', 403);
+    if (path.startsWith('/sync/v1/executions/') && method === 'POST') {
+      const action = path.split('/').at(-1) as string;
+      const validator =
+        action === 'claim'
+          ? schemas.executionClaim
+          : action === 'renew'
+            ? schemas.executionRenew
+            : schemas.executionRelease;
+      const input = validator.parse(value);
+      this.executionRequests.push({ action, deviceId, input });
+      if (this.failExecutions) throw new MockSyncError('SERVICE_UNAVAILABLE', 503);
+      if (!scopes.enabled || !vault.trusted.has(deviceId))
+        throw new MockSyncError('SCOPE_DISABLED', 403);
+      const previous = vault.executions.get(input.runId);
+      if ((previous?.epoch ?? '0') !== input.expectedEpoch)
+        throw new MockSyncError('EXECUTION_CONFLICT');
+      const expiresAt = new Date(
+        Date.now() +
+          (this.executionLeaseMs ?? ('leaseSeconds' in input ? input.leaseSeconds * 1000 : 0)),
+      ).toISOString();
+      if (action === 'claim') {
+        if (previous && Date.parse(previous.expiresAt) > Date.now())
+          throw new MockSyncError('EXECUTION_CONFLICT');
+        const next = {
+          deviceId,
+          runId: input.runId,
+          epoch: String(BigInt(input.expectedEpoch) + 1n),
+          fencingToken: newId('fence'),
+          expiresAt,
+          released: false,
+        };
+        vault.executions.set(input.runId, next);
+        return {
+          value: {
+            runId: next.runId,
+            epoch: next.epoch,
+            fencingToken: next.fencingToken,
+            expiresAt: next.expiresAt,
+            branchRequired: Boolean(previous && !previous.released),
+          },
+        };
+      }
+      if (
+        !previous ||
+        previous.deviceId !== deviceId ||
+        !('fencingToken' in input) ||
+        input.fencingToken !== previous.fencingToken ||
+        Date.parse(previous.expiresAt) <= Date.now()
+      )
+        throw new MockSyncError('EXECUTION_CONFLICT');
+      previous.expiresAt = action === 'release' ? new Date().toISOString() : expiresAt;
+      previous.released = action === 'release';
+      return {
+        value: {
+          runId: previous.runId,
+          epoch: previous.epoch,
+          fencingToken: previous.fencingToken,
+          expiresAt: previous.expiresAt,
+          branchRequired: false,
+        },
+      };
+    }
     if (path === '/sync/v1/signing-keys' && method === 'GET') {
       const keyId = url.searchParams.get('keyId');
       if (keyId && keyId !== 'signing_synthetic') throw new MockSyncError('NOT_FOUND', 404);

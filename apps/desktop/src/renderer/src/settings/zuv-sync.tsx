@@ -16,6 +16,7 @@ import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { NoticeBanner } from './settings-ui';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
+import { ZuvOutbox } from './zuv-outbox';
 import { ZuvSettingsConflicts } from './zuv-settings-conflicts';
 
 const GROUPS: ReadonlyArray<{
@@ -514,6 +515,20 @@ export function ZuvSyncSection({
             {t(resetConfirm === 'apply' ? 'sync.resetApplyConsequences' : 'sync.resetConsequences')}
           </p>
         </ConfirmDialog>
+      )}
+      {status && (
+        <ZuvOutbox
+          client={client}
+          status={status}
+          disabled={
+            busy ||
+            resetBusy ||
+            !active ||
+            !status.binding?.enabled ||
+            (!!reset && reset.phase !== 'acknowledged')
+          }
+          onRecovered={setStatus}
+        />
       )}
       {client.supports('sync_settings_conflicts') &&
         status?.binding?.categories.includes('settings') && (

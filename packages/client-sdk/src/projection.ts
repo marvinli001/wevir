@@ -51,6 +51,7 @@ import type {
   Session,
   SessionAcceptance,
   SessionAutoContinue,
+  SessionExecution,
   SessionGoal,
   SessionId,
   SessionInsight,
@@ -469,6 +470,7 @@ export interface Transcript {
   railCards: readonly string[];
   /** 0.35.0：会话的目标（最近一次 `session.goal_changed`），清除或没有时 undefined。 */
   goal: SessionGoal | undefined;
+  syncExecution?: SessionExecution;
   /** 0.119.0：额度恢复后自动继续（最近一次 `session.auto_continue`）；关掉、发出或有了新的回合时 undefined。规则同 `Session.autoContinue`。 */
   autoContinue: SessionAutoContinue | undefined;
   /** 0.36.0：最近一条用户消息（`user.message`）的协作模式；还没有消息时是 `default`。规则同 Host 快照的 `collaborationMode`。 */
@@ -621,6 +623,7 @@ export class TranscriptProjection {
   #lastError: EngineErrorInfo | undefined;
   #usage: Usage | undefined;
   #goal: SessionGoal | undefined;
+  #syncExecution: SessionExecution | undefined;
   #autoContinue: SessionAutoContinue | undefined;
   #taskBoard: readonly BoardTask[] = [];
   #promptSuggestion: PromptSuggestion | undefined;
@@ -721,6 +724,7 @@ export class TranscriptProjection {
     this.#lastError = undefined;
     this.#usage = undefined;
     this.#goal = undefined;
+    this.#syncExecution = undefined;
     this.#autoContinue = undefined;
     this.#taskBoard = [];
     this.#promptSuggestion = undefined;
@@ -852,6 +856,9 @@ export class TranscriptProjection {
       case 'session.title_changed':
         this.#title = event.payload.title;
         return;
+      case 'session.execution':
+        this.#syncExecution = event.payload;
+        break;
       case 'session.goal_changed':
         this.#goal = event.payload.goal ?? undefined;
         return;
@@ -1296,6 +1303,7 @@ export class TranscriptProjection {
       uiShow: this.#sourceReadOnly ? undefined : this.#uiShow,
       railCards: this.#sourceReadOnly ? [] : this.#railCards,
       goal: this.#goal,
+      syncExecution: this.#syncExecution,
       autoContinue: this.#sourceReadOnly ? undefined : this.#autoContinue,
       collaborationMode: this.#collaborationMode,
       latestPlan: this.#latestPlan,

@@ -12,6 +12,38 @@ const vault = {
 describe('sync durable preparation', () => {
   const { storage, dataDir } = useTempStorage();
   const bind = () => storage().transaction(() => storage().sync.bindVault(vault));
+  it('finds workspace rule-version references even without parent or file-part references', () => {
+    bind();
+    storage().transaction(() => {
+      storage().sync.putEntity({
+        vaultId: vault.vaultId,
+        entityId: 'snapshot_fixture',
+        entityType: 'workspace-snapshot',
+        localKey: 'snapshot:fixture',
+        materialized: true,
+      });
+      storage().sync.putDraft({
+        vaultId: vault.vaultId,
+        opId: 'snapshot_op_fixture',
+        entityId: 'snapshot_fixture',
+        kind: 'put',
+        parents: [],
+        content: {
+          schema: 'wevir-sync-draft/1',
+          body: {
+            schema: 'wevir-bundle/1',
+            files: [],
+            metadata: { ruleVersions: [{ entityId: 'rule_fixture', opId: 'rule_op_fixture' }] },
+          },
+        },
+        createdAt: '2026-11-13T00:00:00.000Z',
+      });
+    });
+    expect(storage().sync.draftsReferencing(vault.vaultId, ['rule_op_fixture'])).toEqual([
+      'snapshot_op_fixture',
+    ]);
+    expect(storage().sync.draftsReferencing(vault.vaultId, ['unrelated_fixture'])).toEqual([]);
+  });
 
   it('keeps resource revisions, stable draft IDs and event capture in the business transaction', () => {
     bind();

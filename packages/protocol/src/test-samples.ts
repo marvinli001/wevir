@@ -2359,6 +2359,10 @@ export const eventPayloads: PayloadSamples = {
       files: [{ ...sessionRules.files[0], delivery: 'model' }],
     },
   },
+  'session.execution': {
+    valid: { runId: 'srun_synthetic', streamId: 'sst_synthetic', epoch: '1', state: 'claimed' },
+    invalid: { runId: 'srun_synthetic', streamId: 'sst_synthetic', epoch: '-1', state: 'claimed' },
+  },
   'session.goal_changed': {
     valid: { goal: sessionGoal },
     invalid: { goal: { ...sessionGoal, status: 'running' } },
@@ -3554,6 +3558,18 @@ export const methodSamples: MethodSamples = {
   },
   'sync.resetCancel': {
     params: { valid: [{ jobId: 'srj_synthetic' }], invalid: [{}, { jobId: 1 }] },
+    result: {
+      valid: [
+        { protocol: 'wevir-sync/1', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.recoverOutbox': {
+    params: {
+      valid: [{ expectedDeviceId: 'dev_synthetic', commitIds: ['scm_synthetic'] }],
+      invalid: [{ expectedDeviceId: 'dev_synthetic', commitIds: [] }],
+    },
     result: {
       valid: [
         { protocol: 'wevir-sync/1', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },

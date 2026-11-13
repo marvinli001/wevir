@@ -50,6 +50,8 @@ export interface SessionRecord {
   origin?:
     | {
         kind: 'synced';
+        syncContinuation?: unknown;
+        recoveredFrom?: unknown;
         relatedTo?: string;
         vaultId: string;
         hostId: string;
@@ -73,6 +75,7 @@ export interface SessionRecord {
       }
     | {
         kind: 'history';
+        syncContinuation?: unknown;
         sessionId: string;
         via?: 'native' | 'handoff';
         externalSessionId?: string;

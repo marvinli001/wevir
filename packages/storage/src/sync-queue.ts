@@ -46,6 +46,9 @@ export interface SyncCommitRecord {
   attempts: number;
   retryAt: number;
   rebased?: boolean;
+  outcome?: 'ready' | 'uncertain' | 'rejected' | 'recovered';
+  errorCode?: string;
+  queries?: number;
 }
 
 export interface SyncCaptureRecord {
@@ -199,7 +202,10 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         EXISTS (SELECT 1 FROM json_each(d.parents) p WHERE p.value IN (SELECT value FROM json_each(:ids)))
         OR (json_extract(d.content,'$.body.schema') = 'wevir-bundle/1' AND EXISTS (
           SELECT 1 FROM json_each(d.content,'$.body.files') f, json_each(f.value,'$.parts') p
-          WHERE json_extract(p.value,'$.opId') IN (SELECT value FROM json_each(:ids))))) ORDER BY d.rowid`)
+          WHERE json_extract(p.value,'$.opId') IN (SELECT value FROM json_each(:ids))))
+        OR (json_extract(d.content,'$.body.schema') = 'wevir-bundle/1' AND EXISTS (
+          SELECT 1 FROM json_each(d.content,'$.body.metadata.ruleVersions') r
+          WHERE json_extract(r.value,'$.opId') IN (SELECT value FROM json_each(:ids))))) ORDER BY d.rowid`)
         .all({ vaultId, ids: toJson(opIds) })
         .map((row) => text(row, 'op_id'));
     },
@@ -348,9 +354,9 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         .get(commit.vaultId, commit.commitId);
       if (previous && text(previous, 'body') !== commit.body)
         throw new Error('sync commit identity changed');
-      db.prepare(`INSERT INTO sync_commits (vault_id, commit_id, body, state, cursor, attempts, retry_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+      db.prepare(`INSERT INTO sync_commits (vault_id, commit_id, body, state, cursor, attempts, retry_at, outcome, error_code, queries) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (vault_id, commit_id) DO UPDATE SET state = excluded.state, cursor = excluded.cursor,
-        attempts = excluded.attempts, retry_at = excluded.retry_at`).run(
+        attempts = excluded.attempts, retry_at = excluded.retry_at, outcome=excluded.outcome, error_code=excluded.error_code, queries=excluded.queries`).run(
         commit.vaultId,
         commit.commitId,
         commit.body,
@@ -358,6 +364,9 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         commit.cursor ?? null,
         commit.attempts,
         commit.retryAt,
+        commit.outcome ?? 'ready',
+        commit.errorCode ?? null,
+        commit.queries ?? 0,
       );
     },
     commits(vaultId: string, pendingOnly = true): SyncCommitRecord[] {
@@ -375,6 +384,11 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
           attempts: integer(row, 'attempts'),
           retryAt: integer(row, 'retry_at'),
           ...(integer(row, 'rebased') && { rebased: true }),
+          ...(text(row, 'outcome') !== 'ready' && {
+            outcome: text(row, 'outcome') as SyncCommitRecord['outcome'],
+          }),
+          ...(integer(row, 'queries') && { queries: integer(row, 'queries') }),
+          ...(optionalText(row, 'error_code') && { errorCode: text(row, 'error_code') }),
         }));
     },
     pages(

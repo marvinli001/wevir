@@ -1739,6 +1739,12 @@ export const messages: Messages = {
   'sync.saved': 'Синхронизировано',
   'sync.paused': 'Приостановлена',
   'sync.attention': 'Требуется действие',
+  'sync.recoverOutbox': 'Восстановить работу',
+  'sync.outboxUncertain': 'Отправка не подтверждена',
+  'sync.outboxRejected': 'Отправка отклонена',
+  'sync.deviceChanged': 'Устройство изменено',
+  'sync.recoverOutboxConsequences':
+    'Локальная работа сохранится в новой ветке. Исходная отправка останется; последующее подтверждение может создать параллельные версии.',
   'sync.resetRequired': 'Требуется восстановление',
   'sync.categories': 'Категории',
   'sync.cloudProjects': 'Облачные проекты',

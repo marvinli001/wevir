@@ -2,7 +2,7 @@
   "protocol": "wevir-content/1",
   "artifactRevision": 1,
   "status": "proposed",
-  "hostProtocol": "0.178.0",
+  "hostProtocol": "0.182.0",
   "cloudProtocol": "wevir-sync/1",
   "schemas": [
     "sharedFiles",

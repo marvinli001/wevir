@@ -1729,6 +1729,12 @@ export const messages: Messages = {
   'sync.saved': 'Synchronisiert',
   'sync.paused': 'Pausiert',
   'sync.attention': 'Aktion erforderlich',
+  'sync.recoverOutbox': 'Offline-Arbeit retten',
+  'sync.outboxUncertain': 'Übertragung unbestätigt',
+  'sync.outboxRejected': 'Übertragung abgelehnt',
+  'sync.deviceChanged': 'Gerät geändert',
+  'sync.recoverOutboxConsequences':
+    'Offline-Arbeit wird in einem neuen Zweig gesichert. Die ursprüngliche Übertragung bleibt erhalten; eine spätere Bestätigung kann parallele Versionen erzeugen.',
   'sync.resetRequired': 'Wiederherstellung erforderlich',
   'sync.categories': 'Kategorien',
   'sync.cloudProjects': 'Cloud-Projekte',

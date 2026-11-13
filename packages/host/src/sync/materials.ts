@@ -17,6 +17,7 @@ import {
   SyncEventStreamContentSchema,
   SyncMemoryContentSchema,
   SyncProjectContentSchema,
+  type SyncRecoveredFrom,
   SyncSessionContentSchema,
   SyncSharedFilesMetadataSchema,
   type SyncStreamRef,
@@ -255,6 +256,7 @@ export class SyncMaterials {
         },
         record.projectId as string,
         decoded.find((value) => value.event?.type === 'session.created')?.event,
+        body.recoveredFrom,
       );
       if (source && !source.mirrored) {
         for (const value of decoded)
@@ -317,6 +319,7 @@ export class SyncMaterials {
     ref: SyncStreamRef,
     projectId: string,
     first?: WevirEvent,
+    recoveredFrom?: SyncRecoveredFrom,
   ): SyncSourceRecord {
     if (!this.#storage.db.isTransaction)
       throw new Error('sync source projection requires a transaction');
@@ -330,9 +333,45 @@ export class SyncMaterials {
           value.streamId === ref.streamId,
       );
     if (existing) {
-      const local = existing.localSessionId && this.#storage.sessions.get(existing.localSessionId);
+      const local = existing.localSessionId
+        ? this.#storage.sessions.get(existing.localSessionId)
+        : undefined;
       if (existing.deviceId !== ref.deviceId || (local && local.workspaceId !== workspace.id))
         throw new ZuvRequestError('INTEGRITY_FAILED');
+      const continuation =
+        first?.type === 'session.created' && first.payload.origin?.kind === 'history'
+          ? first.payload.origin.syncContinuation
+          : undefined;
+      if (continuation && continuation.vaultId !== vaultId)
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      if (
+        existing.mirrored &&
+        local?.origin?.kind === 'synced' &&
+        (continuation || recoveredFrom)
+      ) {
+        if (
+          continuation &&
+          local.origin.syncContinuation &&
+          jcs(local.origin.syncContinuation) !== jcs(continuation)
+        )
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        const source = continuation?.source ?? recoveredFrom?.origin;
+        const related =
+          source &&
+          this.#storage.sync
+            .sources(vaultId)
+            .find(
+              (value) =>
+                value.hostId === source.hostId &&
+                value.sessionId === source.sessionId &&
+                value.streamId === source.streamId,
+            );
+        this.#storage.sync.updateSyncedExecutionOrigin(local.id, {
+          ...(continuation && { syncContinuation: continuation }),
+          ...(recoveredFrom && { recoveredFrom }),
+          ...(related?.localSessionId && { relatedTo: related.localSessionId }),
+        });
+      }
       return existing;
     }
     const source: SyncSourceRecord = {
@@ -341,7 +380,7 @@ export class SyncMaterials {
       localSessionId: newId('ses'),
       mirrored: true,
     };
-    this.#createMirror(source, workspace.id, workspace.rootPath, first);
+    this.#createMirror(source, workspace.id, workspace.rootPath, first, recoveredFrom);
     this.#storage.sync.putSource(source);
     return source;
   }
@@ -351,18 +390,31 @@ export class SyncMaterials {
     workspaceId: string,
     cwd: string,
     first?: WevirEvent,
+    recoveredFrom?: SyncRecoveredFrom,
   ): void {
     const created = first?.type === 'session.created' ? first.payload : undefined;
+    const continuation =
+      created?.origin?.kind === 'history' ? created.origin.syncContinuation : undefined;
+    if (continuation && continuation.vaultId !== source.vaultId)
+      throw new ZuvRequestError('INTEGRITY_FAILED');
     const id = source.localSessionId as SessionId;
     const now = first?.ts ?? new Date().toISOString();
     const related = this.#storage.sync
       .sources(source.vaultId)
       .find(
         (value) =>
-          value.hostId === source.hostId &&
-          value.deviceId === source.deviceId &&
-          value.sessionId === source.sessionId &&
-          value.streamId !== source.streamId &&
+          (recoveredFrom?.origin
+            ? value.hostId === recoveredFrom.origin.hostId &&
+              value.sessionId === recoveredFrom.origin.sessionId &&
+              value.streamId === recoveredFrom.origin.streamId
+            : continuation
+              ? value.hostId === continuation.source.hostId &&
+                value.sessionId === continuation.source.sessionId &&
+                value.streamId === continuation.source.streamId
+              : value.hostId === source.hostId &&
+                value.deviceId === source.deviceId &&
+                value.sessionId === source.sessionId &&
+                value.streamId !== source.streamId) &&
           value.localSessionId &&
           this.#storage.sessions.get(value.localSessionId),
       );
@@ -383,6 +435,8 @@ export class SyncMaterials {
       updatedAt: now,
       origin: {
         kind: 'synced',
+        ...(continuation && { syncContinuation: continuation }),
+        ...(recoveredFrom && { recoveredFrom }),
         ...(related?.localSessionId && { relatedTo: related.localSessionId }),
         vaultId: source.vaultId,
         hostId: source.hostId,

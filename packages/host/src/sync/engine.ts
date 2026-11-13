@@ -29,6 +29,16 @@ import { rebaseResetCommit } from './reset-queue.js';
 type Record = typeof packRecord._output;
 
 const PACK_TARGET_BYTES = 256 * 1024;
+const MAX_COMMIT_QUERIES = 3;
+const COMMIT_REJECTIONS = new Set([
+  'MISSING_PARENT',
+  'REVISION_CONFLICT',
+  'BLOB_INCOMPLETE',
+  'OP_ID_REUSED',
+  'INVALID_REQUEST',
+  'SCOPE_DISABLED',
+  'QUOTA_EXCEEDED',
+]);
 
 export interface SyncEngineOptions {
   storage: Storage;
@@ -77,6 +87,44 @@ export class SyncEngine {
       vault.deviceId === entitlements.identity.deviceId
       ? vault
       : undefined;
+  }
+
+  async outboxRecords(commit: SyncCommitRecord, signal: AbortSignal): Promise<Map<string, Record>> {
+    const { storage, cache } = this.#options;
+    const batch = validateSyncBatch(JSON.parse(commit.body));
+    const verified = new Map<string, Record>();
+    for (const blobId of new Set(
+      batch.operations.flatMap((op) => (op.payload ? [op.payload.blobId] : [])),
+    )) {
+      const blob = storage.sync.blob(commit.vaultId, blobId);
+      if (!blob) throw new ZuvRequestError('INTEGRITY_FAILED');
+      const bytes = await cache.read(commit.vaultId, blobId, blob.cipherBytes, blob.cipherSha256);
+      const key = await this.#options.key(commit.vaultId, blob.keyEpoch, signal);
+      try {
+        if (parseEnvelope(bytes).header.keyEpoch !== blob.keyEpoch)
+          throw new Error('epoch changed');
+        const records = await decryptPack(
+          bytes,
+          key,
+          batch.operations.filter((op) => op.payload?.blobId === blobId),
+          batch.recordManifest,
+        );
+        for (const record of records.records) {
+          const stored = storage.sync.getOperation(commit.vaultId, record.opId);
+          if (!stored || jcs(stored.record) !== jcs(record))
+            throw new Error('outbox record changed');
+          verified.set(record.opId, record);
+        }
+      } catch {
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      }
+    }
+    for (const operation of batch.operations)
+      if (!operation.payload) {
+        const stored = storage.sync.getOperation(commit.vaultId, operation.opId);
+        verified.set(operation.opId, packRecord.parse(stored?.record));
+      }
+    return verified;
   }
 
   async reconcileReset(jobId: string, signal: AbortSignal): Promise<void> {
@@ -155,8 +203,28 @@ export class SyncEngine {
           ...transport,
           keyEpoch: epoch,
         });
-      await this.#push(vault, signal);
+      let pushFailure: unknown;
+      try {
+        await this.#push(vault, signal);
+      } catch (error) {
+        if (
+          !(error instanceof ZuvRequestError) ||
+          ![
+            'MISSING_PARENT',
+            'REVISION_CONFLICT',
+            'BLOB_INCOMPLETE',
+            'OP_ID_REUSED',
+            'RECOVERY_REQUIRED',
+            'NETWORK_ERROR',
+            'RATE_LIMITED',
+            'QUOTA_EXCEEDED',
+          ].includes(error.code)
+        )
+          throw error;
+        pushFailure = error;
+      }
       await this.#pull(vault, signal);
+      if (pushFailure) throw pushFailure;
       await this.#prepare(vault, signal);
       await this.#push(vault, signal);
       this.#guard(vault, signal);
@@ -406,6 +474,13 @@ export class SyncEngine {
       .commits(vault.vaultId)
       .find((value) => this.#commitInScope(vault, value));
     if (!commit || commit.retryAt > Date.now()) return;
+    if (commit.outcome === 'rejected')
+      throw new ZuvRequestError(
+        (commit.errorCode ?? 'RECOVERY_REQUIRED') as ConstructorParameters<
+          typeof ZuvRequestError
+        >[0],
+      );
+    if (commit.outcome === 'recovered') return;
     const batch = validateSyncBatch(JSON.parse(commit.body));
     for (const op of batch.operations) {
       const manifest = batch.recordManifest.find(
@@ -415,16 +490,33 @@ export class SyncEngine {
       if (op.deviceId !== vault.deviceId || (op.origin && op.origin.hostId !== vault.originHostId))
         throw new ZuvRequestError('RECOVERY_REQUIRED');
     }
-    if (commit.state === 'pending') {
+    if (commit.state === 'pending' || commit.attempts > 0) {
       this.#guard(vault, signal);
-      const result = await client.json(
-        'commitResult',
-        'GET',
-        `/api/wevir/sync/v1/commits/${commit.commitId}`,
-        undefined,
-        { signal },
-      );
-      this.#commitResult(vault, commit, result, batch.operations);
+      if ((commit.queries ?? 0) >= MAX_COMMIT_QUERIES)
+        throw new ZuvRequestError('RECOVERY_REQUIRED');
+      const queried = {
+        ...commit,
+        outcome: 'uncertain' as const,
+        queries: (commit.queries ?? 0) + 1,
+        retryAt: Date.now() + 5000,
+      };
+      storage.transaction(() => storage.sync.putCommit(queried));
+      let result: typeof schemas.commitResult._output;
+      try {
+        result = await client.json(
+          'commitResult',
+          'GET',
+          `/api/wevir/sync/v1/commits/${commit.commitId}`,
+          undefined,
+          { signal },
+        );
+      } catch (error) {
+        if (error instanceof ZuvRequestError && error.code === 'NOT_FOUND')
+          throw new ZuvRequestError('RECOVERY_REQUIRED');
+        throw error;
+      }
+      this.#guard(vault, signal);
+      this.#commitResult(vault, queried, result, batch.operations);
       return;
     }
     for (const blobId of new Set(
@@ -476,17 +568,38 @@ export class SyncEngine {
       storage.sync.putBlob({ ...blob, state: 'ready', uploadAttempts: blob.uploadAttempts + 1 });
     }
     this.#guard(vault, signal);
-    storage.transaction(() => storage.sync.putCommit({ ...commit, attempts: commit.attempts + 1 }));
-    const result = await client.transfer({
-      method: 'POST',
-      path: '/api/wevir/sync/v1/commits',
-      body: Buffer.from(commit.body),
-      maxBytes: 8192,
-      signal,
-    });
-    const parsed = schemas.commitResult.safeParse(JSON.parse(result.bytes.toString('utf8')));
-    if (!parsed.success) throw new ZuvRequestError('INTEGRITY_FAILED');
-    this.#commitResult(vault, commit, parsed.data, batch.operations);
+    const attempted = { ...commit, attempts: commit.attempts + 1, outcome: 'uncertain' as const };
+    storage.transaction(() => storage.sync.putCommit(attempted));
+    try {
+      const result = await client.transfer({
+        method: 'POST',
+        path: '/api/wevir/sync/v1/commits',
+        body: Buffer.from(commit.body),
+        maxBytes: 8192,
+        signal,
+      });
+      const parsed = schemas.commitResult.safeParse(JSON.parse(result.bytes.toString('utf8')));
+      if (!parsed.success) throw new ZuvRequestError('INTEGRITY_FAILED');
+      this.#guard(vault, signal);
+      this.#commitResult(vault, attempted, parsed.data, batch.operations);
+    } catch (error) {
+      if (
+        error instanceof ZuvRequestError &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        COMMIT_REJECTIONS.has(error.code)
+      ) {
+        storage.transaction(() =>
+          storage.sync.putCommit({
+            ...attempted,
+            outcome: 'rejected',
+            errorCode: error.code,
+            retryAt: 0,
+          }),
+        );
+      }
+      throw error;
+    }
   }
 
   #commitResult(
@@ -500,7 +613,8 @@ export class SyncEngine {
     storage.transaction(() => {
       storage.sync.putCommit({
         ...commit,
-        attempts: commit.attempts + 1,
+        outcome: result.state === 'committed' ? 'ready' : 'uncertain',
+        errorCode: undefined,
         state: result.state,
         ...(result.state === 'committed' && { cursor: result.cursor }),
         retryAt: result.state === 'pending' ? Date.now() + 5000 : 0,
@@ -574,6 +688,24 @@ export class SyncEngine {
       changes.operations.map((op) => op.opId),
       signal,
     );
+    storage.transaction(() => {
+      for (const commit of storage.sync.commits(vault.vaultId)) {
+        const batch = validateSyncBatch(JSON.parse(commit.body));
+        if (
+          batch.operations.every(
+            (op) => storage.sync.getOperation(vault.vaultId, op.opId)?.state === 'committed',
+          )
+        )
+          storage.sync.putCommit({
+            ...commit,
+            state: 'committed',
+            outcome: 'ready',
+            cursor: changes.nextCursor,
+            errorCode: undefined,
+            retryAt: 0,
+          });
+      }
+    });
     this.#guard(vault, signal);
     await client.json(
       'applied',
@@ -598,7 +730,10 @@ export class SyncEngine {
     const verified = new Map<string, Record>();
     for (const stored of pending) {
       if (stored.direction === 'outbox') {
-        storage.sync.markOperation(vault.vaultId, stored.opId, 'committed');
+        storage.transaction(() => {
+          storage.sync.confirmRecoveredOutbox(vault.vaultId, stored.opId);
+          storage.sync.markOperation(vault.vaultId, stored.opId, 'committed');
+        });
         continue;
       }
       if (stored.state === 'quarantined')

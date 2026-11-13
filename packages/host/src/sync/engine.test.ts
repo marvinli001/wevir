@@ -1,6 +1,12 @@
 import { join } from 'node:path';
 import type { RecordManifest, SyncOperation } from '@wevir/protocol/sync';
-import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
+import {
+  FileSecretStore,
+  openStorage,
+  type Storage,
+  type SyncCommitRecord,
+  type SyncEntityRecord,
+} from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { newId } from '../ids.js';
 import { useTempDir } from '../test-utils.js';
@@ -12,6 +18,7 @@ import { SyncBlobCache } from './cache.js';
 import { encryptPack, sha256 } from './crypto.js';
 import { SyncEngine } from './engine.js';
 import { SyncVaultKeys } from './keys.js';
+import { SyncOutboxRecovery } from './outbox-recovery.js';
 import { SyncQueue } from './queue.js';
 import { SyncRestoreData } from './restore-data.js';
 import { SyncSnapshots } from './snapshots.js';
@@ -154,6 +161,268 @@ async function setup(fetcher?: typeof fetch) {
 }
 
 describe('durable encrypted synchronization over HTTP', () => {
+  it('retains both heads when an explicitly recovered uncertain commit is later confirmed', async () => {
+    const { first, server } = await setup();
+    await first.enable();
+    server.sync.pendingCommits = true;
+    const originalOp = first.enqueue('Synthetic uncertain history') as string;
+    await first.engine.run();
+    const commit = first.storage.sync.commits(first.opened.vaultId)[0] as ReturnType<
+      Storage['sync']['commits']
+    >[number];
+    await new SyncOutboxRecovery({
+      storage: first.storage,
+      client: first.client,
+      engine: first.engine,
+    }).recover(
+      { expectedDeviceId: first.opened.deviceId, commitIds: [commit.commitId] },
+      new AbortController().signal,
+    );
+    const recoveredOp = first.storage.sync.outboxRecovery(first.opened.vaultId, originalOp)
+      ?.opId as string;
+    await first.engine.run();
+    server.sync.finalize();
+    await first.engine.run();
+    const entityId = first.storage.sync.getOperation(first.opened.vaultId, originalOp)
+      ?.entityId as string;
+    expect(first.storage.sync.heads(first.opened.vaultId, entityId)).toEqual(
+      expect.arrayContaining([originalOp, recoveredOp]),
+    );
+    expect(first.storage.sync.getOperation(first.opened.vaultId, originalOp)?.state).toBe(
+      'committed',
+    );
+    expect(first.storage.sync.getOperation(first.opened.vaultId, recoveredOp)).toBeDefined();
+  });
+  it('recovers a cloned outbox under the newly approved device without impersonating the old origin', async () => {
+    const { first, second, server } = await setup(async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith('/commits') && init?.method === 'POST')
+        throw new TypeError('synthetic old device unavailable');
+      return fetch(input, init);
+    });
+    await first.enable();
+    const oldOp = first.enqueue('Synthetic cloned offline work') as string;
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    const oldCommit = first.storage.sync.commits(first.opened.vaultId)[0] as NonNullable<
+      ReturnType<Storage['sync']['commits']>[number]
+    >;
+    const oldOperation = first.storage.sync.getOperation(first.opened.vaultId, oldOp);
+    const keys = new SyncVaultKeys({
+      client: second.client,
+      secrets: second.options.secrets,
+      onSecret: () => {},
+    });
+    const engine = new SyncEngine({
+      storage: first.storage,
+      client: second.client,
+      cache: new SyncBlobCache(join(first.home, 'sync/blobs')),
+      key: (vaultId, epoch, signal) => keys.unlock(vaultId, epoch, signal),
+      prepareApply: async () => () => {},
+    });
+    await new SyncOutboxRecovery({ storage: first.storage, client: second.client, engine }).recover(
+      { expectedDeviceId: first.opened.deviceId, commitIds: [oldCommit.commitId] },
+      new AbortController().signal,
+    );
+    expect(first.storage.sync.activeVault()).toMatchObject({
+      deviceId: second.opened.deviceId,
+      originHostId: second.opened.originHostId,
+      deviceSeq: '0',
+    });
+    expect(second.client.entitlements?.syncState).toBe('ready');
+    await engine.run();
+    const recovery = first.storage.sync.outboxRecovery(first.opened.vaultId, oldOp);
+    expect(recovery?.opId).not.toBe(oldOp);
+    const fresh = first.storage.sync.getOperation(first.opened.vaultId, recovery?.opId as string);
+    expect(fresh).toMatchObject({
+      deviceId: second.opened.deviceId,
+      record: {
+        content: {
+          text: 'Synthetic cloned offline work',
+          recoveredFrom: { deviceId: first.opened.deviceId, opId: oldOp },
+        },
+      },
+    });
+    expect(first.storage.sync.getOperation(first.opened.vaultId, oldOp)).toEqual(oldOperation);
+    expect(
+      first.storage.sync
+        .commits(first.opened.vaultId, false)
+        .find((value) => value.commitId === oldCommit.commitId)?.body,
+    ).toBe(oldCommit.body);
+    const attempts = server.sync.attempts.commits;
+    const realIdentity = await second.client.getEntitlements();
+    vi.spyOn(second.client, 'getEntitlements').mockResolvedValueOnce({
+      ...realIdentity,
+      identity: { ...realIdentity.identity, userId: 'user_other_synthetic' },
+    });
+    await expect(
+      new SyncOutboxRecovery({ storage: first.storage, client: second.client, engine }).recover(
+        { expectedDeviceId: second.opened.deviceId, commitIds: [oldCommit.commitId] },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    expect(server.sync.attempts.commits).toBe(attempts);
+  });
+  it('keeps pulling after a definite rejection and recovers with fresh IDs without rewriting the old commit', async () => {
+    let rejected = 0;
+    const { first, second } = await setup(async (input, init) => {
+      if (
+        new URL(String(input)).pathname.endsWith('/commits') &&
+        init?.method === 'POST' &&
+        !rejected++
+      )
+        return new Response(
+          JSON.stringify({ error: { code: 'REVISION_CONFLICT', message: 'synthetic rejection' } }),
+          { status: 409, headers: { 'content-type': 'application/json' } },
+        );
+      return fetch(input, init);
+    });
+    await first.enable();
+    await second.enable();
+    const originalOp = first.enqueue('Synthetic local offline work') as string;
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    const original = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
+    expect(original).toMatchObject({ outcome: 'rejected', attempts: 1 });
+    second.enqueue('Synthetic remote work', 'global/remote.md');
+    await second.engine.run();
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    expect(first.storage.sync.localEntity(first.opened.vaultId, 'global/remote.md')).toBeDefined();
+    expect(rejected).toBe(1);
+    await new SyncOutboxRecovery({
+      storage: first.storage,
+      client: first.client,
+      engine: first.engine,
+    }).recover(
+      { expectedDeviceId: first.opened.deviceId, commitIds: [original.commitId] },
+      new AbortController().signal,
+    );
+    const replacement = first.storage.sync
+      .drafts(first.opened.vaultId)
+      .find((value) => (value.content as { body: { recoveredFrom?: unknown } }).body.recoveredFrom);
+    expect(replacement?.opId).not.toBe(originalOp);
+    expect(replacement?.content).toMatchObject({
+      body: {
+        text: 'Synthetic local offline work',
+        recoveredFrom: { opId: originalOp, commitId: original.commitId },
+      },
+    });
+    expect(
+      first.storage.sync
+        .commits(first.opened.vaultId, false)
+        .find((value) => value.commitId === original.commitId),
+    ).toMatchObject({ body: original.body, outcome: 'recovered' });
+    await first.engine.run();
+    expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([]);
+  });
+
+  it('queries an uncertain commit at most three times across restart and never repeats POST or upload', async () => {
+    let loseResponse = true;
+    const { server, first } = await setup(async (input, init) => {
+      const result = await fetch(input, init);
+      if (
+        new URL(String(input)).pathname.endsWith('/commits') &&
+        init?.method === 'POST' &&
+        loseResponse
+      ) {
+        loseResponse = false;
+        await result.arrayBuffer();
+        throw new TypeError('synthetic lost commit response');
+      }
+      return result;
+    });
+    await first.enable();
+    server.sync.pendingCommits = true;
+    first.enqueue('Synthetic response loss');
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    const original = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
+    for (let index = 0; index < 3; index++) {
+      const commit = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
+      first.storage.transaction(() => first.storage.sync.putCommit({ ...commit, retryAt: 0 }));
+      await first.engine.run();
+      if (index === 1) await first.reopen();
+    }
+    const commit = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
+    first.storage.transaction(() => first.storage.sync.putCommit({ ...commit, retryAt: 0 }));
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    expect(server.sync.attempts).toMatchObject({ commits: 1, uploads: 1 });
+    expect(
+      server.requests.filter((path) => path.endsWith(`/commits/${original.commitId}`)),
+    ).toHaveLength(3);
+    expect(first.storage.sync.commits(first.opened.vaultId)[0]?.body).toBe(original.body);
+    server.sync.finalize();
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    await first.engine.run();
+    expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([]);
+    expect(server.sync.attempts.commits).toBe(1);
+  });
+
+  it('does not treat NOT_FOUND as proof after an attempted commit and preserves deletion as a recovery branch', async () => {
+    let offline = false;
+    const { first, second } = await setup(async (input, init) => {
+      if (
+        offline &&
+        new URL(String(input)).pathname.endsWith('/commits') &&
+        init?.method === 'POST'
+      )
+        throw new TypeError('synthetic disconnected commit');
+      return fetch(input, init);
+    });
+    await first.enable();
+    await second.enable();
+    first.enqueue('Synthetic baseline');
+    await first.engine.run();
+    await second.engine.run();
+    const entity = first.storage.sync.localEntity(
+      first.opened.vaultId,
+      'global/note.md',
+    ) as SyncEntityRecord;
+    offline = true;
+    first.storage.transaction(() =>
+      new SyncQueue(first.storage).enqueue({
+        vaultId: first.opened.vaultId,
+        entityType: 'memory',
+        localKey: entity.localKey,
+        kind: 'delete',
+        content: {
+          schema: 'synthetic-memory/1',
+          localKey: entity.localKey,
+          text: '',
+          deleted: true,
+        },
+      }),
+    );
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    const original = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    expect(first.storage.sync.commits(first.opened.vaultId)[0]?.body).toBe(original.body);
+    second.enqueue('Synthetic concurrent remote edit');
+    await second.engine.run();
+    await new SyncOutboxRecovery({
+      storage: first.storage,
+      client: first.client,
+      engine: first.engine,
+    }).recover(
+      { expectedDeviceId: first.opened.deviceId, commitIds: [original.commitId] },
+      new AbortController().signal,
+    );
+    offline = false;
+    await first.engine.run();
+    await second.engine.run();
+    expect(second.storage.sync.heads(first.opened.vaultId, entity.entityId)).toHaveLength(2);
+    const versions = second.storage.sync
+      .heads(first.opened.vaultId, entity.entityId)
+      .map((id) => second.storage.sync.getOperation(first.opened.vaultId, id)?.record);
+    expect(versions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'delete',
+          content: expect.objectContaining({ deleted: true, recoveredFrom: expect.any(Object) }),
+        }),
+        expect.objectContaining({
+          kind: 'put',
+          content: expect.objectContaining({ text: 'Synthetic concurrent remote edit' }),
+        }),
+      ]),
+    );
+  });
   it.each(['reserve', 'commit'] as const)(
     'reconciles RESET outbox receipts without rewriting an uncertain %s request',
     async (point) => {

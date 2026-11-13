@@ -846,6 +846,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       approvalRules,
       guardrails,
       hooks: dispatcher,
+      execution: {
+        prepare: async (id, turnId) => syncService?.executions.prepare(id, turnId),
+        finish: (id, turnId) => syncService?.executions.finish(id, turnId),
+        continuation: (id) => syncService?.executions.continuation(id),
+      },
       // 助理的规矩（0.132.0）：助理的会话里引擎要批准时，按规矩替用户答。
       approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
       appTools: {
@@ -1896,6 +1901,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         worktree_archive: true,
         session_move: true,
         session_handoff: true,
+        sync_execution: true,
+        sync_outbox_recovery: true,
         handoff_material: true,
         handoff_preview: true,
         subagent_cancel: true,

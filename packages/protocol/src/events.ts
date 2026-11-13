@@ -39,6 +39,7 @@ import {
   ResolvedApprovalStatusSchema,
   SecondOpinionSchema,
   SessionEnvironmentFields,
+  SessionExecutionSchema,
   SessionGoalSchema,
   SessionInsightSchema,
   SessionMoveSchema,
@@ -250,6 +251,7 @@ export const EventPayloadSchemas = {
    * 给引擎（同接力摘要，回合结束后算交过）；`instructions` 方式的正文每次建立或恢复引擎会话时由 Host 重新读文件，不记在事件里。
    */
   'session.context': ContextPackReceiptSchema,
+  'session.execution': SessionExecutionSchema,
   'session.rules': SessionRulesSchema.extend({
     engineSessionId: z.string().min(1),
     context: z.string().min(1).optional(),
@@ -705,6 +707,7 @@ export const SessionConfiguredEventSchema = eventSchema('session.configured');
 export const SessionHandoffEventSchema = eventSchema('session.handoff');
 export const SessionMovedEventSchema = eventSchema('session.moved');
 export const SessionContextEventSchema = eventSchema('session.context');
+export const SessionExecutionEventSchema = eventSchema('session.execution');
 export const SessionRulesEventSchema = eventSchema('session.rules');
 export const SessionStateChangedEventSchema = eventSchema('session.state_changed');
 export const UserMessageEventSchema = eventSchema('user.message');
@@ -769,6 +772,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionHandoffEventSchema,
   SessionMovedEventSchema,
   SessionContextEventSchema,
+  SessionExecutionEventSchema,
   SessionRulesEventSchema,
   SessionStateChangedEventSchema,
   UserMessageEventSchema,
