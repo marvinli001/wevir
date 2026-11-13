@@ -6,6 +6,7 @@ import type { SessionId, WorkspaceId } from '@wevir/protocol';
 import { schemas } from '@wevir/protocol/sync';
 import type { AppToolsEndpoint, SessionConfig, TitleRequest } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
+import { openStorage } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startHost } from '../host-process.js';
 import { createLogger } from '../logger.js';
@@ -131,6 +132,113 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it.each(['expired', 'signed_out'] as const)(
+    'exports local data with a pending RESET journal while the account is %s',
+    async (accountState) => {
+      const { mock, first } = await fixture();
+      await first.rpc.request('sync.configure', {
+        enabled: true,
+        categories: ['memory'],
+        projects: [],
+        includeHistory: true,
+      });
+      await first.memory.save('global', undefined, {
+        name: 'reset-export-note',
+        type: 'project',
+        description: 'Synthetic recovery',
+        content: 'Local content remains exportable.',
+      });
+      await first.rpc.request('sync.retry');
+      const storage = openStorage({ dataDir: first.home });
+      try {
+        const vault = storage.sync.activeVault();
+        if (!vault) throw new Error('missing synthetic vault');
+        storage.transaction(() =>
+          storage.sync.putBootstrapJob({
+            vaultId: vault.vaultId,
+            jobId: 'job_synthetic_interrupted',
+            accountId: vault.accountId,
+            deviceId: vault.deviceId,
+            hostId: vault.originHostId,
+            origin: mock.origin,
+            scopeRevision: vault.revision,
+            categories: vault.categories,
+            projectIds: vault.projectIds,
+            fromCursor: vault.appliedCursor,
+            pendingBefore: 0,
+            state: 'failed',
+            errorCode: 'RESET_REQUIRED',
+          }),
+        );
+      } finally {
+        storage.close();
+      }
+      if (accountState === 'signed_out') await first.rpc.request('account.logout', { kind: 'zuv' });
+      else {
+        const entitlements = mock.sync.entitlements.bind(mock.sync);
+        vi.spyOn(mock.sync, 'entitlements').mockImplementation((userId, deviceId) => ({
+          ...entitlements(userId, deviceId),
+          subscriptionState: 'expired',
+        }));
+        expect(
+          (await first.rpc.request('account.get', { kind: 'zuv', refresh: true })).account,
+        ).toMatchObject({ zuv: { subscriptionState: 'expired' } });
+      }
+      const attempts = { ...mock.sync.attempts };
+      const status = await first.rpc.request('sync.status');
+      const exported = await first.rpc.request('sync.exportLocal', {
+        directory: join(first.home, 'synthetic-exports'),
+      });
+      expect(exported).toMatchObject({ state: 'exported', protection: 'plaintext' });
+      expect(exported.entries).toBeGreaterThan(0);
+      expect(mock.sync.attempts).toEqual(attempts);
+      expect((await first.rpc.request('sync.status')).reset).toEqual(status.reset);
+      if (accountState === 'expired') {
+        const acknowledgements = mock.sync.acknowledgements.length;
+        const plan = await first.rpc.request('sync.recoverySnapshot', {
+          vaultId: status.binding.vaultId,
+        });
+        const recovered = await first.rpc.request('sync.recoveryDownload', {
+          vaultId: status.binding.vaultId,
+          jobId: plan.jobId,
+          categories: ['memory'],
+          projectIds: [],
+        });
+        const imported = await first.rpc.request('sync.importApply', {
+          importId: recovered.importId,
+        });
+        const entries = (
+          await first.rpc.request('sync.importRead', { importId: imported.importId })
+        ).entries;
+        const version = entries.find((entry: { kind: string }) => entry.kind === 'version');
+        expect(version).toBeDefined();
+        const data = await first.rpc.request('sync.importEntry', {
+          importId: imported.importId,
+          entryId: version.id,
+        });
+        expect(Buffer.from(data.base64, 'base64').toString()).toContain(
+          'Local content remains exportable.',
+        );
+        expect(mock.sync.attempts.commits).toBe(attempts.commits);
+        expect(mock.sync.acknowledgements).toHaveLength(acknowledgements);
+        expect((await first.rpc.request('sync.status')).reset).toEqual(status.reset);
+      }
+      expect(
+        (
+          await first.rpc.call('sync.configure', {
+            enabled: true,
+            categories: ['memory'],
+            projects: [],
+            includeHistory: true,
+          })
+        ).error,
+      ).toBeDefined();
+      expect((await first.memory.read('global', undefined, 'reset-export-note')).content).toBe(
+        'Local content remains exportable.',
+      );
+    },
+    15000,
+  );
   it('keeps skill activation local while resolving binary package conflicts on two bound Hosts', async () => {
     const { first, second, mock } = await fixture();
     const packagePath = (peer: Peer) => join(peer.userHome, '.agents/skills/synthetic-package');

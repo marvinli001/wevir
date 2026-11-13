@@ -1088,11 +1088,15 @@ export class SyncService {
   resolveMemory(input: MethodParams<'sync.resolveMemory'>) {
     return this.#memoryOperation(() => this.#memoryConflicts.resolve(input));
   }
-  async #memoryOperation<T>(operation: () => Promise<T>): Promise<T> {
+  async #memoryOperation<T>(operation: () => Promise<T>, allowPendingReset = false): Promise<T> {
     if (this.#closed || this.#configuring)
       throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
     const active = this.#options.storage.sync.activeVault();
-    if (active && this.#options.storage.sync.activeBootstrapJob(active.vaultId))
+    if (
+      !allowPendingReset &&
+      active &&
+      this.#options.storage.sync.activeBootstrapJob(active.vaultId)
+    )
       throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
     this.#configuring = true;
     this.#configurationDone = new Promise((resolve) => {
@@ -1125,20 +1129,24 @@ export class SyncService {
     }
   }
 
+  #recoveryOperation<T>(operation: () => Promise<T>): Promise<T> {
+    return this.#memoryOperation(operation, true);
+  }
+
   recoveryRequest(vaultId: string) {
-    return this.#memoryOperation(() => this.#lifecycle.request(vaultId));
+    return this.#recoveryOperation(() => this.#lifecycle.request(vaultId));
   }
   recoveryInfo() {
     return this.#lifecycle.info();
   }
   exportLocal(directory?: string) {
-    return this.#memoryOperation(() => this.#portable.exportLocal(directory));
+    return this.#recoveryOperation(() => this.#portable.exportLocal(directory));
   }
   importPrepare(path: string) {
-    return this.#memoryOperation(() => this.#portable.importPrepare(path));
+    return this.#recoveryOperation(() => this.#portable.importPrepare(path));
   }
   importApply(importId: string) {
-    return this.#memoryOperation(() => this.#portable.importApply(importId));
+    return this.#recoveryOperation(() => this.#portable.importApply(importId));
   }
   importList() {
     return this.#portable.list().catch((error) => {
@@ -1161,25 +1169,25 @@ export class SyncService {
     });
   }
   recoveryStatus(vaultId: string, refresh?: boolean) {
-    return this.#memoryOperation(() => this.#lifecycle.status(vaultId, refresh));
+    return this.#recoveryOperation(() => this.#lifecycle.status(vaultId, refresh));
   }
   recoveryComplete(vaultId: string, requestId: string) {
-    return this.#memoryOperation(() => this.#lifecycle.complete(vaultId, requestId));
+    return this.#recoveryOperation(() => this.#lifecycle.complete(vaultId, requestId));
   }
   recoverySnapshot(vaultId: string, jobId?: string) {
-    return this.#memoryOperation(() => this.#recoveryFiles.snapshot(vaultId, jobId));
+    return this.#recoveryOperation(() => this.#recoveryFiles.snapshot(vaultId, jobId));
   }
   recoveryDownload(input: MethodParams<'sync.recoveryDownload'>) {
-    return this.#memoryOperation(() => this.#recoveryFiles.download(input));
+    return this.#recoveryOperation(() => this.#recoveryFiles.download(input));
   }
   unlockKeys(vaultId: string) {
-    return this.#memoryOperation(async () => {
+    return this.#recoveryOperation(async () => {
       await this.#options.client.getEntitlements();
       return this.#lifecycle.unlock(vaultId);
     });
   }
   deleteCloud(vaultId: string, stepUpId: string) {
-    return this.#memoryOperation(async () => {
+    return this.#recoveryOperation(async () => {
       const result = await this.#lifecycle.deleteCloud(vaultId, stepUpId);
       const vault = this.#options.storage.sync.getVault(vaultId);
       if (vault) this.#options.storage.sync.setScopes(vaultId, { ...vault, enabled: false });
@@ -1187,7 +1195,7 @@ export class SyncService {
     });
   }
   detach(vaultId: string) {
-    return this.#memoryOperation(async () => {
+    return this.#recoveryOperation(async () => {
       const vault = this.#options.storage.sync.activeVault();
       if (vault?.vaultId !== vaultId) throw new ZuvRequestError('REVISION_CONFLICT');
       this.#options.storage.transaction(() => this.#options.storage.sync.detachVault(vaultId));
@@ -1198,7 +1206,7 @@ export class SyncService {
   async approveDevice(deviceId: string) {
     const vault = this.#options.storage.sync.activeVault();
     if (!vault) throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
-    return this.#memoryOperation(async () => {
+    return this.#recoveryOperation(async () => {
       await this.#options.client.getEntitlements();
       await this.#lifecycle.unlock(vault.vaultId);
       return await this.#options.client.json(
