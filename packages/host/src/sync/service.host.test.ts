@@ -184,7 +184,7 @@ describe('full Host material synchronization with synthetic identities', () => {
       sessionId: remoteId,
       sinceSeq: 0,
     });
-    await second.rpc.until(
+    await second.rpc.untilTrue(
       () => second.rpc.events(subscriptionId).some((event) => event.type === 'file.shared'),
       'source file event',
     );
@@ -264,6 +264,83 @@ describe('full Host material synchronization with synthetic identities', () => {
       'Synthetic unrelated local file',
     );
     expect(second.adapter.endpoints.size).toBe(0);
+  }, 20000);
+
+  it('replays newly enabled project ranges that earlier filtered pages had already skipped', async () => {
+    const { first, second } = await fixture();
+    await linkSessions(first, second);
+    const initial = await second.rpc.request('sync.status');
+    await second.rpc.request('sync.configure', {
+      enabled: true,
+      categories: initial.binding.categories,
+      projects: [],
+      includeHistory: true,
+      expectedRevision: initial.binding.revision,
+    });
+    const created = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.rename', {
+      sessionId: created.id,
+      title: 'Synthetic skipped project',
+    });
+    await first.rpc.request('session.send', {
+      sessionId: created.id,
+      clientMessageId: 'synthetic-hidden-range',
+      content: [{ type: 'text', text: 'Synthetic hidden history' }],
+    });
+    await expect
+      .poll(
+        async () =>
+          (await first.rpc.request('session.get', { sessionId: created.id })).session.state,
+      )
+      .toBe('idle');
+    await first.rpc.request('sync.retry');
+    await expect.poll(async () => (await first.rpc.request('sync.status')).pending).toBe(0);
+    await second.rpc.request('sync.retry');
+    expect(
+      (await second.rpc.request('session.list', { workspaceId: second.workspaceId })).sessions,
+    ).toEqual([]);
+    const current = await second.rpc.request('sync.status');
+    await second.rpc.request('sync.configure', {
+      enabled: true,
+      categories: current.binding.categories,
+      projects: [{ workspaceId: second.workspaceId, projectId: initial.binding.projectIds[0] }],
+      includeHistory: true,
+      expectedRevision: current.binding.revision,
+    });
+    await expect
+      .poll(
+        async () =>
+          (
+            await second.rpc.request('session.list', { workspaceId: second.workspaceId })
+          ).sessions.map((row: { title: string }) => row.title),
+        { timeout: 8000 },
+      )
+      .toContain('Synthetic skipped project');
+    const remote = (await second.rpc.request('session.list', { workspaceId: second.workspaceId }))
+      .sessions[0];
+    const { subscriptionId } = await second.rpc.request('events.subscribe', {
+      sessionId: remote.id,
+      sinceSeq: 0,
+    });
+    await second.rpc.untilTrue(
+      () =>
+        second.rpc
+          .events(subscriptionId)
+          .some(
+            (event) =>
+              event.type === 'user.message' &&
+              event.payload.content.some(
+                (value) => value.type === 'text' && value.text === 'Synthetic hidden history',
+              ),
+          ),
+      'replayed selected history',
+    );
   }, 20000);
 
   it('keeps synchronized side sessions out of the top-level session list', async () => {
@@ -460,7 +537,7 @@ describe('full Host material synchronization with synthetic identities', () => {
       sessionId: remoteId,
       sinceSeq: 0,
     });
-    await second.rpc.until(
+    await second.rpc.untilTrue(
       () =>
         second.rpc
           .events(subscriptionId)
@@ -562,7 +639,7 @@ describe('full Host material synchronization with synthetic identities', () => {
       sessionId: remote.sessionId,
       sinceSeq: 0,
     });
-    await second.rpc.until(
+    await second.rpc.untilTrue(
       () => second.rpc.events(subscriptionId).some((event) => event.type === 'user.message'),
       'retained source history',
     );
@@ -623,7 +700,7 @@ describe('full Host material synchronization with synthetic identities', () => {
       sessionId: remote.sessionId,
       sinceSeq: 0,
     });
-    await second.rpc.until(
+    await second.rpc.untilTrue(
       () =>
         second.rpc
           .events(subscriptionId)
@@ -855,7 +932,7 @@ describe('full Host material synchronization with synthetic identities', () => {
       sessionId: remoteId,
       sinceSeq: 0,
     });
-    await second.rpc.until(
+    await second.rpc.untilTrue(
       () => second.rpc.events(subscriptionId).some((event) => event.type === 'approval.requested'),
       'synced approval history',
     );

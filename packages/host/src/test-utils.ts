@@ -378,6 +378,14 @@ export class TestRpcClient {
     );
   }
 
+  async untilTrue(
+    check: () => boolean,
+    label: string,
+    timeoutMs = UNTIL_TIMEOUT_MS,
+  ): Promise<void> {
+    await this.until(() => (check() ? true : undefined), label, timeoutMs);
+  }
+
   until<T>(check: () => T | undefined, label: string, timeoutMs = UNTIL_TIMEOUT_MS): Promise<T> {
     return new Promise((resolve, reject) => {
       const listener = () => {

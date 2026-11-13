@@ -350,6 +350,17 @@ export function createSyncRepository(db: SqliteDatabase) {
         'UPDATE sync_operations SET heads_applied = 1 WHERE vault_id = ? AND op_id = ?',
       ).run(vaultId, opId);
     },
+    restartPull(vaultId: string, expectedCursor: string, initialCursor: string): void {
+      requireTransaction();
+      if (getVault(vaultId)?.appliedCursor !== expectedCursor)
+        throw new SyncStorageError('CURSOR_CONFLICT');
+      // Pages are replayable delivery groups; operations, revisions and the outbox remain intact.
+      db.prepare('DELETE FROM sync_pages WHERE vault_id = ? AND applied = 0').run(vaultId);
+      db.prepare('UPDATE sync_vaults SET applied_cursor = ? WHERE vault_id = ?').run(
+        initialCursor,
+        vaultId,
+      );
+    },
     putPage(page: {
       vaultId: string;
       pageId: string;

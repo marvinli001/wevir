@@ -365,7 +365,16 @@ export class SyncService {
         const backfill =
           params.includeHistory === true && !storage.sync.includeHistory(vault.vaultId);
         const vaultId = vault.vaultId;
+        const changed =
+          vault.categories.length !== selected.categories.length ||
+          vault.categories.some(
+            (value) => !selected.categories.includes(value as (typeof selected.categories)[number]),
+          ) ||
+          vault.projectIds.length !== selected.projectIds.length ||
+          vault.projectIds.some((value) => !selected.projectIds.includes(value));
+        const previousCursor = vault.appliedCursor;
         storage.transaction(() => {
+          if (changed) storage.sync.restartPull(vaultId, previousCursor, opened.cursor);
           storage.sync.setScopes(vaultId, selected);
           storage.sync.setIncludeHistory(vaultId, params.includeHistory === true);
           storage.sync.setScopeInitialized(vaultId, false);

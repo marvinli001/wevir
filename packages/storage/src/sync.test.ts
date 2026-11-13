@@ -139,6 +139,42 @@ describe('durable sync mappings', () => {
     expect(storage().sync.heads(vault.vaultId, 'entity_fixture')).toEqual(['operation_resolved']);
   });
 
+  it('restarts a changed consent range without discarding operations or claiming unapplied pages', () => {
+    bind();
+    storage().transaction(() => {
+      storage().sync.putOperation(op());
+      storage().sync.putOperation(
+        op({ opId: 'operation_inbox', deviceSeq: '2', direction: 'inbox', state: 'received' }),
+      );
+      storage().sync.putPage({
+        vaultId: vault.vaultId,
+        pageId: 'page_pending',
+        fromCursor: vault.appliedCursor,
+        nextCursor: 'cursor_unapplied',
+        opIds: ['operation_inbox'],
+      });
+    });
+    expect(() =>
+      storage().transaction(() => {
+        storage().sync.restartPull(vault.vaultId, vault.appliedCursor, 'cursor_replay');
+        throw new Error('crash');
+      }),
+    ).toThrow('crash');
+    expect(storage().sync.pages(vault.vaultId)).toHaveLength(1);
+    storage().transaction(() =>
+      storage().sync.restartPull(vault.vaultId, vault.appliedCursor, 'cursor_replay'),
+    );
+    expect(storage().sync.activeVault()?.appliedCursor).toBe('cursor_replay');
+    expect(storage().sync.pages(vault.vaultId)).toEqual([]);
+    expect(storage().sync.getOperation(vault.vaultId, 'operation_inbox')?.state).toBe('received');
+    expect(storage().sync.getOperation(vault.vaultId, 'operation_first')?.state).toBe('queued');
+    expect(() =>
+      storage().transaction(() =>
+        storage().sync.restartPull(vault.vaultId, 'cursor_wrong', 'cursor_other'),
+      ),
+    ).toThrow('CURSOR_CONFLICT');
+  });
+
   it('compares partial source overlaps by stream tuple and fingerprint', () => {
     bind();
     const source = {
