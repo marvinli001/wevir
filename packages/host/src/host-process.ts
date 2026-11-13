@@ -846,6 +846,49 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       approvalRules,
       guardrails,
       hooks: dispatcher,
+      prepareWorkspaceHandoff: async (sessionId, request) => {
+        if (!request.workspaceSnapshot)
+          throw new HostError('INVALID_PARAMS', 'workspace snapshot is required', { issues: [] });
+        const restored = await sync.workspaceRestore({
+          sessionId,
+          snapshot: request.workspaceSnapshot,
+          ...(request.workspaceRestoreId && { restoreId: request.workspaceRestoreId }),
+        });
+        if (restored.requiresTrust.length && request.trustWorkspace !== true)
+          throw new HostError('INVALID_STATE', 'Restored agent configuration requires approval', {
+            state: 'closed',
+          });
+        const source = sessionsDb.sessions.get(sessionId);
+        if (!readiness || !source)
+          throw new HostError('INVALID_STATE', 'readiness is unavailable', { state: 'closed' });
+        const report = await readiness.getDirectory(
+          source.workspaceId as WorkspaceId,
+          restored.cwd,
+        );
+        if (report.status === 'not_ready')
+          throw new HostError(
+            'INVALID_STATE',
+            `Workspace dependencies require setup: ${restored.cwd}`,
+            { state: 'closed' },
+          );
+        await sync.workspaces.restoredRoot(source.workspaceId, restored.restoreId);
+        return {
+          cwd: restored.cwd,
+          origin: {
+            ...request.workspaceSnapshot,
+            restoreId: restored.restoreId,
+            sourceHead: restored.sourceHead,
+            head: restored.head,
+            ...(restored.recoveredFrom && {
+              recoveredFrom: {
+                deviceId: restored.recoveredFrom.deviceId,
+                opId: restored.recoveredFrom.opId,
+              },
+            }),
+          },
+          codeState: `Workspace handoff: snapshot ${request.workspaceSnapshot.entityId}/${request.workspaceSnapshot.opId}; source HEAD ${restored.sourceHead ?? 'unborn'}; restored bounded base ${restored.head}.${restored.modified ? ' Local edits after restoration are preserved.' : ''}${restored.recoveredFrom ? ` This is a derived recovery copy from device ${restored.recoveredFrom.deviceId}, operation ${restored.recoveredFrom.opId}; the current device does not prove the original capture.` : ''} Git index and working-tree changes are separate; unselected untracked files, credentials, dependencies, build output and repository history are omitted. This is a new execution directory; no processes, approvals, tools, hooks or installations were resumed. Inspect the current Git state before editing.`,
+        };
+      },
       // 助理的规矩（0.132.0）：助理的会话里引擎要批准时，按规矩替用户答。
       approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
       appTools: {
@@ -1148,6 +1191,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       secrets,
       dir: homePath(home, 'readinessDir'),
       defaultEngine: options.engine,
+      ...(options.userHome && { home: options.userHome }),
+      workspaceRestoreRoot: (workspaceId, restoreId) =>
+        sync.workspaces.restoredRoot(workspaceId, restoreId),
       isChats: (workspaceId) => {
         const workspace = storage?.workspaces.get(workspaceId);
         return workspace !== undefined && chats.isChats(workspace);
@@ -1872,6 +1918,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         host_settings: true,
         sync_metadata: true,
         cloud_sync: true,
+        sync_workspace: true,
         sync_project_catalog: true,
         sync_project_conflicts: true,
         sync_memory_conflicts: true,

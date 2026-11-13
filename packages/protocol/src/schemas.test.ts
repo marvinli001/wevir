@@ -5857,6 +5857,66 @@ const syncContentCases: Case[] = [
     invalid: [{ schema: 'wevir-session-deleted/1', source: syncSource }],
   },
   {
+    name: 'SyncWorkspaceRef',
+    schema: protocol.SyncWorkspaceRefSchema,
+    valid: [{ vaultId: 'vault_fixture', entityId: 'workspace_fixture', opId: 'operation_fixture' }],
+    invalid: [{ vaultId: '../escape', entityId: 'workspace_fixture', opId: 'operation_fixture' }],
+  },
+  {
+    name: 'SyncWorkspaceMetadata',
+    schema: protocol.SyncWorkspaceMetadataSchema,
+    valid: [
+      {
+        schema: 'wevir-workspace-snapshot/1',
+        projectId: 'project_fixture',
+        source: {
+          hostId: 'host_fixture',
+          deviceId: 'device_fixture',
+          sessionId: 'ses_fixture',
+          streamId: 'stream_fixture',
+        },
+        throughSeq: 1,
+        sourceHead: null,
+        base: 'bounded-tree',
+        statusHash: 'A'.repeat(43),
+        selectedUntracked: [],
+        ruleVersions: [],
+        capturedAt: '2026-11-13T00:00:00.000Z',
+      },
+    ],
+    invalid: [{ schema: 'wevir-workspace-snapshot/1', base: 'complete-history' }],
+  },
+  {
+    name: 'SyncWorkspaceSnapshot',
+    schema: protocol.SyncWorkspaceSnapshotSchema,
+    valid: [
+      {
+        vaultId: 'vault_fixture',
+        entityId: 'workspace_fixture',
+        opId: 'operation_fixture',
+        projectId: 'project_fixture',
+        source: {
+          hostId: 'host_fixture',
+          deviceId: 'device_fixture',
+          sessionId: 'ses_fixture',
+          streamId: 'stream_fixture',
+        },
+        capturedAt: '2026-11-13T00:00:00.000Z',
+        files: 0,
+        bytes: 0,
+        exclusions: [],
+      },
+    ],
+    invalid: [
+      {
+        vaultId: 'vault_fixture',
+        entityId: 'workspace_fixture',
+        opId: 'operation_fixture',
+        files: -1,
+      },
+    ],
+  },
+  {
     name: 'SyncRelativePath',
     schema: protocol.SyncRelativePathSchema,
     valid: ['SKILL.md', 'scripts/check.sh'],

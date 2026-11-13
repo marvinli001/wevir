@@ -1,6 +1,31 @@
 {
   "valid": [
     {
+      "schema": "workspace",
+      "value": {
+        "schema": "wevir-workspace-snapshot/1",
+        "projectId": "project_synthetic",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "throughSeq": 3,
+        "sourceHead": "0000000000000000000000000000000000000000",
+        "base": "bounded-tree",
+        "statusHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "selectedUntracked": ["selected.txt"],
+        "ruleVersions": [
+          {
+            "entityId": "rule_synthetic",
+            "opId": "operation_synthetic"
+          }
+        ],
+        "capturedAt": "2026-11-13T00:00:00.000Z"
+      }
+    },
+    {
       "schema": "sharedFiles",
       "value": {
         "schema": "wevir-shared-files/1",
@@ -211,6 +236,31 @@
     }
   ],
   "invalid": [
+    {
+      "schema": "workspace",
+      "value": {
+        "schema": "wevir-workspace-snapshot/1",
+        "projectId": "project_synthetic",
+        "source": {
+          "hostId": "host_synthetic",
+          "deviceId": "device_synthetic",
+          "sessionId": "ses_synthetic",
+          "streamId": "stream_synthetic"
+        },
+        "throughSeq": 3,
+        "sourceHead": "0000000000000000000000000000000000000000",
+        "base": "bounded-tree",
+        "statusHash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "selectedUntracked": ["../escape"],
+        "ruleVersions": [
+          {
+            "entityId": "rule_synthetic",
+            "opId": "operation_synthetic"
+          }
+        ],
+        "capturedAt": "2026-11-13T00:00:00.000Z"
+      }
+    },
     {
       "schema": "sharedFiles",
       "value": {

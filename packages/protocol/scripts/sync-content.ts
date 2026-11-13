@@ -43,6 +43,18 @@ const task = EpisodeSchema.parse({
   title: 'Synthetic task',
 });
 const values = {
+  workspace: {
+    schema: 'wevir-workspace-snapshot/1',
+    projectId: 'project_synthetic',
+    source,
+    throughSeq: 3,
+    sourceHead: '0'.repeat(40),
+    base: 'bounded-tree',
+    statusHash: 'A'.repeat(43),
+    selectedUntracked: ['selected.txt'],
+    ruleVersions: [{ entityId: 'rule_synthetic', opId: 'operation_synthetic' }],
+    capturedAt: at,
+  },
   sharedFiles: { schema: 'wevir-shared-files/1', source, seq: '12', capture: 'shared' },
   project: {
     schema: 'wevir-project/1',
@@ -136,6 +148,7 @@ for (const [name, value] of Object.entries(values))
 write('fixtures.json', {
   valid: Object.entries(values).map(([schema, value]) => ({ schema, value })),
   invalid: [
+    { schema: 'workspace', value: { ...values.workspace, selectedUntracked: ['../escape'] } },
     { schema: 'sharedFiles', value: { ...values.sharedFiles, seq: '-1' } },
     { schema: 'session-state', value: { ...values['session-state'], archivedAt: 'invalid' } },
     { schema: 'settings', value: { ...values.settings, values: { computerUse: true } } },

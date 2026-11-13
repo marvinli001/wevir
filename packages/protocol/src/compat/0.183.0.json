@@ -1,0 +1,295 @@
+{
+  "protocolVersion": "0.183.0",
+  "methods": {
+    "sync.workspaceCapture": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "untracked": []
+        }
+      ],
+      "result": [
+        {
+          "snapshot": {
+            "vaultId": "vault_fixture",
+            "entityId": "workspace_fixture",
+            "opId": "operation_fixture",
+            "projectId": "project_fixture",
+            "source": {
+              "hostId": "host_fixture",
+              "deviceId": "device_fixture",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "streamId": "stream_fixture"
+            },
+            "capturedAt": "2026-11-13T00:00:00.000Z",
+            "files": 0,
+            "bytes": 0,
+            "exclusions": []
+          }
+        }
+      ]
+    },
+    "sync.workspaceSnapshots": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "snapshots": []
+        }
+      ]
+    },
+    "sync.workspaceRestore": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "snapshot": {
+            "vaultId": "vault_fixture",
+            "entityId": "workspace_fixture",
+            "opId": "operation_fixture"
+          }
+        }
+      ],
+      "result": [
+        {
+          "restoreId": "restore_fixture",
+          "cwd": "/synthetic/workspace",
+          "sourceHead": null,
+          "head": "0000000000000000000000000000000000000000",
+          "requiresTrust": []
+        }
+      ]
+    },
+    "session.createFromHistory": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "providerId": "mock",
+          "modelId": "demo"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          }
+        }
+      ]
+    },
+    "readiness.get": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "refresh": true
+        }
+      ],
+      "result": [
+        {
+          "report": {
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "root": "/home/u/projects/demo",
+            "status": "not_ready",
+            "checkedAt": "2026-10-12T08:00:00.000Z",
+            "durationMs": 320,
+            "projects": [
+              {
+                "path": "",
+                "ecosystems": ["node"]
+              }
+            ],
+            "items": [
+              {
+                "id": "package_manager::pnpm",
+                "kind": "package_manager",
+                "name": "pnpm",
+                "path": "",
+                "status": "ready",
+                "required": "12.6.0",
+                "found": "12.6.0",
+                "blocking": true,
+                "evidence": [
+                  {
+                    "kind": "file",
+                    "path": "package.json",
+                    "detail": "packageManager: pnpm@12.6.0"
+                  },
+                  {
+                    "kind": "command",
+                    "command": "pnpm --version",
+                    "exitCode": 0,
+                    "output": "12.6.0"
+                  }
+                ]
+              },
+              {
+                "id": "dependencies::node",
+                "kind": "dependencies",
+                "name": "node_modules",
+                "path": "",
+                "status": "incompatible",
+                "reason": "dependencies_outdated",
+                "blocking": true,
+                "evidence": [
+                  {
+                    "kind": "file",
+                    "path": "node_modules/.modules.yaml",
+                    "detail": "older than pnpm-lock.yaml"
+                  }
+                ]
+              },
+              {
+                "id": "check::chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "kind": "check",
+                "name": "test",
+                "path": "",
+                "status": "ready",
+                "blocking": false,
+                "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "evidence": [
+                  {
+                    "kind": "file",
+                    "path": "package.json",
+                    "detail": "scripts.test"
+                  }
+                ]
+              }
+            ],
+            "plans": [
+              {
+                "id": "pln_5c2a91e0",
+                "path": "",
+                "manager": "pnpm",
+                "command": "pnpm install --frozen-lockfile",
+                "lockfile": "pnpm-lock.yaml",
+                "writesLockfile": false,
+                "reason": "dependencies_outdated",
+                "scripts": {
+                  "project": ["postinstall"],
+                  "dependencies": "restricted"
+                },
+                "credentials": [
+                  {
+                    "name": "NPM_TOKEN",
+                    "source": "wevir"
+                  }
+                ]
+              }
+            ],
+            "network": {
+              "registries": [
+                {
+                  "ecosystem": "node",
+                  "url": "https://registry.npmjs.org/",
+                  "source": "default",
+                  "auth": "none"
+                },
+                {
+                  "ecosystem": "node",
+                  "url": "https://npm.example.com/",
+                  "source": ".npmrc",
+                  "auth": "configured"
+                }
+              ],
+              "proxy": ["HTTPS_PROXY"],
+              "agent": {
+                "engine": "codex",
+                "permissionMode": "on_request",
+                "network": "sandboxed",
+                "domains": "not_enforced"
+              },
+              "advice": ["install_by_user", "domains_not_enforced"]
+            },
+            "install": {
+              "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "root": "/home/u/projects/demo",
+              "planId": "pln_5c2a91e0",
+              "path": "",
+              "manager": "pnpm",
+              "command": "pnpm install --frozen-lockfile",
+              "status": "failed",
+              "reason": "network",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "finishedAt": "2026-10-12T08:00:05.250Z",
+              "durationMs": 5250,
+              "exitCode": 1,
+              "timeoutMs": 900000,
+              "bytes": 420,
+              "summary": "ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND"
+            }
+          }
+        }
+      ]
+    },
+    "readiness.install": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "planId": "pln_5c2a91e0",
+          "acceptScripts": true
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "planId": "pln_5c2a91e0",
+          "acceptScripts": true,
+          "timeoutMs": 600000
+        }
+      ],
+      "result": [
+        {
+          "run": {
+            "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "root": "/home/u/projects/demo",
+            "planId": "pln_5c2a91e0",
+            "path": "",
+            "manager": "pnpm",
+            "command": "pnpm install --frozen-lockfile",
+            "status": "running",
+            "startedAt": "2026-10-12T08:00:00.000Z",
+            "finishedAt": "2026-10-12T08:00:05.250Z",
+            "durationMs": 5250,
+            "exitCode": 1,
+            "timeoutMs": 900000,
+            "bytes": 420,
+            "summary": "ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND"
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

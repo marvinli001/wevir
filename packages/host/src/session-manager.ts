@@ -409,6 +409,16 @@ export interface SessionManagerOptions {
    * `SessionConfig.connectors` 交给适配器。没给时不交。
    */
   projectConnectors?: (workspaceId: string) => NonNullable<SessionConfig['connectors']>;
+  prepareWorkspaceHandoff?: (
+    sessionId: SessionId,
+    options: Omit<MethodParams<'session.createFromHistory'>, 'sessionId'>,
+  ) => Promise<{
+    cwd: string;
+    codeState: string;
+    origin: NonNullable<
+      Extract<NonNullable<Session['origin']>, { kind: 'history' }>['workspaceSnapshot']
+    >;
+  }>;
   /**
    * 环境的变量（0.130.0，environment-variables.ts）：建立、恢复与分出环境的会话时按会话的 `environmentId` 现读，随 `SessionConfig.env`
    * 交给适配器。没给时不交。
@@ -816,7 +826,7 @@ const READ_ONLY_REASONS = {
 export interface SessionFromHistory {
   createFromHistory(
     sourceSessionId: SessionId,
-    options?: { providerId?: ProviderId; modelId?: string; reasoningEffort?: string },
+    options?: Omit<MethodParams<'session.createFromHistory'>, 'sessionId'>,
   ): Promise<Session>;
 }
 
@@ -827,7 +837,12 @@ interface HistoryContinuation {
     via: 'native' | 'handoff';
     role?: string;
     externalSessionId?: string;
+    workspaceSnapshot?: Extract<
+      NonNullable<Session['origin']>,
+      { kind: 'history' }
+    >['workspaceSnapshot'];
   };
+  directory?: string;
   engineSessionId?: string;
   context?: string;
 }
@@ -864,6 +879,7 @@ const ENGINE_CANCEL_REASONS = {
  */
 export class SessionManager {
   readonly #storage: Storage;
+  readonly #prepareWorkspaceHandoff: SessionManagerOptions['prepareWorkspaceHandoff'];
   readonly #events: EventStore;
   readonly #adapter: AgentRuntimeAdapter;
   readonly #engine: string;
@@ -958,6 +974,7 @@ export class SessionManager {
 
   constructor(options: SessionManagerOptions) {
     this.#storage = options.storage;
+    this.#prepareWorkspaceHandoff = options.prepareWorkspaceHandoff;
     this.#events = options.events;
     this.#adapter = options.adapter;
     this.#engine = options.engine ?? 'echo';
@@ -1567,13 +1584,16 @@ export class SessionManager {
       sameDirectoryAs === undefined ? undefined : this.#storage.sessions.get(sameDirectoryAs);
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。第二意见
     // （0.75.0）是原会话目录的快照。
-    const prepared = chat
-      ? await this.#chatDirectory(sessionId)
-      : opinion !== undefined
-        ? await this.#prepareSnapshot(sessionId, workspace.id, opinion.snapshot)
-        : shared !== undefined
-          ? sharedDirectory(shared)
-          : await this.#prepareEnvironment(params, sessionId, workspace, provider.id, channel);
+    const prepared: PreparedEnvironment =
+      history?.directory !== undefined
+        ? { cwd: history.directory, extraRoots: [], worktrees: [], undo: async () => {} }
+        : chat
+          ? await this.#chatDirectory(sessionId)
+          : opinion !== undefined
+            ? await this.#prepareSnapshot(sessionId, workspace.id, opinion.snapshot)
+            : shared !== undefined
+              ? sharedDirectory(shared)
+              : await this.#prepareEnvironment(params, sessionId, workspace, provider.id, channel);
     if (startedAt !== undefined) this.#startup?.begin(sessionId, startedAt);
     this.#startup?.mark(sessionId, 'prepared');
     const config: SessionConfig = {
@@ -1693,6 +1713,9 @@ export class SessionManager {
               kind: 'history' as const,
               sessionId: history.origin.sessionId,
               via: history.origin.via,
+              ...(history.origin.workspaceSnapshot && {
+                workspaceSnapshot: history.origin.workspaceSnapshot,
+              }),
             },
             ...(history.origin.via === 'handoff' &&
               history.context !== undefined && { historyContext: history.context }),
@@ -4091,7 +4114,7 @@ export class SessionManager {
   /** Create a writable session from a read-only history. */
   async createFromHistory(
     sourceSessionId: SessionId,
-    options: { providerId?: ProviderId; modelId?: string; reasoningEffort?: string } = {},
+    options: Omit<MethodParams<'session.createFromHistory'>, 'sessionId'> = {},
   ): Promise<Session> {
     this.#assertOpen();
     const runtime = this.#runtime(sourceSessionId);
@@ -4132,6 +4155,14 @@ export class SessionManager {
       const describe = (p: string, m: string) => this.#describeModel(p, m);
       const features = this.#featuresOf(provider.kind);
       const historyTool = features?.historyTool === true && this.#historyDir !== undefined;
+      const extras = await this.#handoffExtras(runtime, options.handoff);
+      const workspace = options.workspaceSnapshot
+        ? await this.#prepareWorkspaceHandoff?.(sourceSessionId, options)
+        : undefined;
+      if (options.workspaceSnapshot && !workspace)
+        throw new HostError('INVALID_STATE', 'workspace handoff is unavailable', {
+          state: source.state,
+        });
       const assembly = assembleHandoff({
         sessionId: sourceSessionId,
         strategy: FULL_THREAD_SUMMARY,
@@ -4145,9 +4176,24 @@ export class SessionManager {
           describe,
         ),
         historyTool,
+        constraints: [...extras.constraints, ...(workspace ? [workspace.codeState] : [])],
+        notes: extras.notes,
+        ...(extras.episode && {
+          episode: {
+            text: episodeMarkdown(extras.episode),
+            source: {
+              kind: 'episode' as const,
+              id: extras.episode.id,
+              revision: extras.episode.revision,
+              throughSeq: extras.episode.throughSeq,
+            },
+          },
+        }),
       });
+      if (assembly.kind === 'over_budget') throw handoffOverBudget(assembly);
       const imported = record.origin?.kind === 'imported' ? record.origin : undefined;
       const native =
+        !workspace &&
         imported !== undefined &&
         provider.kind === (imported.app === 'claude' ? 'claude' : 'chatgpt') &&
         imported.nativeCompatible !== false &&
@@ -4177,7 +4223,9 @@ export class SessionManager {
               sessionId: sourceSessionId,
               via: 'handoff',
               ...(record.origin?.role !== undefined && { role: record.origin.role }),
+              ...(workspace && { workspaceSnapshot: workspace.origin }),
             },
+            ...(workspace && { directory: workspace.cwd }),
             ...(native && imported !== undefined && { engineSessionId: imported.externalId }),
             ...(assembly.kind === 'material' && { context: assembly.context }),
           },

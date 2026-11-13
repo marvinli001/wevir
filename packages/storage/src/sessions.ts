@@ -75,6 +75,15 @@ export interface SessionRecord {
         kind: 'history';
         sessionId: string;
         via?: 'native' | 'handoff';
+        workspaceSnapshot?: {
+          vaultId: string;
+          entityId: string;
+          opId: string;
+          restoreId: string;
+          sourceHead: string | null;
+          head: string;
+          recoveredFrom?: { deviceId: string; opId: string };
+        };
         externalSessionId?: string;
         taskId?: undefined;
         role?: string;

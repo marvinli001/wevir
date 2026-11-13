@@ -2177,6 +2177,17 @@ export const HistorySessionOriginSchema = z.object({
   kind: z.literal('history'),
   sessionId: SessionIdSchema,
   via: z.enum(['native', 'handoff']).optional(),
+  workspaceSnapshot: z
+    .object({
+      vaultId: z.string().min(8).max(128),
+      entityId: z.string().min(8).max(128),
+      opId: z.string().min(8).max(128),
+      restoreId: z.string().min(8).max(128),
+      sourceHead: z.string().nullable(),
+      head: z.string(),
+      recoveredFrom: z.object({ deviceId: z.string(), opId: z.string() }).optional(),
+    })
+    .optional(),
 });
 export const SessionOriginSchema = z.discriminatedUnion('kind', [
   SuggestedTaskOriginSchema,

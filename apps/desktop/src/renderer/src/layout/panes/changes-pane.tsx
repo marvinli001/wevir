@@ -126,6 +126,7 @@ import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { FilePreviewBlock } from '@/session/file-preview';
 import { foldTurn } from '@/session/turn-model';
+import { WorkspaceCaptureButton } from '@/session/workspace-capture';
 import { useTheme } from '@/theme/theme';
 import { usePanes } from '../pane-controller';
 import type { PaneContext } from '../pane-registry';
@@ -733,6 +734,14 @@ function SessionChanges({
             </span>
           )}
           <div className="min-w-1 flex-1" />
+          {session && !additional && (
+            <WorkspaceCaptureButton
+              session={session}
+              untracked={(git.status?.files ?? [])
+                .filter((file) => file.unstaged?.status === 'untracked')
+                .map((file) => file.path)}
+            />
+          )}
           {reviewSupported && (
             <ReviewPanel
               review={review}

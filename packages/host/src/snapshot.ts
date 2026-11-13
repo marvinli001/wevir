@@ -1029,6 +1029,9 @@ export function toSession(record: SessionRecord, projection: SessionProjection):
       kind: 'history',
       sessionId: record.origin.sessionId as SessionId,
       ...(record.origin.via !== undefined && { via: record.origin.via }),
+      ...(record.origin.workspaceSnapshot !== undefined && {
+        workspaceSnapshot: record.origin.workspaceSnapshot,
+      }),
     };
   } else if (record.origin?.kind === 'agent') {
     session.openedBy = {

@@ -84,6 +84,7 @@ export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
  */
 export const HOST_FEATURES = {
   cloudSync: 'cloud_sync',
+  syncWorkspace: 'sync_workspace',
   syncProjectCatalog: 'sync_project_catalog',
   syncProjectConflicts: 'sync_project_conflicts',
   syncMemoryConflicts: 'sync_memory_conflicts',
@@ -636,6 +637,7 @@ export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
   cloud_sync: z.boolean().optional(),
+  sync_workspace: z.boolean().optional(),
   sync_project_catalog: z.boolean().optional(),
   sync_project_conflicts: z.boolean().optional(),
   sync_memory_conflicts: z.boolean().optional(),

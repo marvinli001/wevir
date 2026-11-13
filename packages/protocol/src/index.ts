@@ -44,6 +44,7 @@ export * from './sync-content.js';
 export * from './sync-recovery.js';
 export * from './sync-validation.js';
 export type { BlobHeader, RecordManifest, SyncOperation } from './sync-wire.js';
+export * from './sync-workspace.js';
 export * from './terminals.js';
 export * from './tuning.js';
 export * from './tuning-proposals.js';

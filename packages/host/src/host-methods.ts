@@ -1652,6 +1652,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
       return options.sync.approveDevice(deviceId);
     },
+    'sync.workspaceCapture': (params) => {
+      if (!options.sync)
+        throw new HostError('INVALID_STATE', 'sync is unavailable', { state: 'closed' });
+      return options.sync.workspaceCapture(params);
+    },
+    'sync.workspaceSnapshots': ({ sessionId }) =>
+      options.sync?.workspaceSnapshots(sessionId) ?? { snapshots: [] },
+    'sync.workspaceRestore': (params) => {
+      if (!options.sync)
+        throw new HostError('INVALID_STATE', 'sync is unavailable', { state: 'closed' });
+      return options.sync.workspaceRestore(params);
+    },
     'sync.status': () => {
       if (options.sync) return options.sync.status();
       const vault = storage.sync.activeVault();
@@ -2010,19 +2022,27 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
       return { status: started.status, process };
     },
-    'readiness.get': async ({ workspaceId, sessionId, refresh }) => ({
+    'readiness.get': async ({ workspaceId, sessionId, refresh, workspaceRestoreId }) => ({
       report: await readiness().get({
         workspaceId,
         ...(sessionId !== undefined && { sessionId }),
         ...(refresh !== undefined && { refresh }),
+        ...(workspaceRestoreId !== undefined && { workspaceRestoreId }),
       }),
     }),
-    'readiness.install': async ({ workspaceId, sessionId, planId, timeoutMs }) => ({
+    'readiness.install': async ({
+      workspaceId,
+      sessionId,
+      planId,
+      timeoutMs,
+      workspaceRestoreId,
+    }) => ({
       run: await readiness().install({
         workspaceId,
         ...(sessionId !== undefined && { sessionId }),
         planId,
         ...(timeoutMs !== undefined && { timeoutMs }),
+        ...(workspaceRestoreId !== undefined && { workspaceRestoreId }),
       }),
     }),
     'readiness.cancel': async ({ runId }) => ({ run: readiness().cancel(runId) }),

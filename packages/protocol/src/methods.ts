@@ -326,6 +326,7 @@ import {
   SpeechStatusResultSchema,
 } from './speech.js';
 import { SyncMethodSchemas } from './sync.js';
+import { SyncWorkspaceMethodSchemas, SyncWorkspaceRefSchema } from './sync-workspace.js';
 import {
   TerminalAttachParamsSchema,
   TerminalAttachResultSchema,
@@ -1276,6 +1277,10 @@ export const SessionCreateFromHistoryParamsSchema = z.object({
   providerId: ProviderIdSchema.optional(),
   modelId: z.string().min(1).optional(),
   reasoningEffort: z.string().min(1).optional(),
+  handoff: HandoffMaterialRequestSchema.optional(),
+  workspaceSnapshot: SyncWorkspaceRefSchema.optional(),
+  workspaceRestoreId: z.string().min(8).max(128).optional(),
+  trustWorkspace: z.boolean().optional(),
 });
 
 /**
@@ -2102,6 +2107,7 @@ export interface MethodSpec {
  */
 export const MethodSchemas = {
   ...SyncMethodSchemas,
+  ...SyncWorkspaceMethodSchemas,
   ...PluginMethodSchemas,
   ...ImportMethodSchemas,
   ...MarketMethodSchemas,

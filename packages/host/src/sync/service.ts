@@ -34,6 +34,7 @@ import { SyncRestoreData } from './restore-data.js';
 import { SyncSettings } from './settings.js';
 import { SyncSettingsConflicts } from './settings-conflicts.js';
 import { SyncSnapshots } from './snapshots.js';
+import { SyncWorkspaces } from './workspaces.js';
 
 export interface SyncServiceOptions {
   storage: Storage;
@@ -52,6 +53,7 @@ export interface SyncServiceOptions {
 }
 
 export class SyncService {
+  readonly workspaces: SyncWorkspaces;
   readonly #options: SyncServiceOptions;
   readonly #engine: SyncEngine;
   readonly #materials: SyncMaterials;
@@ -113,6 +115,11 @@ export class SyncService {
       files: this.#files,
       eligible: () => this.#consented(),
       source: (id) => this.#capture.source(id),
+    });
+    this.workspaces = new SyncWorkspaces({
+      ...options,
+      eligible: () => (this.#closed ? undefined : this.#consented()),
+      source: (sessionId) => this.#capture.source(sessionId),
     });
     const cache = new SyncBlobCache(join(options.home, 'sync/blobs'));
     const snapshots = new SyncSnapshots(options);
@@ -708,6 +715,32 @@ export class SyncService {
       throw this.#failure(error);
     } finally {
       if (!this.#closed && !this.#configuring) this.#schedule(0);
+    }
+  }
+
+  async workspaceCapture(params: MethodParams<'sync.workspaceCapture'>) {
+    try {
+      return await this.workspaces.capture(params);
+    } catch (error) {
+      throw this.#failure(error);
+    } finally {
+      if (!this.#closed) this.#schedule(0);
+    }
+  }
+
+  workspaceSnapshots(sessionId: SessionId) {
+    try {
+      return this.workspaces.list(sessionId);
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+
+  async workspaceRestore(params: MethodParams<'sync.workspaceRestore'>) {
+    try {
+      return await this.workspaces.restore(params);
+    } catch (error) {
+      throw this.#failure(error);
     }
   }
 
