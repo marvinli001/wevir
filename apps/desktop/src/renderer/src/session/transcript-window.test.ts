@@ -1,8 +1,19 @@
 import type { ChatMessage } from '@wevir/client-sdk';
 import type { TurnId } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { laterWindowStart, RENDER_WINDOW, transcriptWindowEnd } from './transcript-window';
+import {
+  earlierWindow,
+  laterWindow,
+  laterWindowStart,
+  RENDER_WINDOW,
+  type TranscriptWindow,
+  transcriptWindowEnd,
+} from './transcript-window';
 import { turnStart } from './turn-model';
+
+function system(index: number): ChatMessage {
+  return { role: 'system', id: `m${index}`, parts: [], seqRange: [index, index] };
+}
 
 function message(index: number, turn = index): ChatMessage {
   return {
@@ -63,5 +74,46 @@ describe('bounded transcript window', () => {
         end = laterEnd;
       }
     }
+  });
+  it('回合都折叠、两头哨兵同时在视口附近时，一段只增不减，不来回翻页', () => {
+    // 一条接力材料，三个跑完的长回合（69、53、81 条），最后一个进行中的回合 8 条。
+    const messages: ChatMessage[] = [system(0)];
+    for (const [turn, length] of [69, 53, 81, 8].entries())
+      for (let i = 0; i < length; i++) messages.push(message(messages.length, 100 + turn));
+    const keep = () => false;
+    // 贴底时渲染的一段（最后一个回合在里面），转为手动阅读后两头哨兵都在视口附近。
+    let window: TranscriptWindow = {
+      start: turnStart(messages, messages.length - RENDER_WINDOW),
+      end: messages.length,
+    };
+    const seen = new Set<string>();
+    while (window.start > 0 || window.end < messages.length) {
+      const key = `${window.start}:${window.end}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+      const next =
+        window.start > 0
+          ? earlierWindow(messages, window, keep)
+          : laterWindow(messages, window, keep);
+      expect(next.start).toBeLessThanOrEqual(window.start);
+      expect(next.end).toBeGreaterThanOrEqual(window.end);
+      window = next;
+    }
+    expect(window).toEqual({ start: 0, end: messages.length });
+  });
+  it('离视口足够远时照常裁掉另一头，往后翻页一直有进展', () => {
+    const messages = Array.from({ length: 600 }, (_, i) => message(i, Math.floor(i / 7)));
+    const trim = () => true;
+    let window: TranscriptWindow = { start: 0, end: transcriptWindowEnd(messages, 0) };
+    while (window.end < messages.length) {
+      const next = laterWindow(messages, window, trim);
+      expect(next.start).toBeGreaterThan(window.start);
+      expect(next.end).toBeGreaterThan(window.end);
+      expect(next.end - next.start).toBeLessThanOrEqual(RENDER_WINDOW * 2 + 2 * 7);
+      window = next;
+    }
+    const earlier = earlierWindow(messages, window, trim);
+    expect(earlier.start).toBeLessThan(window.start);
+    expect(earlier.end).toBe(transcriptWindowEnd(messages, earlier.start));
   });
 });

@@ -1,4 +1,4 @@
-import type { Transcript, TranscriptChapter } from '@wevir/client-sdk';
+import type { ChatMessage, Transcript, TranscriptChapter } from '@wevir/client-sdk';
 import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
@@ -22,7 +22,13 @@ import {
   findTextRange,
   transcriptFocus,
 } from './transcript-focus';
-import { laterWindowStart, RENDER_WINDOW, transcriptWindowEnd } from './transcript-window';
+import {
+  earlierWindow,
+  laterWindow,
+  RENDER_WINDOW,
+  type TranscriptWindow,
+  transcriptWindowEnd,
+} from './transcript-window';
 import {
   adjoinsNotice,
   blockSeqRange,
@@ -50,6 +56,11 @@ export interface TranscriptViewHandle {
 const BLOCK_ENTER_MS = 300;
 /** 跳过去之后，所在的一块闪多久（styles/session.css 的 `seq-reveal`）。 */
 const REVEAL_HIGHLIGHT_MS = 1600;
+/** 顶部、底部哨兵提前多远开始翻页。 */
+const EARLIER_MARGIN_PX = 800;
+const LATER_MARGIN_PX = 400;
+/** 翻页时只裁掉离视口比这更远的一头：裁完那一头的哨兵仍在触发范围之外，不会马上翻回来。 */
+const TRIM_FACTOR = 2;
 
 /**
  * 消息流：分段渲染（最后 `RENDER_WINDOW` 条起的一段，滚到顶部附近时向前扩展；起点挪到所在回合的开头），按回合成块
@@ -95,6 +106,8 @@ export function TranscriptView({
   // 渲染从哪条消息开始。贴底时不固定：只渲染最后 RENDER_WINDOW 条，新消息进来时窗口随之后移，DOM 不随会话
   // 增长；手动阅读时固定起点并裁掉远处的底部，双向翻页保持当前可见回合。
   const [pinnedStart, setPinnedStart] = useState(() => scrollPositions.get(sessionId)?.start);
+  // 翻页后渲染到哪条消息之前（不含）；null 是一直到末尾，undefined 由起点算出（transcriptWindowEnd）。
+  const [pinnedEnd, setPinnedEnd] = useState<string | null>();
   // 跳到搜索结果（transcript-focus.ts）：那条消息一直在渲染的一段里，直到回到贴底。
   const [focusPin, setFocusPin] = useState<string>();
   const pinnedIndex = pinnedStart ? messages.findIndex((m) => m.id === pinnedStart) : -1;
@@ -104,7 +117,17 @@ export function TranscriptView({
     messages,
     focusIndex >= 0 ? Math.max(0, focusIndex - RENDER_WINDOW / 2) : baseIndex,
   );
-  const end = sticky ? messages.length : transcriptWindowEnd(messages, start);
+  const pinnedEndIndex =
+    pinnedEnd === null
+      ? messages.length
+      : pinnedEnd === undefined
+        ? -1
+        : messages.findIndex((m) => m.id === pinnedEnd);
+  const end = sticky
+    ? messages.length
+    : focusIndex < 0 && pinnedEndIndex > start
+      ? pinnedEndIndex
+      : transcriptWindowEnd(messages, start);
   const hasLater = end < messages.length;
   hasLaterRef.current = hasLater;
   const hidden = start;
@@ -119,7 +142,10 @@ export function TranscriptView({
   );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在切换模式与换会话时固定或放开。
-  useEffect(() => setPinnedStart(sticky ? undefined : firstRendered), [sticky, sessionId]);
+  useEffect(() => {
+    setPinnedStart(sticky ? undefined : firstRendered);
+    setPinnedEnd(undefined);
+  }, [sticky, sessionId]);
   useEffect(() => {
     if (sticky) setFocusPin(undefined);
   }, [sticky]);
@@ -136,6 +162,7 @@ export function TranscriptView({
       if (!message) return false;
       release();
       setFocusPin(message.id);
+      setPinnedEnd(undefined);
       focusTarget.current = {
         messageId: message.id,
         ...(message.role !== 'system' && { turnId: message.turnId }),
@@ -198,16 +225,26 @@ export function TranscriptView({
   if (firstRender) seen.current = { sessionId, keys: new Map() };
   const seenKeys = (seen.current as { keys: Map<string, number> }).keys;
   const renderedAt = performance.now();
-  const showEarlier = () => {
+  const page = (next: TranscriptWindow) => {
     release(true);
     setFocusPin(undefined);
-    setPinnedStart(messages[Math.max(0, start - RENDER_WINDOW)]?.id);
+    setPinnedStart(messages[next.start]?.id);
+    setPinnedEnd(next.end >= messages.length ? null : messages[next.end]?.id);
   };
-  const showLater = () => {
-    release(true);
-    setFocusPin(undefined);
-    setPinnedStart(messages[laterWindowStart(messages, start, end)]?.id);
+  // 只裁掉离视口足够远的一头（按渲染出的位置量）；回合折叠、一段很矮时两头都留着，一段只增不减直到哨兵离开触发范围。
+  const farFromView = (side: 'above' | 'below', index: number) => {
+    const container = containerRef.current;
+    const top = container ? blockTop(container, messages, index, end) : undefined;
+    if (!container || top === undefined) return false;
+    const view = container.getBoundingClientRect();
+    return side === 'below'
+      ? top - view.bottom > LATER_MARGIN_PX * TRIM_FACTOR
+      : view.top - top > EARLIER_MARGIN_PX * TRIM_FACTOR;
   };
+  const showEarlier = () =>
+    page(earlierWindow(messages, { start, end }, (index) => farFromView('below', index)));
+  const showLater = () =>
+    page(laterWindow(messages, { start, end }, (index) => farFromView('above', index)));
   const showLaterRef = useRef(showLater);
   showLaterRef.current = showLater;
   const showEarlierRef = useRef(showEarlier);
@@ -222,7 +259,7 @@ export function TranscriptView({
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) showEarlierRef.current();
       },
-      { root: container, rootMargin: '800px 0px 0px 0px' },
+      { root: container, rootMargin: `${EARLIER_MARGIN_PX}px 0px 0px 0px` },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
@@ -237,11 +274,11 @@ export function TranscriptView({
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) showLaterRef.current();
       },
-      { root: container, rootMargin: '0px 0px 400px 0px' },
+      { root: container, rootMargin: `0px 0px ${LATER_MARGIN_PX}px 0px` },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasLater, start]);
+  }, [hasLater, start, end]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -361,6 +398,22 @@ export function TranscriptView({
       </div>
     </div>
   );
+}
+
+/** 从 `index` 起（到 `end` 为止）第一个渲染出来的块的顶边在视口里的位置；找不到时 undefined（不裁）。 */
+function blockTop(
+  container: HTMLElement,
+  messages: readonly ChatMessage[],
+  index: number,
+  end: number,
+): number | undefined {
+  for (let i = index; i < end; i++) {
+    const id = messages[i]?.id;
+    if (id === undefined) continue;
+    const block = container.querySelector(`.transcript-item[data-message-id="${CSS.escape(id)}"]`);
+    if (block) return block.getBoundingClientRect().top;
+  }
+  return undefined;
 }
 
 function liveState(transcript: Transcript): LiveState {
