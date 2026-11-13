@@ -1,11 +1,13 @@
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { FileSecretStore, openStorage, type SyncVaultRecord } from '@wevir/storage';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDir } from '../test-utils.js';
 import { ZuvClient } from '../zuv/client.js';
 import { startMockZuv } from '../zuv/mock.test-utils.js';
+import { SyncBootstrap } from './bootstrap.js';
 import { SyncBlobCache } from './cache.js';
+import { eventDigest } from './crypto.js';
 import { SyncEngine } from './engine.js';
 import { SyncVaultKeys } from './keys.js';
 import { SyncQueue } from './queue.js';
@@ -22,7 +24,7 @@ async function fixture(fault: 'none' | 'page' | 'export' | 'manifest' = 'none') 
   const mock = await startMockZuv();
   cleanups.push(() => mock.close());
   const home = tempDir();
-  const storage = openStorage({ dataDir: home });
+  let storage = openStorage({ dataDir: home });
   cleanups.push(() => storage.close());
   let pages = 0;
   let failed = false;
@@ -117,7 +119,33 @@ async function fixture(fault: 'none' | 'page' | 'export' | 'manifest' = 'none') 
   return {
     mock,
     home,
-    storage,
+    get storage() {
+      return storage;
+    },
+    reopen() {
+      storage.close();
+      storage = openStorage({ dataDir: home });
+    },
+    bootstrap() {
+      return new SyncBootstrap({
+        storage,
+        client,
+        snapshots,
+        home,
+        data: new SyncRestoreData({
+          client,
+          storage,
+          cache: new SyncBlobCache(join(home, 'sync/blobs')),
+          keys: new SyncVaultKeys({
+            client,
+            secrets: new FileSecretStore(home),
+            onSecret: () => {},
+          }),
+          snapshots,
+        }),
+        eligible: () => storage.sync.activeVault(),
+      });
+    },
     client,
     engine,
     enqueue,
@@ -129,6 +157,218 @@ async function fixture(fault: 'none' | 'page' | 'export' | 'manifest' = 'none') 
 }
 
 describe('fixed recoverable snapshot metadata', () => {
+  it('stages selected event segments using the exact event tuple while excluding unselected content', async () => {
+    const h = await fixture();
+    const scopes = await h.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+      expectedRevision: h.vault.revision,
+      enabled: true,
+      categories: ['event-segment'],
+      projectIds: ['project_synthetic'],
+    });
+    h.storage.sync.setScopes(h.vault.vaultId, scopes);
+    await h.client.getEntitlements();
+    const source = {
+      vaultId: h.vault.vaultId,
+      hostId: h.vault.originHostId,
+      sessionId: 'ses_synthetic_stream',
+      streamId: 'stream_synthetic',
+      seq: '1',
+    };
+    const event = {
+      seq: 1,
+      sessionId: source.sessionId,
+      ts: '2026-11-14T00:00:00.000Z',
+      source: 'host',
+      type: 'user.message',
+      payload: {
+        turnId: 'trn_synthetic',
+        sentBy: 'user',
+        content: [{ type: 'text', text: 'Synthetic source event' }],
+      },
+    };
+    h.storage.transaction(() =>
+      new SyncQueue(h.storage).enqueue({
+        vaultId: h.vault.vaultId,
+        entityType: 'event-segment',
+        projectId: 'project_synthetic',
+        localKey: 'synthetic-event',
+        content: {
+          schema: 'wevir-event-stream/1',
+          sessionId: source.sessionId,
+          streamId: source.streamId,
+          exclusions: ['engine.raw'],
+        },
+        source: {
+          origin: {
+            hostId: source.hostId,
+            sessionId: source.sessionId,
+            streamId: source.streamId,
+            fromSeq: '1',
+            throughSeq: '1',
+          },
+          events: [{ seq: '1', sha256: eventDigest(source, event), content: event }],
+        },
+      }),
+    );
+    await h.engine.run();
+    const staging = h.bootstrap();
+    const prepared = await staging.prepare(new AbortController().signal);
+    expect(prepared).toMatchObject({ operations: 4, selected: 1, staged: 1 });
+    const records = [];
+    for await (const entry of staging.records(prepared.job.jobId, new AbortController().signal))
+      records.push(entry.record);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.events?.[0]?.content).toEqual(event);
+    expect(records[0]?.content).toMatchObject({ exclusions: ['engine.raw'] });
+  });
+
+  it('stages a fixed snapshot through a DB failure and resumes only missing record indices without touching the outbox or ACK', async () => {
+    const h = await fixture();
+    const staging = h.bootstrap();
+    const before = h.storage.sync.drafts(h.vault.vaultId);
+    const cursor = h.storage.sync.activeVault()?.appliedCursor;
+    const acknowledgements = [...h.mock.sync.acknowledgements];
+    const first = h.storage.sync.localEntity(h.vault.vaultId, 'synthetic-first');
+    const operation =
+      first?.revision && h.storage.sync.getOperation(h.vault.vaultId, first.revision);
+    if (!operation) throw new Error('missing synthetic operation');
+    const blobId = (operation.envelope as { payload: { blobId: string } }).payload.blobId;
+    await rm(new SyncBlobCache(join(h.home, 'sync/blobs')).path(h.vault.vaultId, blobId));
+    const insert = h.storage.sync.putBootstrapRecord;
+    let calls = 0;
+    const write = vi.spyOn(h.storage.sync, 'putBootstrapRecord').mockImplementation((...args) => {
+      if (++calls === 2) throw new Error('synthetic staged row loss');
+      return insert(...args);
+    });
+    await expect(staging.prepare(new AbortController().signal)).rejects.toThrow(
+      'synthetic staged row loss',
+    );
+    write.mockRestore();
+    const jobId = await h.jobId();
+    expect(staging.status(jobId)).toMatchObject({
+      job: { state: 'failed', pendingBefore: before.length },
+      operations: 3,
+      selected: 3,
+      staged: 1,
+    });
+    const downloads = h.mock.sync.attempts.downloads;
+    expect(downloads).toBe(1);
+    h.reopen();
+    const resumed = h.bootstrap();
+    expect(await resumed.resume(jobId, new AbortController().signal)).toMatchObject({
+      job: { state: 'staged' },
+      selected: 3,
+      staged: 3,
+    });
+    const records = [];
+    for await (const entry of resumed.records(jobId, new AbortController().signal))
+      records.push(entry.record.content);
+    expect(records).toEqual(
+      ['synthetic-first', 'synthetic-second', 'synthetic-third'].map((text) => ({
+        schema: 'synthetic/1',
+        text,
+      })),
+    );
+    expect(h.mock.sync.exports).toBe(1);
+    expect(h.mock.sync.attempts.downloads).toBe(downloads);
+    expect(h.storage.sync.drafts(h.vault.vaultId)).toEqual(before);
+    expect(h.storage.sync.activeVault()?.appliedCursor).toBe(cursor);
+    expect(h.mock.sync.acknowledgements).toEqual(acknowledgements);
+    h.storage.db
+      .prepare(
+        'UPDATE sync_bootstrap_entries SET record = ? WHERE vault_id = ? AND job_id = ? AND position = 0',
+      )
+      .run('{}', h.vault.vaultId, jobId);
+    await expect(
+      (async () => {
+        for await (const _record of resumed.records(jobId, new AbortController().signal)) {
+          /* consume verified records */
+        }
+      })(),
+    ).rejects.toMatchObject({ code: 'INTEGRITY_FAILED' });
+    expect(h.mock.sync.attempts.downloads).toBe(downloads);
+  });
+
+  it('retains an uncertain export job and never allocates another snapshot when resumed', async () => {
+    const h = await fixture('export');
+    const staging = h.bootstrap();
+    await expect(staging.prepare(new AbortController().signal)).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+    });
+    const [job] = staging.jobs();
+    expect(job?.state).toBe('failed');
+    if (!job) throw new Error('missing uncertain bootstrap job');
+    const requests = h.mock.requests.length;
+    await expect(staging.resume(job.jobId, new AbortController().signal)).rejects.toMatchObject({
+      code: 'RECOVERY_REQUIRED',
+    });
+    expect(h.mock.sync.exports).toBe(1);
+    expect(h.mock.requests).toHaveLength(requests);
+    expect(h.storage.sync.bootstrapCounts(h.vault.vaultId, job.jobId)).toEqual({
+      operations: 0,
+      selected: 0,
+      staged: 0,
+    });
+  });
+
+  it('does not stage without consent or install stale-scope roots after a scope change', async () => {
+    const h = await fixture();
+    const staging = h.bootstrap();
+    h.storage.sync.setScopes(h.vault.vaultId, { ...h.vault, enabled: false });
+    await expect(staging.prepare(new AbortController().signal)).rejects.toMatchObject({
+      code: 'SCOPE_DISABLED',
+    });
+    expect(h.mock.sync.exports).toBe(0);
+    h.storage.sync.setScopes(h.vault.vaultId, h.vault);
+    const prepared = await staging.prepare(new AbortController().signal);
+    const calls = h.mock.requests.length;
+    h.storage.sync.setScopes(h.vault.vaultId, { ...h.vault, revision: '2' });
+    await expect(
+      staging.installRoots(prepared.job.jobId, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    expect(h.mock.requests).toHaveLength(calls);
+    expect(h.storage.db.prepare('SELECT COUNT(*) AS n FROM sync_snapshot_roots').get()?.n).toBe(0);
+  });
+
+  it('derives pruned-parent boundaries from the complete signed snapshot without fabricating a retired record', async () => {
+    const h = await fixture();
+    const previous = h.storage.sync.localEntity(h.vault.vaultId, 'synthetic-first');
+    if (!previous?.revision) throw new Error('missing synthetic base');
+    const child = h.storage.transaction(() =>
+      new SyncQueue(h.storage).enqueue({
+        vaultId: h.vault.vaultId,
+        entityType: 'memory',
+        localKey: 'synthetic-first',
+        content: { schema: 'synthetic/1', text: 'updated synthetic first' },
+      }),
+    );
+    await h.engine.run();
+    await h.engine.run();
+    expect(child && h.storage.sync.getOperation(h.vault.vaultId, child)?.state).toBe('committed');
+    h.mock.sync.retiredOperations.add(previous.revision);
+    const bootstrap = h.bootstrap();
+    const staged = await bootstrap.prepare(new AbortController().signal);
+    const jobId = staged.job.jobId;
+    const boundary = await h.snapshots.historyRoots(jobId);
+    expect(boundary.roots).toEqual([{ opId: previous.revision, entityId: previous.entityId }]);
+    const entries = [];
+    for await (const entry of h.snapshots.entries(jobId)) entries.push(entry);
+    expect(entries.some((entry) => entry.operation.opId === previous.revision)).toBe(false);
+    expect(entries.find((entry) => entry.operation.opId === child)?.operation.parents).toEqual([
+      previous.revision,
+    ]);
+    expect(h.storage.sync.getOperation(h.vault.vaultId, previous.revision)?.record).toBeDefined();
+    expect(await bootstrap.installRoots(jobId, new AbortController().signal)).toBe(1);
+    expect(
+      h.storage.db
+        .prepare('SELECT op_id, entity_id FROM sync_snapshot_roots WHERE vault_id = ?')
+        .all(h.vault.vaultId),
+    ).toEqual([{ op_id: previous.revision, entity_id: previous.entityId }]);
+    expect(
+      h.mock.sync.acknowledgements.some((ack) => ack.cursor === boundary.exported.snapshotCursor),
+    ).toBe(false);
+  });
+
   it('verifies and persists a fixed manifest without applying data or touching offline work, then reads it offline', async () => {
     const h = await fixture();
     const pending = h.storage.sync.drafts(h.vault.vaultId);

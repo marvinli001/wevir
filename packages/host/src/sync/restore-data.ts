@@ -32,6 +32,7 @@ export class SyncRestoreData {
     vault: SyncVaultRecord,
     selection: { categories: readonly EntityType[]; projectIds: readonly string[] },
     signal: AbortSignal,
+    operationIds?: ReadonlySet<string>,
   ) {
     const { client, keys, snapshots } = this.#options;
     const descriptor = await snapshots.describe(jobId);
@@ -48,6 +49,7 @@ export class SyncRestoreData {
     for await (const entry of snapshots.entries(jobId)) {
       this.#guard(vault, signal);
       if (
+        (operationIds && !operationIds.has(entry.operation.opId)) ||
         !selection.categories.includes(entry.operation.entityType) ||
         (entry.recordManifest.projectId &&
           !selection.projectIds.includes(entry.recordManifest.projectId))
@@ -63,7 +65,9 @@ export class SyncRestoreData {
     }
     const refs = new Map(descriptor.exported.manifest.map((value) => [value.blobId, value]));
     let currentBlob: string | undefined;
-    let decoded: Awaited<ReturnType<typeof decryptPack>> | undefined;
+    let decoded:
+      | Map<string, Awaited<ReturnType<typeof decryptPack>>['records'][number]>
+      | undefined;
     for (const entry of ordered) {
       this.#guard(vault, signal);
       const op = entry.operation;
@@ -98,18 +102,19 @@ export class SyncRestoreData {
           throw new ZuvRequestError('INTEGRITY_FAILED');
         const key = await keys.unlock(vault.vaultId, header.keyEpoch, signal);
         try {
-          decoded = await decryptPack(
+          const pack = await decryptPack(
             bytes,
             key,
             group.map((value) => value.operation),
             group.map((value) => value.recordManifest),
           );
+          decoded = new Map(pack.records.map((record) => [record.opId, record]));
         } catch {
           throw new ZuvRequestError('INTEGRITY_FAILED');
         }
         currentBlob = op.payload.blobId;
       }
-      const record = decoded?.records[op.payload.recordIndex];
+      const record = decoded?.get(op.opId);
       if (!record || record.opId !== op.opId) throw new ZuvRequestError('INTEGRITY_FAILED');
       this.#guard(vault, signal);
       yield { ...entry, record };

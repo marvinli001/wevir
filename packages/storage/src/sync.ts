@@ -1,5 +1,6 @@
 import type { SqliteDatabase, SqlRow } from './driver.js';
 import { integer, json, optionalText, text, toJson } from './rows.js';
+import { createSyncBootstrapRepository } from './sync-bootstrap.js';
 import { createSyncMaterialRepository } from './sync-materials.js';
 import { createSyncQueueRepository } from './sync-queue.js';
 import { createSyncReferenceRepository } from './sync-references.js';
@@ -87,9 +88,15 @@ export function createSyncRepository(db: SqliteDatabase) {
           'SELECT entity_id, heads_applied FROM sync_operations WHERE vault_id = ? AND op_id = ?',
         )
         .get(vaultId, parent);
-      return !op || op.entity_id !== entityId || !integer(op, 'heads_applied');
+      if (op && op.entity_id !== entityId) return true;
+      if (op && integer(op, 'heads_applied')) return false;
+      const root = db
+        .prepare('SELECT entity_id FROM sync_snapshot_roots WHERE vault_id = ? AND op_id = ?')
+        .get(vaultId, parent);
+      return root?.entity_id !== entityId;
     });
   return {
+    ...createSyncBootstrapRepository(db),
     ...createSyncQueueRepository(db),
     ...createSyncMaterialRepository(db),
     ...createSyncReferenceRepository(db),
@@ -257,6 +264,29 @@ export function createSyncRepository(db: SqliteDatabase) {
       ).run(...args, sha256, localSeq ?? null);
     },
     getOperation,
+    putSnapshotProof(vaultId: string, jobId: string, snapshot: unknown): void {
+      requireTransaction();
+      const body = toJson(snapshot);
+      const old = db
+        .prepare('SELECT snapshot FROM sync_snapshot_proofs WHERE vault_id = ? AND job_id = ?')
+        .get(vaultId, jobId);
+      if (old && old.snapshot !== body) throw new SyncStorageError('INTEGRITY_FAILED');
+      db.prepare(
+        'INSERT OR IGNORE INTO sync_snapshot_proofs (vault_id, job_id, snapshot) VALUES (?, ?, ?)',
+      ).run(vaultId, jobId, body);
+    },
+    putSnapshotRoot(vaultId: string, jobId: string, entityId: string, opId: string): void {
+      requireTransaction();
+      const old = db
+        .prepare('SELECT entity_id FROM sync_snapshot_roots WHERE vault_id = ? AND op_id = ?')
+        .get(vaultId, opId);
+      const operation = getOperation(vaultId, opId);
+      if ((old && old.entity_id !== entityId) || (operation && operation.entityId !== entityId))
+        throw new SyncStorageError('INTEGRITY_FAILED');
+      db.prepare(
+        'INSERT OR IGNORE INTO sync_snapshot_roots (vault_id, op_id, entity_id, job_id) VALUES (?, ?, ?, ?)',
+      ).run(vaultId, opId, entityId, jobId);
+    },
     missingParents,
     putOperation(op: SyncOperationRecord): boolean {
       requireTransaction();
@@ -265,6 +295,10 @@ export function createSyncRepository(db: SqliteDatabase) {
         if (current.digest !== op.digest) throw new SyncStorageError('OP_ID_REUSED');
         return false;
       }
+      const root = db
+        .prepare('SELECT entity_id FROM sync_snapshot_roots WHERE vault_id = ? AND op_id = ?')
+        .get(op.vaultId, op.opId);
+      if (root && root.entity_id !== op.entityId) throw new SyncStorageError('INTEGRITY_FAILED');
       const entity = db
         .prepare(
           'SELECT project_id, entity_type FROM sync_operations WHERE vault_id = ? AND entity_id = ? LIMIT 1',

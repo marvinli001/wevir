@@ -54,6 +54,7 @@ export class MockSyncGateway {
     }
   >();
   exports = 0;
+  readonly retiredOperations = new Set<string>();
   readonly acknowledgements: Array<{ deviceId: string; cursor: string }> = [];
   readonly attempts = { uploads: 0, downloads: 0, reservations: 0, commits: 0 };
   pendingCommits = false;
@@ -191,7 +192,11 @@ export class MockSyncGateway {
           ? vault.operations.length
           : vault.cursors.get(input.snapshotCursor);
       if (offset === undefined) throw new MockSyncError('RESET_REQUIRED');
-      const entries = structuredClone(vault.operations.slice(0, offset));
+      const entries = structuredClone(
+        vault.operations
+          .slice(0, offset)
+          .filter((entry) => !this.retiredOperations.has(entry.operation.opId)),
+      );
       const blobs = new Set(
         entries.flatMap((entry) =>
           entry.operation.payload ? [entry.operation.payload.blobId] : [],

@@ -139,6 +139,51 @@ describe('durable sync mappings', () => {
     expect(storage().sync.heads(vault.vaultId, 'entity_fixture')).toEqual(['operation_resolved']);
   });
 
+  it('accepts an authenticated pruned-parent boundary without inventing its operation or head', () => {
+    bind();
+    const parent = 'operation_pruned';
+    const child = 'operation_retained';
+    storage().transaction(() =>
+      storage().sync.putOperation(op({ opId: child, envelope: { parents: [parent] } })),
+    );
+    expect(() =>
+      storage().transaction(() =>
+        storage().sync.applyHeads(vault.vaultId, 'entity_fixture', child, [parent]),
+      ),
+    ).toThrow('MISSING_PARENT');
+    expect(() =>
+      storage().transaction(() =>
+        storage().sync.putSnapshotRoot(vault.vaultId, 'job_unknown', 'entity_fixture', parent),
+      ),
+    ).toThrow();
+    storage().transaction(() => {
+      storage().sync.putSnapshotProof(vault.vaultId, 'job_synthetic', {
+        signed: 'synthetic verified boundary',
+      });
+      storage().sync.putSnapshotRoot(vault.vaultId, 'job_synthetic', 'entity_fixture', parent);
+      storage().sync.applyHeads(vault.vaultId, 'entity_fixture', child, [parent]);
+    });
+    expect(storage().sync.getOperation(vault.vaultId, parent)).toBeUndefined();
+    expect(storage().sync.heads(vault.vaultId, 'entity_fixture')).toEqual([child]);
+    expect(() =>
+      storage().transaction(() =>
+        storage().sync.putOperation(
+          op({ opId: parent, deviceSeq: '2', entityId: 'other_entity', digest: 'other_identity' }),
+        ),
+      ),
+    ).toThrow('INTEGRITY_FAILED');
+    expect(() =>
+      storage().transaction(() =>
+        storage().sync.putSnapshotRoot(vault.vaultId, 'job_synthetic', 'other_entity', parent),
+      ),
+    ).toThrow('INTEGRITY_FAILED');
+    expect(() =>
+      storage().transaction(() =>
+        storage().sync.putSnapshotProof(vault.vaultId, 'job_synthetic', { signed: 'changed' }),
+      ),
+    ).toThrow('INTEGRITY_FAILED');
+  });
+
   it('clears only conflict journals in the resolved causal ancestry, including pending drafts', () => {
     bind();
     storage().transaction(() => {

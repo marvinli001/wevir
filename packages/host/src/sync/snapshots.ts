@@ -34,11 +34,16 @@ export class SyncSnapshots {
     this.#root = join(options.home, 'sync/restores');
   }
 
-  async prepare(vault: SyncVaultRecord, signal: AbortSignal, snapshotCursor?: string) {
+  async prepare(
+    vault: SyncVaultRecord,
+    signal: AbortSignal,
+    snapshotCursor?: string,
+    jobId: string = newId('srj'),
+  ) {
     this.#guard(vault, signal);
     const job: Journal = {
       v: 1,
-      jobId: newId('srj'),
+      jobId,
       vaultId: vault.vaultId,
       accountId: vault.accountId,
       deviceId: vault.deviceId,
@@ -108,6 +113,27 @@ export class SyncSnapshots {
     await this.#scan(job, true);
     for (let index = 0; index < job.pages.length; index++)
       for (const entry of await this.#page(job, index)) yield entry;
+  }
+
+  async historyRoots(jobId: string) {
+    const descriptor = await this.describe(jobId);
+    const operations = new Map<string, string>();
+    const references = new Map<string, string>();
+    for await (const { operation } of this.entries(jobId)) {
+      operations.set(operation.opId, operation.entityId);
+      for (const parent of operation.parents) {
+        if (references.has(parent) && references.get(parent) !== operation.entityId)
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        references.set(parent, operation.entityId);
+      }
+    }
+    const roots: Array<{ opId: string; entityId: string }> = [];
+    for (const [parent, entityId] of references) {
+      if (operations.has(parent)) {
+        if (operations.get(parent) !== entityId) throw new ZuvRequestError('INTEGRITY_FAILED');
+      } else roots.push({ opId: parent, entityId });
+    }
+    return { ...descriptor, roots };
   }
 
   async #list(job: Journal, vault: SyncVaultRecord, signal: AbortSignal) {
