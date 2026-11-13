@@ -167,6 +167,168 @@ export class SyncWorkspaces {
     return { snapshot: this.#summary({ vaultId: vault.vaultId, entityId, opId }) };
   }
 
+  restoreVersion(
+    input: { sessionId: SessionId; expectedLocalSeq: number },
+    archived: {
+      vaultId: string;
+      opId: string;
+      deviceId: string;
+      body: typeof SyncBundleContentSchema._output;
+      files: readonly BundleFile[];
+      enqueueReferences?: () => void;
+    },
+  ) {
+    const { storage } = this.#options;
+    const vault = this.#options.eligible();
+    const body = SyncBundleContentSchema.parse(archived.body);
+    const original = SyncWorkspaceMetadataSchema.parse(body.metadata);
+    const session = storage.sessions.get(input.sessionId);
+    if (
+      !vault ||
+      !session ||
+      archived.vaultId !== vault.vaultId ||
+      !this.#project(input.sessionId, vault.vaultId, original.projectId)
+    )
+      throw new ZuvRequestError('SCOPE_DISABLED');
+    id.parse(archived.opId);
+    id.parse(archived.deviceId);
+    if (body.category !== 'workspace-snapshot' || original.source.deviceId !== archived.deviceId)
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    const guard = () => {
+      const current = this.#options.eligible(),
+        bound = storage.sync.activeVault();
+      if (
+        !current?.active ||
+        !current.enabled ||
+        current.vaultId !== vault.vaultId ||
+        current.accountId !== vault.accountId ||
+        current.deviceId !== vault.deviceId ||
+        current.originHostId !== vault.originHostId ||
+        current.revision !== vault.revision ||
+        !current.categories.includes('workspace-snapshot') ||
+        !current.categories.includes('artifact') ||
+        !current.projectIds.includes(original.projectId) ||
+        (archived.enqueueReferences !== undefined &&
+          original.ruleVersions.length > 0 &&
+          !current.categories.includes('rule')) ||
+        bound?.vaultId !== vault.vaultId ||
+        !bound.active ||
+        !bound.enabled ||
+        bound.accountId !== vault.accountId ||
+        bound.deviceId !== vault.deviceId ||
+        bound.originHostId !== vault.originHostId ||
+        this.#project(input.sessionId, vault.vaultId, original.projectId) !== session.workspaceId ||
+        storage.workspaces.get(session.workspaceId)?.removedAt !== undefined
+      )
+        throw new ZuvRequestError('SCOPE_DISABLED');
+      if (storage.sessions.get(input.sessionId)?.lastSeq !== input.expectedLocalSeq)
+        throw new ZuvRequestError('REVISION_CONFLICT');
+    };
+    guard();
+    workspaceLayers(archived.files);
+    const manifest = new Map(body.files.map((file) => [file.path, file]));
+    if (manifest.size !== body.files.length || manifest.size !== archived.files.length)
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    for (const file of archived.files) {
+      const expected = manifest.get(file.path);
+      if (
+        !expected ||
+        expected.bytes !== file.bytes.length ||
+        expected.sha256 !== file.sha256 ||
+        (expected.executable === true) !== file.executable
+      )
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+    }
+    const metadata = SyncWorkspaceMetadataSchema.parse({
+      ...original,
+      source: {
+        hostId: vault.originHostId,
+        deviceId: vault.deviceId,
+        sessionId: input.sessionId,
+        streamId: newId('sst'),
+      },
+      throughSeq: input.expectedLocalSeq,
+      statusHash: sha256(
+        jcs(
+          archived.files.map((file) => ({
+            path: file.path,
+            sha256: file.sha256,
+            executable: file.executable,
+          })),
+        ),
+      ),
+      capturedAt: new Date().toISOString(),
+    });
+    const entityId = newId('sws'),
+      queue = new SyncQueue(storage);
+    const commit = () => {
+      guard();
+      const files = archived.files.map((file) => {
+        const parts: Array<{ entityId: string; opId: string }> = [];
+        for (let offset = 0, index = 0; offset < file.bytes.length; offset += 64 * 1024, index++) {
+          guard();
+          const chunkId = newId('spart'),
+            bytes = file.bytes.subarray(offset, offset + 64 * 1024);
+          const opId = queue.enqueue({
+            vaultId: vault.vaultId,
+            entityId: chunkId,
+            entityType: 'artifact',
+            projectId: original.projectId,
+            localKey: `chunk:${chunkId}`,
+            content: {
+              schema: 'wevir-chunk/1',
+              ownerId: entityId,
+              index,
+              data: bytes.toString('base64url'),
+              sha256: sha256(bytes),
+            },
+          });
+          if (!opId) throw new ZuvRequestError('SCOPE_DISABLED');
+          parts.push({ entityId: chunkId, opId });
+        }
+        return {
+          path: file.path,
+          bytes: file.bytes.length,
+          sha256: file.sha256,
+          executable: file.executable,
+          parts,
+        };
+      });
+      guard();
+      archived.enqueueReferences?.();
+      guard();
+      for (const version of original.ruleVersions) {
+        const rule = this.#revision({ vaultId: vault.vaultId, ...version });
+        if (
+          rule.entity.entityType !== 'rule' ||
+          (rule.entity.projectId && rule.entity.projectId !== original.projectId)
+        )
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+      }
+      const opId = queue.enqueue({
+        vaultId: vault.vaultId,
+        entityId,
+        entityType: 'workspace-snapshot',
+        projectId: original.projectId,
+        localKey: `workspace:${entityId}`,
+        content: SyncBundleContentSchema.parse({
+          ...body,
+          files,
+          metadata,
+          recoveredFrom: {
+            vaultId: archived.vaultId,
+            deviceId: archived.deviceId,
+            opId: archived.opId,
+            source: original.source,
+          },
+        }),
+      });
+      if (!opId) throw new ZuvRequestError('SCOPE_DISABLED');
+      return { snapshot: this.#summary({ vaultId: vault.vaultId, entityId, opId }) };
+    };
+    return storage.db.isTransaction ? commit() : storage.transaction(commit);
+  }
+
   list(sessionId: SessionId) {
     const vault = this.#options.storage.sync.activeVault();
     if (!vault) return { snapshots: [] };
@@ -175,8 +337,9 @@ export class SyncWorkspaces {
       if (entity.entityType !== 'workspace-snapshot' || !entity.revision) continue;
       const ref = { vaultId: vault.vaultId, entityId: entity.entityId, opId: entity.revision };
       const snapshot = this.#summary(ref);
+      const { bundle } = this.#bundle(ref);
       if (
-        this.#matches(sessionId, snapshot.source) &&
+        this.#matches(sessionId, snapshot.source, bundle.recoveredFrom?.source) &&
         this.#project(sessionId, ref.vaultId, snapshot.projectId)
       )
         snapshots.push(snapshot);
@@ -243,17 +406,27 @@ export class SyncWorkspaces {
   #matches(
     sessionId: SessionId,
     source: { hostId: string; deviceId: string; sessionId: string; streamId: string },
+    recovered?: { hostId: string; deviceId: string; sessionId: string; streamId: string },
   ) {
-    return this.#options.storage.sync
-      .sources(this.#options.storage.sync.activeVault()?.vaultId ?? '')
-      .some(
+    const vault = this.#options.storage.sync.activeVault();
+    const sources = this.#options.storage.sync.sources(vault?.vaultId ?? '');
+    const matches = (ref: typeof source) =>
+      sources.some(
         (value) =>
           value.localSessionId === sessionId &&
-          value.hostId === source.hostId &&
-          value.deviceId === source.deviceId &&
-          value.sessionId === source.sessionId &&
-          value.streamId === source.streamId,
+          value.hostId === ref.hostId &&
+          value.deviceId === ref.deviceId &&
+          value.sessionId === ref.sessionId &&
+          value.streamId === ref.streamId,
       );
+    return (
+      matches(source) ||
+      (recovered !== undefined &&
+        ((source.hostId === vault?.originHostId &&
+          source.deviceId === vault?.deviceId &&
+          source.sessionId === sessionId) ||
+          matches(recovered)))
+    );
   }
 
   /** Also used by offline packages: immutable records/chunks, no filesystem activation. */
@@ -312,7 +485,7 @@ export class SyncWorkspaces {
     if (
       vault?.vaultId !== ref.vaultId ||
       !workspaceId ||
-      !this.#matches(params.sessionId, metadata.source)
+      !this.#matches(params.sessionId, metadata.source, recoveredFrom?.source)
     )
       throw new ZuvRequestError('SCOPE_DISABLED');
     const restoreId = params.restoreId ?? newId('swr');

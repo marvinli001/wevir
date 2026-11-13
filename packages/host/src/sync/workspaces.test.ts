@@ -1,10 +1,14 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { SyncBundleContentSchema } from '@wevir/protocol';
 import type { SyncVaultRecord } from '@wevir/storage';
 import { describe, expect, it } from 'vitest';
 import { session, workspace } from '../../../storage/src/test-utils.js';
 import { useStorages, useTempDir } from '../test-utils.js';
-import { workspaceGit } from './workspace-git.js';
+import type { BundleFile } from './bundle-snapshot.js';
+import { sha256 } from './crypto.js';
+import { type SyncDraftPayload, SyncQueue } from './queue.js';
+import { workspaceGit, workspaceTreeFingerprint } from './workspace-git.js';
 import { SyncWorkspaces } from './workspaces.js';
 
 const temp = useTempDir(),
@@ -93,5 +97,303 @@ describe('workspace identity fences', () => {
     await expect(service.restoredRoot('ws_workspace', restored.restoreId)).rejects.toMatchObject({
       code: 'SCOPE_DISABLED',
     });
+  });
+});
+
+function archivedWorkspace() {
+  const files: BundleFile[] = [
+    ['base/mixed.txt', Buffer.from('base\n')],
+    ['index/mixed.txt', Buffer.from('staged\n')],
+    ['worktree/mixed.txt', Buffer.from('working\n')],
+    ['worktree/untracked.bin', Buffer.alloc(192 * 1024, 219)],
+  ].map(([path, bytes]) => ({
+    path: path as string,
+    bytes: bytes as Buffer,
+    sha256: sha256(bytes as Buffer),
+    executable: false,
+  }));
+  const source = {
+    hostId: 'archived_host',
+    deviceId: 'archived_device',
+    sessionId: 'ses_archived',
+    streamId: 'archived_stream',
+  };
+  return {
+    vaultId: 'vault_fixture',
+    opId: 'archived_operation',
+    deviceId: source.deviceId,
+    files,
+    body: SyncBundleContentSchema.parse({
+      schema: 'wevir-bundle/1',
+      category: 'workspace-snapshot',
+      name: 'Archived workspace',
+      exclusions: ['.env'],
+      files: files.map((file) => ({
+        path: file.path,
+        bytes: file.bytes.length,
+        sha256: file.sha256,
+        executable: file.executable,
+        parts: [{ entityId: 'archived_chunk', opId: 'archived_chunk_operation' }],
+      })),
+      metadata: {
+        schema: 'wevir-workspace-snapshot/1',
+        projectId: 'project_fixture',
+        source,
+        throughSeq: 20,
+        sourceHead: 'a'.repeat(40),
+        base: 'bounded-tree',
+        statusHash: 'A'.repeat(43),
+        selectedUntracked: ['untracked.bin'],
+        ruleVersions: [],
+        capturedAt: '2026-11-12T00:00:00.000Z',
+      },
+    }),
+  };
+}
+
+describe('restoring archived workspace versions as derived material', () => {
+  it('derives fresh chunks for a mapped synced history and only writes Git on explicit isolated restore', async () => {
+    const data = await fixture(),
+      archived = archivedWorkspace();
+    const source = (
+      archived.body.metadata as {
+        source: { hostId: string; deviceId: string; sessionId: string; streamId: string };
+      }
+    ).source;
+    data.storage.sessions.insert(
+      session({
+        id: 'ses_synced',
+        engine: 'sync',
+        engineSessionId: 'synthetic_synced_history',
+        workspaceId: 'ws_workspace',
+        cwd: join(temp(), 'repo'),
+        state: 'closed',
+        lastSeq: 5,
+        origin: {
+          kind: 'synced',
+          vaultId: data.vault.vaultId,
+          hostId: source.hostId,
+          sessionId: source.sessionId,
+          streamId: source.streamId,
+        },
+      }),
+    );
+    data.storage.sync.putSource({
+      ...source,
+      vaultId: data.vault.vaultId,
+      localSessionId: 'ses_synced',
+      mirrored: true,
+    });
+    const ruleOp = data.storage.transaction(() =>
+      new SyncQueue(data.storage).enqueue({
+        vaultId: data.vault.vaultId,
+        entityId: 'restored_rule',
+        entityType: 'rule',
+        projectId: 'project_fixture',
+        localKey: 'archived-rule:restored_rule',
+        content: {
+          schema: 'wevir-bundle/1',
+          category: 'rule',
+          name: 'Archived rule',
+          files: [],
+          exclusions: [],
+        },
+      }),
+    );
+    archived.body.metadata = {
+      ...(archived.body.metadata as object),
+      ruleVersions: [{ entityId: 'restored_rule', opId: ruleOp as string }],
+    };
+    const original = structuredClone(archived.body),
+      sourcesBefore = data.storage.sync.sources(data.vault.vaultId);
+    const targetBefore = await workspaceTreeFingerprint(join(temp(), 'repo'));
+    const service = new SyncWorkspaces({
+      ...data,
+      source: () => {
+        throw new Error('must not capture a native execution source');
+      },
+      eligible: () => data.storage.sync.activeVault(),
+    });
+    const { snapshot } = service.restoreVersion(
+      { sessionId: 'ses_synced', expectedLocalSeq: 5 },
+      archived,
+    );
+    expect(snapshot).toMatchObject({
+      vaultId: data.vault.vaultId,
+      projectId: 'project_fixture',
+      source: {
+        hostId: data.vault.originHostId,
+        deviceId: data.vault.deviceId,
+        sessionId: 'ses_synced',
+      },
+    });
+    expect(snapshot.source.streamId).not.toBe(source.streamId);
+    expect(snapshot.opId).not.toBe(archived.opId);
+    const body = SyncBundleContentSchema.parse(
+      (
+        data.storage.sync.draft(data.vault.vaultId, snapshot.opId)?.content as
+          | SyncDraftPayload
+          | undefined
+      )?.body,
+    );
+    expect(body.recoveredFrom).toEqual({
+      vaultId: archived.vaultId,
+      deviceId: archived.deviceId,
+      opId: archived.opId,
+      source,
+    });
+    expect(body.files.find((file) => file.path.endsWith('untracked.bin'))?.parts).toHaveLength(3);
+    expect(
+      body.files
+        .flatMap((file) => file.parts)
+        .every(
+          (part) => part.entityId !== 'archived_chunk' && part.opId !== 'archived_chunk_operation',
+        ),
+    ).toBe(true);
+    expect(service.read(snapshot).files).toEqual(archived.files);
+    expect(service.list('ses_synced').snapshots.map((value) => value.opId)).toContain(
+      snapshot.opId,
+    );
+    expect(data.storage.sync.sources(data.vault.vaultId)).toEqual(sourcesBefore);
+    expect(data.storage.sessions.get('ses_synced')).toMatchObject({ state: 'closed', lastSeq: 5 });
+    expect(archived.body).toEqual(original);
+    expect(await workspaceTreeFingerprint(join(temp(), 'repo'))).toBe(targetBefore);
+    data.storage.db
+      .prepare('UPDATE sync_vaults SET device_id = ?, origin_host_id = ? WHERE vault_id = ?')
+      .run('receiving_device', 'receiving_host', data.vault.vaultId);
+    expect(service.list('ses_synced').snapshots.map((value) => value.opId)).toContain(
+      snapshot.opId,
+    );
+    const restored = await service.restore({ sessionId: 'ses_synced', snapshot });
+    expect((await workspaceGit(restored.cwd, ['show', ':mixed.txt'])).toString()).toBe('staged\n');
+    expect((await workspaceGit(restored.cwd, ['show', 'HEAD:mixed.txt'])).toString()).toBe(
+      'base\n',
+    );
+    expect(await readFile(join(restored.cwd, 'mixed.txt'), 'utf8')).toBe('working\n');
+    expect(await readFile(join(restored.cwd, 'untracked.bin'))).toEqual(archived.files[3]?.bytes);
+    expect(restored.recoveredFrom).toEqual({
+      deviceId: archived.deviceId,
+      opId: archived.opId,
+      source,
+    });
+  });
+
+  it('rolls back with its caller transaction and rejects stale cursors, cross-vault and mismatched decoded files', async () => {
+    const data = await fixture(),
+      archived = archivedWorkspace();
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () => data.storage.sync.activeVault(),
+    });
+    expect(() =>
+      service.restoreVersion({ sessionId: 'ses_workspace', expectedLocalSeq: 1 }, archived),
+    ).toThrow(expect.objectContaining({ code: 'REVISION_CONFLICT' }));
+    expect(() =>
+      service.restoreVersion(
+        { sessionId: 'ses_workspace', expectedLocalSeq: 0 },
+        { ...archived, vaultId: 'another_vault' },
+      ),
+    ).toThrow(expect.objectContaining({ code: 'SCOPE_DISABLED' }));
+    expect(() =>
+      service.restoreVersion(
+        { sessionId: 'ses_workspace', expectedLocalSeq: 0 },
+        { ...archived, files: archived.files.slice(1) },
+      ),
+    ).toThrow(expect.objectContaining({ code: 'INTEGRITY_FAILED' }));
+    expect(() =>
+      data.storage.transaction(() => {
+        service.restoreVersion({ sessionId: 'ses_workspace', expectedLocalSeq: 0 }, archived);
+        throw new Error('synthetic caller rollback');
+      }),
+    ).toThrow('synthetic caller rollback');
+    expect(data.storage.sync.drafts(data.vault.vaultId)).toEqual([]);
+    expect(data.storage.sync.entities(data.vault.vaultId)).toEqual([]);
+  });
+
+  it('fences identity changes during chunk creation and rejects rule references from another project', async () => {
+    const data = await fixture(),
+      archived = archivedWorkspace();
+    let reads = 0;
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () =>
+        ++reads >= 5 ? { ...data.vault, deviceId: 'replacement_device' } : data.vault,
+    });
+    expect(() =>
+      service.restoreVersion({ sessionId: 'ses_workspace', expectedLocalSeq: 0 }, archived),
+    ).toThrow(expect.objectContaining({ code: 'SCOPE_DISABLED' }));
+    expect(data.storage.sync.drafts(data.vault.vaultId)).toEqual([]);
+    const opId = data.storage.transaction(() =>
+      new SyncQueue(data.storage).enqueue({
+        vaultId: data.vault.vaultId,
+        entityId: 'foreign_rule',
+        entityType: 'rule',
+        projectId: 'another_project',
+        localKey: 'archived-rule:foreign_rule',
+        content: {},
+      }),
+    );
+    archived.body.metadata = {
+      ...(archived.body.metadata as object),
+      ruleVersions: [{ entityId: 'foreign_rule', opId: opId as string }],
+    };
+    const stable = new SyncWorkspaces({ ...data, eligible: () => data.storage.sync.activeVault() });
+    expect(() =>
+      stable.restoreVersion({ sessionId: 'ses_workspace', expectedLocalSeq: 0 }, archived),
+    ).toThrow(expect.objectContaining({ code: 'INTEGRITY_FAILED' }));
+  });
+
+  it('enqueues remapped rule references with the new workspace in one transaction', async () => {
+    const data = await fixture(),
+      archived = archivedWorkspace();
+    data.storage.sync.setScopes(data.vault.vaultId, {
+      revision: '2',
+      enabled: true,
+      categories: ['artifact', 'workspace-snapshot', 'rule'],
+      projectIds: ['project_fixture'],
+    });
+    const ref = { entityId: 'cloned_rule', opId: 'cloned_rule_operation' };
+    archived.body.metadata = { ...(archived.body.metadata as object), ruleVersions: [ref] };
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () => data.storage.sync.activeVault(),
+    });
+    const enqueue = () => {
+      expect(data.storage.db.isTransaction).toBe(true);
+      new SyncQueue(data.storage).enqueue({
+        ...ref,
+        vaultId: data.vault.vaultId,
+        entityType: 'rule',
+        projectId: 'project_fixture',
+        localKey: 'archived-rule:cloned_rule',
+        content: {
+          schema: 'wevir-bundle/1',
+          category: 'rule',
+          name: 'Cloned rule',
+          files: [],
+          exclusions: [],
+        },
+      });
+    };
+    expect(() =>
+      service.restoreVersion(
+        { sessionId: 'ses_workspace', expectedLocalSeq: 0 },
+        {
+          ...archived,
+          enqueueReferences: () => {
+            enqueue();
+            throw new Error('synthetic reference failure');
+          },
+        },
+      ),
+    ).toThrow('synthetic reference failure');
+    expect(data.storage.sync.drafts(data.vault.vaultId)).toEqual([]);
+    expect(data.storage.sync.entities(data.vault.vaultId)).toEqual([]);
+    const { snapshot } = service.restoreVersion(
+      { sessionId: 'ses_workspace', expectedLocalSeq: 0 },
+      { ...archived, enqueueReferences: enqueue },
+    );
+    expect(service.read(snapshot).metadata.ruleVersions).toEqual([ref]);
+    expect(data.storage.sync.draft(data.vault.vaultId, ref.opId)?.entityId).toBe(ref.entityId);
   });
 });
