@@ -18,7 +18,12 @@ import type {
 import { newId } from '../ids.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { SyncBundleFiles } from './bundle-files.js';
-import { bundleFingerprint, excludedBundlePath, snapshotBundle } from './bundle-snapshot.js';
+import {
+  type BundleFile,
+  bundleFingerprint,
+  excludedBundlePath,
+  snapshotBundle,
+} from './bundle-snapshot.js';
 import { sha256 } from './crypto.js';
 import type { SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
 import { type SyncDraftPayload, type SyncMaterialRevision, SyncQueue } from './queue.js';
@@ -171,14 +176,99 @@ export class SyncBundles {
     return { targets: result };
   }
   async apply(input: MethodParams<'sync.applyBundle'>, signal: AbortSignal) {
+    return this.#apply(input, signal);
+  }
+  async restoreVersion(
+    input: MethodParams<'sync.applyBundle'>,
+    archived: { body: Body; files: readonly BundleFile[]; kind: 'put' | 'delete' | 'resolve' },
+    signal: AbortSignal,
+  ) {
+    signal.throwIfAborted();
+    const { entity } = this.#write(input.vaultId, input.entityId);
+    const parsed = SyncBundleContentSchema.safeParse(archived.body);
+    if (!parsed.success) throw new ZuvRequestError('INTEGRITY_FAILED');
+    const body = parsed.data;
+    if (
+      body.category !== entity.entityType ||
+      ['wevir-image/1', 'wevir-shared-files/1'].includes(
+        (body.metadata as { schema?: string })?.schema ?? '',
+      )
+    )
+      throw new ZuvRequestError('SCOPE_DISABLED');
+    if (
+      archived.files.length !== body.files.length ||
+      (archived.kind === 'delete' && body.files.length)
+    )
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    const supplied = new Map(archived.files.map((file) => [file.path.normalize('NFC'), file]));
+    const bytes = new Map<string, Buffer>(),
+      paths = new Set<string>();
+    const exclusions = new Set(body.exclusions.map((path) => path.normalize('NFC').toLowerCase()));
+    for (const file of body.files) {
+      signal.throwIfAborted();
+      const path = file.path.normalize('NFC'),
+        folded = path.toLowerCase(),
+        source = supplied.get(path);
+      if (paths.has(folded) || excludedBundlePath(path))
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      let prefix = '';
+      for (const part of folded.split('/')) {
+        prefix = prefix ? `${prefix}/${part}` : part;
+        if (exclusions.has(prefix)) throw new ZuvRequestError('SCOPE_DISABLED');
+      }
+      if (
+        !source ||
+        source.bytes.length !== file.bytes ||
+        source.sha256 !== file.sha256 ||
+        sha256(source.bytes) !== file.sha256 ||
+        source.executable !== (file.executable === true)
+      )
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      paths.add(folded);
+      bytes.set(path, source.bytes);
+      file.path = path;
+      file.parts = [];
+    }
+    const ordered = [...paths].sort();
+    if (ordered.some((path, index) => index > 0 && path.startsWith(`${ordered[index - 1]}/`)))
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    return this.#apply(input, signal, { body, bytes, kind: archived.kind });
+  }
+  async #apply(
+    input: MethodParams<'sync.applyBundle'>,
+    signal: AbortSignal,
+    archived?: {
+      body: Body;
+      bytes: ReadonlyMap<string, Buffer>;
+      kind: 'put' | 'delete' | 'resolve';
+    },
+  ) {
+    signal.throwIfAborted();
     const { vault, entity } = this.#write(input.vaultId, input.entityId);
     await this.capture(entity, vault);
     this.#checkHeads(entity, input.expectedHeads);
-    const selected = this.#version(vault.vaultId, entity, input.selectedOpId);
+    let body: Body,
+      kind: SyncMaterialRevision['kind'],
+      selectedOperation: SyncMaterialRevision | undefined;
+    if (archived) {
+      body = archived.body;
+      kind = archived.kind;
+    } else {
+      const selected = this.#version(vault.vaultId, entity, input.selectedOpId);
+      body = selected.body;
+      kind = selected.operation.kind;
+      selectedOperation = selected.operation;
+    }
     const target = (await this.#targets(vault, entity)).find(
       (item) => item.targetId === input.targetId,
     );
     if (!target) throw new ZuvRequestError('SCOPE_DISABLED');
+    if (
+      archived &&
+      target.kind === 'file' &&
+      body.files.some((file) => file.path !== basename(target.path).normalize('NFC'))
+    )
+      throw new ZuvRequestError('INTEGRITY_FAILED');
     let binding = this.options.storage.sync.bundleBinding(vault.vaultId, entity.entityId);
     if (
       binding &&
@@ -266,32 +356,32 @@ export class SyncBundles {
       });
     }
     const materialize =
-      !moving && input.expectedHeads.length === 1 && input.expectedHeads[0] === input.selectedOpId;
-    const op: SyncMaterialRevision = materialize
-      ? selected.operation
-      : {
-          vaultId: vault.vaultId,
-          entityId: entity.entityId,
-          entityType: entity.entityType as 'rule' | 'skill-bundle' | 'artifact',
-          opId: newId('sop'),
-          deviceId: vault.deviceId,
-          parents: input.expectedHeads,
-          kind:
-            selected.operation.kind === 'delete'
-              ? 'delete'
-              : input.expectedHeads.length > 1
-                ? 'resolve'
-                : 'put',
-          clientTime: new Date().toISOString(),
-        };
+      selectedOperation !== undefined &&
+      !moving &&
+      input.expectedHeads.length === 1 &&
+      input.expectedHeads[0] === input.selectedOpId;
+    const op: SyncMaterialRevision =
+      materialize && selectedOperation
+        ? selectedOperation
+        : {
+            vaultId: vault.vaultId,
+            entityId: entity.entityId,
+            entityType: entity.entityType as 'rule' | 'skill-bundle' | 'artifact',
+            opId: newId('sop'),
+            deviceId: vault.deviceId,
+            parents: input.expectedHeads,
+            kind: kind === 'delete' ? 'delete' : input.expectedHeads.length > 1 ? 'resolve' : 'put',
+            clientTime: new Date().toISOString(),
+          };
     return this.#applyBody(
       vault,
       entity,
       op,
-      selected.body,
+      body,
       signal,
       !materialize,
       input.selectedOpId,
+      archived?.bytes,
     );
   }
   async file(input: MethodParams<'sync.bundleFile'>) {
@@ -623,12 +713,16 @@ export class SyncBundles {
     signal: AbortSignal,
     publish = true,
     sourceOpId = op.opId,
+    archived?: ReadonlyMap<string, Buffer>,
   ) {
     const root = await this.#temporary();
     try {
       for (const file of body.files) {
+        signal.throwIfAborted();
         this.#write(vault.vaultId, entity.entityId, vault.revision);
-        const bytes = await this.#bytes(vault.vaultId, entity, body, file.path, sourceOpId);
+        const bytes = archived
+          ? (archived.get(file.path) as Buffer)
+          : await this.#bytes(vault.vaultId, entity, body, file.path, sourceOpId);
         await mkdir(dirname(join(root, file.path)), { recursive: true, mode: 0o700 });
         await writeFile(join(root, file.path), bytes, { mode: 0o600 });
       }
@@ -667,6 +761,7 @@ export class SyncBundles {
       vault,
       {
         ...this.#root(binding, entity),
+        name: body.name,
         opId: app.opId,
         parents: op.parents,
         kind: op.kind as 'put' | 'delete' | 'resolve',
