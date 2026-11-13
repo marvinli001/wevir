@@ -137,10 +137,20 @@ describe('full Host material synchronization with synthetic identities', () => {
       },
     });
     await expect
-      .poll(async () => (await second.rpc.request('settings.get')).settings.agentInstructions, {
-        timeout: 8000,
-      })
-      .toBe('Alpha\n\nMiddle\n\nOmega');
+      .poll(
+        async () => {
+          await first.rpc.request('sync.retry');
+          await second.rpc.request('sync.retry');
+          return (await second.rpc.request('settings.get')).settings;
+        },
+        {
+          timeout: 8000,
+        },
+      )
+      .toMatchObject({
+        agentInstructions: 'Alpha\n\nMiddle\n\nOmega',
+        notifications: { completed: true, failed: true },
+      });
     const commits = mock.sync.attempts.commits;
     mock.sync.pendingCommits = true;
     await Promise.all([

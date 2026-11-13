@@ -1,6 +1,7 @@
 import type { SqliteDatabase, SqlRow } from './driver.js';
 import { integer, json, optionalText, text, toJson } from './rows.js';
 import { createSyncBootstrapRepository } from './sync-bootstrap.js';
+import { createSyncBundleRepository } from './sync-bundles.js';
 import { createSyncMaterialRepository } from './sync-materials.js';
 import { createSyncQueueRepository } from './sync-queue.js';
 import { createSyncReferenceRepository } from './sync-references.js';
@@ -97,6 +98,7 @@ export function createSyncRepository(db: SqliteDatabase) {
     });
   return {
     ...createSyncBootstrapRepository(db),
+    ...createSyncBundleRepository(db),
     ...createSyncQueueRepository(db),
     ...createSyncMaterialRepository(db),
     ...createSyncReferenceRepository(db),
@@ -123,9 +125,10 @@ export function createSyncRepository(db: SqliteDatabase) {
           `SELECT COUNT(*) AS n FROM (
             SELECT entity_id FROM sync_heads WHERE vault_id = ? GROUP BY entity_id HAVING COUNT(*) > 1
             UNION SELECT entity_id FROM sync_material_journal WHERE vault_id = ? AND state = 'conflict'
+            UNION SELECT entity_id FROM sync_bundle_applications WHERE vault_id = ? AND state = 'conflict'
           )`,
         )
-        .get(vaultId, vaultId);
+        .get(vaultId, vaultId, vaultId);
       return {
         pending: Number(pending?.n),
         quarantined: Number(quarantined?.n),
@@ -271,6 +274,7 @@ export function createSyncRepository(db: SqliteDatabase) {
         EXISTS(SELECT 1 FROM sync_drafts WHERE vault_id = :vaultId AND entity_id = :entityId) OR
         EXISTS(SELECT 1 FROM sync_operations WHERE vault_id = :vaultId AND entity_id = :entityId AND direction = 'outbox' AND state IN ('queued','pending') AND rebased_to IS NULL) OR
         EXISTS(SELECT 1 FROM sync_local_writes WHERE vault_id = :vaultId AND entity_id = :entityId AND state = 'pending') OR
+        EXISTS(SELECT 1 FROM sync_bundle_applications WHERE vault_id = :vaultId AND entity_id = :entityId AND state IN ('prepared','applying','conflict')) OR
         EXISTS(SELECT 1 FROM sync_event_captures WHERE vault_id = :vaultId AND local_session_id = :entityId AND through_seq > prepared_seq)
       ) AS pending`)
           .get({ vaultId, entityId })?.pending,

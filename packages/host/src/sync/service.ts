@@ -98,7 +98,10 @@ export class SyncService {
       eligible: () => this.#consented(),
       nativeSource: (id) => this.#capture.source(id),
     });
-    this.#files = new SyncFilesCapture(options);
+    this.#files = new SyncFilesCapture({
+      ...options,
+      eligible: () => (this.#closed ? undefined : this.#consented()),
+    });
     this.#memoryConflicts = new SyncMemoryConflicts({
       ...options,
       files: this.#files,

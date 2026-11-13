@@ -41,6 +41,7 @@ export * from './sessions.js';
 export * from './storage.js';
 export * from './sync.js';
 export type * from './sync-bootstrap.js';
+export type * from './sync-bundles.js';
 export type * from './sync-materials.js';
 export type * from './sync-queue.js';
 export type * from './sync-references.js';

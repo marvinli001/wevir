@@ -1,13 +1,12 @@
 import type { Dirent } from 'node:fs';
-import { lstat, open, readdir, readFile } from 'node:fs/promises';
-import { basename, dirname, join, relative } from 'node:path';
-import { FILES_READ_FILE_MAX_BYTES } from '@wevir/protocol';
-import { type EntityType, jcs } from '@wevir/protocol/sync';
+import { lstat, readdir, readFile } from 'node:fs/promises';
+import { join, relative } from 'node:path';
+import type { EntityType } from '@wevir/protocol/sync';
 import type { Storage, SyncLocalWriteRecord, SyncVaultRecord } from '@wevir/storage';
-import { isSafeRelativePath } from '../git-diff.js';
 import { newId } from '../ids.js';
 import { MEMORY_NAME_PATTERN } from '../memory.js';
 import { ZuvRequestError } from '../zuv/transport.js';
+import { bundleFingerprint, snapshotBundle } from './bundle-snapshot.js';
 import { sha256 } from './crypto.js';
 import { SyncQueue } from './queue.js';
 
@@ -20,18 +19,22 @@ export interface SyncBundleRoot {
   metadata?: unknown;
   paths?: readonly string[];
 }
-const EXCLUDED =
-  /^(?:\.git|\.ssh|\.aws|\.gnupg|node_modules|dist|build|target|\.cache|\.next|\.venv|venv|coverage|__pycache__|\.npmrc|\.netrc|\.pypirc|\.git-credentials|secrets\.json|auth\.json|settings\.local\.json|\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx)|id_(?:rsa|ed25519))$/i;
 
 export class SyncFilesCapture {
   readonly #storage: Storage;
   readonly #memoryDir: string;
   readonly #queue: SyncQueue;
   readonly #activeWrites = new Set<string>();
-  constructor(options: { storage: Storage; memoryDir: string }) {
+  readonly #eligible: (() => SyncVaultRecord | undefined) | undefined;
+  constructor(options: {
+    storage: Storage;
+    memoryDir: string;
+    eligible?: () => SyncVaultRecord | undefined;
+  }) {
     this.#storage = options.storage;
     this.#memoryDir = options.memoryDir;
     this.#queue = new SyncQueue(options.storage);
+    this.#eligible = options.eligible;
   }
 
   beforeMemoryWrite(
@@ -326,100 +329,25 @@ export class SyncFilesCapture {
       return;
     const owner = this.#storage.sync.owner(root.localKey);
     if (owner && owner !== vault.vaultId) return;
-    const top = await lstat(root.path);
-    if (top.isSymbolicLink()) throw new ZuvRequestError('INTEGRITY_FAILED');
-    const base = top.isDirectory() ? root.path : dirname(root.path);
-    const files: Array<{ path: string; bytes: Buffer; sha256: string; executable: boolean }> = [];
-    const exclusions: string[] = [];
-    let totalBytes = 0;
-    const visit = async (path: string): Promise<void> => {
-      const info = await lstat(path);
-      const name = relative(base, path).split('\\').join('/');
-      if (info.isSymbolicLink()) throw new ZuvRequestError('INTEGRITY_FAILED');
-      if (EXCLUDED.test(basename(path))) {
-        exclusions.push(name);
-        return;
-      }
-      if (info.isDirectory()) {
-        for (const entry of await readdir(path)) await visit(join(path, entry));
-        return;
-      }
-      if (!info.isFile() || files.length >= 10000) throw new ZuvRequestError('QUOTA_EXCEEDED');
-      if (root.paths && info.size > FILES_READ_FILE_MAX_BYTES)
-        throw new ZuvRequestError('QUOTA_EXCEEDED');
-      totalBytes += info.size;
-      if (totalBytes > 64 * 1024 * 1024) throw new ZuvRequestError('QUOTA_EXCEEDED');
-      const handle = await open(path, 'r');
-      let bytes: Buffer;
-      try {
-        const opened = await handle.stat();
-        if (!opened.isFile() || opened.ino !== info.ino || opened.size !== info.size)
-          throw new ZuvRequestError('REVISION_CONFLICT');
-        bytes = Buffer.alloc(info.size + 1);
-        let offset = 0;
-        while (offset < bytes.length) {
-          const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
-          if (bytesRead === 0) break;
-          offset += bytesRead;
-        }
-        bytes = bytes.subarray(0, offset);
-      } finally {
-        await handle.close();
-      }
-      const after = await lstat(path);
+    const guard = () => {
+      const current = this.#eligible ? this.#eligible() : this.#storage.sync.activeVault();
       if (
-        info.ino !== after.ino ||
-        info.mtimeMs !== after.mtimeMs ||
-        info.size !== after.size ||
-        bytes.length !== info.size
+        !current?.enabled ||
+        !current.active ||
+        current.vaultId !== vault.vaultId ||
+        current.deviceId !== vault.deviceId ||
+        current.revision !== vault.revision ||
+        !current.categories.includes(root.category) ||
+        (root.projectId && !current.projectIds.includes(root.projectId))
       )
-        throw new ZuvRequestError('REVISION_CONFLICT');
-      files.push({
-        path: name || basename(path),
-        bytes,
-        sha256: sha256(bytes),
-        executable: Boolean(info.mode & 0o111),
-      });
+        throw new ZuvRequestError('SCOPE_DISABLED');
     };
-    if (root.paths) {
-      for (const path of root.paths) {
-        if (!isSafeRelativePath(path)) throw new ZuvRequestError('INTEGRITY_FAILED');
-        let current = root.path;
-        const parts = path.split('/');
-        if (parts.some((part) => EXCLUDED.test(part))) {
-          exclusions.push(path);
-          continue;
-        }
-        try {
-          for (const part of parts) {
-            current = join(current, part);
-            if ((await lstat(current)).isSymbolicLink())
-              throw new ZuvRequestError('INTEGRITY_FAILED');
-          }
-          if (!(await lstat(current)).isFile()) throw new ZuvRequestError('INTEGRITY_FAILED');
-          await visit(current);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-          exclusions.push(path);
-        }
-      }
-    } else if (top.isDirectory()) {
-      for (const name of await readdir(root.path)) await visit(join(root.path, name));
-    } else await visit(root.path);
+    const { files, exclusions } = await snapshotBundle({ ...root, guard });
     return (localKey, metadata = root.metadata) => {
+      guard();
       if (!this.#storage.db.isTransaction)
         throw new Error('sync bundle capture requires a transaction');
-      const fingerprint = sha256(
-        jcs({
-          files: files.map((file) => ({
-            path: file.path,
-            sha256: file.sha256,
-            executable: file.executable,
-          })),
-          exclusions,
-          metadata: metadata ?? null,
-        }),
-      );
+      const fingerprint = bundleFingerprint({ files, exclusions, metadata });
       let entity = this.#storage.sync.localEntity(vault.vaultId, localKey);
       const baseline = entity && this.#storage.sync.fileBaseline(vault.vaultId, entity.entityId);
       if (

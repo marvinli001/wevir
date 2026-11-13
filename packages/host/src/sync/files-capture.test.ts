@@ -58,6 +58,38 @@ function fixture() {
 }
 
 describe('durable local file capture', () => {
+  it('does not queue an in-flight package after consent is withdrawn', async () => {
+    const h = fixture();
+    h.storage.sync.setScopes(h.vault().vaultId, {
+      enabled: true,
+      revision: '2',
+      categories: ['artifact'],
+      projectIds: [],
+    });
+    const directory = join(h.home, 'package');
+    await mkdir(directory);
+    await writeFile(join(directory, 'data.bin'), Buffer.alloc(192 * 1024, 42));
+    let consented = true;
+    const capture = new SyncFilesCapture({
+      storage: h.storage,
+      memoryDir: h.memoryDir,
+      eligible: () => (consented ? h.storage.sync.activeVault() : undefined),
+    });
+    const reading = capture.prepareBundle(
+      h.vault(),
+      {
+        category: 'artifact',
+        localKey: 'synthetic:package',
+        name: 'Synthetic package',
+        path: directory,
+      },
+      false,
+      false,
+    );
+    consented = false;
+    await expect(reading).rejects.toMatchObject({ code: 'SCOPE_DISABLED' });
+    expect(h.storage.sync.drafts(h.vault().vaultId)).toEqual([]);
+  });
   it('records absent and excluded shared paths without scanning siblings or retrying their upload', async () => {
     const h = fixture();
     h.storage.sync.setScopes(h.vault().vaultId, {
