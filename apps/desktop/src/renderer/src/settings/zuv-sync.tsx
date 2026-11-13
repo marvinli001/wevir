@@ -16,6 +16,7 @@ import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { NoticeBanner } from './settings-ui';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
+import { ZuvSessionConflicts } from './zuv-session-conflicts';
 import { ZuvSettingsConflicts } from './zuv-settings-conflicts';
 
 const GROUPS: ReadonlyArray<{
@@ -515,6 +516,14 @@ export function ZuvSyncSection({
           </p>
         </ConfirmDialog>
       )}
+      {client.supports('sync_session_conflicts') &&
+        status?.binding?.categories.includes('session') && (
+          <ZuvSessionConflicts
+            client={client}
+            disabled={busy || !!reset || resetBusy || !active || !status.binding.enabled}
+            onResolved={refresh}
+          />
+        )}
       {client.supports('sync_settings_conflicts') &&
         status?.binding?.categories.includes('settings') && (
           <ZuvSettingsConflicts

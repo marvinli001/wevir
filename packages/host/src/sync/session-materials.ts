@@ -656,7 +656,8 @@ export class SyncSessionMaterials {
         lastSeq: storage.events.lastSeq(session.id),
       });
       storage.sessions.setArchived(session.id, body.archivedAt ?? undefined);
-      if (!body.archivedAt) storage.sync.clearSessionDeleted(op.vaultId, op.entityId);
+      if (!body.archivedAt || op.kind === 'resolve')
+        storage.sync.clearSessionDeleted(op.vaultId, op.entityId);
     } else {
       if (!source.mirrored && session.activeTurn) {
         storage.sync.putMaterialJournal({
@@ -683,6 +684,8 @@ export class SyncSessionMaterials {
       fingerprint: sha256(jcs({ kind: op.kind, content: { schema: 'wevir-sync-draft/1', body } })),
       materialized: true,
     });
+    if (op.kind === 'resolve')
+      storage.sync.clearMaterialConflicts(op.vaultId, op.entityId, op.parents);
     this.#touched.add(session.id as SessionId);
   }
 

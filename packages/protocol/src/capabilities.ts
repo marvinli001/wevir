@@ -88,6 +88,7 @@ export const HOST_FEATURES = {
   syncProjectConflicts: 'sync_project_conflicts',
   syncMemoryConflicts: 'sync_memory_conflicts',
   syncSettingsConflicts: 'sync_settings_conflicts',
+  syncSessionConflicts: 'sync_session_conflicts',
   syncReset: 'sync_reset',
   syncArtifacts: 'sync_artifacts',
   /** 0.171.0：Host 管理的 ZUV 设备账号。 */
@@ -640,6 +641,7 @@ export const HostFeaturesSchema = z.looseObject({
   sync_project_conflicts: z.boolean().optional(),
   sync_memory_conflicts: z.boolean().optional(),
   sync_settings_conflicts: z.boolean().optional(),
+  sync_session_conflicts: z.boolean().optional(),
   sync_reset: z.boolean().optional(),
   sync_artifacts: z.boolean().optional(),
   zuv_account: z.boolean().optional(),

@@ -1721,6 +1721,8 @@ export const zhCN = {
   'sync.projectVersions': '{count} 个版本',
   'sync.selectVersion': '选择版本',
   'sync.useVersion': '使用此版本',
+  'sync.sessionConflicts': '会话资料冲突',
+  'sync.unarchived': '未归档',
   'sync.settingsConflicts': '设置冲突',
   'sync.valueOn': '开启',
   'sync.valueOff': '关闭',

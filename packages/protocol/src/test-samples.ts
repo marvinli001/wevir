@@ -3377,6 +3377,60 @@ export const episode: Episode = {
 };
 
 export const methodSamples: MethodSamples = {
+  'sync.sessionConflicts': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ conflicts: [] }], invalid: [{}] },
+  },
+  'sync.previewSessionMerge': {
+    params: { valid: [{ entityId: 'ses_synthetic' }], invalid: [{}] },
+    result: {
+      valid: [
+        {
+          vaultId: 'vault_synthetic',
+          entityId: 'ses_synthetic',
+          kind: 'session',
+          sessionId: 'ses_synthetic',
+          expectedHeads: ['operation_left', 'operation_right'],
+          localRevision: 'operation_left',
+          localFingerprint: 'A'.repeat(43),
+          mergeState: 'unavailable',
+          versions: ['operation_left', 'operation_right'].map((opId) => ({
+            opId,
+            parents: [],
+            content: {
+              schema: 'wevir-session-state/1',
+              source: {
+                hostId: 'host_synthetic',
+                deviceId: 'device_synthetic',
+                sessionId: 'ses_synthetic',
+                streamId: 'stream_synthetic',
+              },
+              title: opId,
+              titleSource: 'user',
+              archivedAt: null,
+            },
+          })),
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.resolveSession': {
+    params: {
+      valid: [
+        {
+          vaultId: 'vault_synthetic',
+          entityId: 'ses_synthetic',
+          expectedHeads: ['operation_left', 'operation_right'],
+          localRevision: 'operation_left',
+          localFingerprint: 'A'.repeat(43),
+          selection: { kind: 'version', opId: 'operation_right' },
+        },
+      ],
+      invalid: [{}],
+    },
+    result: { valid: [{ opId: 'operation_resolved' }], invalid: [{}] },
+  },
   'sync.settingsConflicts': {
     params: { valid: [{}], invalid: [null] },
     result: { valid: [{ conflicts: [] }], invalid: [{}] },

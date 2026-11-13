@@ -1722,6 +1722,8 @@ export const messages: Messages = {
   'sync.projectVersions': '{count} バージョン',
   'sync.selectVersion': 'バージョンを選択',
   'sync.useVersion': 'このバージョンを使用',
+  'sync.sessionConflicts': 'セッション資料の競合',
+  'sync.unarchived': '未アーカイブ',
   'sync.settingsConflicts': '設定の競合',
   'sync.valueOn': 'オン',
   'sync.valueOff': 'オフ',

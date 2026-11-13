@@ -5529,6 +5529,25 @@ const approvalRuleCases: Case[] = [
 ];
 
 const registryCases: Case[] = [
+  {
+    name: 'SyncSessionConflictContent',
+    schema: protocol.SyncSessionConflictContentSchema,
+    valid: [
+      {
+        schema: 'wevir-session-state/1',
+        source: {
+          hostId: 'host_synthetic',
+          deviceId: 'device_synthetic',
+          sessionId: 'ses_synthetic',
+          streamId: 'stream_synthetic',
+        },
+        title: 'Synthetic',
+        titleSource: 'user',
+        archivedAt: null,
+      },
+    ],
+    invalid: [{ schema: 'wevir-session-state/1' }, { schema: 'wevir-settings/1', values: {} }],
+  },
   ...Object.entries(MethodSchemas).flatMap(([method, spec]) => {
     const samples = methodSamples[method as protocol.MethodName];
     return [

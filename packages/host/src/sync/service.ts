@@ -31,6 +31,7 @@ import { SyncMaterials } from './materials.js';
 import { SyncMemoryConflicts } from './memory-conflicts.js';
 import { SyncQueue } from './queue.js';
 import { SyncRestoreData } from './restore-data.js';
+import { SyncSessionConflicts } from './session-conflicts.js';
 import { SyncSettings } from './settings.js';
 import { SyncSettingsConflicts } from './settings-conflicts.js';
 import { SyncSnapshots } from './snapshots.js';
@@ -64,6 +65,7 @@ export class SyncService {
   readonly #bootstrap: SyncBootstrap;
   readonly #memoryConflicts: SyncMemoryConflicts;
   readonly #settingsConflicts: SyncSettingsConflicts;
+  readonly #sessionConflicts: SyncSessionConflicts;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #running: Promise<void> | undefined;
   #closed = false;
@@ -97,6 +99,11 @@ export class SyncService {
       settingsSync: this.#settings,
       eligible: () => this.#consented(),
       nativeSource: (id) => this.#capture.source(id),
+    });
+    this.#sessionConflicts = new SyncSessionConflicts({
+      storage: options.storage,
+      materials: this.#materials.sessions,
+      eligible: () => (this.#closed || this.#configuring ? undefined : this.#consented()),
     });
     this.#files = new SyncFilesCapture({
       ...options,
@@ -790,6 +797,35 @@ export class SyncService {
   }
   previewSettingsMerge(entityId: string) {
     return this.#memoryOperation(() => this.#settingsConflicts.preview(entityId));
+  }
+  sessionConflicts(after?: string) {
+    try {
+      return this.#sessionConflicts.list(after);
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+  previewSessionMerge(entityId: string) {
+    try {
+      return this.#sessionConflicts.preview(entityId);
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
+  async resolveSession(input: MethodParams<'sync.resolveSession'>) {
+    if (this.#closed || this.#configuring)
+      throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
+    const vault = this.#consented();
+    if (vault && this.#options.storage.sync.activeBootstrapJob(vault.vaultId))
+      throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
+    try {
+      const result = await this.#sessionConflicts.resolve(input);
+      this.#materials.notify();
+      this.#schedule(0);
+      return result;
+    } catch (error) {
+      throw this.#failure(error);
+    }
   }
   resolveSettings(input: MethodParams<'sync.resolveSettings'>) {
     return this.#memoryOperation(() => this.#settingsConflicts.resolve(input));

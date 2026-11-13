@@ -1711,6 +1711,8 @@ export const messages: Messages = {
   'sync.projectVersions': '버전 {count}개',
   'sync.selectVersion': '버전 선택',
   'sync.useVersion': '이 버전 사용',
+  'sync.sessionConflicts': '세션 자료 충돌',
+  'sync.unarchived': '보관되지 않음',
   'sync.settingsConflicts': '설정 충돌',
   'sync.valueOn': '켜짐',
   'sync.valueOff': '꺼짐',

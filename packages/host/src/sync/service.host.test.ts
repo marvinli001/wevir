@@ -1350,6 +1350,99 @@ describe('full Host material synchronization with synthetic identities', () => {
     expect(mock.errors).toEqual([]);
   }, 20000);
 
+  it('resolves concurrent session metadata across two Hosts without rewriting either source history', async () => {
+    const { mock, first, second } = await fixture();
+    const create = vi.spyOn(second.adapter, 'createSession');
+    const resume = vi.spyOn(second.adapter, 'resumeSession');
+    const execute = vi.spyOn(second.adapter, 'send');
+    await linkSessions(first, second);
+    const created = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.rename', { sessionId: created.id, title: 'Base title' });
+    let remoteId: SessionId | undefined;
+    await expect
+      .poll(
+        async () => {
+          const sessions = (
+            await second.rpc.request('session.list', { workspaceId: second.workspaceId })
+          ).sessions as Array<{ id: SessionId; title: string; origin?: { kind: string } }>;
+          const remote = sessions.find((session) => session.origin?.kind === 'synced');
+          remoteId = remote?.id;
+          return remote?.title;
+        },
+        { timeout: 10000 },
+      )
+      .toBe('Base title');
+    for (const peer of [first, second])
+      await expect
+        .poll(async () => (await peer.rpc.request('sync.status')).pending, { timeout: 8000 })
+        .toBe(0);
+    const attempts = mock.sync.attempts.commits;
+    mock.sync.pendingCommits = true;
+    await Promise.all([
+      first.rpc.request('session.rename', { sessionId: created.id, title: 'Local title' }),
+      second.rpc.request('session.rename', { sessionId: remoteId, title: 'Remote title' }),
+    ]);
+    await expect
+      .poll(() => mock.sync.attempts.commits, { timeout: 10000 })
+      .toBeGreaterThanOrEqual(attempts + 2);
+    mock.sync.pendingCommits = false;
+    mock.sync.finalize();
+    for (const peer of [first, second])
+      await expect
+        .poll(async () => (await peer.rpc.request('sync.sessionConflicts')).conflicts.length, {
+          timeout: 10000,
+        })
+        .toBe(1);
+    const preview = await first.rpc.request('sync.previewSessionMerge', { entityId: created.id });
+    expect(preview.mergeState).toBe('conflict');
+    const selected = preview.versions.find(
+      (version: { content: { title?: string } }) => version.content.title === 'Remote title',
+    );
+    expect(selected).toBeDefined();
+    const input = { ...preview, selection: { kind: 'version', opId: selected.opId } };
+    await first.rpc.request('sync.resolveSession', input);
+    expect((await first.rpc.call('sync.resolveSession', input)).error).toMatchObject({
+      data: { code: 'REVISION_CONFLICT' },
+    });
+    for (const [peer, sessionId] of [
+      [first, created.id],
+      [second, remoteId],
+    ] as const) {
+      await expect
+        .poll(async () => (await peer.rpc.request('session.get', { sessionId })).session.title, {
+          timeout: 10000,
+        })
+        .toBe('Remote title');
+      await expect
+        .poll(async () => (await peer.rpc.request('sync.status')).conflicts, { timeout: 10000 })
+        .toBe(0);
+    }
+    const { subscriptionId } = await first.rpc.request('events.subscribe', {
+      sessionId: created.id,
+      sinceSeq: 0,
+    });
+    await first.rpc.untilTrue(
+      () =>
+        first.rpc
+          .events(subscriptionId)
+          .some(
+            (event) =>
+              event.type === 'session.title_changed' && event.payload.title === 'Local title',
+          ),
+      'original local rename history',
+    );
+    expect(create).not.toHaveBeenCalled();
+    expect(resume).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(mock.errors).toEqual([]);
+  }, 35000);
+
   it('synchronizes an API-backed task into an immutable source view without native execution or pending approvals', async () => {
     const { mock, first, second } = await fixture();
     const create = vi.spyOn(second.adapter, 'createSession');

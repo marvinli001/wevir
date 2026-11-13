@@ -1,0 +1,89 @@
+{
+  "protocolVersion": "0.185.0",
+  "methods": {
+    "sync.sessionConflicts": {
+      "params": [{}],
+      "result": [
+        {
+          "conflicts": []
+        }
+      ]
+    },
+    "sync.previewSessionMerge": {
+      "params": [
+        {
+          "entityId": "ses_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "vaultId": "vault_synthetic",
+          "entityId": "ses_synthetic",
+          "kind": "session",
+          "sessionId": "ses_synthetic",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "localFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "mergeState": "unavailable",
+          "versions": [
+            {
+              "opId": "operation_left",
+              "parents": [],
+              "content": {
+                "schema": "wevir-session-state/1",
+                "source": {
+                  "hostId": "host_synthetic",
+                  "deviceId": "device_synthetic",
+                  "sessionId": "ses_synthetic",
+                  "streamId": "stream_synthetic"
+                },
+                "title": "operation_left",
+                "titleSource": "user",
+                "archivedAt": null
+              }
+            },
+            {
+              "opId": "operation_right",
+              "parents": [],
+              "content": {
+                "schema": "wevir-session-state/1",
+                "source": {
+                  "hostId": "host_synthetic",
+                  "deviceId": "device_synthetic",
+                  "sessionId": "ses_synthetic",
+                  "streamId": "stream_synthetic"
+                },
+                "title": "operation_right",
+                "titleSource": "user",
+                "archivedAt": null
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "sync.resolveSession": {
+      "params": [
+        {
+          "vaultId": "vault_synthetic",
+          "entityId": "ses_synthetic",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "localFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "selection": {
+            "kind": "version",
+            "opId": "operation_right"
+          }
+        }
+      ],
+      "result": [
+        {
+          "opId": "operation_resolved"
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

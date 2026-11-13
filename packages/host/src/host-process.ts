@@ -1876,6 +1876,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sync_project_conflicts: true,
         sync_memory_conflicts: true,
         sync_settings_conflicts: true,
+        sync_session_conflicts: true,
         sync_reset: true,
         sync_artifacts: true,
         zuv_account: true,

@@ -1708,6 +1708,8 @@ export const messages: Messages = {
   'sync.projectVersions': '{count} 個版本',
   'sync.selectVersion': '選擇版本',
   'sync.useVersion': '使用此版本',
+  'sync.sessionConflicts': '工作階段資料衝突',
+  'sync.unarchived': '未封存',
   'sync.settingsConflicts': '設定衝突',
   'sync.valueOn': '開啟',
   'sync.valueOff': '關閉',

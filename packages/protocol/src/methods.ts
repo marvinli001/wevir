@@ -326,6 +326,7 @@ import {
   SpeechStatusResultSchema,
 } from './speech.js';
 import { SyncMethodSchemas } from './sync.js';
+import { SyncSessionConflictMethodSchemas } from './sync-session-conflicts.js';
 import {
   TerminalAttachParamsSchema,
   TerminalAttachResultSchema,
@@ -2102,6 +2103,7 @@ export interface MethodSpec {
  */
 export const MethodSchemas = {
   ...SyncMethodSchemas,
+  ...SyncSessionConflictMethodSchemas,
   ...PluginMethodSchemas,
   ...ImportMethodSchemas,
   ...MarketMethodSchemas,

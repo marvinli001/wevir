@@ -1743,6 +1743,8 @@ export const messages: Messages = {
   'sync.projectVersions': '{count} versiones',
   'sync.selectVersion': 'Elegir versión',
   'sync.useVersion': 'Usar esta versión',
+  'sync.sessionConflicts': 'Conflictos de datos de sesión',
+  'sync.unarchived': 'Sin archivar',
   'sync.settingsConflicts': 'Conflictos de ajustes',
   'sync.valueOn': 'Activado',
   'sync.valueOff': 'Desactivado',

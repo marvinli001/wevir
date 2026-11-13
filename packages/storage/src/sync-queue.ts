@@ -105,6 +105,23 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         .all(vaultId, after)
         .map(entityFromRow);
     },
+    sessionConflictEntities(
+      vaultId: string,
+      projectIds: readonly string[],
+      after = '',
+    ): SyncEntityRecord[] {
+      return db
+        .prepare(`SELECT e.* FROM sync_entities e WHERE e.vault_id = ? AND e.entity_type = 'session'
+        AND e.materialized = 1 AND e.entity_id > ?
+        AND e.project_id IN (SELECT value FROM json_each(?))
+        AND ((SELECT COUNT(*) FROM sync_heads h WHERE h.vault_id=e.vault_id AND h.entity_id=e.entity_id)>1
+          OR (NOT EXISTS (SELECT 1 FROM sync_heads h WHERE h.vault_id=e.vault_id AND h.entity_id=e.entity_id AND h.op_id=e.revision)
+            AND (EXISTS (SELECT 1 FROM sync_drafts d WHERE d.vault_id=e.vault_id AND d.op_id=e.revision)
+              OR EXISTS (SELECT 1 FROM sync_operations o WHERE o.vault_id=e.vault_id AND o.op_id=e.revision AND o.direction='outbox' AND o.state IN ('queued','pending')))))
+        ORDER BY e.entity_id LIMIT 101`)
+        .all(vaultId, after, toJson(projectIds))
+        .map(entityFromRow);
+    },
     putEntity(entity: SyncEntityRecord): void {
       transactionRequired();
       const previous = db

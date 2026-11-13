@@ -1582,6 +1582,21 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
       return options.sync.settingsConflicts(after);
     },
+    'sync.sessionConflicts': ({ after }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.sessionConflicts(after);
+    },
+    'sync.previewSessionMerge': ({ entityId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.previewSessionMerge(entityId);
+    },
+    'sync.resolveSession': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.resolveSession(params);
+    },
     'sync.previewSettingsMerge': ({ entityId }) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
