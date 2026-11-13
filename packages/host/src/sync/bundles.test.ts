@@ -4,6 +4,7 @@ import type { SyncVaultRecord } from '@wevir/storage';
 import { openStorage } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useTempDir } from '../test-utils.js';
+import { type BundleFile, snapshotBundle } from './bundle-snapshot.js';
 import { SyncBundles } from './bundles.js';
 import { sha256 } from './crypto.js';
 import { type SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
@@ -141,6 +142,244 @@ async function fixture(projectId?: string) {
     },
   };
 }
+
+function archive(
+  files: readonly BundleFile[],
+  kind: 'put' | 'delete' | 'resolve' = 'put',
+): Parameters<SyncBundles['restoreVersion']>[1] {
+  return {
+    kind,
+    files,
+    body: {
+      schema: 'wevir-bundle/1',
+      category: 'skill-bundle',
+      name: 'Archived synthetic skill',
+      files: files.map((file) => ({
+        ...file,
+        bytes: file.bytes.length,
+        parts: [{ entityId: 'foreign_chunk', opId: 'foreign_operation' }],
+      })),
+      exclusions: [],
+      metadata: { source: 'archive', enabled: true, trusted: true },
+    },
+  };
+}
+async function selection(h: Awaited<ReturnType<typeof fixture>>, managed = false) {
+  const preview = await h.service().preview(h.ref.vaultId, h.ref.entityId);
+  const target = (await h.service().targets(h.ref.vaultId, h.ref.entityId)).targets.find(
+    (target) => (managed ? target.managed : target.targetId === preview.binding?.targetId),
+  );
+  if (!target) throw new Error('missing selected target');
+  return {
+    ...h.ref,
+    expectedHeads: preview.heads,
+    selectedOpId: 'foreign_archived_operation',
+    targetId: target.targetId,
+    fingerprint: target.fingerprint,
+    localRevision: preview.binding?.revision,
+    expectedTargetId: preview.binding?.targetId,
+  };
+}
+
+describe('explicit archived bundle restoration', () => {
+  it('restores complete archived bytes through new operations and fresh local chunks while retaining newer versions', async () => {
+    const h = await fixture();
+    const old = await snapshotBundle({ path: h.native });
+    const script = Buffer.from('echo synthetic inert script');
+    const archived = archive([
+      ...old.files,
+      { path: 'scripts/synthetic.sh', bytes: script, sha256: sha256(script), executable: true },
+    ]);
+    await h.bind();
+    const current = await h.edit('Newer synthetic local instructions');
+    const input = await selection(h);
+    const result = await h.service().restoreVersion(input, archived, new AbortController().signal);
+    expect(result.opId).not.toBe(input.selectedOpId);
+    expect(result.opId).not.toBe(current.opId);
+    expect(await readFile(join(h.native, 'SKILL.md'), 'utf8')).toBe(
+      'Initial synthetic instructions',
+    );
+    expect(await readFile(join(h.native, 'binary.bin'))).toEqual(Buffer.from([0, 255, 17]));
+    expect(await readFile(join(h.native, 'scripts/synthetic.sh'))).toEqual(script);
+    expect((await h.service().file({ ...h.ref, opId: current.opId, path: 'SKILL.md' })).text).toBe(
+      'Newer synthetic local instructions',
+    );
+    const draft = h.storage.sync.draft(h.ref.vaultId, result.opId);
+    if (!draft) throw new Error('missing restored operation');
+    expect(draft?.parents).toEqual(input.expectedHeads);
+    const body = (draft.content as { body: typeof archived.body }).body;
+    expect(body.name).toBe(archived.body.name);
+    expect(body.files).toHaveLength(3);
+    for (const file of body.files) {
+      expect(file.parts.length).toBeGreaterThan(0);
+      for (const part of file.parts) {
+        expect(part.entityId).not.toBe('foreign_chunk');
+        expect(part.opId).not.toBe('foreign_operation');
+        expect(h.storage.sync.draft(h.ref.vaultId, part.opId)?.content).toMatchObject({
+          body: { schema: 'wevir-chunk/1', ownerId: h.ref.entityId },
+        });
+      }
+    }
+    expect(h.storage.sync.bundleBinding(h.ref.vaultId, h.ref.entityId)?.manifest.metadata).toEqual(
+      h.root.metadata,
+    );
+    expect(archived.body.files[0]?.parts).toEqual([
+      { entityId: 'foreign_chunk', opId: 'foreign_operation' },
+    ]);
+  });
+  it('restores into an explicitly rebound copy and preserves the native directory', async () => {
+    const h = await fixture();
+    const archived = archive((await snapshotBundle({ path: h.native })).files);
+    await h.bind();
+    await h.edit('Native synthetic changes retained');
+    const input = await selection(h, true);
+    await h.service().restoreVersion(input, archived, new AbortController().signal);
+    const binding = h.storage.sync.bundleBinding(h.ref.vaultId, h.ref.entityId);
+    expect(binding?.targetKey).toBe(input.targetId);
+    expect(await readFile(join(binding?.targetPath as string, 'SKILL.md'), 'utf8')).toBe(
+      'Initial synthetic instructions',
+    );
+    expect(await readFile(join(h.native, 'SKILL.md'), 'utf8')).toBe(
+      'Native synthetic changes retained',
+    );
+  });
+  it('rejects unsafe, mismatched and incomplete archive bytes before touching the target', async () => {
+    const h = await fixture();
+    await h.bind();
+    const files = (await snapshotBundle({ path: h.native })).files;
+    const input = await selection(h);
+    const initial = h.storage.sync.drafts(h.ref.vaultId).length;
+    const variants = [
+      { ...archive(files), body: { ...archive(files).body, category: 'rule' as const } },
+      { ...archive(files), files: files.slice(1) },
+      archive(files.map((file) => ({ ...file, sha256: 'A'.repeat(43) }))),
+      archive(files.map((file) => ({ ...file, path: `../${file.path}` }))),
+      archive(
+        files.map((file) => ({
+          ...file,
+          path: file.path === 'binary.bin' ? 'skill.md' : file.path,
+        })),
+      ),
+      archive(
+        files.map((file, index) => ({ ...file, path: index ? 'folder/file.txt' : 'folder' })),
+      ),
+      { ...archive(files), body: { ...archive(files).body, exclusions: ['SKILL.md'] } },
+      archive(files, 'delete'),
+    ];
+    for (const invalid of variants)
+      await expect(
+        h.service().restoreVersion(input, invalid, new AbortController().signal),
+      ).rejects.toBeDefined();
+    expect(await readFile(join(h.native, 'SKILL.md'), 'utf8')).toBe(
+      'Initial synthetic instructions',
+    );
+    expect(h.storage.sync.drafts(h.ref.vaultId)).toHaveLength(initial);
+    expect(h.storage.sync.pendingBundleApplication(h.ref.vaultId, h.ref.entityId)).toBeUndefined();
+  });
+  it('preserves local changes and enforces current consent, account and cancellation fences', async () => {
+    const h = await fixture();
+    const archived = archive((await snapshotBundle({ path: h.native })).files);
+    await h.bind();
+    const stale = await selection(h);
+    await writeFile(join(h.native, 'SKILL.md'), 'Uncaptured synthetic local changes');
+    await expect(
+      h.service().restoreVersion(stale, archived, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    expect(await readFile(join(h.native, 'SKILL.md'), 'utf8')).toBe(
+      'Uncaptured synthetic local changes',
+    );
+    const input = await selection(h);
+    const abort = new AbortController();
+    abort.abort();
+    await expect(h.service().restoreVersion(input, archived, abort.signal)).rejects.toThrow();
+    h.storage.sync.setScopes(h.ref.vaultId, {
+      enabled: false,
+      revision: '2',
+      categories: ['skill-bundle', 'artifact'],
+      projectIds: [],
+    });
+    await expect(
+      h.service().restoreVersion(input, archived, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'SCOPE_DISABLED' });
+    h.storage.transaction(() => {
+      h.storage.sync.detachVault(h.ref.vaultId);
+      h.storage.sync.bindVault({
+        vaultId: 'vault_other',
+        accountId: 'account_other',
+        deviceId: 'device_other',
+        originHostId: 'device_other',
+        appliedCursor: 'initial',
+      });
+      h.storage.sync.setScopes('vault_other', {
+        enabled: true,
+        revision: '1',
+        categories: ['skill-bundle', 'artifact'],
+        projectIds: [],
+      });
+    });
+    await expect(
+      h.service().restoreVersion(input, archived, new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'SCOPE_DISABLED' });
+  });
+  it('recovers an interrupted archived restoration with its original new operation and fresh chunks', async () => {
+    const h = await fixture();
+    await h.bind();
+    const old = (await snapshotBundle({ path: h.native })).files;
+    const restored = Buffer.from('Synthetic restored after interruption');
+    const archived = archive(
+      old.map((file) =>
+        file.path === 'SKILL.md' ? { ...file, bytes: restored, sha256: sha256(restored) } : file,
+      ),
+    );
+    const input = await selection(h),
+      abort = new AbortController();
+    fault.abort = abort;
+    await expect(h.service().restoreVersion(input, archived, abort.signal)).rejects.toThrow();
+    const app = h.storage.sync.pendingBundleApplication(h.ref.vaultId, h.ref.entityId);
+    if (!app) throw new Error('missing restored file plan');
+    expect(app.opId).not.toBe(input.selectedOpId);
+    h.reopen();
+    await h.service().retry(h.ref.vaultId, h.ref.entityId, app.opId, new AbortController().signal);
+    expect(await readFile(join(h.native, 'SKILL.md'))).toEqual(restored);
+    expect(h.storage.sync.draft(h.ref.vaultId, app.opId)?.parents).toEqual(input.expectedHeads);
+    expect(h.storage.sync.pendingBundleApplication(h.ref.vaultId, h.ref.entityId)).toBeUndefined();
+  });
+  it('restores a tombstone as a new deletion, retains excluded local files and can restore the earlier bytes again', async () => {
+    const h = await fixture();
+    const archived = archive((await snapshotBundle({ path: h.native })).files);
+    await h.bind();
+    await writeFile(join(h.native, '.env'), 'Synthetic excluded local value');
+    const entity = h.storage.sync.entity(h.ref.vaultId, h.ref.entityId),
+      vault = h.storage.sync.activeVault();
+    if (!entity || !vault) throw new Error('missing local binding');
+    await h.service().capture(entity, vault);
+    const input = await selection(h);
+    const deleted = await h
+      .service()
+      .restoreVersion(
+        { ...input, selectedOpId: input.expectedHeads[0] as string },
+        archive([], 'delete'),
+        new AbortController().signal,
+      );
+    expect(deleted.opId).not.toBe(input.expectedHeads[0]);
+    expect(h.storage.sync.draft(h.ref.vaultId, deleted.opId)).toMatchObject({
+      kind: 'delete',
+      parents: input.expectedHeads,
+    });
+    expect((await h.service().preview(h.ref.vaultId, h.ref.entityId)).versions[0]?.files).toEqual(
+      [],
+    );
+    expect(await readFile(join(h.native, '.env'), 'utf8')).toBe('Synthetic excluded local value');
+    const restored = await h
+      .service()
+      .restoreVersion(await selection(h), archived, new AbortController().signal);
+    expect(restored.opId).not.toBe(deleted.opId);
+    expect(await readFile(join(h.native, 'SKILL.md'), 'utf8')).toBe(
+      'Initial synthetic instructions',
+    );
+    expect(await readFile(join(h.native, '.env'), 'utf8')).toBe('Synthetic excluded local value');
+  });
+});
 
 describe('local bundle choices and authority', () => {
   it('keeps complete cached versions readable after sign-out without inspecting native roots', async () => {
