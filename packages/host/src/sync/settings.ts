@@ -228,19 +228,29 @@ export class SyncSettings {
     if (conflict) journal = { ...journal, state: 'conflict' };
     else journal = { ...journal, state: 'staged' };
     this.#storage.sync.putMaterialJournal(journal);
+    let commit: (() => void) | undefined;
     if (!conflict && sha256(jcs(this.#values(this.#settings.get())[key] ?? null)) !== nextHash) {
       const expected = { [key]: this.#settings.get()[key] } as Partial<HostSettings>;
       if (sha256(jcs(expected[key] ?? null)) !== journal.previousHash)
         journal = { ...journal, state: 'conflict' };
-      else
+      else {
         try {
-          await this.#settings.update(body.values, expected);
+          commit = await this.#settings.prepareUpdate(body.values, expected, context.signal);
         } catch (error) {
           if (error instanceof SettingsRevisionError) journal = { ...journal, state: 'conflict' };
           else throw error;
         }
+      }
     }
     return () => {
+      if (commit) {
+        try {
+          commit();
+        } catch (error) {
+          if (error instanceof SettingsRevisionError) journal = { ...journal, state: 'conflict' };
+          else throw error;
+        }
+      }
       const applied =
         journal.state !== 'conflict' &&
         sha256(jcs(this.#values(this.#settings.get())[key] ?? null)) === nextHash;

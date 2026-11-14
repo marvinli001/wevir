@@ -196,6 +196,10 @@ export class SyncSessionMaterials {
     for (const id of sessionIds) {
       const session = storage.sessions.get(id);
       if (!session) continue;
+      if (session.origin?.kind === 'synced') {
+        storage.sync.hideSource(vault.vaultId, id);
+        continue;
+      }
       const project = storage.sync
         .projects(vault.vaultId)
         .find(
@@ -386,6 +390,7 @@ export class SyncSessionMaterials {
         body.source,
         record.projectId as string,
       );
+      if (source.hidden) return;
       const localId =
         ref?.localId ?? (body.schema === 'wevir-episode/1' ? newId('ep') : source.localSessionId);
       const mapped: SyncContentRefRecord = {

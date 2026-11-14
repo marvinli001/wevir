@@ -7,6 +7,7 @@
 
 import { sendOutcomeUnknown } from '@wevir/client-sdk';
 import type { PendingDelivery } from '@wevir/protocol';
+import { getRandomBytes } from 'expo-crypto';
 import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
@@ -22,8 +23,17 @@ import {
 } from 'react-native';
 import { type MessageKey, t } from '../i18n';
 import { insertDictation, type SpeechClient } from '../lib/dictation';
+import { clientMessageId } from '../lib/session-actions';
 import { type Dictation, useDictation } from '../state/dictation';
-import { loadDraft, readDraft, readDraftState, settleDraft, writeDraft } from '../state/drafts';
+import {
+  beginDraft,
+  loadDraft,
+  readDraft,
+  readDraftState,
+  settleDraft,
+  watchDraft,
+  writeDraft,
+} from '../state/drafts';
 import { TEXT, useTheme } from '../theme';
 import { type MenuSection, MenuTrigger } from './menu';
 import { GLASS, Icon } from './ui';
@@ -53,7 +63,7 @@ export function Composer({
   autoFocus = false,
   draftKey,
 }: {
-  onSend: (text: string) => Promise<void>;
+  onSend: (text: string, clientMessageId: string) => Promise<void>;
   disabled?: boolean;
   placeholder?: string;
   /** 给了就在前面放一枚加照片的按钮，点开这个菜单。 */
@@ -83,6 +93,20 @@ export function Composer({
   const [loadedDraftKey, setLoadedDraftKey] = useState<string>();
   const [sendUncertain, setSendUncertain] = useState(() =>
     draftKey ? readDraftState(draftKey).uncertain : false,
+  );
+  useEffect(
+    () =>
+      draftKey
+        ? watchDraft(draftKey, (value, previous) => {
+            setSendUncertain(value.uncertain);
+            setText((current) =>
+              current === previous?.text || current === previous?.submittedText
+                ? value.text
+                : current,
+            );
+          })
+        : undefined,
+    [draftKey],
   );
   const [draftError, setDraftError] = useState(false);
   const edited = useRef(false);
@@ -142,21 +166,25 @@ export function Composer({
   const send = () => {
     if (empty || sending || uploading || dictating || !canSend) return;
     const value = text;
+    let id = clientMessageId(getRandomBytes);
     setSending(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     void (async () => {
-      if (draftKey) await writeDraft(draftKey, value, true);
+      const attempt = draftKey ? await beginDraft(draftKey, value, id) : undefined;
+      id = attempt?.clientMessageId ?? id;
+      const sentText = attempt?.submittedText ?? value;
       if (scope.current === draftKey) setSendUncertain(true);
-      await onSend(value);
-      if (draftKey) await settleDraft(draftKey, value);
+      await onSend(sentText, id);
+      if (draftKey) await settleDraft(draftKey, sentText, id);
       if (scope.current === draftKey) {
         setSendUncertain(false);
-        setText((current) => (current === value ? '' : current));
+        setText((current) => (current === sentText ? '' : current));
       }
     })()
       .catch(async (error: unknown) => {
         const uncertain = sendOutcomeUnknown(error);
-        if (!uncertain && draftKey) await settleDraft(draftKey).catch(() => setDraftError(true));
+        if (!uncertain && draftKey)
+          await settleDraft(draftKey, undefined, id).catch(() => setDraftError(true));
         if (scope.current === draftKey) setSendUncertain(uncertain);
         console.warn('[wevir] could not send', error);
       })

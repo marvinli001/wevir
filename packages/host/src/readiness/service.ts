@@ -86,6 +86,9 @@ export class ReadinessService {
   #credentials: Record<string, string[]> = {};
   #loaded: Promise<void> | undefined;
   #disposed = false;
+  isInstalling(root: string): boolean {
+    return [...this.#running.values()].some((item) => item.run.root === root);
+  }
 
   constructor(options: ReadinessServiceOptions) {
     this.#options = options;

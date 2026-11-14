@@ -243,6 +243,7 @@ describe('ChatGPT 账号（account.*）', () => {
   it('ChatGPT 能力按引擎声明，ZUV 服务账号独立存在；不支持的 ChatGPT 账号保留 ENGINE_ERROR', async () => {
     const withAccounts = await start();
     expect((await withAccounts.connect()).hello.features).toEqual({
+      session_creation_identity: true,
       plugins: true,
       plugin_packages: true,
       plugin_preview: true,
@@ -368,6 +369,7 @@ describe('ChatGPT 账号（account.*）', () => {
     const plain = await start(new EchoAdapter());
     const { client, hello } = await plain.connect();
     expect(hello.features).toEqual({
+      session_creation_identity: true,
       plugins: true,
       plugin_packages: true,
       plugin_preview: true,

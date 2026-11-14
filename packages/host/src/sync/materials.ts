@@ -271,7 +271,7 @@ export class SyncMaterials {
         decoded.find((value) => value.event?.type === 'session.created')?.event,
         body.recoveredFrom,
       );
-      if (source && !source.mirrored) {
+      if (source && (!source.mirrored || source.hidden)) {
         for (const value of decoded)
           this.#storage.sync.sourceEvent(source, value.entry.seq, value.entry.sha256);
         return;

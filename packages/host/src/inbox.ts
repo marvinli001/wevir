@@ -335,7 +335,7 @@ export class InboxService {
       workspace === undefined || workspace.removedAt !== undefined
         ? undefined
         : this.#events.snapshot(sessionId);
-    if (record === undefined || snapshot === undefined) {
+    if (record === undefined || snapshot === undefined || record.origin?.kind === 'synced') {
       this.#failedTurns.delete(sessionId);
       this.#recoveries.delete(sessionId);
       return [];

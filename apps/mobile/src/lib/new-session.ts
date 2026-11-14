@@ -164,6 +164,7 @@ export interface NewSessionFeatures {
   chats: boolean;
   worktree: boolean;
   permissionModes: boolean;
+  sessionCreationIdentity?: boolean;
 }
 
 export function createParams(
@@ -223,6 +224,7 @@ export async function loadOptions(client: NewSessionClient): Promise<NewSessionO
         chats: client.supports('chat_sessions'),
         worktree: client.supports('session_worktree'),
         permissionModes: client.supports('permission_modes'),
+        sessionCreationIdentity: client.supports('session_creation_identity'),
       },
     };
   } catch (error) {
@@ -309,11 +311,20 @@ export async function startSession(
   content: UserContentPart[],
   clientMessageId: string,
   existing?: Session,
-): Promise<{ session: Session; sent: boolean }> {
+  sessionId?: Session['id'],
+): Promise<{ session: Session; sent: boolean; error?: unknown }> {
   const session =
     existing ??
-    (await client.request('session.create', createParams(draft, features), { queue: false }))
-      .session;
+    (
+      await client.request(
+        'session.create',
+        {
+          ...createParams(draft, features),
+          ...(sessionId && features.sessionCreationIdentity && { sessionId }),
+        },
+        { queue: false },
+      )
+    ).session;
   try {
     await client.request(
       'session.send',
@@ -325,8 +336,8 @@ export async function startSession(
       { queue: false },
     );
     return { session, sent: true };
-  } catch {
-    return { session, sent: false };
+  } catch (error) {
+    return { session, sent: false, error };
   }
 }
 

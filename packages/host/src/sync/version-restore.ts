@@ -108,6 +108,7 @@ export class SyncVersionRestore {
       entityType: version.entityType,
       versionFingerprint: sha256(jcs(version)),
       kind,
+      sourceVerified: version.sourceVerified,
       canRestore: false,
       reason: 'read_only',
       selectedText: text(version.record.content),
@@ -339,7 +340,15 @@ export class SyncVersionRestore {
           localFingerprint: input.localFingerprint as string,
           selection: { kind: 'version', opId: version.opId },
         },
-        SyncSessionConflictContentSchema.parse(version.record.content),
+        SyncSessionConflictContentSchema.parse(
+          version.sourceVerified
+            ? version.record.content
+            : Object.fromEntries(
+                Object.entries(version.record.content as Record<string, unknown>).filter(
+                  ([key]) => key !== 'recoveredFrom',
+                ),
+              ),
+        ),
       );
     else if (view.kind === 'bundle') {
       const data = await this.options.portable.material(input.importId, input.entryId);
@@ -357,7 +366,19 @@ export class SyncVersionRestore {
           expectedTargetId: input.expectedTargetId,
         },
         {
-          body: data.body,
+          body: SyncBundleContentSchema.parse({
+            ...Object.fromEntries(
+              Object.entries(data.body).filter(([key]) => key !== 'recoveredFrom'),
+            ),
+            ...(version.sourceVerified &&
+              version.operation && {
+                recoveredFrom: {
+                  vaultId: version.vaultId,
+                  deviceId: version.operation.deviceId,
+                  opId: version.opId,
+                },
+              }),
+          }),
           files: data.files,
           kind:
             version.record.kind === 'delete'
@@ -391,6 +412,7 @@ export class SyncVersionRestore {
           deviceId:
             version.operation?.deviceId ??
             SyncWorkspaceMetadataSchema.parse(data.body.metadata).source.deviceId,
+          sourceVerified: version.sourceVerified,
           body,
           files: data.files,
           enqueueReferences: references.commit,
@@ -544,13 +566,18 @@ export class SyncVersionRestore {
             parents: [],
             kind: rule.version.record.kind === 'delete' ? 'delete' : 'put',
             content: {
-              ...rule.body,
+              ...Object.fromEntries(
+                Object.entries(rule.body).filter(([key]) => key !== 'recoveredFrom'),
+              ),
               files,
-              recoveredFrom: {
-                vaultId: vault.vaultId,
-                deviceId: rule.version.operation?.deviceId ?? vault.deviceId,
-                opId: rule.version.opId,
-              },
+              ...(rule.version.sourceVerified &&
+                rule.version.operation && {
+                  recoveredFrom: {
+                    vaultId: vault.vaultId,
+                    deviceId: rule.version.operation.deviceId,
+                    opId: rule.version.opId,
+                  },
+                }),
             },
           });
           if (id !== opId) throw new ZuvRequestError('SCOPE_DISABLED');

@@ -1341,6 +1341,15 @@ describe('full Host material synchronization with synthetic identities', () => {
         { timeout: 8000 },
       )
       .toBe('Alpha\n\nMiddle\n\nOmega');
+    await expect
+      .poll(
+        () =>
+          Promise.all(
+            [first, second].map(async (peer) => (await peer.rpc.request('sync.status')).state),
+          ),
+        { timeout: 8000 },
+      )
+      .toEqual(['idle', 'idle']);
     const commits = mock.sync.attempts.commits;
     mock.sync.pendingCommits = true;
     for (const [peer, content] of [
@@ -2287,24 +2296,43 @@ describe('full Host material synchronization with synthetic identities', () => {
       )
       .toMatchObject({ text: 'Synthetic summary', refs: [remote.goal.id] });
     expect(generate).not.toHaveBeenCalled();
-    await second.rpc.request('episode.update', {
+    const receiver = openStorage({ dataDir: second.home });
+    cleanups.push(() => receiver.close());
+    const origin = remote.syncOrigin;
+    // 资料先到时，事件补齐会重算投影修订。
+    await expect
+      .poll(
+        () =>
+          receiver.sync.sourceFingerprint(
+            origin.vaultId,
+            origin.hostId,
+            origin.sessionId,
+            origin.streamId,
+            origin.seq,
+          ),
+        { timeout: 8000 },
+      )
+      .toBeDefined();
+    const editable = (await second.rpc.request('episode.get', { id: remote.id })).episode;
+    const updatedEpisode = await second.rpc.request('episode.update', {
       id: remote.id,
-      revision: remote.revision,
+      revision: editable.revision,
       patch: {
         title: 'Edited on second Host',
-        goal: { ...remote.goal, text: 'Updated synthetic goal' },
+        goal: { ...editable.goal, text: 'Updated synthetic goal' },
         open: [
           {
             id: 'user:follow-up',
             text: 'Synthetic follow-up',
             origin: 'todo',
             status: 'pending',
-            ref: remote.goal.ref,
+            ref: editable.goal.ref,
           },
         ],
       },
       pinned: true,
     });
+    expect(updatedEpisode.conflict).toBeUndefined();
     await expect
       .poll(async () => (await first.rpc.request('episode.get', { id: native.id })).episode, {
         timeout: 8000,

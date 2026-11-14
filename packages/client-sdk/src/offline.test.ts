@@ -1,6 +1,6 @@
 import { ErrorCode } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { WevirRpcError } from './errors.js';
+import { ConnectionLostError, RequestTimeoutError, WevirRpcError } from './errors.js';
 import {
   type OfflineConversation,
   offlineTranscript,
@@ -9,7 +9,7 @@ import {
 } from './offline.js';
 
 describe('persistent input drafts', () => {
-  it('distinguishes pre-dispatch refusal from an engine error with an uncertain outcome', () => {
+  it('distinguishes transport uncertainty from definite RPC results', () => {
     expect(
       sendOutcomeUnknown(
         new WevirRpcError('session.send', { code: ErrorCode.DEVICE_FORBIDDEN, message: 'denied' }),
@@ -22,8 +22,37 @@ describe('persistent input drafts', () => {
           message: 'engine error',
         }),
       ),
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      sendOutcomeUnknown(new ConnectionLostError('session.send', undefined, '', undefined, false)),
+    ).toBe(false);
+    expect(sendOutcomeUnknown(new RequestTimeoutError('session.send', 1000, false))).toBe(false);
+    expect(sendOutcomeUnknown(new RequestTimeoutError('session.send', 1000, true))).toBe(true);
     expect(sendOutcomeUnknown(new Error('lost response'))).toBe(true);
+  });
+  it('reuses a persisted send identity and settles it from acknowledged events', async () => {
+    const values = new Map<string, string>();
+    const storage = {
+      get: async (key: string) => values.get(key),
+      set: async (key: string, value: string) => {
+        values.set(key, value);
+      },
+      delete: async (key: string) => {
+        values.delete(key);
+      },
+    };
+    const first = new PersistentDrafts(storage);
+    const sent = await first.begin('host/session', 'original input', 'message_stable');
+    await first.writeState('host/session', { text: 'later edit', uncertain: true });
+    const reopened = new PersistentDrafts(storage);
+    const retried = await reopened.begin('host/session', 'later edit', 'message_changed');
+    expect(retried.clientMessageId).toBe(sent.clientMessageId);
+    expect(retried.submittedText).toBe('original input');
+    await reopened.acknowledge('host/session', 'message_stable');
+    expect(await reopened.readState('host/session')).toEqual({
+      text: 'later edit',
+      uncertain: false,
+    });
   });
   it('preserves uncertain sends across restart and acknowledges only the submitted text', async () => {
     const values = new Map<string, string>();
@@ -71,6 +100,11 @@ describe('persistent input drafts', () => {
     await drafts.writeState('legacy/session', { text: original, uncertain: true });
     expect(values.has('legacy/session')).toBe(false);
     expect(await drafts.read('legacy/session')).toBe(original);
+    const manual = await drafts.begin('legacy/session', original, 'manual-legacy-send');
+    expect(manual.clientMessageId).toBe('manual-legacy-send');
+    expect((await drafts.begin('legacy/session', original, 'different-id')).clientMessageId).toBe(
+      'manual-legacy-send',
+    );
   });
   it('keeps cached execution and approval state out of the offline projection', () => {
     const date = '2026-11-13T00:00:00.000Z';

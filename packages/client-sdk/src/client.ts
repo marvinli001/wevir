@@ -1465,7 +1465,7 @@ export class WevirClient {
         return;
       }
       if (options?.queue === false) {
-        reject(new ConnectionLostError(method, undefined));
+        reject(new ConnectionLostError(method, undefined, '', undefined, false));
         return;
       }
       request.timer = setTimeout(() => {

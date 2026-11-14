@@ -86,6 +86,9 @@ export function ZuvVersionRestore({
               busy && <p>{t('common.loading')}</p>
             ) : (
               <>
+                {preview.sourceVerified === false && (
+                  <p role="status">{t('verification.acceptance.unverified')}</p>
+                )}
                 {preview.reason && <p role="status">{t(`portable.restore.${preview.reason}`)}</p>}
                 {preview.truncated && <p>{t('sync.truncatedFile')}</p>}
                 {preview.targets && (

@@ -58,6 +58,23 @@ async function fixture() {
 }
 
 describe('workspace identity fences', () => {
+  it('retains a restore while an installation is using it', async () => {
+    const data = await fixture();
+    let installing = true;
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () => data.storage.sync.activeVault(),
+      inUse: () => installing,
+    });
+    const { snapshot } = await service.capture({
+      sessionId: 'ses_workspace',
+      untracked: ['selected.txt'],
+    });
+    const restored = await service.restore({ sessionId: 'ses_workspace', snapshot });
+    expect(await service.discard(restored.restoreId)).toEqual({ discarded: false });
+    installing = false;
+    expect(await service.discard(restored.restoreId)).toEqual({ discarded: true });
+  });
   it('reuses an unclaimed restore and discards it explicitly', async () => {
     const data = await fixture();
     const service = new SyncWorkspaces({
@@ -218,6 +235,7 @@ function archivedWorkspace() {
     vaultId: 'vault_fixture',
     opId: 'archived_operation',
     deviceId: source.deviceId,
+    sourceVerified: true,
     files,
     body: SyncBundleContentSchema.parse({
       schema: 'wevir-bundle/1',
@@ -248,6 +266,26 @@ function archivedWorkspace() {
 }
 
 describe('restoring archived workspace versions as derived material', () => {
+  it('omits unverified claimed device provenance from the derived workspace', async () => {
+    const data = await fixture(),
+      archived = archivedWorkspace();
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () => data.storage.sync.activeVault(),
+    });
+    const { snapshot } = service.restoreVersion(
+      { sessionId: 'ses_workspace', expectedLocalSeq: 0 },
+      { ...archived, sourceVerified: false },
+    );
+    const body = SyncBundleContentSchema.parse(
+      (
+        data.storage.sync.draft(data.vault.vaultId, snapshot.opId)?.content as
+          | SyncDraftPayload
+          | undefined
+      )?.body,
+    );
+    expect(body.recoveredFrom).toBeUndefined();
+  });
   it('derives fresh chunks for a mapped synced history and only writes Git on explicit isolated restore', async () => {
     const data = await fixture(),
       archived = archivedWorkspace();

@@ -14,6 +14,7 @@ import {
   browserDrafts,
   clearBrowserLibrary,
   saveBrowserConversation,
+  watchBrowserLibrary,
 } from '@/data/browser-library';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -40,6 +41,19 @@ export function OfflineLibrary() {
   const scope = useRef(draftKey);
   scope.current = draftKey;
   const browser = !capabilities().localHost;
+  useEffect(
+    () =>
+      browser
+        ? watchBrowserLibrary(() => {
+            setSaved([]);
+            setSessions([]);
+            setCurrent(undefined);
+            setDraft('');
+            setSendUncertain(false);
+          })
+        : undefined,
+    [browser],
+  );
   useEffect(() => {
     if (!browser || !open) return;
     void browserConversations().then(setSaved, () => setError(t('portable.storageError')));
@@ -92,6 +106,16 @@ export function OfflineLibrary() {
     )
       return;
     let active = true;
+    let caughtUp = false;
+    const key = `${selectedHostId}/${selectedClientId}/${selectedSessionId}`;
+    const reconcile = async (events: readonly WevirEvent[]) => {
+      const previous = await browserDrafts.readState(key);
+      const next = await browserDrafts.reconcile(key, events);
+      if (active && scope.current === key && previous.uncertain && !next.uncertain) {
+        setSendUncertain(false);
+        setDraft((current) => (current === previous.submittedText ? next.text : current));
+      }
+    };
     const events: WevirEvent[] = [];
     const subscription = client.subscribe(selectedSessionId, { elideSuperseded: true });
     void (async () => {
@@ -103,12 +127,17 @@ export function OfflineLibrary() {
       for await (const item of subscription) {
         if (!active) break;
         if (item.type === 'reset') events.length = 0;
-        if (item.type === 'event' && item.event.type !== 'engine.raw') events.push(item.event);
+        if (item.type === 'event' && item.event.type !== 'engine.raw') {
+          events.push(item.event);
+          if (caughtUp && item.event.type === 'user.message') await reconcile([item.event]);
+        }
         if (events.length > 3000 || JSON.stringify(events).length > 2000000) {
           setError(t('portable.cacheLimit'));
           break;
         }
         if (item.type === 'caught_up') {
+          caughtUp = true;
+          await reconcile(events);
           const value: OfflineConversation = {
             hostId: client.hello.hostId,
             clientId: identity?.clientId ?? '',
@@ -239,30 +268,33 @@ export function OfflineLibrary() {
                   if (!client || !current || !canSend) return;
                   const text = draft;
                   const key = draftKey as string;
+                  let id: string = crypto.randomUUID();
                   setSending(true);
                   setError(undefined);
                   void (async () => {
-                    await browserDrafts.writeState(key, { text, uncertain: true });
+                    const attempt = await browserDrafts.begin(key, text, id);
+                    id = attempt.clientMessageId;
+                    const sentText = attempt.submittedText ?? text;
                     if (scope.current === key) setSendUncertain(true);
                     await client.request(
                       'session.send',
                       {
                         sessionId: current.session.id,
-                        content: [{ type: 'text', text }],
-                        clientMessageId: crypto.randomUUID(),
+                        content: [{ type: 'text', text: sentText }],
+                        clientMessageId: id,
                       },
                       { queue: false },
                     );
-                    await browserDrafts.settle(key, text);
+                    await browserDrafts.settle(key, sentText, id);
                     if (scope.current === key) {
                       setSendUncertain(false);
-                      setDraft((value) => (value === text ? '' : value));
+                      setDraft((value) => (value === sentText ? '' : value));
                     }
                   })()
                     .catch(async (error: unknown) => {
                       const uncertain = sendOutcomeUnknown(error);
                       if (!uncertain)
-                        await browserDrafts.settle(key).catch(() => {
+                        await browserDrafts.settle(key, undefined, id).catch(() => {
                           if (scope.current === key) setError(t('portable.storageError'));
                         });
                       if (scope.current === key) {

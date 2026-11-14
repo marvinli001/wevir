@@ -1471,6 +1471,7 @@ export class SessionManager {
       /** 用这个会话的目录、额外目录与环境（Agent 分出自己时的接力材料方式，`agentFork`），不新开 worktree。 */
       sameDirectoryAs?: SessionId;
       history?: HistoryContinuation;
+      creation?: { owner: string; params: string };
     } = {},
   ): Promise<Session> {
     this.#assertOpen();
@@ -1510,6 +1511,7 @@ export class SessionManager {
         options.sameDirectoryAs,
         startedAt,
         options.history,
+        options.creation,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
@@ -1586,8 +1588,9 @@ export class SessionManager {
     /** `session.create` 到达的时刻（startup-timing.ts）。 */
     startedAt?: number,
     history?: HistoryContinuation,
+    creation?: { owner: string; params: string },
   ): Promise<Session> {
-    const sessionId = newId('ses');
+    const sessionId = params.sessionId ?? newId('ses');
     const shared =
       sameDirectoryAs === undefined ? undefined : this.#storage.sessions.get(sameDirectoryAs);
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。第二意见
@@ -1707,7 +1710,13 @@ export class SessionManager {
       if (recordOrigin !== undefined) record.origin = recordOrigin;
       if (toolPreset !== undefined) record.toolPreset = toolPreset;
       if (profileVersion !== undefined) record.profileVersionId = profileVersion.id;
-      this.#storage.sessions.insert(record);
+      this.#storage.transaction(() => {
+        this.#storage.sessions.insert(record);
+        if (creation)
+          this.#storage.db
+            .prepare('INSERT INTO session_create_requests (session_id,owner,params) VALUES (?,?,?)')
+            .run(sessionId, creation.owner, creation.params);
+      });
       this.#events.append(sessionId, {
         type: 'session.created',
         source: 'host',

@@ -3,6 +3,7 @@
 
 import { isRpcError } from '@wevir/client-sdk';
 import type {
+  MethodParams,
   PendingDelivery,
   PendingMessageId,
   QuestionAnswer,
@@ -94,6 +95,7 @@ export function questionsComplete(
 
 export interface SendOptions {
   text: string;
+  clientMessageId?: string;
   images?: readonly UserImagePart[];
   /** 回合进行中时：插话或排队。空闲时不带。 */
   delivery?: PendingDelivery;
@@ -129,26 +131,38 @@ export class SessionActions {
     }
   }
 
-  async send({ text, images, delivery, resume, declineApproval }: SendOptions): Promise<void> {
+  async send({
+    text,
+    images,
+    delivery,
+    resume,
+    declineApproval,
+    clientMessageId: id,
+  }: SendOptions): Promise<void> {
     const content = messageContent(text, images);
     if (content.length === 0) return;
+    const params: MethodParams<'session.send'> = {
+      sessionId: this.#sessionId,
+      content,
+      clientMessageId: id ?? clientMessageId(this.#random),
+      ...(delivery !== undefined && { delivery }),
+      ...(declineApproval === true && { declineApproval: true }),
+    };
+    if (resume === true && id) {
+      try {
+        await this.#client.request('session.send', params, { queue: false });
+        return;
+      } catch (error) {
+        if (!isRpcError(error, 'INVALID_STATE')) throw error;
+      }
+    }
     if (resume === true)
       await this.#client.request(
         'session.resume',
         { sessionId: this.#sessionId },
         { queue: false },
       );
-    await this.#client.request(
-      'session.send',
-      {
-        sessionId: this.#sessionId,
-        content,
-        clientMessageId: clientMessageId(this.#random),
-        ...(delivery !== undefined && { delivery }),
-        ...(declineApproval === true && { declineApproval: true }),
-      },
-      { queue: false },
-    );
+    await this.#client.request('session.send', params, { queue: false });
   }
 
   async interrupt(): Promise<void> {

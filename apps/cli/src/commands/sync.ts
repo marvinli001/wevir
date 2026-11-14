@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { isMethodName, type MethodName, MethodSchemas } from '@wevir/protocol';
 import { type Context, requireFeature, withClient } from '../context.js';
 import { EXIT, UsageError } from '../errors.js';
@@ -12,6 +13,12 @@ export async function syncCall(
 ) {
   let value = params;
   if (stdin) {
+    if (
+      params &&
+      typeof params === 'object' &&
+      Object.values(params).some((value) => value !== undefined && value !== false)
+    )
+      throw new UsageError(t('sync.invalidParams'));
     const raw = await readStdin(ctx.io);
     try {
       value = JSON.parse(raw);
@@ -21,6 +28,14 @@ export async function syncCall(
   }
   const parsed = MethodSchemas[method].params.safeParse(value);
   if (!parsed.success) throw new UsageError(t('sync.invalidParams'));
+  if (method === 'sync.exportLocal' && (parsed.data as { directory?: string }).directory) {
+    const data = parsed.data as { directory: string };
+    data.directory = resolve(ctx.io.cwd, data.directory);
+  }
+  if (method === 'sync.importPrepare') {
+    const data = parsed.data as { path: string };
+    data.path = resolve(ctx.io.cwd, data.path);
+  }
   return withClient(ctx, async (client) => {
     requireFeature(
       client,

@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PortableManifestSchema, type SessionId } from '@wevir/protocol';
@@ -60,6 +61,57 @@ function fixture(name: string) {
 }
 
 describe('portable local data', () => {
+  it('rejects a tampered fixed-snapshot proof against a locally pinned signing key', async () => {
+    const source = fixture('proof-source'),
+      target = fixture('proof-target');
+    const exported = await source.portable.exportLocal();
+    const path = join(exported.path, 'manifest.json');
+    const manifest = PortableManifestSchema.parse(JSON.parse(await readFile(path, 'utf8')));
+    const proof = {
+      restoreId: 'restore_fixture',
+      snapshotCursor: 'cursor_fixture',
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+      manifest: [],
+      snapshot: {
+        protocol: 'wevir-sync-snapshot/1',
+        vaultId: 'vault_fixture',
+        restoreId: 'restore_fixture',
+        snapshotCursor: 'cursor_fixture',
+        operationsSha256: sha256('[]'),
+        blobManifestSha256: sha256('[]'),
+        signingKeyId: 'signing_fixture',
+        signature: 'A'.repeat(86),
+      },
+    };
+    const bytes = Buffer.from(jcs({ schema: 'wevir-portable-snapshot/1', exported: proof }));
+    const entry = {
+      id: 'fixed_snapshot_proof',
+      kind: 'references' as const,
+      key: 'fixed-snapshot',
+      bytes: bytes.length,
+      sha256: sha256(bytes),
+      encoding: 'json' as const,
+    };
+    manifest.entries.push(entry);
+    await writeFile(join(exported.path, 'entries', entry.id), bytes);
+    await writeFile(path, jcs(manifest));
+    const origin = 'https://synthetic.invalid';
+    target.portable.options.origin = origin;
+    await mkdir(join(target.home, 'sync/restores'), { recursive: true });
+    const signer = generateKeyPairSync('ed25519');
+    await writeFile(
+      join(target.home, 'sync/restores', `${sha256(origin)}.keys.json`),
+      JSON.stringify([
+        [
+          proof.snapshot.signingKeyId,
+          String(signer.publicKey.export({ type: 'spki', format: 'pem' })),
+        ],
+      ]),
+    );
+    await expect(target.portable.importPrepare(exported.path)).rejects.toMatchObject({
+      code: 'INTEGRITY_FAILED',
+    });
+  });
   it.each(['part-reuse', 'multiple-indexes'] as const)(
     'rejects amplified local file references: %s',
     async (failure) => {

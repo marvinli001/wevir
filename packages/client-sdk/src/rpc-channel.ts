@@ -100,7 +100,7 @@ export class RpcChannel {
     timeoutError?: () => Error,
   ): void {
     if (this.#state !== 'open') {
-      handlers.onError(new ConnectionLostError(method, undefined));
+      handlers.onError(new ConnectionLostError(method, undefined, '', undefined, false));
       return;
     }
     const id = this.#nextId++;
@@ -116,6 +116,17 @@ export class RpcChannel {
     try {
       this.#transport.send(JSON.stringify({ jsonrpc: JSONRPC_VERSION, id, method, params }));
     } catch (error) {
+      this.#pending.delete(id);
+      clearTimeout(pending.timer);
+      handlers.onError(
+        new ConnectionLostError(
+          method,
+          undefined,
+          'send failed',
+          error instanceof Error ? error : undefined,
+          false,
+        ),
+      );
       // 传输层已经不能发送：连接实际上已经没了。
       this.abandon(`send failed: ${String(error)}`);
     }
@@ -179,7 +190,8 @@ export class RpcChannel {
           ? loss.reason
           : 'heartbeat timeout';
     const cause = loss.kind === 'closed' ? loss.cause : undefined;
-    if (wasOpening) this.#rejectOpened(new ConnectionLostError(undefined, code, reason, cause));
+    if (wasOpening)
+      this.#rejectOpened(new ConnectionLostError(undefined, code, reason, cause, false));
     const pending = [...this.#pending.values()];
     this.#pending.clear();
     for (const call of pending) {

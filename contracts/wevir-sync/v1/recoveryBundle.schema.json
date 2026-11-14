@@ -284,7 +284,14 @@
                   "type": "string"
                 }
               },
-              "required": ["blobId", "storeId", "objectKey", "cipherBytes", "cipherSha256", "keyEpoch"],
+              "required": [
+                "blobId",
+                "storeId",
+                "objectKey",
+                "cipherBytes",
+                "cipherSha256",
+                "keyEpoch"
+              ],
               "additionalProperties": false
             }
           },

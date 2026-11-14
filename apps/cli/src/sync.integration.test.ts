@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { createLogger, type RunningHost, startHost } from '@wevir/host';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -28,6 +28,22 @@ async function boot(name: string) {
   return home;
 }
 describe('portable data through the Host CLI', () => {
+  it('resolves portable paths from the CLI directory and rejects ambiguous stdin and unused flags', async () => {
+    const home = await boot('relative');
+    const exported = await run(['sync', 'export', 'relative-output'], { home, cwd: temp() });
+    expect(exported.code, exported.err).toBe(0);
+    const path = JSON.parse(exported.out).path as string;
+    expect(path.startsWith(join(temp(), 'relative-output'))).toBe(true);
+    const prepared = await run(['sync', 'import', relative(temp(), path)], { home, cwd: temp() });
+    expect(prepared.code, prepared.err).toBe(0);
+    const ambiguous = await run(['sync', 'export', 'argument', '--stdin'], {
+      home,
+      cwd: temp(),
+      input: JSON.stringify({ directory: join(temp(), 'stdin-output') }),
+    });
+    expect(ambiguous.code).toBe(2);
+    expect((await run(['sync', 'export', '--refresh'], { home })).code).toBe(2);
+  });
   it('exports one isolated Host, previews and imports on another, and leaves its live session list unchanged', async () => {
     const first = await boot('first');
     const second = await boot('second');

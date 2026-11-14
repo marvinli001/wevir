@@ -22,6 +22,7 @@ export const SyncVersionRestorePreviewSchema = z.object({
   entityType,
   versionFingerprint: digest,
   canRestore: z.boolean(),
+  sourceVerified: z.boolean().optional(),
   reason: z
     .enum(['read_only', 'scope_disabled', 'different_vault', 'unmapped', 'reset_required'])
     .optional(),

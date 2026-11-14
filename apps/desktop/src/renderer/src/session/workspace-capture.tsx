@@ -1,5 +1,10 @@
 import { hostSupports } from '@wevir/client-sdk';
-import type { Session } from '@wevir/protocol';
+import {
+  isExcludedSyncMaterialPath,
+  type Session,
+  SYNC_WORKSPACE_UNTRACKED_LIMIT,
+  SyncRelativePathSchema,
+} from '@wevir/protocol';
 import { Camera } from 'lucide-react';
 import { useState } from 'react';
 import { IconButton } from '@/components/icon-button';
@@ -26,6 +31,7 @@ export function WorkspaceCaptureButton({
     !client ||
     view.status !== 'connected' ||
     !hostSupports(view.hello.features, 'sync_workspace') ||
+    !client.can('host.manage') ||
     session.readOnly ||
     session.parentSessionId
   )
@@ -69,21 +75,44 @@ export function WorkspaceCaptureButton({
               <fieldset>
                 <legend className="mb-2 text-sm text-muted-foreground">
                   {t('sync.workspaceUntracked')}
+                  <span className="ml-2 tabular-nums">
+                    {selected.length}/{SYNC_WORKSPACE_UNTRACKED_LIMIT}
+                  </span>
                 </legend>
-                {untracked.map((path) => (
-                  <label key={path} className="flex min-w-0 items-center gap-2 py-1 text-sm">
-                    <Checkbox
-                      checked={selected.includes(path)}
-                      disabled={busy || saved}
-                      onCheckedChange={(value) =>
-                        setSelected((current) =>
-                          value ? [...current, path] : current.filter((entry) => entry !== path),
-                        )
-                      }
-                    />
-                    <span className="min-w-0 break-all font-mono">{path}</span>
-                  </label>
-                ))}
+                {untracked.map((path) => {
+                  const allowed =
+                    SyncRelativePathSchema.safeParse(path).success &&
+                    !isExcludedSyncMaterialPath(path);
+                  return (
+                    <label key={path} className="flex min-w-0 items-center gap-2 py-1 text-sm">
+                      <Checkbox
+                        checked={selected.includes(path)}
+                        disabled={
+                          busy ||
+                          saved ||
+                          !allowed ||
+                          (selected.length >= SYNC_WORKSPACE_UNTRACKED_LIMIT &&
+                            !selected.includes(path))
+                        }
+                        onCheckedChange={(value) =>
+                          setSelected((current) =>
+                            value
+                              ? !allowed ||
+                                current.length >= SYNC_WORKSPACE_UNTRACKED_LIMIT ||
+                                current.includes(path)
+                                ? current
+                                : [...current, path]
+                              : current.filter((entry) => entry !== path),
+                          )
+                        }
+                      />
+                      <span className="min-w-0 break-all font-mono">{path}</span>
+                      {!allowed && (
+                        <span className="text-muted-foreground">{t('portable.omissions')}</span>
+                      )}
+                    </label>
+                  );
+                })}
               </fieldset>
             </div>
           )}

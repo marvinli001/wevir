@@ -14,6 +14,7 @@ import {
   SyncBundleContentSchema,
   SyncChunkContentSchema,
   SyncSettingsValuesSchema,
+  SyncSigningKeysCacheSchema,
   SyncWorkspaceMetadataSchema,
   PortableVersionSchema as Version,
   WevirEventSchema,
@@ -39,6 +40,7 @@ import { type BundleRoot, excludedBundlePath, snapshotBundle } from './bundle-sn
 import { SyncBlobCache } from './cache.js';
 import { decryptPack, eventDigest, parseEnvelope, sha256 } from './crypto.js';
 import type { SyncVaultKeys } from './keys.js';
+import { verifySyncSignature } from './signed.js';
 
 type Entry = PortableManifest['entries'][number];
 const MAX_BYTES = 2 * 1024 * 1024 * 1024;
@@ -55,6 +57,7 @@ export interface PortableOptions {
   memoryDir: string;
   bundleRoots: (vault: SyncVaultRecord) => Promise<BundleRoot[]>;
   exportRoots?: () => Promise<BundleRoot[]>;
+  origin?: string;
 }
 export class SyncPortable {
   constructor(readonly options: PortableOptions) {}
@@ -487,7 +490,7 @@ export class SyncPortable {
       version.record.entityId !== version.entityId
     )
       throw new ZuvRequestError('INTEGRITY_FAILED');
-    return version;
+    return { ...version, sourceVerified: this.#knownSource(version) };
   }
   async material(importId: string, entryId: string) {
     const path = this.#path('imported', importId),
@@ -512,7 +515,7 @@ export class SyncPortable {
       )
         throw new ZuvRequestError('INTEGRITY_FAILED');
       used.set(versionKey(value.vaultId, value.opId), entry.sha256);
-      return value;
+      return { ...value, sourceVerified: this.#knownSource(value) };
     };
     const selected = manifest.entries.find(
       (entry) => entry.id === entryId && entry.kind === 'version',
@@ -520,6 +523,8 @@ export class SyncPortable {
     if (!selected) throw new ZuvRequestError('INVALID_REQUEST');
     const version = await read(selected);
     let total = 0;
+    const materialBytes = new Map<string, Buffer>();
+    const contents = new Set<string>();
     const files = async (owner: typeof version) => {
       const body = SyncBundleContentSchema.parse(owner.record.content);
       if (body.category !== owner.entityType) throw new ZuvRequestError('INTEGRITY_FAILED');
@@ -531,6 +536,17 @@ export class SyncPortable {
         if (paths.has(path) || excludedBundlePath(file.path))
           throw new ZuvRequestError('INTEGRITY_FAILED');
         paths.add(path);
+        const fileKey = jcs([owner.vaultId, owner.entityId, file.bytes, file.sha256, file.parts]);
+        const cached = materialBytes.get(fileKey);
+        if (cached) {
+          result.push({
+            path: file.path,
+            bytes: cached,
+            sha256: file.sha256,
+            executable: file.executable === true,
+          });
+          continue;
+        }
         const parts: Buffer[] = [];
         for (const [index, reference] of file.parts.entries()) {
           const entry = entries.get(versionKey(owner.vaultId, reference.opId));
@@ -555,10 +571,15 @@ export class SyncPortable {
           parts.push(bytes);
         }
         const bytes = Buffer.concat(parts);
-        total += bytes.length;
+        const content = `${owner.vaultId}/${owner.entityId}/${file.sha256}`;
+        if (!contents.has(content)) {
+          total += bytes.length;
+          contents.add(content);
+        }
         if (total > 64 * 1024 * 1024) throw new ZuvRequestError('QUOTA_EXCEEDED');
         if (bytes.length !== file.bytes || sha256(bytes) !== file.sha256)
           throw new ZuvRequestError('INTEGRITY_FAILED');
+        materialBytes.set(fileKey, bytes);
         result.push({
           path: file.path,
           bytes,
@@ -713,7 +734,54 @@ export class SyncPortable {
       manifest.entries.reduce((total, entry) => total + entry.bytes, 0) > MAX_BYTES
     )
       throw new ZuvRequestError('INTEGRITY_FAILED');
+    await this.#verifyProof(path, manifest);
     return manifest;
+  }
+  #knownSource(version: typeof Version._output): boolean {
+    const known = this.options.storage.sync.getOperation(version.vaultId, version.opId);
+    return Boolean(
+      version.operation &&
+        version.manifest &&
+        known?.record &&
+        ['applied', 'committed'].includes(known.state) &&
+        jcs(known.envelope) === jcs(version.operation) &&
+        jcs(known.manifest) === jcs(version.manifest) &&
+        jcs(known.record) === jcs(version.record),
+    );
+  }
+  async #verifyProof(path: string, manifest: PortableManifest) {
+    const proofs = manifest.entries.filter(
+      (entry) => entry.kind === 'references' && entry.key === 'fixed-snapshot',
+    );
+    if (proofs.length > 1) throw new ZuvRequestError('INTEGRITY_FAILED');
+    const entry = proofs[0];
+    if (!entry) return;
+    const proof = JSON.parse((await this.#bytes(path, entry)).toString()) as {
+      schema?: string;
+      exported?: unknown;
+    };
+    if (proof.schema !== 'wevir-portable-snapshot/1') throw new ZuvRequestError('INTEGRITY_FAILED');
+    const parsed = schemas.exported.safeParse(proof.exported);
+    if (!parsed.success) throw new ZuvRequestError('INTEGRITY_FAILED');
+    const exported = parsed.data;
+    if (
+      exported.restoreId !== exported.snapshot.restoreId ||
+      exported.snapshotCursor !== exported.snapshot.snapshotCursor ||
+      sha256(jcs(exported.manifest)) !== exported.snapshot.blobManifestSha256
+    )
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    if (!this.options.origin) return;
+    const pinsPath = join(
+      this.options.home,
+      'sync/restores',
+      `${sha256(this.options.origin)}.keys.json`,
+    );
+    const bytes = await this.#file(pinsPath, 2 * 1024 * 1024).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    });
+    if (!bytes) return;
+    const pins = new Map(SyncSigningKeysCacheSchema.parse(JSON.parse(bytes.toString())));
+    if (pins.has(exported.snapshot.signingKeyId)) verifySyncSignature(exported.snapshot, pins);
   }
   async #file(path: string, maxBytes: number) {
     const before = await lstat(path);

@@ -189,18 +189,16 @@ describe('explicit archived bundle restoration', () => {
       (item) => item.managed,
     );
     if (!target) throw new Error('missing managed target');
-    await h
-      .service()
-      .apply(
-        {
-          ...h.ref,
-          expectedHeads: preview.heads,
-          selectedOpId: preview.heads[0] as string,
-          targetId: target.targetId,
-          fingerprint: target.fingerprint,
-        },
-        new AbortController().signal,
-      );
+    await h.service().apply(
+      {
+        ...h.ref,
+        expectedHeads: preview.heads,
+        selectedOpId: preview.heads[0] as string,
+        targetId: target.targetId,
+        fingerprint: target.fingerprint,
+      },
+      new AbortController().signal,
+    );
     const binding = h.storage.sync.bundleBinding(h.ref.vaultId, h.ref.entityId);
     if (!binding?.revision) throw new Error('missing binding');
     const incoming = join(h.home, 'incoming-managed');
@@ -208,22 +206,20 @@ describe('explicit archived bundle restoration', () => {
     await writeFile(join(incoming, 'tool.sh'), 'synthetic script');
     await chmod(join(incoming, 'tool.sh'), 0o700);
     const snapshot = await snapshotBundle({ path: incoming });
-    const finish = await h
-      .service()
-      .receive(
-        {
-          ...h.ref,
-          opId: 'managed_incoming_operation',
-          deviceId: 'device_remote',
-          entityType: 'skill-bundle',
-          kind: 'put',
-          parents: [binding.revision],
-          clientTime: new Date().toISOString(),
-        },
-        archive(snapshot.files).body,
-        incoming,
-        new AbortController().signal,
-      );
+    const finish = await h.service().receive(
+      {
+        ...h.ref,
+        opId: 'managed_incoming_operation',
+        deviceId: 'device_remote',
+        entityType: 'skill-bundle',
+        kind: 'put',
+        parents: [binding.revision],
+        clientTime: new Date().toISOString(),
+      },
+      archive(snapshot.files).body,
+      incoming,
+      new AbortController().signal,
+    );
     h.storage.transaction(finish);
     expect((await stat(join(binding.targetPath, 'tool.sh'))).mode & 0o111).toBe(0);
   });

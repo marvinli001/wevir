@@ -285,6 +285,6 @@ describe('BotStore', () => {
 
     store.setHosts([{ computer: 'mac', computerName: 'MacBook', client: undefined }]);
     expect(store.access(KEY).online).toBe(false);
-    await expect(store.update(KEY, { name: 'x' })).rejects.toThrow('computer offline');
+    await expect(store.update(KEY, { name: 'x' })).rejects.toMatchObject({ sent: false });
   });
 });

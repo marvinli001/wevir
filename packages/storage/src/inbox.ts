@@ -35,6 +35,8 @@ export function createInboxRepository(db: SqliteDatabase): InboxRepository {
     SELECT finished.session_id, json_extract(finished.payload, '$.turnId') AS turn_id, finished.ts
     FROM events AS finished
     WHERE finished.type = 'turn.finished'
+      AND EXISTS (SELECT 1 FROM sessions AS session WHERE session.id=finished.session_id
+        AND coalesce(json_extract(session.origin,'$.kind'),'')!='synced')
       AND json_extract(finished.payload, '$.outcome') = 'failed'
       AND finished.ts >= :since
       AND NOT EXISTS (

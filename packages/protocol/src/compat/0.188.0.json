@@ -1,0 +1,18 @@
+{
+  "protocolVersion": "0.188.0",
+  "methods": {
+    "session.create": {
+      "params": [
+        {
+          "sessionId": "ses_0123456789abcdef0123456789abcdef",
+          "workspaceId": "ws_fixture",
+          "providerId": "synthetic"
+        }
+      ],
+      "result": []
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

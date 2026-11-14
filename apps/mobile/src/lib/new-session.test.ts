@@ -267,9 +267,9 @@ describe('new session', () => {
     };
     const content = [{ type: 'text' as const, text: 'hello' }];
     const first = await startSession(client, draft, FEATURES, content, 'm-1');
-    expect(first).toEqual({ session: { id: 'ses_new' }, sent: false });
+    expect(first).toEqual({ session: { id: 'ses_new' }, sent: false, error: expect.any(Error) });
     fail = false;
-    const second = await startSession(client, draft, FEATURES, content, 'm-2', first.session);
+    const second = await startSession(client, draft, FEATURES, content, 'm-1', first.session);
     expect(second).toEqual({ session: { id: 'ses_new' }, sent: true });
     expect(calls).toEqual(['session.create', 'session.send', 'session.send']);
   });

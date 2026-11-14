@@ -88,6 +88,16 @@ describe('session actions', () => {
     });
     expect(calls[1]?.params).toMatchObject({ delivery: 'queue' });
   });
+  it('checks a persisted send identity before attempting to resume', async () => {
+    const { fake, calls } = client();
+    await new SessionActions(fake, SES, random).send({
+      text: 'accepted before disconnect',
+      resume: true,
+      clientMessageId: 'stable-message',
+    });
+    expect(calls.map((call) => call.method)).toEqual(['session.send']);
+    expect(calls[0]?.params).toMatchObject({ clientMessageId: 'stable-message' });
+  });
 
   it('resumes an errored session before sending, declines a pending approval and resumes held messages', async () => {
     const { fake, calls } = client();

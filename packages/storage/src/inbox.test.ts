@@ -12,6 +12,21 @@ describe('inbox', () => {
       db.events.insert({ sessionId, seq: index + 1, ts, type, source: 'host', payload });
     });
   }
+  it('excludes failed turns projected from another Host', () => {
+    const db = storage();
+    seedSession(db, {
+      id: 'ses_mirror',
+      origin: {
+        kind: 'synced',
+        vaultId: 'vault_test',
+        hostId: 'host_test',
+        sessionId: 'ses_source',
+        streamId: 'stream_test',
+      },
+    });
+    events(db, 'ses_mirror', [[T1, 'turn.finished', { turnId: 'trn_mirror', outcome: 'failed' }]]);
+    expect(db.inbox.failedTurns({ since: T0 })).toEqual([]);
+  });
 
   it('收起记录：重复收起不变，只留给出的那些', () => {
     const db = storage();

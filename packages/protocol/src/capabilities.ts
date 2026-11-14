@@ -96,6 +96,7 @@ export const HOST_FEATURES = {
   syncOutboxRecovery: 'sync_outbox_recovery',
   syncRecovery: 'sync_recovery',
   syncVersionRestore: 'sync_version_restore',
+  sessionCreationIdentity: 'session_creation_identity',
   syncArtifacts: 'sync_artifacts',
   /** 0.171.0：Host 管理的 ZUV 设备账号。 */
   zuvAccount: 'zuv_account',
@@ -655,6 +656,7 @@ export const HostFeaturesSchema = z.looseObject({
   sync_outbox_recovery: z.boolean().optional(),
   sync_recovery: z.boolean().optional(),
   sync_version_restore: z.boolean().optional(),
+  session_creation_identity: z.boolean().optional(),
   sync_artifacts: z.boolean().optional(),
   zuv_account: z.boolean().optional(),
   sync_metadata: z.boolean().optional(),

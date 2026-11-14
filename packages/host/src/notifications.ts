@@ -344,7 +344,12 @@ export class NotificationService {
     const facts = this.#sessionFacts(sessionId);
     if (facts === undefined || facts.archived) return false;
     const { session } = facts;
-    if (session.parentSessionId !== undefined || session.side === true) return false;
+    if (
+      session.parentSessionId !== undefined ||
+      session.side === true ||
+      session.origin?.kind === 'synced'
+    )
+      return false;
     if (session.automation !== undefined) return false;
     for (const automation of this.#automations?.list() ?? []) {
       const run = automation.lastRun;

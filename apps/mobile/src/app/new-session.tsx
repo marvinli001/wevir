@@ -2,6 +2,7 @@
 // 展开菜单：电脑（多台时）、项目（或不在项目里的对话，带同目录 / 新工作树）、模型（引擎与账号、模型、思考力度）、权限。每台电脑上次的
 // 选择记在手机上，下次照用；从会话页打开时预选那个会话的项目。这台手机没有“查看模型服务”或“发消息”的权限时只说明要在电脑上新建。
 
+import { ConnectionLostError, isRpcError, sendOutcomeUnknown } from '@wevir/client-sdk';
 import type { Session, UserImageMimeType } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -39,8 +40,10 @@ import {
   startSession,
 } from '../lib/new-session';
 import { displayName } from '../lib/records';
-import { clientMessageId, messageContent } from '../lib/session-actions';
+import { messageContent } from '../lib/session-actions';
+import { SessionWatch } from '../lib/session-watch';
 import { loadNewSessionMemory, saveNewSessionMemory } from '../lib/storage';
+import { acknowledgeDraft, bindDraftSession, loadDraft } from '../state/drafts';
 import { usePhotoAttachments } from '../state/photo-attachments';
 import { useComputers, useRegistry } from '../state/registry';
 import { SPACE, TEXT, useTheme } from '../theme';
@@ -157,8 +160,51 @@ export default function NewSessionScreen() {
     onError: setError,
   });
 
-  const start = async (text: string) => {
-    if (!canStart || client === undefined || computer === undefined) throw new Error('not ready');
+  const [monitorId, setMonitorId] = useState<Session['id']>();
+  const draftKey = `${snapshot?.record.routeId ?? 'unassigned'}/new-session`;
+  useEffect(() => {
+    let active = true;
+    void loadDraft(draftKey).then((value) => {
+      if (active) setMonitorId(value.sessionId as Session['id'] | undefined);
+    });
+    return () => {
+      active = false;
+    };
+  }, [draftKey]);
+  useEffect(() => {
+    if (!client || !monitorId || !computer) return;
+    let done = false;
+    const watch = new SessionWatch(client, monitorId, (view) => {
+      void loadDraft(draftKey)
+        .then(async (draft) => {
+          if (
+            done ||
+            !draft.clientMessageId ||
+            !view.liveSession ||
+            !view.transcript?.messages.some(
+              (message) =>
+                message.role === 'user' && message.clientMessageId === draft.clientMessageId,
+            )
+          )
+            return;
+          done = true;
+          await acknowledgeDraft(draftKey, draft.clientMessageId);
+          router.dismissTo({
+            pathname: '/session/[key]',
+            params: { key: `${computer}/${monitorId}` },
+          });
+        })
+        .catch((reason: unknown) => console.warn('[wevir] draft reconciliation', reason));
+    });
+    void watch.start();
+    return () => {
+      done = true;
+      watch.stop();
+    };
+  }, [client, monitorId, computer, draftKey, router]);
+  const start = async (text: string, id: string) => {
+    if (!canStart || client === undefined || computer === undefined)
+      throw new ConnectionLostError('session.create', undefined, '', undefined, false);
     setError(undefined);
     const draft = {
       ...(workspaceId !== undefined && { workspaceId: workspaceId as never }),
@@ -166,23 +212,53 @@ export default function NewSessionScreen() {
       choice,
       permissionMode,
     };
-    const existing = created.current?.computer === computer ? created.current.session : undefined;
+    const saved = await loadDraft(draftKey);
+    let existing = created.current?.computer === computer ? created.current.session : undefined;
+    if (!existing && saved.sessionId) {
+      try {
+        existing = (
+          await client.request(
+            'session.get',
+            { sessionId: saved.sessionId as Session['id'] },
+            { queue: false },
+          )
+        ).session;
+      } catch (reason) {
+        if (!isRpcError(reason, 'SESSION_NOT_FOUND')) throw reason;
+        if (!ready.features.sessionCreationIdentity)
+          throw new Error('session creation outcome is unknown');
+      }
+    }
+    const chosenId =
+      existing?.id ??
+      saved.sessionId ??
+      `ses_${Array.from(getRandomBytes(16), (value) => value.toString(16).padStart(2, '0')).join('')}`;
+    await bindDraftSession(draftKey, chosenId);
     let sent: boolean;
     let session: Session;
+    let sendError: unknown;
     try {
-      ({ session, sent } = await startSession(
+      ({
+        session,
+        sent,
+        error: sendError,
+      } = await startSession(
         client,
         draft,
         ready.features,
         messageContent(text, photos.images),
-        clientMessageId(getRandomBytes),
+        id,
         existing,
+        chosenId as Session['id'],
       ));
     } catch (e) {
+      if (!sendOutcomeUnknown(e)) await bindDraftSession(draftKey, undefined);
+      else setMonitorId(chosenId as Session['id']);
       console.warn('[wevir] could not create session', e);
       setError(createErrorKey(e));
       throw e;
     }
+    await bindDraftSession(draftKey, session.id);
     if (existing === undefined) {
       const next: NewSessionMemory = {
         computer,
@@ -195,8 +271,9 @@ export default function NewSessionScreen() {
     if (!sent) {
       // 会话建好了、消息没发出：留在这里（文字与照片都在），再点发送时发进这个会话。
       created.current = { computer, session };
+      setMonitorId(session.id);
       setError('session.sendFailed');
-      throw new Error('first message not sent');
+      throw sendError;
     }
     created.current = undefined;
     router.dismissTo({
@@ -435,7 +512,7 @@ export default function NewSessionScreen() {
           )}
           <Composer
             key={snapshot?.record.routeId ?? 'unassigned'}
-            draftKey={`${snapshot?.record.routeId ?? 'unassigned'}/new-session`}
+            draftKey={draftKey}
             onSend={start}
             autoFocus
             canSend={canStart}

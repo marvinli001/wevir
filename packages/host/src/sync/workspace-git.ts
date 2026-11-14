@@ -270,12 +270,15 @@ export function workspaceLayers(files: readonly BundleFile[]) {
   };
   let total = 0;
   const contents = new Set<string>();
+  const digests = new Map<Buffer, string>();
   for (const file of files) {
     const slash = file.path.indexOf('/'),
       layer = file.path.slice(0, slash);
     if (!['base', 'index', 'worktree'].includes(layer))
       throw new ZuvRequestError('INTEGRITY_FAILED');
-    if (file.bytes.length > WORKSPACE_MAX_BYTES || sha256(file.bytes) !== file.sha256)
+    const digest = digests.get(file.bytes) ?? sha256(file.bytes);
+    digests.set(file.bytes, digest);
+    if (file.bytes.length > WORKSPACE_MAX_BYTES || digest !== file.sha256)
       throw new ZuvRequestError('INTEGRITY_FAILED');
     if (!contents.has(file.sha256)) {
       total += file.bytes.length;

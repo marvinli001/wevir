@@ -9,6 +9,7 @@ import type {
   ChannelWatchHandlers,
   WevirClient,
 } from '@wevir/client-sdk';
+import { ConnectionLostError } from '@wevir/client-sdk';
 import type {
   Channel,
   ChannelPost,
@@ -338,6 +339,7 @@ export class BotStore {
     text: string,
     mentions: readonly string[] = [],
     images: readonly UserImagePart[] = [],
+    clientPostId?: string,
   ): Promise<void> {
     const trimmed = text.trim();
     if (trimmed === '' && images.length === 0) return;
@@ -347,7 +349,8 @@ export class BotStore {
       {
         channelId,
         content: [...(trimmed === '' ? [] : [{ type: 'text' as const, text: trimmed }]), ...images],
-        clientPostId: `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        clientPostId:
+          clientPostId ?? `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
         ...(mentions.length > 0 && { mentions: mentions as Channel['id'][] }),
       },
       { queue: false },
@@ -669,7 +672,8 @@ export class BotStore {
   } {
     const target = this.target(key);
     const client = target?.state.client;
-    if (target === undefined || client === undefined) throw new Error('computer offline');
+    if (target === undefined || client === undefined)
+      throw new ConnectionLostError(undefined, undefined, '', undefined, false);
     return { state: target.state, channelId: target.channelId as Channel['id'], client };
   }
 

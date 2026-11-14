@@ -4,7 +4,7 @@
 // 回合进行中消息流末尾是运行状态（components/live-status.tsx），回答逐字放出（components/markdown.tsx）。结束的回合同桌面端
 // 收进一行“已处理 2 分 31 秒”（lib/session-items.ts），点它展开过程。
 
-import { ClientClosedError, WevirRpcError } from '@wevir/client-sdk';
+import { ClientClosedError, ConnectionLostError, WevirRpcError } from '@wevir/client-sdk';
 import type {
   AccountState,
   ApprovalId,
@@ -82,6 +82,7 @@ import {
 } from '../../lib/session-items';
 import { type SessionView, SessionWatch } from '../../lib/session-watch';
 import { useMinuteClock } from '../../state/clock';
+import { acknowledgeDraft, loadDraft } from '../../state/drafts';
 import { usePhotoAttachments } from '../../state/photo-attachments';
 import { useReducedMotion } from '../../state/reduced-motion';
 import { useComputer, useRegistry } from '../../state/registry';
@@ -131,6 +132,21 @@ export default function SessionScreen() {
   );
   const [delivery, setDelivery] = useState<PendingDelivery>('steer');
   const [error, setError] = useState<MessageKey>();
+  useEffect(() => {
+    const key = `${snapshot?.record.routeId ?? computer}/${sessionId}`;
+    void loadDraft(key)
+      .then((draft) => {
+        if (
+          draft.clientMessageId &&
+          view.transcript?.messages.some(
+            (message) =>
+              message.role === 'user' && message.clientMessageId === draft.clientMessageId,
+          )
+        )
+          return acknowledgeDraft(key, draft.clientMessageId);
+      })
+      .catch((reason: unknown) => console.warn('[wevir] draft reconciliation', reason));
+  }, [snapshot?.record.routeId, computer, sessionId, view.transcript]);
   const [renaming, setRenaming] = useState(false);
   const showToast = useToast();
   const [keyboard, setKeyboard] = useState(0);
@@ -336,12 +352,14 @@ export default function SessionScreen() {
       : undefined;
 
   const send = useCallback(
-    async (text: string) => {
-      if (actions === undefined) throw new Error('offline');
+    async (text: string, clientMessageId: string) => {
+      if (actions === undefined)
+        throw new ConnectionLostError('session.send', undefined, '', undefined, false);
       setError(undefined);
       try {
         await actions.send({
           text,
+          clientMessageId,
           images: photos.images,
           ...(busy && { delivery }),
           ...((state === 'error' || state === 'closed') && { resume: true }),

@@ -1,15 +1,16 @@
 import type { Stats } from 'node:fs';
 import { lstat, open, readdir } from 'node:fs/promises';
 import { basename, dirname, join, relative, sep } from 'node:path';
-import { FILES_READ_FILE_MAX_BYTES, SyncRelativePathSchema } from '@wevir/protocol';
+import {
+  FILES_READ_FILE_MAX_BYTES,
+  isExcludedSyncMaterialPath,
+  SyncRelativePathSchema,
+} from '@wevir/protocol';
 import { jcs } from '@wevir/protocol/sync';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { sha256 } from './crypto.js';
 
-const EXCLUDED =
-  /^(?:\.git|\.ssh|\.aws|\.gnupg|node_modules|dist|build|target|\.cache|\.next|\.venv|venv|coverage|__pycache__|\.npmrc|\.netrc|\.pypirc|\.git-credentials|secrets\.json|auth\.json|settings\.local\.json|\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx)|id_(?:rsa|ed25519))$/i;
-export const excludedBundlePath = (path: string) =>
-  path.split('/').some((part) => part.startsWith('.wevir-sync-') || EXCLUDED.test(part));
+export const excludedBundlePath = isExcludedSyncMaterialPath;
 export interface BundleFile {
   path: string;
   bytes: Buffer;

@@ -1,11 +1,12 @@
 import { type Session, SessionSchema, type WevirEvent, WevirEventSchema } from '@wevir/protocol';
-import { isRpcError } from './errors.js';
+import { ConnectionLostError, RequestTimeoutError, WevirRpcError } from './errors.js';
 import { TranscriptProjection } from './projection.js';
 
 export function sendOutcomeUnknown(error: unknown): boolean {
-  return !(
-    ['INVALID_PARAMS', 'METHOD_NOT_FOUND', 'DEVICE_FORBIDDEN', 'SESSION_NOT_FOUND'] as const
-  ).some((code) => isRpcError(error, code));
+  if (error instanceof WevirRpcError) return false;
+  if (error instanceof ConnectionLostError || error instanceof RequestTimeoutError)
+    return error.sent;
+  return true;
 }
 
 export interface OfflineConversation {
@@ -43,6 +44,9 @@ export interface DraftStorage {
 export interface SavedDraft {
   text: string;
   uncertain: boolean;
+  clientMessageId?: string;
+  submittedText?: string;
+  sessionId?: string;
 }
 export class PersistentDrafts {
   #writes: Promise<void> = Promise.resolve();
@@ -58,14 +62,26 @@ export class PersistentDrafts {
     return this.#read(key);
   }
   writeState(key: string, value: SavedDraft) {
-    const next = this.#writes.then(() => this.#save(key, value));
+    const next = this.#writes.then(async () => {
+      const current = await this.#read(key);
+      await this.#save(key, {
+        ...current,
+        ...value,
+        uncertain: current.uncertain || value.uncertain,
+      });
+    });
     this.#writes = next.catch(() => {});
     return next;
   }
-  settle(key: string, sentText?: string): Promise<SavedDraft> {
+  settle(key: string, sentText?: string, clientMessageId?: string): Promise<SavedDraft> {
     const next = this.#writes.then(async () => {
       const current = await this.#read(key);
-      const value = { text: current.text === sentText ? '' : current.text, uncertain: false };
+      if (clientMessageId && current.clientMessageId !== clientMessageId) return current;
+      const value: SavedDraft = {
+        text: current.text === sentText ? '' : current.text,
+        uncertain: false,
+        ...(sentText === undefined && current.sessionId && { sessionId: current.sessionId }),
+      };
       await this.#save(key, value);
       return value;
     });
@@ -74,6 +90,67 @@ export class PersistentDrafts {
       () => {},
     );
     return next;
+  }
+  begin(
+    key: string,
+    text: string,
+    clientMessageId: string,
+  ): Promise<SavedDraft & { clientMessageId: string }> {
+    const next = this.#writes.then(async () => {
+      const current = await this.#read(key);
+      if (current.uncertain && current.clientMessageId) {
+        return { ...current, clientMessageId: current.clientMessageId };
+      }
+      const value = { ...current, text, uncertain: true, clientMessageId, submittedText: text };
+      await this.#save(key, value);
+      return value;
+    });
+    this.#writes = next.then(
+      () => {},
+      () => {},
+    );
+    return next;
+  }
+  bindSession(key: string, sessionId?: string): Promise<SavedDraft> {
+    const next = this.#writes.then(async () => {
+      const current = await this.#read(key);
+      const { sessionId: _previous, ...rest } = current;
+      const value = { ...rest, ...(sessionId && { sessionId }) };
+      await this.#save(key, value);
+      return value;
+    });
+    this.#writes = next.then(
+      () => {},
+      () => {},
+    );
+    return next;
+  }
+  acknowledge(key: string, clientMessageId: string): Promise<SavedDraft> {
+    const next = this.#writes.then(async () => {
+      const current = await this.#read(key);
+      if (current.clientMessageId !== clientMessageId) return current;
+      const value = {
+        text: current.text === current.submittedText ? '' : current.text,
+        uncertain: false,
+      };
+      await this.#save(key, value);
+      return value;
+    });
+    this.#writes = next.then(
+      () => {},
+      () => {},
+    );
+    return next;
+  }
+  async reconcile(key: string, events: readonly WevirEvent[]): Promise<SavedDraft> {
+    const current = await this.readState(key);
+    const known = events.some(
+      (event) =>
+        event.type === 'user.message' && event.payload.clientMessageId === current.clientMessageId,
+    );
+    return current.clientMessageId && known
+      ? this.acknowledge(key, current.clientMessageId)
+      : current;
   }
   drain() {
     return this.#writes;
@@ -90,7 +167,16 @@ export class PersistentDrafts {
       const state = value as (Partial<SavedDraft> & { v?: number }) | null;
       if (state?.v !== 1 || typeof state.text !== 'string' || typeof state.uncertain !== 'boolean')
         throw new Error('draft state unreadable');
-      return { text: state.text, uncertain: state.uncertain };
+      for (const field of ['clientMessageId', 'submittedText', 'sessionId'] as const)
+        if (state[field] !== undefined && typeof state[field] !== 'string')
+          throw new Error('draft state unreadable');
+      return {
+        text: state.text,
+        uncertain: state.uncertain,
+        ...(state.clientMessageId && { clientMessageId: state.clientMessageId }),
+        ...(state.submittedText !== undefined && { submittedText: state.submittedText }),
+        ...(state.sessionId && { sessionId: state.sessionId }),
+      };
     }
     const text = (await this.storage.get(key)) ?? '';
     // Legacy text drafts do not record whether a send reached the Host.

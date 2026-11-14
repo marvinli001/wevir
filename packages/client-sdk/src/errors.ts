@@ -130,6 +130,7 @@ export class ConnectionLostError extends WevirClientError {
     readonly closeReason = '',
     /** 传输层给的原因（`TransportCloseInfo.cause`），例如远程连接的 `RemoteUnreachableError`。 */
     cause?: Error,
+    readonly sent = true,
   ) {
     super(
       `connection to the Wevir Host was lost${method ? ` before ${method} completed` : ''}` +

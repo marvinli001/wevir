@@ -30,6 +30,7 @@ import {
 interface SyncWorkspacesOptions {
   storage: Storage;
   home: string;
+  inUse?: (root: string) => boolean;
   eligible: () => SyncVaultRecord | undefined;
   source: (
     sessionId: SessionId,
@@ -192,6 +193,7 @@ export class SyncWorkspaces {
       vaultId: string;
       opId: string;
       deviceId: string;
+      sourceVerified: boolean;
       body: typeof SyncBundleContentSchema._output;
       files: readonly BundleFile[];
       enqueueReferences?: () => void;
@@ -340,15 +342,17 @@ export class SyncWorkspaces {
         projectId: original.projectId,
         localKey: `workspace:${entityId}`,
         content: SyncBundleContentSchema.parse({
-          ...body,
+          ...Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'recoveredFrom')),
           files,
           metadata,
-          recoveredFrom: {
-            vaultId: archived.vaultId,
-            deviceId: archived.deviceId,
-            opId: archived.opId,
-            source: original.source,
-          },
+          ...(archived.sourceVerified && {
+            recoveredFrom: {
+              vaultId: archived.vaultId,
+              deviceId: archived.deviceId,
+              opId: archived.opId,
+              source: original.source,
+            },
+          }),
         }),
       });
       if (!opId) throw new ZuvRequestError('SCOPE_DISABLED');
@@ -367,7 +371,12 @@ export class SyncWorkspaces {
       const snapshot = this.#summary(ref);
       const { bundle } = this.#bundle(ref);
       if (
-        this.#matches(sessionId, snapshot.source, bundle.recoveredFrom?.source) &&
+        this.#matches(
+          sessionId,
+          snapshot.source,
+          bundle.recoveredFrom?.source,
+          this.#localSnapshot(snapshot),
+        ) &&
         this.#project(sessionId, ref.vaultId, snapshot.projectId)
       )
         snapshots.push(snapshot);
@@ -438,6 +447,7 @@ export class SyncWorkspaces {
     sessionId: SessionId,
     source: { hostId: string; deviceId: string; sessionId: string; streamId: string },
     recovered?: { hostId: string; deviceId: string; sessionId: string; streamId: string },
+    local = false,
   ) {
     const vault = this.#options.storage.sync.activeVault();
     const sources = this.#options.storage.sync.sources(vault?.vaultId ?? '');
@@ -452,6 +462,10 @@ export class SyncWorkspaces {
       );
     return (
       matches(source) ||
+      (local &&
+        source.hostId === vault?.originHostId &&
+        source.deviceId === vault?.deviceId &&
+        source.sessionId === sessionId) ||
       (recovered !== undefined &&
         ((source.hostId === vault?.originHostId &&
           source.deviceId === vault?.deviceId &&
@@ -472,7 +486,19 @@ export class SyncWorkspaces {
         throw new ZuvRequestError('INTEGRITY_FAILED');
     }
     const files: BundleFile[] = [];
+    const contents = new Map<string, Buffer>();
     for (const file of bundle.files) {
+      const key = jcs([file.sha256, file.bytes, file.parts]);
+      const cached = contents.get(key);
+      if (cached) {
+        files.push({
+          path: file.path,
+          bytes: cached,
+          sha256: file.sha256,
+          executable: file.executable === true,
+        });
+        continue;
+      }
       const chunks: Buffer[] = [];
       let length = 0;
       for (const [index, part] of file.parts.entries()) {
@@ -495,6 +521,7 @@ export class SyncWorkspaces {
       const bytes = Buffer.concat(chunks);
       if (length !== file.bytes || sha256(bytes) !== file.sha256)
         throw new ZuvRequestError('INTEGRITY_FAILED');
+      contents.set(key, bytes);
       files.push({
         path: file.path,
         bytes,
@@ -516,7 +543,12 @@ export class SyncWorkspaces {
     if (
       vault?.vaultId !== ref.vaultId ||
       !workspaceId ||
-      !this.#matches(params.sessionId, metadata.source, recoveredFrom?.source)
+      !this.#matches(
+        params.sessionId,
+        metadata.source,
+        recoveredFrom?.source,
+        this.#localSnapshot(ref),
+      )
     )
       throw new ZuvRequestError('SCOPE_DISABLED');
     const reusable =
@@ -668,7 +700,8 @@ export class SyncWorkspaces {
       (await this.#readFile(this.#journal(restoreId), 16 * 1024)).toString(),
     );
     if (job.restoreId !== restoreId) throw new ZuvRequestError('INTEGRITY_FAILED');
-    if (this.#claimed(job)) return { discarded: false };
+    if (this.#claimed(job) || this.#options.inUse?.(this.#directory(job)))
+      return { discarded: false };
     await rm(this.#directory(job), { recursive: true, force: true });
     await rm(this.#journal(restoreId), { force: true });
     return { discarded: true };
@@ -684,7 +717,7 @@ export class SyncWorkspaces {
           this.#options.storage.sync.getVault(job.snapshot.vaultId)?.active)
       )
         retained.add(job.directory);
-      else await this.discard(job.restoreId);
+      else if (!(await this.discard(job.restoreId)).discarded) retained.add(job.directory);
     }
     const trees = join(this.#options.home, 'sync/workspaces/trees');
     const sessions = this.#options.storage.sessions.list({
@@ -714,6 +747,12 @@ export class SyncWorkspaces {
       this.#project(job.sessionId, job.snapshot.vaultId, metadata.projectId) !== job.workspaceId
     )
       throw new ZuvRequestError('SCOPE_DISABLED');
+  }
+  #localSnapshot(ref: SyncWorkspaceRef) {
+    return Boolean(
+      this.#options.storage.sync.draft(ref.vaultId, ref.opId) ||
+        this.#options.storage.sync.getOperation(ref.vaultId, ref.opId)?.direction === 'outbox',
+    );
   }
 
   #directory(job: RestoreJob) {

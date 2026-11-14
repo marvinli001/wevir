@@ -219,7 +219,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     status: {
       summary: 'cmd.sync.status.summary',
       usage: 'cmd.sync.status.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 0, max: 0 },
       remote: true,
       run: (ctx, v) => syncCall(ctx, 'sync.status', {}, v.stdin === true),
@@ -227,7 +227,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     retry: {
       summary: 'cmd.sync.retry.summary',
       usage: 'cmd.sync.retry.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 0, max: 0 },
       remote: true,
       run: (ctx, v) => syncCall(ctx, 'sync.retry', {}, v.stdin === true),
@@ -235,7 +235,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     configure: {
       summary: 'cmd.sync.configure.summary',
       usage: 'cmd.sync.configure.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 0, max: 0 },
       remote: true,
       run: (ctx, v) => syncCall(ctx, 'sync.configure', {}, v.stdin === true),
@@ -243,7 +243,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     devices: {
       summary: 'cmd.sync.devices.summary',
       usage: 'cmd.sync.devices.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 0, max: 0 },
       remote: true,
       run: (ctx, v) => syncCall(ctx, 'sync.devices', {}, v.stdin === true),
@@ -251,7 +251,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     approve: {
       summary: 'cmd.sync.approve.summary',
       usage: 'cmd.sync.approve.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 1, max: 1 },
       remote: true,
       run: (ctx, v, p) => syncCall(ctx, 'sync.approveDevice', { deviceId: p[0] }, v.stdin === true),
@@ -259,7 +259,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     'recovery-request': {
       summary: 'cmd.sync.recovery-request.summary',
       usage: 'cmd.sync.recovery-request.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 1, max: 1 },
       remote: true,
       run: (ctx, v, p) =>
@@ -282,7 +282,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     'recovery-complete': {
       summary: 'cmd.sync.recovery-complete.summary',
       usage: 'cmd.sync.recovery-complete.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 2, max: 2 },
       remote: true,
       run: (ctx, v, p) =>
@@ -296,7 +296,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     unlock: {
       summary: 'cmd.sync.unlock.summary',
       usage: 'cmd.sync.unlock.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 1, max: 1 },
       remote: true,
       run: (ctx, v, p) => syncCall(ctx, 'sync.unlockKeys', { vaultId: p[0] }, v.stdin === true),
@@ -304,7 +304,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     snapshot: {
       summary: 'cmd.sync.snapshot.summary',
       usage: 'cmd.sync.snapshot.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 1, max: 2 },
       remote: true,
       run: (ctx, v, p) =>
@@ -318,7 +318,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     download: {
       summary: 'cmd.sync.download.summary',
       usage: 'cmd.sync.download.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 0, max: 0 },
       remote: true,
       run: (ctx, v) => syncCall(ctx, 'sync.recoveryDownload', {}, v.stdin === true),
@@ -326,7 +326,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     export: {
       summary: 'cmd.sync.export.summary',
       usage: 'cmd.sync.export.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 0, max: 1 },
       remote: true,
       run: (ctx, v, p) =>
@@ -335,7 +335,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     import: {
       summary: 'cmd.sync.import.summary',
       usage: 'cmd.sync.import.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 1, max: 1 },
       remote: true,
       run: (ctx, v, p) => syncCall(ctx, 'sync.importPrepare', { path: p[0] }, v.stdin === true),
@@ -343,7 +343,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     'import-apply': {
       summary: 'cmd.sync.import-apply.summary',
       usage: 'cmd.sync.import-apply.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 1, max: 1 },
       remote: true,
       run: (ctx, v, p) => syncCall(ctx, 'sync.importApply', { importId: p[0] }, v.stdin === true),
@@ -351,7 +351,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     imports: {
       summary: 'cmd.sync.imports.summary',
       usage: 'cmd.sync.imports.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 0, max: 0 },
       remote: true,
       run: (ctx, v) => syncCall(ctx, 'sync.importList', {}, v.stdin === true),
@@ -359,7 +359,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     entries: {
       summary: 'cmd.sync.entries.summary',
       usage: 'cmd.sync.entries.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 1, max: 1 },
       remote: true,
       run: (ctx, v, p) => syncCall(ctx, 'sync.importRead', { importId: p[0] }, v.stdin === true),
@@ -367,7 +367,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     entry: {
       summary: 'cmd.sync.entry.summary',
       usage: 'cmd.sync.entry.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 2, max: 2 },
       remote: true,
       run: (ctx, v, p) =>
@@ -376,7 +376,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     detach: {
       summary: 'cmd.sync.detach.summary',
       usage: 'cmd.sync.detach.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 1, max: 1 },
       remote: true,
       run: (ctx, v, p) => syncCall(ctx, 'sync.detach', { vaultId: p[0] }, v.stdin === true),
@@ -384,7 +384,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
     'delete-cloud': {
       summary: 'cmd.sync.delete-cloud.summary',
       usage: 'cmd.sync.delete-cloud.usage',
-      options: { stdin: { type: 'boolean' }, refresh: { type: 'boolean' } },
+      options: { stdin: { type: 'boolean' } },
       positionals: { min: 2, max: 2 },
       remote: true,
       run: (ctx, v, p) =>

@@ -34,6 +34,7 @@ import { keyboardOverlap } from '../../lib/keyboard';
 import { sendErrorKey } from '../../lib/session-actions';
 import { useBot, useBotAccess, useBotProjects, useBotStore, useTimeline } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
+import { acknowledgeDraft, loadDraft } from '../../state/drafts';
 import { usePhotoAttachments } from '../../state/photo-attachments';
 import { useComputer } from '../../state/registry';
 import { SPACE, TEXT, useTheme } from '../../theme';
@@ -95,6 +96,18 @@ function BotChat({ bot }: { bot: Bot }) {
   const navigation = useNavigation();
   const store = useBotStore();
   const timeline = useTimeline(bot.key);
+  const draftKey = `${computer?.record.routeId ?? 'unassigned'}/bot:${bot.id}`;
+  useEffect(() => {
+    void loadDraft(draftKey)
+      .then((draft) => {
+        if (
+          draft.clientMessageId &&
+          timeline.posts.some((post) => post.clientPostId === draft.clientMessageId)
+        )
+          return acknowledgeDraft(draftKey, draft.clientMessageId);
+      })
+      .catch((reason: unknown) => console.warn('[wevir] draft reconciliation', reason));
+  }, [draftKey, timeline.posts]);
   const now = useMinuteClock();
   const insets = useSafeAreaInsets();
   const list = useRef<FlatList<Item>>(null);
@@ -204,11 +217,11 @@ function BotChat({ bot }: { bot: Bot }) {
   // 群里点选的成员：这条消息 @ 他们；发出后清掉。
   const [mentions, setMentions] = useState<readonly string[]>([]);
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, clientMessageId: string) => {
       pinned.current = true;
       setError(undefined);
       try {
-        await store.send(bot.key, text, mentions, photos.images);
+        await store.send(bot.key, text, mentions, photos.images, clientMessageId);
       } catch (e) {
         // 电脑不在线时 store 直接抛错：说出来，输入栏把字放回去。
         setError(store.access(bot.key).online ? sendErrorKey(e) : 'newSession.offline');

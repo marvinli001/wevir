@@ -65,6 +65,7 @@ export interface SyncServiceOptions {
   exportRoots?: () => Promise<SyncBundleRoot[]>;
   intervalMs?: number;
   onEpisodeChanged?: (change: EpisodeChange) => void;
+  workspaceInUse?: (root: string) => boolean;
 }
 
 export class SyncService {
@@ -122,7 +123,11 @@ export class SyncService {
       onSecret: options.onSecret,
     });
     this.#lifecycle = new SyncLifecycle({ ...options, keys: this.#keys });
-    this.#portable = new SyncPortable({ ...options, keys: this.#keys });
+    this.#portable = new SyncPortable({
+      ...options,
+      keys: this.#keys,
+      origin: options.client.transport.origin,
+    });
     this.#capture = new SyncEventCapture({
       storage: options.storage,
       eligible: () => this.#consented(),
@@ -170,6 +175,7 @@ export class SyncService {
     });
     this.workspaces = new SyncWorkspaces({
       ...options,
+      inUse: options.workspaceInUse,
       eligible: () => (this.#closed ? undefined : this.#localConsent()),
       source: (sessionId) => this.#capture.source(sessionId),
     });

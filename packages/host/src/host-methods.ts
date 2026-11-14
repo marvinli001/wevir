@@ -319,6 +319,7 @@ export async function syncProviders(
  * 读写存储。参数已经过方法注册表校验；返回值由 RPC 层按注册表校验后再发出。
  */
 export function createHostMethods(options: HostMethodsOptions): HostMethods {
+  const creating = new Map<string, { owner: string; params: string; result: Promise<Session> }>();
   const plugins = (): PluginRegistry => {
     if (!options.plugins)
       throw new HostError('INVALID_PARAMS', 'This Host has no plugin registry', { issues: [] });
@@ -1425,7 +1426,41 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       });
     },
 
-    'session.create': async (params) => ({ session: await sessions.create(params) }),
+    'session.create': async (params, context) => {
+      if (!params.sessionId) return { session: await sessions.create(params) };
+      const owner =
+        context.principal?.kind === 'device' ? `device:${context.principal.deviceId}` : 'local';
+      const body = JSON.stringify(params);
+      const receipt = storage.db
+        .prepare('SELECT owner,params FROM session_create_requests WHERE session_id=?')
+        .get(params.sessionId);
+      if (receipt) {
+        if (receipt.owner !== owner || receipt.params !== body)
+          throw invalidParams(['sessionId'], 'session creation identity changed');
+        assertSessionVisible(storage, params.sessionId);
+        const snapshot = events.snapshot(params.sessionId);
+        if (!snapshot)
+          throw new HostError('INVALID_STATE', 'Session creation is incomplete', {
+            state: 'closed',
+          });
+        return { session: withArchive(snapshot.session) };
+      }
+      if (storage.sessions.get(params.sessionId))
+        throw invalidParams(['sessionId'], 'session identity is already in use');
+      const pending = creating.get(params.sessionId);
+      if (pending) {
+        if (pending.owner !== owner || pending.params !== body)
+          throw invalidParams(['sessionId'], 'session creation identity changed');
+        return { session: await pending.result };
+      }
+      const result = sessions.create(params, { creation: { owner, params: body } });
+      creating.set(params.sessionId, { owner, params: body, result });
+      try {
+        return { session: await result };
+      } finally {
+        creating.delete(params.sessionId);
+      }
+    },
 
     'session.list': ({ workspaceId, parentSessionId, sideOf, archived }) => {
       if (workspaceId !== undefined) {

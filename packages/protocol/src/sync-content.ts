@@ -9,6 +9,14 @@ import { decimal, digest, id } from './sync-wire.js';
 
 export { SyncSettingsContentSchema, SyncSettingsValuesSchema } from './sync-settings.js';
 
+export const SYNC_WORKSPACE_UNTRACKED_LIMIT = 1000;
+const EXCLUDED_MATERIAL_NAME =
+  /^(?:\.git|\.ssh|\.aws|\.gnupg|node_modules|dist|build|target|\.cache|\.next|\.venv|venv|coverage|__pycache__|\.npmrc|\.netrc|\.pypirc|\.git-credentials|secrets\.json|auth\.json|settings\.local\.json|\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx)|id_(?:rsa|ed25519))$/i;
+export const isExcludedSyncMaterialPath = (path: string) =>
+  path
+    .split('/')
+    .some((part) => part.startsWith('.wevir-sync-') || EXCLUDED_MATERIAL_NAME.test(part));
+
 export const SyncRelativePathSchema = z
   .string()
   .min(1)
@@ -182,7 +190,7 @@ export const SyncWorkspaceMetadataSchema = z
       .nullable(),
     base: z.literal('bounded-tree'),
     statusHash: digest,
-    selectedUntracked: z.array(SyncRelativePathSchema).max(1000),
+    selectedUntracked: z.array(SyncRelativePathSchema).max(SYNC_WORKSPACE_UNTRACKED_LIMIT),
     ruleVersions: z.array(z.object({ entityId: id, opId: id })).max(1000),
     capturedAt: z.iso.datetime(),
   })

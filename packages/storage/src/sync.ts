@@ -41,6 +41,7 @@ export interface SyncOperationRecord {
 }
 
 export interface SyncSourceRecord {
+  hidden?: boolean;
   vaultId: string;
   hostId: string;
   sessionId: string;
@@ -268,8 +269,15 @@ export function createSyncRepository(db: SqliteDatabase) {
             localSessionId: text(row, 'local_session_id'),
           }),
           mirrored: Boolean(integer(row, 'mirrored')),
+          ...(integer(row, 'hidden') && { hidden: true }),
           ...(optionalText(row, 'device_id') && { deviceId: text(row, 'device_id') }),
         }));
+    },
+    hideSource(vaultId: string, localSessionId: string): void {
+      requireTransaction();
+      db.prepare(
+        'UPDATE sync_sources SET hidden=1 WHERE vault_id=? AND local_session_id=? AND mirrored=1',
+      ).run(vaultId, localSessionId);
     },
     projectForWorkspace(
       vaultId: string,

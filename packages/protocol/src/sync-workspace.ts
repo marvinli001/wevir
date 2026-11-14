@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { SessionIdSchema } from './common.js';
 import { SyncStreamRefSchema } from './sync.js';
-import { SyncRelativePathSchema } from './sync-content.js';
+import { SYNC_WORKSPACE_UNTRACKED_LIMIT, SyncRelativePathSchema } from './sync-content.js';
 import { id } from './sync-wire.js';
 
 export { type SyncWorkspaceMetadata, SyncWorkspaceMetadataSchema } from './sync-content.js';
@@ -31,7 +31,7 @@ export const SyncWorkspaceMethodSchemas = {
   'sync.workspaceCapture': {
     params: z.object({
       sessionId: SessionIdSchema,
-      untracked: z.array(SyncRelativePathSchema).max(1000).optional(),
+      untracked: z.array(SyncRelativePathSchema).max(SYNC_WORKSPACE_UNTRACKED_LIMIT).optional(),
     }),
     result: z.object({ snapshot: SyncWorkspaceSnapshotSchema }),
     permission: 'host.manage',

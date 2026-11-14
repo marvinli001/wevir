@@ -1,5 +1,11 @@
-import { type ConnectionState, type HostHello, WevirClient } from '@wevir/client-sdk';
-import type { ClientIdentity, Permission } from '@wevir/protocol';
+import {
+  ConnectionLostError,
+  type ConnectionState,
+  type HostHello,
+  isRpcError,
+  WevirClient,
+} from '@wevir/client-sdk';
+import { type ClientIdentity, CloseCode, type Permission } from '@wevir/protocol';
 import {
   createContext,
   type ReactNode,
@@ -9,9 +15,22 @@ import {
   useRef,
   useState,
 } from 'react';
-import { type HostConnectionSource, hostConnectionSource } from '@/platform/platform';
+import { bindBrowserLibrary, invalidateBrowserLibrary } from '@/data/browser-library';
+import { capabilities, type HostConnectionSource, hostConnectionSource } from '@/platform/platform';
 import type { HostProcessStatus } from '../../../shared/desktop-api.js';
 import { describeError } from './error-text';
+
+function browserAuthLost(error: unknown): boolean {
+  if (isRpcError(error, 'UNAUTHORIZED')) return true;
+  if (
+    error instanceof ConnectionLostError &&
+    [CloseCode.UNAUTHORIZED, CloseCode.DEVICE_REVOKED, CloseCode.PAIRING_DENIED].some(
+      (code) => error.closeCode === code,
+    )
+  )
+    return true;
+  return error instanceof Error && error.cause !== undefined ? browserAuthLost(error.cause) : false;
+}
 
 export type HostConnectionView =
   | { status: 'connecting' }
@@ -90,7 +109,21 @@ export function HostConnectionProvider({
           identity,
           onStateChange: (state) => {
             // 被替换掉的旧客户端（关闭后重新连接）不再更新界面。
-            if (client === undefined || client === connected) update({ view: toView(state) });
+            if (client !== undefined && client !== connected) return;
+            if (
+              !capabilities().localHost &&
+              state.status === 'closed' &&
+              browserAuthLost(state.error)
+            )
+              void invalidateBrowserLibrary().catch((error: unknown) =>
+                update({ view: { status: 'failed', error: describe(error) } }),
+              );
+            if (!capabilities().localHost && client !== undefined && state.status === 'connected') {
+              void bindBrowserLibrary(state.hello.hostId, identity.clientId).then(
+                () => update({ view: toView(state) }),
+                (error: unknown) => update({ view: { status: 'failed', error: describe(error) } }),
+              );
+            } else update({ view: toView(state) });
           },
         });
         if (disposed) {
@@ -98,12 +131,15 @@ export function HostConnectionProvider({
           return;
         }
         client = connected;
+        if (!capabilities().localHost)
+          await bindBrowserLibrary(connected.hello.hostId, identity.clientId);
         update({
           view: { status: 'connected', hello: connected.hello },
           client: connected,
           identity,
         });
       } catch (error) {
+        if (!capabilities().localHost && browserAuthLost(error)) await invalidateBrowserLibrary();
         update({ view: { status: 'failed', error: describe(error) } });
       } finally {
         connecting = false;
