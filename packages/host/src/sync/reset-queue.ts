@@ -6,17 +6,23 @@ import { ZuvRequestError } from '../zuv/transport.js';
 import { sha256 } from './crypto.js';
 import type { SyncDraftPayload } from './queue.js';
 
-export function rebaseResetCommit(
+export function rebaseResetCommits(
   storage: Storage,
   vault: SyncVaultRecord,
   jobId: string,
-  commit: SyncCommitRecord,
-  verified: ReadonlyMap<string, typeof packRecord._output>,
+  commits: ReadonlyArray<{
+    commit: SyncCommitRecord;
+    verified: ReadonlyMap<string, typeof packRecord._output>;
+  }>,
 ): void {
-  if (commit.attempts || commit.state !== 'queued' || commit.rebased)
-    throw new ZuvRequestError('RECOVERY_REQUIRED');
-  const batch = validateSyncBatch(JSON.parse(commit.body));
-  const ids = new Map(batch.operations.map((op) => [op.opId, newId('sop')]));
+  const batches = commits.map(({ commit, verified }) => {
+    if (commit.attempts || commit.state !== 'queued' || commit.rebased)
+      throw new ZuvRequestError('RECOVERY_REQUIRED');
+    return { commit, verified, batch: validateSyncBatch(JSON.parse(commit.body)) };
+  });
+  const ids = new Map(
+    batches.flatMap(({ batch }) => batch.operations.map((op) => [op.opId, newId('sop')])),
+  );
   const remap = (draft: SyncDraftRecord): SyncDraftRecord => {
     const payload = draft.content as SyncDraftPayload;
     if (payload.schema !== 'wevir-sync-draft/1') throw new ZuvRequestError('UPGRADE_REQUIRED');
@@ -52,46 +58,49 @@ export function rebaseResetCommit(
     };
   };
   storage.transaction(() => {
-    for (const operation of batch.operations) {
-      const stored = storage.sync.getOperation(vault.vaultId, operation.opId);
-      const manifest = batch.recordManifest.find((entry) => entry.opId === operation.opId);
-      const record = packRecord.parse(stored?.record);
-      if (
-        !stored ||
-        !manifest ||
-        stored.direction !== 'outbox' ||
-        stored.state !== 'queued' ||
-        operation.deviceId !== vault.deviceId ||
-        (operation.origin && operation.origin.hostId !== vault.originHostId) ||
-        stored.digest !== sha256(jcs({ operation, recordManifest: manifest })) ||
-        jcs(verified.get(operation.opId) ?? null) !== jcs(record)
-      )
-        throw new ZuvRequestError('INTEGRITY_FAILED');
-      matchRecord(operation, record, manifest);
-      const opId = ids.get(operation.opId) as string;
-      const draft = remap({
-        vaultId: vault.vaultId,
-        opId,
-        entityId: operation.entityId,
-        kind: operation.kind === 'resolve' ? 'put' : operation.kind,
-        parents: operation.parents,
-        content: {
-          schema: 'wevir-sync-draft/1',
-          body: record.content,
-          ...(operation.origin && { origin: operation.origin }),
-          ...(record.events && { events: record.events }),
-        },
-        createdAt: operation.clientTime ?? new Date().toISOString(),
-      });
-      storage.sync.putDraft(draft);
-      storage.sync.rebaseOperation(vault.vaultId, operation.opId, opId);
-      const entity = storage.sync.entity(vault.vaultId, operation.entityId);
-      if (entity?.revision === operation.opId)
-        storage.sync.putEntity({
-          ...entity,
-          revision: opId,
-          fingerprint: sha256(jcs({ kind: draft.kind, content: draft.content })),
+    for (const { commit, verified, batch } of batches) {
+      for (const operation of batch.operations) {
+        const stored = storage.sync.getOperation(vault.vaultId, operation.opId);
+        const manifest = batch.recordManifest.find((entry) => entry.opId === operation.opId);
+        const record = packRecord.parse(stored?.record);
+        if (
+          !stored ||
+          !manifest ||
+          stored.direction !== 'outbox' ||
+          stored.state !== 'queued' ||
+          operation.deviceId !== vault.deviceId ||
+          (operation.origin && operation.origin.hostId !== vault.originHostId) ||
+          stored.digest !== sha256(jcs({ operation, recordManifest: manifest })) ||
+          jcs(verified.get(operation.opId) ?? null) !== jcs(record)
+        )
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        matchRecord(operation, record, manifest);
+        const opId = ids.get(operation.opId) as string;
+        const draft = remap({
+          vaultId: vault.vaultId,
+          opId,
+          entityId: operation.entityId,
+          kind: operation.kind === 'resolve' ? 'put' : operation.kind,
+          parents: operation.parents,
+          content: {
+            schema: 'wevir-sync-draft/1',
+            body: record.content,
+            ...(operation.origin && { origin: operation.origin }),
+            ...(record.events && { events: record.events }),
+          },
+          createdAt: operation.clientTime ?? new Date().toISOString(),
         });
+        storage.sync.putDraft(draft);
+        storage.sync.rebaseOperation(vault.vaultId, operation.opId, opId);
+        const entity = storage.sync.entity(vault.vaultId, operation.entityId);
+        if (entity?.revision === operation.opId)
+          storage.sync.putEntity({
+            ...entity,
+            revision: opId,
+            fingerprint: sha256(jcs({ kind: draft.kind, content: draft.content })),
+          });
+      }
+      storage.sync.rebaseCommit(vault.vaultId, commit.commitId);
     }
     for (const opId of storage.sync.draftsReferencing(vault.vaultId, [...ids.keys()])) {
       const original = storage.sync.draft(vault.vaultId, opId) as SyncDraftRecord;
@@ -106,6 +115,5 @@ export function rebaseResetCommit(
           fingerprint: sha256(jcs({ kind: draft.kind, content: draft.content })),
         });
     }
-    storage.sync.rebaseCommit(vault.vaultId, commit.commitId);
   });
 }

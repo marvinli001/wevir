@@ -91,9 +91,16 @@ export interface ZuvTransportOptions {
 export class ZuvTransport {
   readonly origin: string;
   readonly #options: ZuvTransportOptions;
+  #clock: { server: number; monotonic: number } | undefined;
   constructor(options: ZuvTransportOptions) {
     this.origin = zuvOrigin(options.origin, options.allowLoopback);
     this.#options = options;
+  }
+
+  serverNow(): number {
+    return this.#clock
+      ? this.#clock.server + performance.now() - this.#clock.monotonic
+      : (this.#options.now?.() ?? Date.now());
   }
 
   async request(input: {
@@ -178,6 +185,9 @@ export class ZuvTransport {
     } catch {
       throw new ZuvRequestError('NETWORK_ERROR');
     }
+    const serverTime = Date.parse(response.headers.get('date') ?? '');
+    if (Number.isFinite(serverTime))
+      this.#clock = { server: serverTime, monotonic: performance.now() };
     const maximum = response.ok ? (input.maxBytes ?? LIMITS.changeBytes) : 8192;
     const length = response.headers.get('content-length');
     if (length !== null && (!/^\d+$/.test(length) || BigInt(length) > BigInt(maximum))) {

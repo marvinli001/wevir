@@ -19,6 +19,8 @@ export const messages: Messages = {
   'sync.newFile': 'New file',
   'sync.fileName': 'File name',
   'sync.saveFile': 'Save file',
+  'sync.deleteMemoryConsequence':
+    'Local memory will be deleted and synchronized; history is retained.',
   'sync.deleteFile': 'Delete file',
   'sync.pauseApply': 'Pause application',
   'sync.applyPackageConsequences':
@@ -60,6 +62,8 @@ export const messages: Messages = {
   'portable.draft': 'Draft · not executed',
   'portable.sendUnknown': 'Send result unknown; draft retained',
   'portable.send': 'Send to online computer',
+  'portable.clearCacheConsequence':
+    'Local offline conversations and unconfirmed drafts will be deleted.',
   'portable.clearCache': 'Clear local cache',
   'portable.recovery': 'Recovery and export',
   'portable.export': 'Export data',

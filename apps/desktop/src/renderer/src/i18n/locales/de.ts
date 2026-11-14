@@ -19,6 +19,8 @@ export const messages: Messages = {
   'sync.newFile': 'Neue Datei',
   'sync.fileName': 'Dateiname',
   'sync.saveFile': 'Datei speichern',
+  'sync.deleteMemoryConsequence':
+    'Lokale Erinnerungen werden gelöscht und synchronisiert; der Verlauf bleibt erhalten.',
   'sync.deleteFile': 'Datei löschen',
   'sync.pauseApply': 'Anwendung pausieren',
   'sync.applyPackageConsequences':
@@ -62,6 +64,8 @@ export const messages: Messages = {
   'portable.draft': 'Entwurf · nicht ausgeführt',
   'portable.sendUnknown': 'Sendeergebnis unklar; Entwurf bleibt erhalten',
   'portable.send': 'An Online-Computer senden',
+  'portable.clearCacheConsequence':
+    'Lokale Offline-Unterhaltungen und unbestätigte Entwürfe werden gelöscht.',
   'portable.clearCache': 'Lokalen Cache löschen',
   'portable.recovery': 'Wiederherstellung und Export',
   'portable.export': 'Daten exportieren',

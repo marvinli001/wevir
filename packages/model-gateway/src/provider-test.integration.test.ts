@@ -70,6 +70,29 @@ async function raw(status: number, contentType: string, body: string, hang = fal
 }
 
 describe('testProvider：与正式请求同一条路', () => {
+  it('redacts temporary subscription credentials from probe failures', async () => {
+    const secret = 'synthetic-subscription-access-token';
+    const result = await testProvider(
+      { id: 'zuv', kind: 'zuv', displayName: 'ZUV', models: [{ id: 'm' }], defaultModelId: 'm' },
+      'm',
+      {
+        auth: {
+          baseURL: () => 'https://synthetic.invalid/api/wevir/v1',
+          authorize: async () => ({
+            ok: true,
+            headers: { authorization: `DPoP ${secret}` },
+            secrets: [secret],
+          }),
+        },
+        fetch: async (_url, request) => {
+          expect(new Headers(request?.headers).get('authorization')).toBe(`DPoP ${secret}`);
+          return Response.json({ error: { message: secret } }, { status: 401 });
+        },
+      },
+    );
+    expect(result).toMatchObject({ ok: false, reason: 'auth', httpStatus: 401 });
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
   it('Chat 转换：探测请求按转换规则发出，收到第一条上游数据即成功', async () => {
     const mock = await chat({ text: ['pong'] });
     const result = await testProvider(provider('openai-completions', mock.baseURL), 'm');

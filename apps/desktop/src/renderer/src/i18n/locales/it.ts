@@ -19,6 +19,8 @@ export const messages: Messages = {
   'sync.newFile': 'Nuovo file',
   'sync.fileName': 'Nome file',
   'sync.saveFile': 'Salva file',
+  'sync.deleteMemoryConsequence':
+    'La memoria locale verrà eliminata e sincronizzata; la cronologia resta disponibile.',
   'sync.deleteFile': 'Elimina file',
   'sync.pauseApply': 'Sospendi applicazione',
   'sync.applyPackageConsequences':
@@ -62,6 +64,8 @@ export const messages: Messages = {
   'portable.draft': 'Bozza · non eseguita',
   'portable.sendUnknown': 'Esito sconosciuto; bozza conservata',
   'portable.send': 'Invia al computer online',
+  'portable.clearCacheConsequence':
+    'Le conversazioni offline e le bozze non confermate locali verranno eliminate.',
   'portable.clearCache': 'Svuota cache locale',
   'portable.recovery': 'Ripristino ed esportazione',
   'portable.export': 'Esporta dati',

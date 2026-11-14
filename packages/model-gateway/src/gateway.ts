@@ -267,6 +267,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         }
       }
       const authSecrets: string[] = upstreamKey ? [upstreamKey] : [];
+      let upstreamAuthorization: string | undefined;
       const redact = (value: string) =>
         authSecrets.reduce((text, secret) => text.replaceAll(secret, '***'), value);
       const compressionKey = `${providerId}\n${prepared.url}`;
@@ -300,6 +301,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
               },
             );
           headers = { ...headers, ...authorization.headers };
+          upstreamAuthorization = headers.authorization;
           authSecrets.push(...authorization.secrets);
         }
         return post(prepared.url, {
@@ -346,6 +348,18 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       }
       upstreamStatus = upstream.status;
       if (!upstream.ok) {
+        if (
+          provider.kind === 'zuv' &&
+          upstreamAuthorization &&
+          (upstream.status === 401 || upstream.status === 403)
+        )
+          await options.auth
+            ?.onDenied?.({
+              providerId,
+              authorization: upstreamAuthorization,
+              status: upstream.status,
+            })
+            .catch(() => {});
         // 状态码原样转给 Codex（429 / 5xx 由 Codex 自己的重试策略处理），正文整理成 {"error": {"message"}}。
         const text = await readLimited(upstream, abort.signal).catch(() => '');
         const normalized =
@@ -462,8 +476,9 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       const testOptions: ProviderTestOptions = {
         deepseekBaseURL: options.deepseekBaseURL,
         timeoutMs: options.testTimeoutMs,
-        fetch: options.fetch,
+        fetch: (url, init) => post(String(url), init ?? {}),
         vertexAuth: auth,
+        auth: options.auth,
       };
       return testProvider(provider, modelId, testOptions);
     },

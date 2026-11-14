@@ -7199,6 +7199,7 @@ export class SessionManager {
       finished: deferred(),
       addedWhileCancelling: new Set(),
     };
+    void this.#execution?.prepare(runtime.id, turnId).catch(this.#onError);
     // 回合前的快照（0.20.0）：引擎已经开始了，尽快打；不会抛错。
     const checkpointCwd = this.#checkpointCwd(runtime);
     if (checkpointCwd !== undefined) {

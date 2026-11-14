@@ -103,6 +103,7 @@ export class GatewayHome {
       }),
       ...this.#options.providerTest,
       vertexAuth: this.vertexAuth,
+      auth: this.authSource,
     });
   }
 
@@ -153,6 +154,9 @@ export class GatewayHome {
           ...this.#options.gateway,
           auth: {
             baseURL: (id) => this.authSource?.baseURL(id),
+            onDenied: async (request) => {
+              await this.authSource?.onDenied?.(request);
+            },
             authorize: (request) =>
               this.authSource?.authorize(request) ??
               Promise.resolve({ ok: false, status: 401, code: 'AUTH_REQUIRED' }),

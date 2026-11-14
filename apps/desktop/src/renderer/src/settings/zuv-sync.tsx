@@ -6,14 +6,15 @@ import type {
   SyncStatus,
   WorkspaceId,
 } from '@wevir/protocol';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select } from '@/components/ui/select';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useWorkbenchSelector } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
+import { everyWhileVisible } from '@/lib/visible-interval';
 import { NoticeBanner } from './settings-ui';
 import { ZuvBundles } from './zuv-bundles';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
@@ -54,7 +55,13 @@ export function ZuvSyncSection({
   client: WevirClient;
   account: AccountState;
 }) {
-  const data = useWorkbenchData();
+  const workspaces = useWorkbenchSelector(
+    (data) => (data.status === 'ready' ? data.workspaces.map((entry) => entry.workspace) : []),
+    (left, right) =>
+      left.length === right.length && left.every((value, index) => value === right[index]),
+  );
+  const generation = useRef(0);
+  const refreshId = useRef(0);
   const [status, setStatus] = useState<SyncStatus>();
   const [editing, setEditing] = useState(false);
   const [categories, setCategories] = useState<SyncConfigureParams['categories']>([]);
@@ -70,40 +77,51 @@ export function ZuvSyncSection({
   const [approving, setApproving] = useState<MethodResult<'sync.devices'>['devices'][number]>();
   const supported = client.supports('cloud_sync');
   useEffect(() => {
-    if (account.status !== 'signed_in') {
-      setClouds(undefined);
-      setProjectChoices({});
-      setVersionChoices({});
-      setEditing(false);
-      setStatus(undefined);
-    }
+    if (account.status === 'signed_in') return;
+    generation.current++;
+    setClouds(undefined);
+    setProjectChoices({});
+    setVersionChoices({});
+    setEditing(false);
+    setStatus(undefined);
+    setDevices(undefined);
+    setApproving(undefined);
+    setResetConfirm(undefined);
+    setError(undefined);
+    setBusy(false);
   }, [account.status]);
-  const refresh = useCallback(
-    async () => setStatus(await client.request('sync.status', {})),
-    [client],
-  );
+  const refresh = useCallback(async () => {
+    const own = generation.current;
+    const requestId = ++refreshId.current;
+    const value = await client.request('sync.status', {});
+    if (
+      own === generation.current &&
+      requestId === refreshId.current &&
+      account.status === 'signed_in'
+    )
+      setStatus(value);
+  }, [client, account.status]);
+  const polling =
+    !!status?.binding?.enabled ||
+    !!status?.reset?.busy ||
+    ['configuring', 'pending', 'syncing'].includes(status?.state ?? '');
   useEffect(() => {
-    if (!supported) return;
+    if (!supported || account.status !== 'signed_in') return;
     let disposed = false;
     const read = () =>
-      client
-        .request('sync.status', {})
-        .then((value) => {
-          if (!disposed) setStatus(value);
-        })
-        .catch((reason) => {
-          if (!disposed) setError(describe(reason));
-        });
+      refresh().catch((reason) => {
+        if (!disposed) setError(describe(reason));
+      });
     void read();
-    const timer = setInterval(() => void read(), 5000);
+    const stop = polling ? everyWhileVisible(() => void read(), 5000) : undefined;
     return () => {
       disposed = true;
-      clearInterval(timer);
+      refreshId.current++;
+      stop?.();
     };
-  }, [client, supported]);
+  }, [account.status, polling, refresh, supported]);
   if (!supported) return null;
   const active = account.zuv?.subscriptionState === 'active';
-  const workspaces = data.status === 'ready' ? data.workspaces.map((entry) => entry.workspace) : [];
   const edit = () => {
     setCategories(status?.binding?.categories ?? []);
     setProjects(
@@ -124,14 +142,15 @@ export function ZuvSyncSection({
     setEditing(true);
   };
   const run = async (op: () => Promise<void>) => {
+    const own = generation.current;
     setBusy(true);
     setError(undefined);
     try {
       await op();
     } catch (reason) {
-      setError(describe(reason));
+      if (own === generation.current) setError(describe(reason));
     } finally {
-      setBusy(false);
+      if (own === generation.current) setBusy(false);
     }
   };
   const save = () =>
@@ -170,7 +189,7 @@ export function ZuvSyncSection({
     reset && ['staged', 'applying', 'applied', 'acknowledged'].includes(reset.phase);
   return (
     <div className="space-y-3 border-t border-border pt-3" data-zuv-sync>
-      <ZuvRecoverySection client={client} account={account} />
+      <ZuvRecoverySection client={client} account={account} onChanged={refresh} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium">{t('sync.title')}</span>
         <span className="text-xs text-muted-foreground" role="status">
@@ -406,7 +425,9 @@ export function ZuvSyncSection({
                 disabled={busy}
                 onClick={() =>
                   void run(async () => {
-                    setDevices((await client.request('sync.devices', {})).devices);
+                    const own = generation.current;
+                    const result = await client.request('sync.devices', {});
+                    if (own === generation.current) setDevices(result.devices);
                   })
                 }
               >
@@ -490,7 +511,13 @@ export function ZuvSyncSection({
                 ? 'sync.fetchAgain'
                 : 'sync.rebuild',
           )}
-          confirmLabel={t(resetConfirm === 'apply' ? 'sync.applySnapshot' : 'sync.rebuild')}
+          confirmLabel={t(
+            resetConfirm === 'apply'
+              ? 'sync.applySnapshot'
+              : resetConfirm === 'restart'
+                ? 'sync.fetchAgain'
+                : 'sync.rebuild',
+          )}
           failure={(value) => value}
           onConfirm={async () => {
             if (status?.binding && !status.binding.enabled && reset) {
@@ -610,7 +637,9 @@ export function ZuvSyncSection({
           failure={(value) => value}
           onConfirm={async () => {
             await client.request('sync.approveDevice', { deviceId: approving.deviceId });
-            setDevices((await client.request('sync.devices', {})).devices);
+            const own = generation.current;
+            const result = await client.request('sync.devices', {});
+            if (own === generation.current) setDevices(result.devices);
             await refresh();
           }}
         >

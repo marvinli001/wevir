@@ -2,7 +2,12 @@
 // 或 Chat / Messages 转换）发一次最小的流式请求，收到第一条合乎协议的流式数据就断开。
 // 失败归类的口径见 providers.md §6.2。
 
-import type { ProviderTestFailure, ProviderTestResult } from '@wevir/runtime-adapter';
+import type {
+  GatewayAuthSource,
+  ProviderTestFailure,
+  ProviderTestResult,
+} from '@wevir/runtime-adapter';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { UPSTREAM_PROTOCOL_ERROR } from './messages/response.js';
 import {
@@ -33,6 +38,7 @@ export interface ProviderTestOptions {
   /** 默认全局 `fetch`；测试注入。 */
   fetch?: typeof fetch;
   vertexAuth?: VertexTokenCache;
+  auth?: GatewayAuthSource;
 }
 
 /**
@@ -58,10 +64,15 @@ export async function testProvider(
   modelId: string,
   options: ProviderTestOptions = {},
 ): Promise<ProviderTestResult> {
+  if (provider.kind === 'zuv') {
+    const baseURL = options.auth?.baseURL(provider.id);
+    if (!baseURL) return failure('auth', 'AUTH_REQUIRED');
+    provider = { ...provider, api: 'openai-responses', baseURL, apiKey: undefined };
+  }
   const issues = validateProvider(provider);
   if (issues.length > 0) return failure('unknown', `配置不完整：${describeIssues(issues)}`);
-  const apiKey = credentialOf(provider);
-  if (apiKey === undefined || apiKey === '') {
+  const apiKey = credentialOf(provider) ?? '';
+  if (provider.kind !== 'zuv' && apiKey === '') {
     return failure(
       'missing_key',
       provider.kind === 'google-vertex'
@@ -74,14 +85,26 @@ export async function testProvider(
   });
   if (!prepared.ok) return failure('unknown', prepared.message);
   let credential = apiKey;
-  const redact = (text: string) => text.replaceAll(credential, '***');
+  const authSecrets = apiKey ? [apiKey] : [];
+  const redact = (text: string) =>
+    [...authSecrets, credential]
+      .filter(Boolean)
+      .reduce((value, secret) => value.replaceAll(secret, '***'), text);
   const auth = options.vertexAuth ?? new VertexTokenCache({ fetch: options.fetch });
-  const doFetch = options.fetch ?? fetch;
+  const dispatcher = options.fetch === undefined ? new Agent() : undefined;
+  const doFetch: typeof fetch =
+    options.fetch ??
+    ((url, init) =>
+      undiciFetch(String(url), {
+        ...(init as Parameters<typeof undiciFetch>[1]),
+        dispatcher,
+      }) as unknown as Promise<Response>);
   const timeoutMs = options.timeoutMs ?? PROVIDER_TEST_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new ProbeTimeout()), timeoutMs);
   const started = performance.now();
   const latency = () => Math.round(performance.now() - started);
+  let upstreamAuthorization: string | undefined;
   try {
     if (provider.kind === 'google-vertex') {
       try {
@@ -94,20 +117,46 @@ export async function testProvider(
     }
     let response: Response;
     try {
+      const body = prepared.serialized ?? Buffer.from(JSON.stringify(prepared.payload));
+      let headers = prepared.headers;
+      if (provider.kind === 'zuv') {
+        const authorization = await options.auth?.authorize({
+          providerId: provider.id,
+          url: prepared.url,
+          body,
+          signal: controller.signal,
+        });
+        if (!authorization?.ok)
+          return {
+            ...failure(
+              authorization?.status === 429 ? 'rate_limited' : 'auth',
+              authorization?.code ?? 'AUTH_REQUIRED',
+            ),
+            httpStatus: authorization?.status ?? 401,
+          };
+        headers = { ...headers, ...authorization.headers };
+        upstreamAuthorization = headers.authorization;
+        authSecrets.push(...authorization.secrets);
+      }
       response = await doFetch(prepared.url, {
         method: 'POST',
-        headers: prepared.headers,
-        body: prepared.serialized ?? Buffer.from(JSON.stringify(prepared.payload)),
+        headers,
+        body,
         signal: controller.signal,
         redirect: 'error',
+        credentials: 'omit',
       });
     } catch (error) {
       return networkFailure(error, prepared.url, controller.signal, timeoutMs, redact);
     }
     const status = response.status;
+    if (provider.kind === 'zuv' && upstreamAuthorization && (status === 401 || status === 403))
+      await options.auth
+        ?.onDenied?.({ providerId: provider.id, authorization: upstreamAuthorization, status })
+        .catch(() => {});
     if (!response.ok) {
       const body = await readText(response, controller.signal).catch(() => '');
-      const normalized = normalizeErrorBody(body, status, credential, provider.baseURL);
+      const normalized = normalizeErrorBody(redact(body), status, credential, provider.baseURL);
       const routingError = phalaRoutingError(normalized, status, provider.baseURL ?? '');
       if (routingError !== undefined) {
         return {
@@ -202,6 +251,7 @@ export async function testProvider(
     if (options.vertexAuth === undefined) auth.close();
     // 成功时也断开：只要第一条数据，不让模型继续生成。
     controller.abort();
+    await dispatcher?.destroy();
   }
 }
 

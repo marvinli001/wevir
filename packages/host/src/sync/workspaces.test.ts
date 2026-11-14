@@ -1,6 +1,7 @@
 import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SyncBundleContentSchema } from '@wevir/protocol';
+import { jcs, type SyncOperation } from '@wevir/protocol/sync';
 import type { SyncVaultRecord } from '@wevir/storage';
 import { describe, expect, it } from 'vitest';
 import { session, workspace } from '../../../storage/src/test-utils.js';
@@ -58,6 +59,64 @@ async function fixture() {
 }
 
 describe('workspace identity fences', () => {
+  it.each(['outbox', 'inbox'] as const)(
+    'keeps a prepared local snapshot readable only from the %s',
+    async (direction) => {
+      const data = await fixture();
+      const service = new SyncWorkspaces({
+        ...data,
+        eligible: () => data.storage.sync.activeVault(),
+      });
+      const { snapshot } = await service.capture({
+        sessionId: 'ses_workspace',
+        untracked: ['selected.txt'],
+      });
+      const draft = data.storage.sync.draft(data.vault.vaultId, snapshot.opId);
+      if (!draft) throw new Error('missing captured synthetic snapshot');
+      const operation: SyncOperation = {
+        protocol: 'wevir-sync/1',
+        vaultId: data.vault.vaultId,
+        opId: draft.opId,
+        entityId: draft.entityId,
+        entityType: 'workspace-snapshot',
+        kind: 'put',
+        parents: draft.parents,
+        deviceId: data.vault.deviceId,
+        deviceSeq: '1',
+        payload: { blobId: 'blob_synthetic', recordIndex: 0 },
+        clientTime: draft.createdAt,
+      };
+      const manifest = {
+        opId: draft.opId,
+        blobId: 'blob_synthetic',
+        recordIndex: 0,
+        projectId: 'project_fixture',
+      };
+      data.storage.transaction(() => {
+        data.storage.sync.putOperation({
+          ...operation,
+          projectId: 'project_fixture',
+          envelope: operation,
+          manifest,
+          digest: sha256(jcs({ operation, recordManifest: manifest })),
+          record: {
+            opId: draft.opId,
+            entityId: draft.entityId,
+            kind: draft.kind,
+            parents: draft.parents,
+            projectId: 'project_fixture',
+            content: (draft.content as SyncDraftPayload).body,
+          },
+          direction,
+          state: 'queued',
+        });
+        data.storage.sync.removeDraft(data.vault.vaultId, draft.opId);
+      });
+      const restoring = service.restore({ sessionId: 'ses_workspace', snapshot });
+      if (direction === 'outbox') await expect(restoring).resolves.toHaveProperty('cwd');
+      else await expect(restoring).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    },
+  );
   it('retains a restore while an installation is using it', async () => {
     const data = await fixture();
     let installing = true;

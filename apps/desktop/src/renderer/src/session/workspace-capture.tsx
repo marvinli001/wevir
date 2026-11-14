@@ -40,7 +40,10 @@ export function WorkspaceCaptureButton({
     setBusy(true);
     setError(undefined);
     try {
-      await client.request('sync.workspaceCapture', { sessionId: session.id, untracked: selected });
+      await client.request('sync.workspaceCapture', {
+        sessionId: session.id,
+        untracked: selected.filter((path) => untracked.includes(path)),
+      });
       setSaved(true);
     } catch (reason) {
       setError(describe(reason));

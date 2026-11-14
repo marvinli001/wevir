@@ -18,6 +18,8 @@ const isModelFacing = (key: string) =>
 const EXPLANATORY_KEY =
   /(hint|note|description|subtitle|intro|helper|explain|tip|caption|body|warning)(\.|$)/i;
 const EXPLANATORY_ALLOWED = new Set<string>([
+  'sync.deleteMemoryConsequence',
+  'portable.clearCacheConsequence',
   'portable.restoreMemoryConsequence',
   'portable.restoreSettingsConsequence',
   'portable.restoreBundleConsequence',

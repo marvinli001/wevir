@@ -29,7 +29,7 @@ import type { SyncBlobCache } from './cache.js';
 import { decryptPack, encryptPack, parseEnvelope, sha256 } from './crypto.js';
 import { SyncDownloads, TRANSFER_RETRY_MS } from './downloads.js';
 import { MAX_PREPARATION_REFERENCES, type SyncDraftPayload } from './queue.js';
-import { rebaseResetCommit } from './reset-queue.js';
+import { rebaseResetCommits } from './reset-queue.js';
 
 type Record = typeof packRecord._output;
 type PreparedDraft = {
@@ -142,6 +142,7 @@ export class SyncEngine {
     const vault = this.eligible();
     if (!vault || storage.sync.bootstrapApplication(vault.vaultId, jobId)?.state !== 'acknowledged')
       throw new ZuvRequestError('RECOVERY_REQUIRED');
+    const rebases: Array<Parameters<typeof rebaseResetCommits>[3][number]> = [];
     for (const commit of storage.sync.commits(vault.vaultId)) {
       if (commit.outcome === 'rejected') continue;
       if (!this.#commitInScope(vault, commit)) continue;
@@ -195,9 +196,11 @@ export class SyncEngine {
           }
         }
         this.#guard(vault, signal);
-        rebaseResetCommit(storage, vault, jobId, commit, verified);
+        rebases.push({ commit, verified });
       }
     }
+    this.#guard(vault, signal);
+    if (rebases.length) rebaseResetCommits(storage, vault, jobId, rebases);
   }
 
   async #run(signal: AbortSignal): Promise<boolean> {

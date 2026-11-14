@@ -34,6 +34,20 @@ async function server(
 }
 
 describe('ZUV device transport', () => {
+  it('anchors server time to the Date header and a monotonic clock', async () => {
+    const serverTime = Date.parse('2026-11-13T00:00:00.000Z');
+    let wall = serverTime + 120000;
+    const transport = new ZuvTransport({
+      origin: 'https://synthetic.invalid',
+      now: () => wall,
+      fetch: async () =>
+        Response.json({}, { headers: { date: new Date(serverTime).toUTCString() } }),
+    });
+    await transport.request({ method: 'GET', path: '/api/wevir/entitlements' });
+    expect(Math.abs(transport.serverNow() - serverTime)).toBeLessThan(1000);
+    wall += 3600000;
+    expect(Math.abs(transport.serverNow() - serverTime)).toBeLessThan(1000);
+  });
   it('paces binary chunks while signing the exact streamed bytes and honoring the transfer deadline', async () => {
     const body = Buffer.alloc(8192, 42);
     const key = newZuvDeviceKey();

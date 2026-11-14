@@ -53,11 +53,15 @@ export class ZuvClient {
   #identity: Identity | undefined;
   #pending: PendingEnrollment | undefined;
   #refreshing: Promise<string> | undefined;
+  #refreshSent = false;
+  #identityWrites: Promise<void> = Promise.resolve();
+  readonly #listeners = new Set<() => void>();
   #generation = 0;
   #identityTransitions = 0;
   #closed = false;
   readonly #abort = new AbortController();
   readonly #writes = new Set<Promise<unknown>>();
+  #persistence: Promise<unknown> = Promise.resolve();
 
   constructor(options: ZuvClientOptions) {
     this.#options = options;
@@ -72,9 +76,20 @@ export class ZuvClient {
 
   async close(): Promise<void> {
     this.#closed = true;
-    this.#generation++;
+    const generation = ++this.#generation;
     this.#abort.abort();
+    await this.#identityWrites;
+    if (generation === this.#generation && this.#identity?.refreshPending && !this.#refreshSent) {
+      this.#identity = { ...this.#identity, refreshPending: false };
+      await this.#options.secrets.set(IDENTITY_SECRET, JSON.stringify(this.#identity));
+    }
     await Promise.allSettled(this.#writes);
+    this.#listeners.clear();
+  }
+
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
   }
 
   get deviceId(): string | undefined {
@@ -90,7 +105,10 @@ export class ZuvClient {
     return this.#identityTransitions > 0;
   }
   get requiresLogin(): boolean {
-    return this.#identity?.refreshPending === true || this.#identity?.blocked !== undefined;
+    return (
+      (this.#identity?.refreshPending === true && !this.#refreshing) ||
+      this.#identity?.blocked !== undefined
+    );
   }
   get blockedReason(): 'AUTH_REQUIRED' | 'DEVICE_REVOKED' | undefined {
     return this.#identity?.blocked;
@@ -175,6 +193,8 @@ export class ZuvClient {
       await this.#persist(() =>
         this.#options.secrets.set(ENROLLMENT_SECRET, JSON.stringify(pending)),
       );
+      if (generation !== this.#generation || this.#closed)
+        throw new ZuvRequestError('ENROLLMENT_EXPIRED');
       this.#pending = pending;
       return started;
     } finally {
@@ -182,9 +202,9 @@ export class ZuvClient {
     }
   }
 
-  async pollEnrollment(): Promise<
-    { state: 'pending'; retryAfterMs: number } | { state: 'approved' }
-  > {
+  async pollEnrollment(
+    signal?: AbortSignal,
+  ): Promise<{ state: 'pending'; retryAfterMs: number } | { state: 'approved' }> {
     const pending = this.#pending;
     const generation = this.#generation;
     if (!pending || Date.parse(pending.started.expiresAt) <= this.#now())
@@ -199,13 +219,14 @@ export class ZuvClient {
         body,
         proof: { key: pending.key, secret: pending.started.enrollmentId, authorization: false },
         maxBytes: 8192,
+        signal,
       },
       schemas.enrollmentPolled,
     );
-    if (polled.state === 'pending') return polled;
     if (generation !== this.#generation || this.#pending !== pending)
       throw new ZuvRequestError('ENROLLMENT_EXPIRED');
-    const tokens = await this.#exchange('/api/wevir/token', pending.key, polled.grant);
+    if (polled.state === 'pending') return polled;
+    const tokens = await this.#exchange('/api/wevir/token', pending.key, polled.grant, signal);
     if (generation !== this.#generation || this.#pending !== pending)
       throw new ZuvRequestError('ENROLLMENT_EXPIRED');
     const identity: Identity = {
@@ -233,6 +254,7 @@ export class ZuvClient {
     this.#identityTransitions++;
     try {
       await this.#options.onIdentityChanging?.();
+      await this.#identityWrites;
       await this.cancelEnrollment();
       await this.#persist(() => this.#options.secrets.delete(IDENTITY_SECRET));
       this.#identity = undefined;
@@ -243,30 +265,46 @@ export class ZuvClient {
 
   async getEntitlements(signal?: AbortSignal): Promise<Entitlements> {
     const generation = this.#generation;
-    let result: Entitlements;
-    try {
-      result = await this.json('entitlements', 'GET', '/api/wevir/entitlements', undefined, {
-        signal,
-      });
-    } catch (error) {
+    for (let attempt = 0; ; attempt++) {
+      const proof = await this.#proof();
+      let result: Entitlements;
+      try {
+        result = await this.transport.json(
+          { method: 'GET', path: '/api/wevir/entitlements', proof, signal },
+          schemas.entitlements,
+        );
+      } catch (error) {
+        if (
+          generation === this.#generation &&
+          !this.changingIdentity &&
+          this.#identity &&
+          error instanceof ZuvRequestError &&
+          (error.code === 'AUTH_REQUIRED' || error.code === 'DEVICE_REVOKED')
+        ) {
+          if (proof.secret !== this.#identity.tokens.accessToken) {
+            if (attempt === 0) continue;
+          } else
+            await this.#save(
+              (current) => ({
+                ...current,
+                blocked: error.code as 'AUTH_REQUIRED' | 'DEVICE_REVOKED',
+              }),
+              generation,
+            );
+        }
+        throw error;
+      }
+      if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
+      const identity = this.#identity;
       if (
-        generation === this.#generation &&
-        !this.changingIdentity &&
-        this.#identity &&
-        error instanceof ZuvRequestError &&
-        (error.code === 'AUTH_REQUIRED' || error.code === 'DEVICE_REVOKED')
+        !identity ||
+        identity.deviceId !== result.identity.deviceId ||
+        (identity.entitlements && identity.entitlements.identity.userId !== result.identity.userId)
       )
-        await this.#save({ ...this.#identity, blocked: error.code });
-      throw error;
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      await this.#save((current) => ({ ...current, entitlements: result }), generation);
+      return result;
     }
-    if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
-    const identity = this.#identity;
-    if (!identity || identity.deviceId !== result.identity.deviceId)
-      throw new ZuvRequestError('INTEGRITY_FAILED');
-    if (identity.entitlements && identity.entitlements.identity.userId !== result.identity.userId)
-      throw new ZuvRequestError('INTEGRITY_FAILED');
-    await this.#save({ ...identity, entitlements: result });
-    return result;
   }
 
   async models(): Promise<string[]> {
@@ -326,12 +364,9 @@ export class ZuvClient {
       target.password
     )
       throw new ZuvRequestError('SCOPE_DISABLED');
+    this.#inferenceScope();
     const proof = await this.#proof();
-    if (
-      this.entitlements?.subscriptionState !== 'active' ||
-      !this.entitlements.deviceScopes.includes('inference')
-    )
-      throw new ZuvRequestError('SUBSCRIPTION_REQUIRED', 403);
+    this.#inferenceScope();
     return {
       headers: {
         authorization: `DPoP ${proof.secret}`,
@@ -340,6 +375,28 @@ export class ZuvClient {
       },
       secrets: [proof.secret],
     };
+  }
+
+  async inferenceDenied(authorization: string, status: 401 | 403): Promise<void> {
+    const identity = this.#identity;
+    if (!identity || authorization !== `DPoP ${identity.tokens.accessToken}` || this.#closed)
+      return;
+    if (status === 401)
+      await this.#save((current) =>
+        current.tokens.accessToken === identity.tokens.accessToken
+          ? { ...current, blocked: 'AUTH_REQUIRED' }
+          : current,
+      );
+    else await this.getEntitlements();
+  }
+
+  #inferenceScope(): void {
+    if (!this.#identity || this.#closed || this.changingIdentity || this.requiresLogin)
+      throw new ZuvRequestError(this.blockedReason ?? 'AUTH_REQUIRED', 401);
+    if (this.entitlements?.subscriptionState !== 'active')
+      throw new ZuvRequestError('SUBSCRIPTION_REQUIRED', 403);
+    if (!this.entitlements.deviceScopes.includes('inference'))
+      throw new ZuvRequestError('SCOPE_DISABLED', 403);
   }
 
   async #proof(): Promise<{ key: ZuvDeviceKey; secret: string }> {
@@ -356,6 +413,7 @@ export class ZuvClient {
       return { key: identity.key, secret: identity.tokens.accessToken };
     this.#refreshing ??= this.#refresh(identity).finally(() => {
       this.#refreshing = undefined;
+      this.#notify();
     });
     const secret = await this.#refreshing;
     if (!this.#identity) throw new ZuvRequestError('AUTH_REQUIRED', 401);
@@ -365,7 +423,11 @@ export class ZuvClient {
   async #refresh(identity: Identity): Promise<string> {
     const generation = this.#generation;
     // Refresh consumes its token; an uncertain attempt must survive restart without replaying it.
-    await this.#save({ ...identity, refreshPending: true });
+    this.#refreshSent = false;
+    await this.#save((current) => ({ ...current, refreshPending: true }), generation);
+    if (generation !== this.#generation || this.#closed || this.changingIdentity)
+      throw new ZuvRequestError('AUTH_REQUIRED', 401);
+    this.#refreshSent = true;
     let tokens: Tokens;
     try {
       tokens = await this.#exchange(
@@ -381,21 +443,24 @@ export class ZuvClient {
         error instanceof ZuvRequestError &&
         ['AUTH_REQUIRED', 'DEVICE_REVOKED', 'SCOPE_DISABLED', 'RATE_LIMITED'].includes(error.code)
       )
-        await this.#save({
-          ...this.#identity,
-          refreshPending: false,
-          ...((error.code === 'AUTH_REQUIRED' || error.code === 'DEVICE_REVOKED') && {
-            blocked: error.code,
+        await this.#save(
+          (current) => ({
+            ...current,
+            refreshPending: false,
+            ...((error.code === 'AUTH_REQUIRED' || error.code === 'DEVICE_REVOKED') && {
+              blocked: error.code as 'AUTH_REQUIRED' | 'DEVICE_REVOKED',
+            }),
           }),
-        });
+          generation,
+        );
       throw error;
     }
     if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
-    await this.#save({ ...identity, tokens, refreshPending: false });
+    await this.#save((current) => ({ ...current, tokens, refreshPending: false }), generation);
     return tokens.accessToken;
   }
 
-  #exchange(path: string, key: ZuvDeviceKey, token: string): Promise<Tokens> {
+  #exchange(path: string, key: ZuvDeviceKey, token: string, signal?: AbortSignal): Promise<Tokens> {
     const body = Buffer.from(JSON.stringify({ client_id: 'wevir', token }));
     return this.transport.json(
       {
@@ -404,6 +469,7 @@ export class ZuvClient {
         body,
         proof: { key, secret: token, authorization: false },
         maxBytes: 8192,
+        signal,
       },
       {
         parse: (value: unknown): Tokens => {
@@ -440,13 +506,38 @@ export class ZuvClient {
     );
   }
 
-  async #save(identity: Identity): Promise<void> {
-    await this.#persist(() => this.#options.secrets.set(IDENTITY_SECRET, JSON.stringify(identity)));
-    this.#identity = identity;
+  #save(
+    update: Identity | ((current: Identity) => Identity),
+    generation = this.#generation,
+  ): Promise<void> {
+    const pending = this.#identityWrites.then(async () => {
+      if (generation !== this.#generation || this.#closed)
+        throw new ZuvRequestError('AUTH_REQUIRED', 401);
+      const current = this.#identity;
+      if (typeof update === 'function' && !current) throw new ZuvRequestError('AUTH_REQUIRED', 401);
+      const identity = typeof update === 'function' ? update(current as Identity) : update;
+      await this.#persist(async () => {
+        await this.#options.secrets.set(IDENTITY_SECRET, JSON.stringify(identity));
+        if (generation !== this.#generation || this.#closed) {
+          if (current) await this.#options.secrets.set(IDENTITY_SECRET, JSON.stringify(current));
+          else await this.#options.secrets.delete(IDENTITY_SECRET);
+          throw new ZuvRequestError('AUTH_REQUIRED', 401);
+        }
+      });
+      this.#identity = identity;
+      this.#notify();
+    });
+    this.#identityWrites = pending.catch(() => {});
+    return pending;
   }
+  #notify(): void {
+    if (!this.#closed) for (const listener of this.#listeners) listener();
+  }
+
   #persist<T>(operation: () => Promise<T>): Promise<T> {
     if (this.#closed) throw new ZuvRequestError('AUTH_REQUIRED', 401);
-    const pending = operation();
+    const pending = this.#persistence.then(operation);
+    this.#persistence = pending.catch(() => {});
     this.#writes.add(pending);
     return pending.finally(() => {
       this.#writes.delete(pending);

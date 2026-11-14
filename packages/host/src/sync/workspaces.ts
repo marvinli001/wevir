@@ -11,7 +11,7 @@ import {
   SyncWorkspaceRefSchema,
   SyncWorkspaceSnapshotSchema,
 } from '@wevir/protocol';
-import { id, jcs } from '@wevir/protocol/sync';
+import { id, jcs, matchRecord, packRecord, schemas } from '@wevir/protocol/sync';
 import type { Storage, SyncVaultRecord } from '@wevir/storage';
 import { newId } from '../ids.js';
 import { ZuvRequestError } from '../zuv/transport.js';
@@ -391,10 +391,26 @@ export class SyncWorkspaces {
     const draft = storage.sync.draft(ref.vaultId, ref.opId);
     const operation = storage.sync.getOperation(ref.vaultId, ref.opId);
     const entity = storage.sync.entity(ref.vaultId, ref.entityId);
+    let prepared = false;
+    if (operation?.direction === 'outbox' && ['queued', 'pending'].includes(operation.state)) {
+      const envelope = schemas.operation.parse(operation.envelope);
+      const manifest = schemas.recordManifest.parse(operation.manifest);
+      matchRecord(envelope, packRecord.parse(operation.record), manifest);
+      prepared =
+        operation.deviceId === storage.sync.getVault(ref.vaultId)?.deviceId &&
+        envelope.vaultId === ref.vaultId &&
+        envelope.opId === ref.opId &&
+        envelope.entityId === ref.entityId &&
+        envelope.entityType === entity?.entityType &&
+        envelope.deviceId === operation.deviceId &&
+        manifest.projectId === entity?.projectId &&
+        operation.digest === sha256(jcs({ operation: envelope, recordManifest: manifest }));
+      if (!prepared) throw new ZuvRequestError('INTEGRITY_FAILED');
+    }
     if (
       !entity ||
       (draft?.entityId ?? operation?.entityId) !== ref.entityId ||
-      (!draft && !['applied', 'committed'].includes(operation?.state ?? '')) ||
+      (!draft && !prepared && !['applied', 'committed'].includes(operation?.state ?? '')) ||
       (!draft && operation?.projectId !== entity.projectId)
     )
       throw new ZuvRequestError('RECOVERY_REQUIRED');

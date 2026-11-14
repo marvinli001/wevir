@@ -38,9 +38,11 @@ function download(name: string, parts: Uint8Array[]) {
 export function ZuvRecoverySection({
   client,
   account,
+  onChanged,
 }: {
   client: WevirClient;
   account: AccountState;
+  onChanged: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const grantId = useId();
@@ -84,14 +86,29 @@ export function ZuvRecoverySection({
     setSnapshot(undefined);
     setProjects([]);
     setCategories([]);
+    let active = true;
     if (open && supported && account.status !== 'signing_in')
-      void client.request('sync.recoveryInfo', {}).then(setInfo, () => {});
+      void client.request('sync.recoveryInfo', {}).then(
+        (value) => {
+          if (active) setInfo(value);
+        },
+        (reason) => {
+          if (active) setError(describe(reason));
+        },
+      );
+    return () => {
+      active = false;
+    };
   }, [client, open, supported, account.status]);
   if (!supported) return null;
   const vaultId = info?.vaultId;
   const readMirror = async (id: string) => {
+    const value = await client.request('sync.importRead', { importId: id });
     setImportId(id);
-    setEntries(await client.request('sync.importRead', { importId: id }));
+    setEntries(value);
+    setMirror(undefined);
+    setContent(undefined);
+    setFiles([]);
   };
   return (
     <>
@@ -210,6 +227,7 @@ export function ZuvRecoverySection({
                       key={entry.id}
                       variant="ghost"
                       size="sm"
+                      disabled={busy}
                       className="max-w-full justify-start truncate"
                       onClick={() =>
                         void run(async () => {
@@ -257,7 +275,13 @@ export function ZuvRecoverySection({
                       {entry.path ?? entry.key}
                     </Button>
                     {entry.kind === 'version' && importId && (
-                      <ZuvVersionRestore client={client} importId={importId} entryId={entry.id} />
+                      <ZuvVersionRestore
+                        key={`${importId}/${entry.id}`}
+                        client={client}
+                        importId={importId}
+                        entryId={entry.id}
+                        disabled={busy}
+                      />
                     )}
                   </div>
                 ))}
@@ -265,6 +289,7 @@ export function ZuvRecoverySection({
                   <Button
                     variant="ghost"
                     size="sm"
+                    disabled={busy}
                     onClick={() =>
                       void run(async () => {
                         if (!importId) return;
@@ -511,8 +536,24 @@ export function ZuvRecoverySection({
           onOpenChange={(value) => {
             if (!value) setConfirm(undefined);
           }}
-          title={t('portable.recovery')}
-          confirmLabel={t('portable.confirm')}
+          title={t(
+            confirm === 'delete'
+              ? 'portable.deleteCloud'
+              : confirm === 'detach'
+                ? 'portable.detach'
+                : confirm === 'complete'
+                  ? 'portable.complete'
+                  : 'portable.export',
+          )}
+          confirmLabel={t(
+            confirm === 'delete'
+              ? 'portable.deleteCloud'
+              : confirm === 'detach'
+                ? 'portable.detach'
+                : confirm === 'complete'
+                  ? 'portable.complete'
+                  : 'portable.export',
+          )}
           failure={(error) => error}
           onConfirm={async () => {
             if (confirm === 'export') {
@@ -535,6 +576,13 @@ export function ZuvRecoverySection({
             } else if (vaultId && confirm === 'delete') {
               await client.request('sync.deleteCloud', { vaultId, stepUpId });
               setStepUpId('');
+            }
+            if (confirm === 'delete' || confirm === 'detach' || confirm === 'complete') {
+              await Promise.all([
+                client.request('sync.recoveryInfo', {}).then(setInfo),
+                onChanged(),
+              ]);
+              setSnapshot(undefined);
             }
           }}
         >

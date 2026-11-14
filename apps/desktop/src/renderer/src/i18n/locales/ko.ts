@@ -19,6 +19,7 @@ export const messages: Messages = {
   'sync.newFile': '새 파일',
   'sync.fileName': '파일 이름',
   'sync.saveFile': '파일 저장',
+  'sync.deleteMemoryConsequence': '로컬 메모리가 삭제 및 동기화됩니다. 기록은 유지됩니다.',
   'sync.deleteFile': '파일 삭제',
   'sync.pauseApply': '적용 일시 중지',
   'sync.applyPackageConsequences':
@@ -56,6 +57,7 @@ export const messages: Messages = {
   'portable.draft': '초안 · 미실행',
   'portable.sendUnknown': '전송 결과 미확인 · 초안 보존',
   'portable.send': '온라인 컴퓨터로 전송',
+  'portable.clearCacheConsequence': '로컬 오프라인 대화와 미확인 초안이 삭제됩니다.',
   'portable.clearCache': '로컬 캐시 삭제',
   'portable.recovery': '복구 및 내보내기',
   'portable.export': '자료 내보내기',

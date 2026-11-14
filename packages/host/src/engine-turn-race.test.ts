@@ -102,11 +102,17 @@ describe('交给引擎之前引擎自己开的回合', () => {
     ) as unknown as TurnCheckpoints;
     const events = new EventStore({ storage, deltaWindowMs: 5 });
     const errors: unknown[] = [];
+    const execution = {
+      prepare: vi.fn(async () => {}),
+      finish: vi.fn(),
+      continuation: () => undefined,
+    };
     const manager = new SessionManager({
       storage,
       events,
       adapter,
       checkpoints,
+      execution,
       onError: (error) => errors.push(error),
     });
     managers.push(manager);
@@ -121,6 +127,7 @@ describe('交给引擎之前引擎自己开的回合', () => {
     );
     await vi.waitFor(() => expect(events.snapshot(sessionId)?.session.state).toBe('idle'));
     expect(send).toHaveBeenCalledTimes(1);
+    expect(execution.prepare).toHaveBeenCalledTimes(1);
     const all = events.readSince(sessionId, 0);
     // 只有用户的一个回合：引擎回合的话并在里面，之后是给用户消息的回答，回合只结束一次。
     expect(all.filter((event) => event.type === 'turn.started')).toHaveLength(1);
@@ -135,5 +142,7 @@ describe('交给引擎之前引擎自己开的回合', () => {
     expect(said[0]).toBe('Subagent finished.');
     expect(said.at(-1)).toContain('hello');
     expect(errors.map(String).join('\n')).not.toContain('没有进行中的回合');
+    adapter.injected.get(engineSessionId)?.emit({ type: 'turn.started', engineSessionId });
+    await vi.waitFor(() => expect(execution.prepare).toHaveBeenCalledTimes(2));
   });
 });

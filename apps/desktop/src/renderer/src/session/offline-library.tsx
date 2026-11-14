@@ -5,7 +5,8 @@ import {
   sendOutcomeUnknown,
 } from '@wevir/client-sdk';
 import type { Session, WevirEvent } from '@wevir/protocol';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -32,6 +33,7 @@ export function OfflineLibrary() {
   const [sendUncertain, setSendUncertain] = useState(false);
   const [error, setError] = useState<string>();
   const [sending, setSending] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const edited = useRef(false);
   const online =
     view.status === 'connected' && client?.can('session.read') === true && identity !== undefined;
@@ -41,30 +43,46 @@ export function OfflineLibrary() {
   const scope = useRef(draftKey);
   scope.current = draftKey;
   const browser = !capabilities().localHost;
-  useEffect(
-    () =>
-      browser
-        ? watchBrowserLibrary(() => {
-            setSaved([]);
-            setSessions([]);
-            setCurrent(undefined);
-            setDraft('');
-            setSendUncertain(false);
-          })
-        : undefined,
-    [browser],
-  );
+  const reset = useCallback(() => {
+    setSaved([]);
+    setSessions([]);
+    setCurrent(undefined);
+    setDraft('');
+    setSendUncertain(false);
+    setReady(false);
+    setLoadedDraftKey(undefined);
+    setSending(false);
+    setError(undefined);
+    edited.current = false;
+  }, []);
+  useEffect(() => (browser ? watchBrowserLibrary(reset) : undefined), [browser, reset]);
   useEffect(() => {
     if (!browser || !open) return;
-    void browserConversations().then(setSaved, () => setError(t('portable.storageError')));
+    let active = true;
+    void browserConversations().then(
+      (value) => {
+        if (active) setSaved(value);
+      },
+      () => {
+        if (active) setError(t('portable.storageError'));
+      },
+    );
     if (online && client)
       void client.request('session.list', {}).then(
-        ({ sessions }) => setSessions(sessions),
-        () => setError(t('portable.readError')),
+        ({ sessions }) => {
+          if (active) setSessions(sessions);
+        },
+        () => {
+          if (active) setError(t('portable.readError'));
+        },
       );
+    return () => {
+      active = false;
+    };
   }, [open, browser, client, online]);
   useEffect(() => {
     setReady(false);
+    setLoadedDraftKey(undefined);
     setSendUncertain(false);
     edited.current = false;
     if (!draftKey) return;
@@ -167,6 +185,13 @@ export function OfflineLibrary() {
     selectedSessionId,
     identity?.clientId,
   ]);
+  const transcript = useMemo(() => {
+    try {
+      return { value: current ? offlineTranscript(current) : undefined, failed: false };
+    } catch {
+      return { value: undefined, failed: true };
+    }
+  }, [current]);
   if (!browser) return null;
   const canSend =
     online &&
@@ -174,7 +199,6 @@ export function OfflineLibrary() {
     current?.hostId === client.hello.hostId &&
     current?.clientId === identity?.clientId &&
     !current?.session.readOnly;
-  const transcript = current ? offlineTranscript(current) : undefined;
   const selectConversation = (value: OfflineConversation) => {
     if (
       current?.hostId === value.hostId &&
@@ -200,9 +224,9 @@ export function OfflineLibrary() {
           <DialogHeader>
             <DialogTitle>{t('portable.library')}</DialogTitle>
           </DialogHeader>
-          {error && (
+          {(error || transcript.failed) && (
             <p role="alert" className="text-destructive">
-              {error}
+              {error ?? t('portable.readError')}
             </p>
           )}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
@@ -239,7 +263,7 @@ export function OfflineLibrary() {
                   </Button>
                 ))}
             </div>
-            {transcript?.messages.map((message) => (
+            {transcript.value?.messages.map((message) => (
               <div key={message.id} className="space-y-1 border-b border-border py-2">
                 <p className="whitespace-pre-wrap break-words">
                   {message.parts
@@ -302,7 +326,9 @@ export function OfflineLibrary() {
                         setError(isRpcError(error) ? describe(error) : t('portable.sendUnknown'));
                       }
                     })
-                    .finally(() => setSending(false));
+                    .finally(() => {
+                      if (scope.current === key) setSending(false);
+                    });
                 }}
               >
                 {t('portable.send')}
@@ -312,21 +338,23 @@ export function OfflineLibrary() {
           <Button
             size="sm"
             variant="ghost"
-            onClick={() => {
-              void clearBrowserLibrary().then(
-                () => {
-                  setSaved([]);
-                  setCurrent(undefined);
-                  setDraft('');
-                },
-                () => setError(t('portable.storageError')),
-              );
-            }}
+            disabled={sending}
+            onClick={() => setConfirmClear(true)}
           >
             {t('portable.clearCache')}
           </Button>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={confirmClear}
+        onOpenChange={setConfirmClear}
+        title={t('portable.clearCache')}
+        confirmLabel={t('portable.clearCache')}
+        onConfirm={clearBrowserLibrary}
+        failure={() => t('portable.storageError')}
+      >
+        {t('portable.clearCacheConsequence')}
+      </ConfirmDialog>
     </>
   );
 }

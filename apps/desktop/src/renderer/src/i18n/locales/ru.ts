@@ -19,6 +19,8 @@ export const messages: Messages = {
   'sync.newFile': 'Новый файл',
   'sync.fileName': 'Имя файла',
   'sync.saveFile': 'Сохранить файл',
+  'sync.deleteMemoryConsequence':
+    'Локальная память будет удалена и синхронизирована; история сохраняется.',
   'sync.deleteFile': 'Удалить файл',
   'sync.pauseApply': 'Приостановить применение',
   'sync.applyPackageConsequences':
@@ -61,6 +63,8 @@ export const messages: Messages = {
   'portable.draft': 'Черновик · не выполнен',
   'portable.sendUnknown': 'Результат отправки неизвестен; черновик сохранён',
   'portable.send': 'Отправить на подключённый компьютер',
+  'portable.clearCacheConsequence':
+    'Локальные офлайн-диалоги и неподтверждённые черновики будут удалены.',
   'portable.clearCache': 'Очистить локальный кеш',
   'portable.recovery': 'Восстановление и экспорт',
   'portable.export': 'Экспорт данных',

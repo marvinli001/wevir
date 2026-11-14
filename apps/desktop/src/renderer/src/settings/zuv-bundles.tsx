@@ -1,6 +1,6 @@
-import type { WevirClient } from '@wevir/client-sdk';
+import type { RequestArgs, RequestMethod, WevirClient } from '@wevir/client-sdk';
 import type { MethodResult } from '@wevir/protocol';
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import {
@@ -29,7 +29,8 @@ export function ZuvBundles({
 }) {
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState<string>();
+    [error, setError] = useState<string>(),
+    [applying, setApplying] = useState(false);
   const [vaults, setVaults] = useState<MethodResult<'sync.bundleVaults'>['vaults']>([]),
     [vault, setVault] = useState('');
   const [bundles, setBundles] = useState<MethodResult<'sync.bundles'>['bundles']>([]),
@@ -48,29 +49,74 @@ export function ZuvBundles({
     [confirm, setConfirm] = useState<'apply' | 'delete' | 'keep'>();
   const [versions, setVersions] = useState<Preview['versions']>([]),
     [historyNext, setHistoryNext] = useState<string>();
+  const generation = useRef(0);
+  const previousVault = useRef(currentVaultId);
+  const reset = useCallback(() => {
+    const next = ++generation.current;
+    setBundles([]);
+    setNext(undefined);
+    setEntity('');
+    setPreview(undefined);
+    setVersion('');
+    setOffset(0);
+    setTargets([]);
+    setTarget('');
+    setPath('');
+    setContents([]);
+    setLocal(undefined);
+    setText('');
+    setCreating(false);
+    setConfirm(undefined);
+    setVersions([]);
+    setHistoryNext(undefined);
+    setError(undefined);
+    setBusy(false);
+    setApplying(false);
+    return next;
+  }, []);
+  useEffect(() => {
+    if (previousVault.current !== currentVaultId) {
+      previousVault.current = currentVaultId;
+      reset();
+      setVault('');
+      setVaults([]);
+      setOpen(false);
+    }
+  }, [currentVaultId, reset]);
+  const request = async <M extends RequestMethod>(method: M, ...args: RequestArgs<M>) => {
+    const own = generation.current;
+    const value = await client.request(method, ...args);
+    if (own !== generation.current) throw new DOMException('Superseded request', 'AbortError');
+    return value;
+  };
   const canWrite = writable && vault === currentVaultId;
   const run = async (action: () => Promise<void>) => {
+    const own = generation.current;
     setBusy(true);
     setError(undefined);
     try {
       await action();
     } catch (reason) {
-      setError(describe(reason));
+      if (own === generation.current) setError(describe(reason));
     } finally {
-      setBusy(false);
+      if (own === generation.current) setBusy(false);
     }
   };
   const load = async (vaultId: string, after?: string) => {
-    const page = await client.request('sync.bundles', { vaultId, ...(after && { after }) });
+    const own = generation.current;
+    const page = await request('sync.bundles', { vaultId, ...(after && { after }) });
+    if (own !== generation.current) throw new DOMException('Superseded request', 'AbortError');
     setBundles((previous) => (after ? [...previous, ...page.bundles] : page.bundles));
     setNext(page.next);
   };
   const loadVersions = async (vaultId: string, entityId: string, after?: string) => {
-    const page = await client.request('sync.bundleVersions', {
+    const own = generation.current;
+    const page = await request('sync.bundleVersions', {
       vaultId,
       entityId,
       ...(after && { after }),
     });
+    if (own !== generation.current) throw new DOMException('Superseded request', 'AbortError');
     setVersions((old) => [
       ...new Map(
         (after ? [...old, ...page.versions] : page.versions).map((item) => [item.opId, item]),
@@ -79,23 +125,27 @@ export function ZuvBundles({
     setHistoryNext(page.next);
   };
   const inspect = async (vaultId: string, entityId: string, fileOffset = 0, opId?: string) => {
-    const data = await client.request('sync.bundlePreview', {
+    const own = generation.current;
+    const data = await request('sync.bundlePreview', {
       vaultId,
       entityId,
       fileOffset,
       ...(opId && { opId }),
     });
+    if (own !== generation.current) throw new DOMException('Superseded request', 'AbortError');
     setPreview(data);
     setOffset(fileOffset);
     setVersion(opId ?? data.heads[0] ?? '');
     if (!opId) {
       await loadVersions(vaultId, entityId);
+      if (own !== generation.current) throw new DOMException('Superseded request', 'AbortError');
       setVersions((old) => [
         ...new Map([...old, ...data.versions].map((item) => [item.opId, item])).values(),
       ]);
     }
     if (writable && vaultId === currentVaultId) {
-      const choices = (await client.request('sync.bundleTargets', { vaultId, entityId })).targets;
+      const choices = (await request('sync.bundleTargets', { vaultId, entityId })).targets;
+      if (own !== generation.current) throw new DOMException('Superseded request', 'AbortError');
       setTargets(choices);
       setTarget(data.binding?.targetId ?? choices[0]?.targetId ?? '');
     } else {
@@ -114,10 +164,11 @@ export function ZuvBundles({
     ]
       .filter((item) => item.files.some((file) => file.path === filePath))
       .slice(0, 2);
+    const own = generation.current;
     const values = await Promise.all(
       choices.map(async (item) => ({
         opId: item.opId,
-        file: await client.request('sync.bundleFile', {
+        file: await request('sync.bundleFile', {
           vaultId: vault,
           entityId: entity,
           opId: item.opId,
@@ -125,7 +176,7 @@ export function ZuvBundles({
         }),
       })),
     );
-    setContents(values);
+    if (own === generation.current) setContents(values);
   };
   const refresh = async () => {
     await inspect(vault, entity);
@@ -137,16 +188,14 @@ export function ZuvBundles({
         size="sm"
         variant="outline"
         onClick={() => {
+          const own = reset();
           setOpen(true);
-          setPreview(undefined);
-          setEntity('');
-          setContents([]);
-          setLocal(undefined);
-          setPath('');
-          setVersions([]);
-          setHistoryNext(undefined);
+          setVaults([]);
+          setVault('');
           void run(async () => {
-            const all = (await client.request('sync.bundleVaults', {})).vaults;
+            const all = (await request('sync.bundleVaults', {})).vaults;
+            if (own !== generation.current)
+              throw new DOMException('Superseded request', 'AbortError');
             setVaults(all);
             const id =
               all.find((item) => item.vaultId === currentVaultId)?.vaultId ?? all[0]?.vaultId ?? '';
@@ -195,11 +244,8 @@ export function ZuvBundles({
                         .join(' · '),
                 }))}
                 onValueChange={(id) => {
+                  reset();
                   setVault(id);
-                  setEntity('');
-                  setPreview(undefined);
-                  setContents([]);
-                  setLocal(undefined);
                   void run(() => load(id));
                 }}
               />
@@ -338,7 +384,7 @@ export function ZuvBundles({
                     disabled={busy}
                     onClick={() =>
                       void run(async () => {
-                        await client.request(
+                        await request(
                           'sync.retryBundle',
                           {
                             vaultId: vault,
@@ -376,6 +422,18 @@ export function ZuvBundles({
                       </li>
                     ))}
                 </ul>
+                {offset > 0 && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(() => inspect(vault, entity, Math.max(0, offset - 100), version))
+                    }
+                  >
+                    {t('usage.page.prev')}
+                  </Button>
+                )}
                 {preview.versions.some((item) => item.fileCount > offset + 100) && (
                   <Button
                     size="sm"
@@ -423,7 +481,7 @@ export function ZuvBundles({
                       disabled={busy}
                       onClick={() =>
                         void run(async () => {
-                          const file = await client.request('sync.bundleFile', {
+                          const file = await request('sync.bundleFile', {
                             vaultId: vault,
                             entityId: entity,
                             path,
@@ -498,7 +556,7 @@ export function ZuvBundles({
                           void run(async () => {
                             const data = local ?? targets.find((item) => item.targetId === target);
                             if (!data) return;
-                            await client.request(
+                            await request(
                               'sync.editBundleFile',
                               {
                                 vaultId: vault,
@@ -536,7 +594,7 @@ export function ZuvBundles({
             )}
           </div>
           <DialogFooter className="shrink-0">
-            {busy && entity && canWrite && (
+            {applying && entity && canWrite && (
               <Button
                 variant="outline"
                 onClick={() =>
@@ -577,12 +635,14 @@ export function ZuvBundles({
           failure={(value) => value}
           onConfirm={async () => {
             const action = confirm;
-            setConfirm(undefined);
-            await run(async () => {
+            const own = generation.current;
+            setBusy(true);
+            setApplying(action === 'apply');
+            try {
               if (action === 'apply') {
                 const selected = targets.find((item) => item.targetId === target);
                 if (!selected) return;
-                await client.request(
+                await request(
                   'sync.applyBundle',
                   {
                     vaultId: vault,
@@ -601,7 +661,7 @@ export function ZuvBundles({
                   (item) => item.targetId === preview.binding?.targetId,
                 );
                 if (!selected) return;
-                await client.request(
+                await request(
                   'sync.keepLocalBundle',
                   {
                     vaultId: vault,
@@ -614,7 +674,7 @@ export function ZuvBundles({
                   { timeoutMs: 180000 },
                 );
               } else if (local)
-                await client.request(
+                await request(
                   'sync.editBundleFile',
                   {
                     vaultId: vault,
@@ -630,7 +690,12 @@ export function ZuvBundles({
               setCreating(false);
               setContents([]);
               await refresh();
-            });
+            } finally {
+              if (own === generation.current) {
+                setBusy(false);
+                setApplying(false);
+              }
+            }
           }}
         >
           <p>

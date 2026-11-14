@@ -19,6 +19,7 @@ export const messages: Messages = {
   'sync.newFile': '新規ファイル',
   'sync.fileName': 'ファイル名',
   'sync.saveFile': 'ファイルを保存',
+  'sync.deleteMemoryConsequence': 'ローカルの記憶を削除して同期。履歴は保持。',
   'sync.deleteFile': 'ファイルを削除',
   'sync.pauseApply': '適用を一時停止',
   'sync.applyPackageConsequences':
@@ -56,6 +57,7 @@ export const messages: Messages = {
   'portable.draft': '下書き · 未実行',
   'portable.sendUnknown': '送信結果不明・下書きを保持',
   'portable.send': 'オンラインのコンピュータへ送信',
+  'portable.clearCacheConsequence': 'ローカルのオフライン会話と未確認の下書きを削除。',
   'portable.clearCache': 'ローカルキャッシュを消去',
   'portable.recovery': '復旧とエクスポート',
   'portable.export': '資料をエクスポート',

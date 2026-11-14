@@ -5,6 +5,7 @@ import { startModelGateway } from '@wevir/model-gateway';
 import type { SecretStore } from '@wevir/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { sha256 } from '../sync/crypto.js';
+import { ZuvAccounts } from './accounts.js';
 import { ZuvClient } from './client.js';
 import { zuvGatewayAuth } from './gateway-auth.js';
 import { newZuvDeviceKey } from './transport.js';
@@ -123,6 +124,10 @@ describe('ZUV through the existing model gateway', () => {
     };
     const client = new ZuvClient({ origin, allowLoopback: true, secrets });
     await client.load();
+    const accounts = new ZuvAccounts(client);
+    cleanups.push(() => accounts.close());
+    const states: unknown[] = [];
+    accounts.onChange((state) => states.push(state));
     const logs: unknown[] = [];
     const gateway = await startModelGateway({
       auth: zuvGatewayAuth(client),
@@ -172,6 +177,17 @@ describe('ZUV through the existing model gateway', () => {
     expect(other.status).toBe(200);
     await other.text();
     expect(calls).toHaveLength(2);
+    const tested = await gateway.testProvider(
+      {
+        id: 'zuv',
+        kind: 'zuv',
+        displayName: 'ZUV',
+        models: [{ id: 'synthetic-model' }],
+        defaultModelId: 'synthetic-model',
+      },
+      'synthetic-model',
+    );
+    expect(tested).toMatchObject({ ok: true });
     echoToken = true;
     const reflected = await send('zuv');
     expect(reflected.status).toBe(200);
@@ -182,12 +198,13 @@ describe('ZUV through the existing model gateway', () => {
     denied = true;
     const error = await send('zuv');
     expect(error.status).toBe(401);
+    expect(states.at(-1)).toMatchObject({ zuv: { connection: 'reauthorization_required' } });
     expect(await error.text()).not.toContain(token);
     expect(JSON.stringify(logs)).not.toContain(token);
     await client.logout();
     const unauthorized = await send('zuv');
     expect(unauthorized.status).toBe(401);
     await unauthorized.text();
-    expect(calls).toHaveLength(4);
+    expect(calls).toHaveLength(5);
   });
 });

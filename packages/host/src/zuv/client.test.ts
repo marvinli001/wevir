@@ -126,6 +126,138 @@ function mock() {
 }
 
 describe('Host-owned ZUV identity', () => {
+  it('retries a late old-token 401 with the rotated access token', async () => {
+    const h = mock();
+    await h.login();
+    const send = h.request.getMockImplementation();
+    if (!send) throw new Error('missing synthetic fetch');
+    let release = () => {},
+      arrived = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const seen = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    h.request.mockImplementation(async (...args) => {
+      if (
+        new URL(String(args[0])).pathname === '/api/wevir/entitlements' &&
+        new Headers(args[1]?.headers).get('authorization') === 'DPoP synthetic-access-0-token'
+      ) {
+        arrived();
+        await gate;
+        return Response.json(
+          { error: { code: 'AUTH_REQUIRED', message: 'AUTH_REQUIRED' } },
+          { status: 401 },
+        );
+      }
+      return send(...args);
+    });
+    const old = h.client.getEntitlements();
+    await seen;
+    h.advance(901000);
+    await h.client.models();
+    release();
+    await expect(old).resolves.toMatchObject({ subscriptionState: 'active' });
+    expect(h.client.requiresLogin).toBe(false);
+  });
+
+  it.each(['logout', 'close'] as const)(
+    'does not consume a refresh token when %s races its durable pending write',
+    async (action) => {
+      const h = mock();
+      await h.login();
+      let release = () => {},
+        arrived = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const seen = new Promise<void>((resolve) => {
+        arrived = resolve;
+      });
+      vi.spyOn(h.options.secrets, 'set').mockImplementation(async (name, value) => {
+        if (name === 'zuv.identity' && JSON.parse(value).refreshPending) {
+          arrived();
+          await gate;
+        }
+        h.values.set(name, value);
+      });
+      h.advance(901000);
+      const refresh = h.client.models();
+      const refused = expect(refresh).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+      await seen;
+      const stopping = h.client[action]();
+      release();
+      await Promise.all([stopping, refused]);
+      expect(
+        h.request.mock.calls.filter((call) => String(call[0]).endsWith('/refresh')),
+      ).toHaveLength(0);
+      if (action === 'close')
+        expect(JSON.parse(h.values.get('zuv.identity') as string).refreshPending).not.toBe(true);
+      else expect(h.values.size).toBe(0);
+      vi.restoreAllMocks();
+    },
+  );
+
+  it('rejects locally expired inference before refreshing credentials', async () => {
+    const h = mock();
+    await h.login();
+    h.expire();
+    await h.client.getEntitlements();
+    h.advance(901000);
+    await expect(
+      h.client.authorizeInference('https://zuv.test/api/wevir/v1/responses', Buffer.from('{}')),
+    ).rejects.toMatchObject({ code: 'SUBSCRIPTION_REQUIRED' });
+    expect(
+      h.request.mock.calls.filter((call) => String(call[0]).endsWith('/refresh')),
+    ).toHaveLength(0);
+  });
+  it('merges rotated tokens into entitlement changes completed during refresh', async () => {
+    const h = mock();
+    await h.login();
+    h.expire();
+    const send = h.request.getMockImplementation();
+    if (!send) throw new Error('missing synthetic fetch');
+    let releaseRead = () => {},
+      readSeen = () => {},
+      releaseRefresh = () => {},
+      refreshSeen = () => {};
+    const readGate = new Promise<void>((r) => {
+        releaseRead = r;
+      }),
+      seenRead = new Promise<void>((r) => {
+        readSeen = r;
+      });
+    const refreshGate = new Promise<void>((r) => {
+        releaseRefresh = r;
+      }),
+      seenRefresh = new Promise<void>((r) => {
+        refreshSeen = r;
+      });
+    h.request.mockImplementation(async (...args) => {
+      const path = new URL(String(args[0])).pathname;
+      if (path.endsWith('/refresh')) {
+        refreshSeen();
+        await refreshGate;
+      }
+      const result = await send(...args);
+      if (path.endsWith('/entitlements')) {
+        readSeen();
+        await readGate;
+      }
+      return result;
+    });
+    const reading = h.client.getEntitlements();
+    await seenRead;
+    h.advance(901000);
+    const refreshing = h.client.models();
+    await seenRefresh;
+    releaseRead();
+    await reading;
+    releaseRefresh();
+    await refreshing;
+    expect(h.client.entitlements?.subscriptionState).toBe('expired');
+  });
   it.each([
     [401, 'AUTH_REQUIRED'],
     [403, 'SCOPE_DISABLED'],

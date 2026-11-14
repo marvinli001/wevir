@@ -1,6 +1,7 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { MethodResult } from '@wevir/protocol';
 import { useId, useState } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -50,6 +51,7 @@ export function ZuvMemoryConflicts({
   const [text, setText] = useState('');
   const [template, setTemplate] = useState('');
   const [deleted, setDeleted] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const differentMetadata =
@@ -91,6 +93,23 @@ export function ZuvMemoryConflicts({
     setTemplate(markdown);
     setText(body(markdown));
   };
+  const resolve = async () => {
+    if (!preview) return;
+    await client.request('sync.resolveMemory', {
+      entityId: preview.entityId,
+      expectedHeads: preview.expectedHeads,
+      localRevision: preview.localRevision,
+      fileFingerprint: preview.fileFingerprint,
+      ...(deleted
+        ? { deleted: true }
+        : { markdown: `${template.match(MEMORY_HEADER)?.[0] ?? ''}${text}` }),
+    });
+    setPreview(undefined);
+    setSelected('');
+    setChoice('');
+    await load();
+    await onResolved();
+  };
   return (
     <>
       <Button
@@ -124,6 +143,15 @@ export function ZuvMemoryConflicts({
           {error && (
             <p role="alert" className="break-words text-destructive">
               {error}
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-2"
+                disabled={busy || disabled}
+                onClick={() => void run(() => load())}
+              >
+                {t('connection.retry')}
+              </Button>
             </p>
           )}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-1">
@@ -246,23 +274,8 @@ export function ZuvMemoryConflicts({
               variant={deleted ? 'destructive' : 'default'}
               disabled={busy || disabled || !preview || !choice}
               onClick={() => {
-                if (!preview) return;
-                void run(async () => {
-                  await client.request('sync.resolveMemory', {
-                    entityId: preview.entityId,
-                    expectedHeads: preview.expectedHeads,
-                    localRevision: preview.localRevision,
-                    fileFingerprint: preview.fileFingerprint,
-                    ...(deleted
-                      ? { deleted: true }
-                      : { markdown: `${template.match(MEMORY_HEADER)?.[0] ?? ''}${text}` }),
-                  });
-                  setPreview(undefined);
-                  setSelected('');
-                  setChoice('');
-                  await load();
-                  await onResolved();
-                });
+                if (deleted) setConfirmDelete(true);
+                else void run(resolve);
               }}
             >
               {deleted ? t('settings.memory.delete') : t('sync.useVersion')}
@@ -270,6 +283,23 @@ export function ZuvMemoryConflicts({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={t('settings.memory.delete')}
+        confirmLabel={t('settings.memory.delete')}
+        failure={(value) => value}
+        onConfirm={async () => {
+          setBusy(true);
+          try {
+            await resolve();
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {t('sync.deleteMemoryConsequence')}
+      </ConfirmDialog>
     </>
   );
 }

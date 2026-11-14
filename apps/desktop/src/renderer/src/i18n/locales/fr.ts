@@ -19,6 +19,8 @@ export const messages: Messages = {
   'sync.newFile': 'Nouveau fichier',
   'sync.fileName': 'Nom du fichier',
   'sync.saveFile': 'Enregistrer le fichier',
+  'sync.deleteMemoryConsequence':
+    'La mémoire locale sera supprimée et synchronisée ; l’historique est conservé.',
   'sync.deleteFile': 'Supprimer le fichier',
   'sync.pauseApply': 'Suspendre',
   'sync.applyPackageConsequences':
@@ -62,6 +64,8 @@ export const messages: Messages = {
   'portable.draft': 'Brouillon · non exécuté',
   'portable.sendUnknown': 'Résultat inconnu ; brouillon conservé',
   'portable.send': 'Envoyer à l’ordinateur connecté',
+  'portable.clearCacheConsequence':
+    'Les conversations hors ligne et les brouillons non confirmés de cet appareil seront supprimés.',
   'portable.clearCache': 'Vider le cache local',
   'portable.recovery': 'Récupération et export',
   'portable.export': 'Exporter les données',

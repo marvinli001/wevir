@@ -107,6 +107,15 @@ export function ZuvSessionConflicts({
           {error && (
             <p role="alert" className="break-words text-destructive">
               {error}
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-2"
+                disabled={busy || disabled}
+                onClick={() => void run(() => load())}
+              >
+                {t('connection.retry')}
+              </Button>
             </p>
           )}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-1">

@@ -28,6 +28,10 @@ export class SyncExecutions {
   >();
   readonly #releasing = new Map<string, Promise<void>>();
   readonly #pending = new Set<Promise<void>>();
+  readonly #preparing = new Map<
+    string,
+    { turnId: TurnId; abort: AbortController; finished: boolean }
+  >();
   #abort = new AbortController();
 
   constructor(options: ExecutionOptions) {
@@ -58,8 +62,24 @@ export class SyncExecutions {
     };
   }
 
-  async prepare(sessionId: SessionId, turnId: TurnId): Promise<void> {
-    const signal = this.#abort.signal;
+  prepare(sessionId: SessionId, turnId: TurnId): Promise<void> {
+    const claim = { turnId, abort: new AbortController(), finished: false };
+    this.#preparing.get(sessionId)?.abort.abort();
+    this.#preparing.set(sessionId, claim);
+    const task = this.#prepare(sessionId, turnId, claim).finally(() => {
+      if (this.#preparing.get(sessionId) === claim) this.#preparing.delete(sessionId);
+      this.#pending.delete(task);
+    });
+    this.#pending.add(task);
+    return task;
+  }
+
+  async #prepare(
+    sessionId: SessionId,
+    turnId: TurnId,
+    claim: { abort: AbortController; finished: boolean },
+  ): Promise<void> {
+    const signal = AbortSignal.any([this.#abort.signal, claim.abort.signal]);
     await this.#releasing.get(sessionId);
     if (signal.aborted) return;
     const { storage, client } = this.#options;
@@ -103,11 +123,12 @@ export class SyncExecutions {
         { runId: value.runId, expectedEpoch: value.epoch, leaseSeconds: LEASE_SECONDS },
         { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
       );
-      if (!this.#sameVault(vault) || signal.aborted) return;
+      if (!this.#sameVault(vault) || (signal.aborted && !claim.finished)) return;
       if (
         result.runId !== value.runId ||
         BigInt(result.epoch) !== BigInt(value.epoch) + 1n ||
-        Date.parse(result.expiresAt) <= Date.now()
+        Date.parse(result.expiresAt) <= client.transport.serverNow() ||
+        Date.parse(result.expiresAt) > client.transport.serverNow() + LEASE_SECONDS * 1000 + 2000
       )
         throw new ZuvRequestError('INTEGRITY_FAILED');
       Object.assign(value, {
@@ -118,6 +139,10 @@ export class SyncExecutions {
       });
       branchRequired ||= result.branchRequired;
       if (result.branchRequired) value.streamId = newId('sst');
+      if (claim.finished) {
+        await this.#release(value);
+        return;
+      }
     } catch (error) {
       if (!this.#sameVault(vault) || signal.aborted) return;
       value.state =
@@ -134,6 +159,11 @@ export class SyncExecutions {
   }
 
   finish(sessionId: SessionId, turnId: TurnId): void {
+    const claim = this.#preparing.get(sessionId);
+    if (claim?.turnId === turnId) {
+      claim.finished = true;
+      claim.abort.abort();
+    }
     const active = this.#active.get(sessionId);
     if (!active || active.value.turnId !== turnId) return;
     clearTimeout(active.timer);
@@ -186,7 +216,9 @@ export class SyncExecutions {
         1,
         Math.min(
           (LEASE_SECONDS * 1000) / 3,
-          Date.parse(active.value.expiresAt as string) - Date.now() - 1000,
+          Date.parse(active.value.expiresAt as string) -
+            this.#options.client.transport.serverNow() -
+            1000,
         ),
       ),
     );
@@ -215,7 +247,9 @@ export class SyncExecutions {
         result.runId !== value.runId ||
         result.epoch !== value.epoch ||
         result.fencingToken !== value.fencingToken ||
-        Date.parse(result.expiresAt) <= Date.now()
+        Date.parse(result.expiresAt) <= this.#options.client.transport.serverNow() ||
+        Date.parse(result.expiresAt) >
+          this.#options.client.transport.serverNow() + LEASE_SECONDS * 1000 + 2000
       )
         throw new ZuvRequestError('EXECUTION_CONFLICT');
       const next = { ...value, expiresAt: result.expiresAt };

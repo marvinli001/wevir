@@ -5,6 +5,10 @@ import { ZuvRequestError } from './transport.js';
 export function zuvGatewayAuth(client: ZuvClient): GatewayAuthSource {
   return {
     baseURL: (id) => (id === 'zuv' ? `${client.transport.origin}/api/wevir/v1` : undefined),
+    async onDenied(request) {
+      if (request.providerId === 'zuv')
+        await client.inferenceDenied(request.authorization, request.status);
+    },
     async authorize(request) {
       if (request.providerId !== 'zuv') return { ok: false, status: 403, code: 'SCOPE_DISABLED' };
       try {

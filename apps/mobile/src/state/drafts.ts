@@ -2,6 +2,8 @@ import type { ComputerCache } from '../lib/cache';
 import { openComputerCache } from '../lib/cache-store';
 
 const drafts = new Map<string, SavedDraft>();
+const generations = new Map<string, number>();
+const forgetting = new Map<string, Promise<void>>();
 const listeners = new Map<string, Set<(value: SavedDraft, previous?: SavedDraft) => void>>();
 function changed(key: string, previous?: SavedDraft) {
   for (const listener of listeners.get(key) ?? []) listener(readDraftState(key), previous);
@@ -33,8 +35,12 @@ export function readDraftState(key: string): SavedDraft {
   return drafts.get(key) ?? { text: '', uncertain: false };
 }
 export async function loadDraft(key: string): Promise<SavedDraft> {
+  const scope = key.split('/')[0] as string;
+  await forgetting.get(scope);
+  const generation = generations.get(scope) ?? 0;
   if (drafts.has(key)) return drafts.get(key) as SavedDraft;
   const value = await persistent.readState(key);
+  if (generation !== (generations.get(scope) ?? 0)) return { text: '', uncertain: false };
   if (!drafts.has(key)) drafts.set(key, value);
   return readDraftState(key);
 }
@@ -74,10 +80,17 @@ export async function acknowledgeDraft(key: string, id: string) {
   drafts.set(key, value);
   changed(key, current);
 }
-export async function forgetDrafts(scope: string): Promise<void> {
+export function forgetDrafts(scope: string): Promise<void> {
+  const previous = forgetting.get(scope);
+  if (previous) return previous;
+  generations.set(scope, (generations.get(scope) ?? 0) + 1);
   for (const key of drafts.keys()) if (key.startsWith(`${scope}/`)) drafts.delete(key);
-  await persistent.drain();
-  await (await db()).forgetDrafts(scope);
+  const task = (async () => {
+    await persistent.drain();
+    await (await db()).forgetDrafts(scope);
+  })().finally(() => forgetting.delete(scope));
+  forgetting.set(scope, task);
+  return task;
 }
 
 import { PersistentDrafts, type SavedDraft } from '@wevir/client-sdk';

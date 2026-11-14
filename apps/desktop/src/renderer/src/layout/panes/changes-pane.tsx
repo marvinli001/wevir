@@ -736,6 +736,7 @@ function SessionChanges({
           <div className="min-w-1 flex-1" />
           {session && !additional && (
             <WorkspaceCaptureButton
+              key={session.id}
               session={session}
               untracked={(git.status?.files ?? [])
                 .filter((file) => file.unstaged?.status === 'untracked')

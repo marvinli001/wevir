@@ -1,5 +1,10 @@
 export interface GatewayAuthSource {
   baseURL(providerId: string): string | undefined;
+  onDenied?(request: {
+    providerId: string;
+    authorization: string;
+    status: 401 | 403;
+  }): Promise<void>;
   authorize(request: {
     providerId: string;
     url: string;

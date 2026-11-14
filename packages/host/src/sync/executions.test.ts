@@ -13,6 +13,7 @@ import { SyncExecutions } from './executions.js';
 const directory = useTempDir();
 const cleanup: Array<() => void> = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const fn of cleanup.splice(0).reverse()) fn();
 });
 
@@ -23,6 +24,8 @@ describe('execution claim lifecycle fencing', () => {
     ['identity', 'accepted'],
     ['identity', 'rejected'],
     ['timeout', 'rejected'],
+    ['finish', 'accepted'],
+    ['clock', 'accepted'],
   ] as const)(
     'ignores a late %s claim response when %s',
     async (change, outcome) => {
@@ -72,6 +75,14 @@ describe('execution claim lifecycle fencing', () => {
         reject = fail;
       });
       const request = vi.fn((...args: unknown[]) => {
+        if (String(args[2]).endsWith('/release'))
+          return Promise.resolve({
+            runId: native.id,
+            epoch: '1',
+            fencingToken: 'fence_synthetic',
+            expiresAt: new Date().toISOString(),
+            branchRequired: false,
+          });
         if (change !== 'timeout') return pending;
         const signal = (args[4] as { signal: AbortSignal }).signal;
         return new Promise((_, fail) => {
@@ -91,14 +102,20 @@ describe('execution claim lifecycle fencing', () => {
         events,
         capture,
         eligible,
-        client: { json: request } as unknown as ZuvClient,
+        client: {
+          json: request,
+          transport: { serverNow: () => serverNow },
+        } as unknown as ZuvClient,
       });
       cleanup.push(() => executions.stop());
+      const serverNow = Date.now();
+      if (change === 'clock') vi.spyOn(Date, 'now').mockReturnValue(serverNow + 120000);
       const started = performance.now();
       const prepared = executions.prepare(native.id as SessionId, 'trn_synthetic');
       await expect.poll(() => request.mock.calls.length).toBe(1);
       if (change === 'stop') executions.stop();
       else if (change === 'identity') permitted = false;
+      else if (change === 'finish') executions.finish(native.id as SessionId, 'trn_synthetic');
       if (change === 'timeout') {
         await prepared;
         const elapsed = performance.now() - started;
@@ -112,14 +129,18 @@ describe('execution claim lifecycle fencing', () => {
           runId: native.id,
           epoch: '1',
           fencingToken: 'fence_synthetic',
-          expiresAt: new Date(Date.now() + 30000).toISOString(),
+          expiresAt: new Date(serverNow + 30000).toISOString(),
           branchRequired: false,
         });
       else reject(new ZuvRequestError('NETWORK_ERROR'));
       await prepared;
+      if (change === 'clock') {
+        expect(storage.sync.execution('vault_synthetic', native.id)?.state).toBe('claimed');
+        return;
+      }
       expect(storage.sync.execution('vault_synthetic', native.id)).toBeUndefined();
       expect(events.state(native.id as SessionId)?.syncExecution).toBeUndefined();
-      expect(request).toHaveBeenCalledTimes(1);
+      expect(request).toHaveBeenCalledTimes(change === 'finish' ? 2 : 1);
     },
     20000,
   );

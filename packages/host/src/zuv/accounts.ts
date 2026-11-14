@@ -21,15 +21,23 @@ export class ZuvAccounts implements EngineAccounts {
   #timer: ReturnType<typeof setTimeout> | undefined;
   #closed = false;
   #failures = 0;
+  #login = new AbortController();
+  readonly #stopClient: () => void;
 
   constructor(client: ZuvClient, deviceName = hostname()) {
     this.client = client;
     this.#deviceName = deviceName.slice(0, 100);
+    this.#stopClient = client.onChange(() => this.#emit());
   }
 
   async load(): Promise<void> {
     await this.client.load();
-    if (this.client.enrollment) this.#schedule(this.client.enrollment.intervalMs);
+    if (this.client.enrollment)
+      this.#schedule(
+        this.client.enrollment.intervalMs,
+        this.client.enrollment.enrollmentId,
+        this.#login,
+      );
   }
 
   async read(_kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState> {
@@ -49,13 +57,18 @@ export class ZuvAccounts implements EngineAccounts {
   async login(_kind: AccountKind, method: AccountLoginMethod): Promise<AccountState> {
     if (method !== 'browser') throw new ZuvRequestError('INVALID_REQUEST');
     clearTimeout(this.#timer);
+    this.#login.abort();
+    const attempt = new AbortController();
+    this.#login = attempt;
     this.#lastError = undefined;
     this.#failures = 0;
     try {
       const started = await this.client.beginEnrollment(this.#deviceName);
+      if (this.#login !== attempt || this.#closed) return this.#state();
       this.#connection = 'online';
-      this.#schedule(started.intervalMs);
+      this.#schedule(started.intervalMs, started.enrollmentId, attempt);
     } catch (error) {
+      if (this.#login !== attempt || this.#closed) return this.#state();
       this.#error(error);
     }
     return this.#emit();
@@ -65,12 +78,16 @@ export class ZuvAccounts implements EngineAccounts {
     if (loginId !== undefined && loginId !== this.client.enrollment?.enrollmentId)
       return this.#state();
     clearTimeout(this.#timer);
+    this.#login.abort();
+    this.#lastError = undefined;
+    this.#connection = 'online';
     await this.client.cancelEnrollment(loginId);
     return this.#emit();
   }
 
   async logout(_kind: AccountKind): Promise<AccountState> {
     clearTimeout(this.#timer);
+    this.#login.abort();
     await this.client.logout();
     this.#lastError = undefined;
     this.#connection = 'online';
@@ -97,43 +114,50 @@ export class ZuvAccounts implements EngineAccounts {
 
   async close(): Promise<void> {
     this.#closed = true;
+    this.#stopClient();
+    this.#login.abort();
     clearTimeout(this.#timer);
     this.#listeners.clear();
     await this.client.close();
   }
 
   async #refresh(): Promise<void> {
+    const attempt = this.#login;
+    const current = () => !this.#closed && !attempt.signal.aborted && this.#login === attempt;
     this.#lastRefresh = Date.now();
     try {
       await this.client.getEntitlements();
+      if (!current()) return;
       this.#connection = 'online';
       this.#lastError = undefined;
     } catch (error) {
+      if (!current()) return;
       this.#error(error);
     }
     this.#emit();
   }
 
-  #schedule(delay: number): void {
+  #schedule(delay: number, enrollmentId: string, attempt: AbortController): void {
     if (this.#closed) return;
     clearTimeout(this.#timer);
     this.#timer = setTimeout(() => {
-      void this.#poll();
+      void this.#poll(enrollmentId, attempt);
     }, delay);
     this.#timer.unref?.();
   }
 
-  async #poll(): Promise<void> {
+  async #poll(enrollmentId: string, attempt: AbortController): Promise<void> {
+    const current = () => !this.#closed && !attempt.signal.aborted && this.#login === attempt;
     try {
-      const result = await this.client.pollEnrollment();
-      if (this.#closed) return;
+      const result = await this.client.pollEnrollment(attempt.signal);
+      if (!current()) return;
       this.#failures = 0;
       this.#lastError = undefined;
       this.#connection = 'online';
-      if (result.state === 'pending') this.#schedule(result.retryAfterMs);
+      if (result.state === 'pending') this.#schedule(result.retryAfterMs, enrollmentId, attempt);
       else await this.#refresh();
     } catch (error) {
-      if (this.#closed) return;
+      if (!current()) return;
       this.#error(error);
       const pending = this.client.enrollment;
       const retryable =
@@ -141,14 +165,18 @@ export class ZuvAccounts implements EngineAccounts {
         ['NETWORK_ERROR', 'RATE_LIMITED', 'SERVICE_UNAVAILABLE', 'BUDGET_PAUSED'].includes(
           error.code,
         );
-      if (pending && retryable && Date.parse(pending.expiresAt) > Date.now()) {
+      if (
+        pending?.enrollmentId === enrollmentId &&
+        retryable &&
+        Date.parse(pending.expiresAt) > Date.now()
+      ) {
         const delay = Math.max(
           pending.intervalMs,
           error instanceof ZuvRequestError ? (error.retryAfterMs ?? 0) : 0,
           Math.min(30000, 1000 * 2 ** Math.min(++this.#failures, 5)) + Math.random() * 1000,
         );
-        this.#schedule(delay);
-      } else await this.client.cancelEnrollment(pending?.enrollmentId);
+        this.#schedule(delay, enrollmentId, attempt);
+      } else await this.client.cancelEnrollment(enrollmentId);
     }
     this.#emit();
   }

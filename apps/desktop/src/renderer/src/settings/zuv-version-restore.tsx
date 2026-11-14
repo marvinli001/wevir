@@ -26,10 +26,12 @@ export function ZuvVersionRestore({
   client,
   importId,
   entryId,
+  disabled = false,
 }: {
   client: WevirClient;
   importId: string;
   entryId: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false);
@@ -69,6 +71,7 @@ export function ZuvVersionRestore({
       <Button
         size="sm"
         variant="outline"
+        disabled={disabled}
         onClick={() => {
           setOpen(true);
           setPreview(undefined);

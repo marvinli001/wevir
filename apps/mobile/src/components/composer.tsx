@@ -113,9 +113,15 @@ export function Composer({
   const scope = useRef(draftKey);
   scope.current = draftKey;
   useEffect(() => {
-    if (draftKey === undefined) return;
+    setDraftError(false);
+    setLoadedDraftKey(undefined);
     edited.current = false;
-    setDraftReady(false);
+    setDraftReady(draftKey === undefined);
+    if (draftKey === undefined) {
+      setText('');
+      setSendUncertain(false);
+      return;
+    }
     setText(readDraft(draftKey));
     setSendUncertain(readDraftState(draftKey).uncertain);
     let active = true;
@@ -129,7 +135,10 @@ export function Composer({
         }
       },
       () => {
-        if (active) setDraftError(true);
+        if (active) {
+          setDraftError(true);
+          setLoadedDraftKey(draftKey);
+        }
       },
     );
     return () => {
@@ -139,8 +148,12 @@ export function Composer({
   useEffect(() => {
     if (draftKey !== undefined && loadedDraftKey === draftKey && (draftReady || edited.current))
       void writeDraft(draftKey, text, sendUncertain).then(
-        () => setDraftError(false),
-        () => setDraftError(true),
+        () => {
+          if (scope.current === draftKey) setDraftError(false);
+        },
+        () => {
+          if (scope.current === draftKey) setDraftError(true);
+        },
       );
   }, [draftKey, draftReady, loadedDraftKey, text, sendUncertain]);
   const cursor = useRef(0);
