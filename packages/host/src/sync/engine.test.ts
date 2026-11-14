@@ -161,6 +161,335 @@ async function setup(fetcher?: typeof fetch) {
 }
 
 describe('durable encrypted synchronization over HTTP', () => {
+  async function referenceFixture() {
+    const peers = await setup();
+    const { first } = peers;
+    await first.enable();
+    const projectId = 'project_synthetic';
+    const vaultId = first.opened.vaultId;
+    const scopes = await first.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+      expectedRevision: '1',
+      enabled: true,
+      categories: ['project', 'artifact', 'rule', 'workspace-snapshot'],
+      projectIds: [projectId],
+    });
+    first.storage.sync.setScopes(vaultId, scopes);
+    await first.client.getEntitlements();
+    const queue = new SyncQueue(first.storage);
+    first.storage.transaction(() =>
+      queue.enqueue({
+        vaultId,
+        projectId,
+        entityId: projectId,
+        entityType: 'project',
+        localKey: 'project:synthetic',
+        content: { schema: 'wevir-project/1', projectId, displayName: 'Synthetic' },
+      }),
+    );
+    await first.engine.run();
+    const bundle = (
+      entityId: string,
+      opId: string,
+      category: 'rule' | 'workspace-snapshot',
+      ruleVersions: Array<{ entityId: string; opId: string }> = [],
+      parts: Array<{ entityId: string; opId: string }> = [],
+      parents?: string[],
+    ) =>
+      queue.enqueue({
+        vaultId,
+        projectId,
+        entityId,
+        opId,
+        entityType: category,
+        localKey: `bundle:${entityId}`,
+        ...(parents && { parents }),
+        content: {
+          schema: 'wevir-bundle/1',
+          category,
+          name: opId,
+          exclusions: [],
+          metadata: { ruleVersions },
+          files: parts.length ? [{ path: 'file.md', bytes: 0, sha256: sha256(''), parts }] : [],
+        },
+      });
+    const accepted = () =>
+      first.storage.sync
+        .commits(vaultId, false)
+        .flatMap((commit) => JSON.parse(commit.body).operations as SyncOperation[])
+        .map((op) => op.opId);
+    return { ...peers, vaultId, projectId, queue, bundle, accepted };
+  }
+
+  it('orders a later workspace revision after its rule even when an older workspace draft comes first', async () => {
+    const f = await referenceFixture();
+    f.first.storage.transaction(() => {
+      f.bundle('workspace_fixture', 'workspace_old', 'workspace-snapshot');
+      f.queue.enqueue({
+        vaultId: f.vaultId,
+        projectId: f.projectId,
+        entityType: 'artifact',
+        entityId: 'chunk_fixture',
+        opId: 'chunk_operation',
+        localKey: 'chunk:fixture',
+        content: {
+          schema: 'wevir-chunk/1',
+          ownerId: 'rule_fixture',
+          index: 0,
+          data: '',
+          sha256: sha256(''),
+        },
+      });
+      f.bundle(
+        'rule_fixture',
+        'rule_operation',
+        'rule',
+        [],
+        [{ entityId: 'chunk_fixture', opId: 'chunk_operation' }],
+      );
+      f.bundle('workspace_fixture', 'workspace_new', 'workspace-snapshot', [
+        { entityId: 'rule_fixture', opId: 'rule_operation' },
+      ]);
+    });
+    for (let i = 0; i < 6 && f.first.storage.sync.drafts(f.vaultId).length; i++)
+      await f.first.engine.run();
+    const order = f.accepted();
+    expect(order.indexOf('chunk_operation')).toBeLessThan(order.indexOf('rule_operation'));
+    expect(order.indexOf('rule_operation')).toBeLessThan(order.indexOf('workspace_new'));
+    expect(order.indexOf('workspace_old')).toBeLessThan(order.indexOf('workspace_new'));
+    expect(f.first.storage.sync.drafts(f.vaultId)).toEqual([]);
+  });
+
+  it('finds a referenced rule outside the initial operation window before uploading the workspace', async () => {
+    const f = await referenceFixture();
+    f.server.sync.limitOverrides.operations = 1;
+    await f.first.client.getEntitlements();
+    f.first.storage.transaction(() => {
+      f.bundle('workspace_fixture', 'workspace_child', 'workspace-snapshot', [
+        { entityId: 'rule_fixture', opId: 'rule_late' },
+      ]);
+      for (let i = 0; i < 8; i++)
+        f.bundle(`filler_entity_${i}`, `filler_operation_${i}`, 'workspace-snapshot');
+      f.bundle('rule_fixture', 'rule_late', 'rule');
+    });
+    await f.first.engine.run();
+    expect(f.accepted().at(-1)).toBe('rule_late');
+    expect(f.first.storage.sync.draft(f.vaultId, 'workspace_child')).toBeDefined();
+  });
+
+  it('packs same-group parents before children even when their queue rows are reversed', async () => {
+    const f = await referenceFixture();
+    f.first.storage.transaction(() => {
+      f.bundle(
+        'workspace_fixture',
+        'workspace_child',
+        'workspace-snapshot',
+        [],
+        [],
+        ['workspace_parent'],
+      );
+      f.bundle('workspace_fixture', 'workspace_parent', 'workspace-snapshot', [], [], []);
+    });
+    const before = f.server.sync.attempts.commits;
+    await f.first.engine.run();
+    expect(f.accepted().slice(-2)).toEqual(['workspace_parent', 'workspace_child']);
+    expect(f.server.sync.attempts.commits).toBe(before + 1);
+  });
+
+  it('finds an out-of-window parent rather than fixing a child commit with an unavailable parent', async () => {
+    const f = await referenceFixture();
+    f.server.sync.limitOverrides.operations = 1;
+    await f.first.client.getEntitlements();
+    f.first.storage.transaction(() => {
+      f.bundle(
+        'workspace_fixture',
+        'workspace_child',
+        'workspace-snapshot',
+        [],
+        [],
+        ['workspace_parent'],
+      );
+      for (let i = 0; i < 8; i++)
+        f.bundle(`filler_entity_${i}`, `filler_operation_${i}`, 'workspace-snapshot');
+      f.bundle('workspace_fixture', 'workspace_parent', 'workspace-snapshot', [], [], []);
+    });
+    await f.first.engine.run();
+    expect(f.accepted().at(-1)).toBe('workspace_parent');
+    expect(f.first.storage.sync.draft(f.vaultId, 'workspace_child')).toBeDefined();
+    expect(f.first.storage.sync.commits(f.vaultId).length).toBe(0);
+  });
+
+  it('keeps a dependent suffix out of the size-limited pack', async () => {
+    const f = await referenceFixture();
+    f.first.storage.transaction(() => {
+      const base = {
+        vaultId: f.vaultId,
+        projectId: f.projectId,
+        entityId: 'workspace_fixture',
+        entityType: 'workspace-snapshot' as const,
+        localKey: 'workspace:fixture',
+      };
+      const content = {
+        schema: 'wevir-bundle/1',
+        category: 'workspace-snapshot',
+        name: 'Synthetic',
+        files: [],
+        exclusions: [],
+        metadata: { padding: 'x'.repeat(160 * 1024) },
+      };
+      f.queue.enqueue({
+        ...base,
+        opId: 'workspace_child',
+        parents: ['workspace_parent'],
+        content: { ...content, name: 'Child' },
+      });
+      f.queue.enqueue({
+        ...base,
+        opId: 'workspace_parent',
+        parents: [],
+        content: { ...content, name: 'Parent' },
+      });
+    });
+    await f.first.engine.run();
+    expect(f.accepted().at(-1)).toBe('workspace_parent');
+    expect(f.first.storage.sync.draft(f.vaultId, 'workspace_child')).toBeDefined();
+    await f.first.engine.run();
+    expect(f.accepted().slice(-2)).toEqual(['workspace_parent', 'workspace_child']);
+  });
+
+  it.each(['missing-rule', 'missing-part', 'cycle', 'scope', 'mismatched-entity'] as const)(
+    'preserves a %s dependency failure before key release, reservation or upload',
+    async (failure) => {
+      const f = await referenceFixture();
+      f.first.storage.transaction(() => {
+        if (failure === 'cycle') {
+          f.bundle(
+            'workspace_fixture',
+            'workspace_cycle_a',
+            'workspace-snapshot',
+            [],
+            [],
+            ['workspace_cycle_b'],
+          );
+          f.bundle(
+            'workspace_fixture',
+            'workspace_cycle_b',
+            'workspace-snapshot',
+            [],
+            [],
+            ['workspace_cycle_a'],
+          );
+        } else if (failure === 'missing-part') {
+          f.bundle(
+            'rule_fixture',
+            'rule_operation',
+            'rule',
+            [],
+            [{ entityId: 'chunk_missing', opId: 'chunk_missing_op' }],
+          );
+        } else {
+          if (failure !== 'missing-rule')
+            f.queue.enqueue({
+              vaultId: f.vaultId,
+              projectId: failure === 'scope' ? 'project_forbidden' : f.projectId,
+              entityId: 'rule_fixture',
+              entityType: 'rule',
+              opId: 'rule_operation',
+              localKey: 'rule:fixture',
+              content: {
+                schema: 'wevir-bundle/1',
+                category: 'rule',
+                name: 'Synthetic',
+                files: [],
+                exclusions: [],
+              },
+            });
+          f.bundle('workspace_fixture', 'workspace_child', 'workspace-snapshot', [
+            {
+              entityId: failure === 'mismatched-entity' ? 'wrong_entity' : 'rule_fixture',
+              opId: 'rule_operation',
+            },
+          ]);
+        }
+      });
+      const drafts = f.first.storage.sync.drafts(f.vaultId);
+      const attempts = { ...f.server.sync.attempts };
+      const keys = f.server.requests.filter((path) => path.endsWith('/keys/unlock')).length;
+      await expect(f.first.engine.run()).rejects.toMatchObject({
+        code:
+          failure === 'scope'
+            ? 'SCOPE_DISABLED'
+            : failure === 'cycle' || failure === 'mismatched-entity'
+              ? 'INTEGRITY_FAILED'
+              : 'MISSING_PARENT',
+      });
+      expect(f.first.storage.sync.drafts(f.vaultId)).toEqual(drafts);
+      expect(f.server.sync.attempts).toEqual(attempts);
+      expect(f.server.requests.filter((path) => path.endsWith('/keys/unlock'))).toHaveLength(keys);
+    },
+  );
+
+  it('bounds a long dependency closure without recursive stack growth or paid transfers', async () => {
+    const f = await referenceFixture();
+    f.first.storage.transaction(() => {
+      for (let i = 0; i < 4097; i++)
+        f.bundle(
+          'workspace_fixture',
+          `workspace_chain_${i}`,
+          'workspace-snapshot',
+          [],
+          [],
+          i === 4096 ? [] : [`workspace_chain_${i + 1}`],
+        );
+    });
+    const attempts = { ...f.server.sync.attempts };
+    await expect(f.first.engine.run()).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
+    expect(f.first.storage.sync.drafts(f.vaultId, 4100)).toHaveLength(4097);
+    expect(f.server.sync.attempts).toEqual(attempts);
+  });
+
+  it('commits an out-of-window project registration before its scoped workspace', async () => {
+    const f = await referenceFixture();
+    const projectId = 'project_pending';
+    f.server.sync.limitOverrides.operations = 1;
+    const scopes = await f.first.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+      expectedRevision: '2',
+      enabled: true,
+      categories: ['project', 'workspace-snapshot'],
+      projectIds: [f.projectId, projectId],
+    });
+    f.first.storage.sync.setScopes(f.vaultId, scopes);
+    await f.first.client.getEntitlements();
+    f.first.storage.transaction(() => {
+      f.queue.enqueue({
+        vaultId: f.vaultId,
+        projectId,
+        entityId: 'workspace_fixture',
+        entityType: 'workspace-snapshot',
+        localKey: 'workspace:pending',
+        opId: 'workspace_child',
+        content: {
+          schema: 'wevir-bundle/1',
+          category: 'workspace-snapshot',
+          name: 'Synthetic',
+          files: [],
+          exclusions: [],
+        },
+      });
+      f.queue.enqueue({
+        vaultId: f.vaultId,
+        projectId,
+        entityId: projectId,
+        entityType: 'project',
+        localKey: 'project:pending',
+        opId: 'project_registration',
+        content: { schema: 'wevir-project/1', projectId, displayName: 'Pending' },
+      });
+    });
+    await f.first.engine.run();
+    expect(f.accepted().at(-1)).toBe('project_registration');
+    await f.first.engine.run();
+    expect(f.accepted().at(-1)).toBe('workspace_child');
+  });
   it.each(['rule', 'skill-bundle', 'workspace-snapshot'] as const)(
     'commits chunks before an older %s draft can carry a later dependent revision',
     async (category) => {
