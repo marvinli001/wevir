@@ -161,6 +161,49 @@ async function setup(fetcher?: typeof fetch) {
 }
 
 describe('durable encrypted synchronization over HTTP', () => {
+  it('retries a commit rejected before acceptance using its exact original body', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    server.sync.pendingCommits = true;
+    first.enqueue('in-flight first');
+    await first.engine.run();
+    second.enqueue('blocked second');
+    await expect(second.engine.run()).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+    const original = second.storage.sync.commits(second.opened.vaultId)[0]!;
+    server.sync.finalize();
+    server.sync.pendingCommits = false;
+    await second.engine.run();
+    await second.engine.run();
+    expect(second.storage.sync.commits(second.opened.vaultId)).toEqual([]);
+    expect(
+      server.sync.acceptedOperations(JSON.parse(original.body).operations[0].entityId)[0]?.opId,
+    ).toBe(JSON.parse(original.body).operations[0].opId);
+  });
+
+  it('repairs a missing remote blob from verified local ciphertext and backs off the receiver', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    first.enqueue('missing ciphertext recovery');
+    await first.engine.run();
+    const blobId = first.storage.db.prepare('SELECT blob_id FROM sync_blobs LIMIT 1').get()!
+      .blob_id as string;
+    server.sync.missingBlobs.add(blobId);
+    await expect(second.engine.run()).rejects.toMatchObject({ code: 'BLOB_INCOMPLETE' });
+    const before = server.requests.length;
+    await second.engine.run();
+    expect(server.requests.length).toBe(before);
+    await first.reopen();
+    await first.engine.run();
+    expect(server.sync.missingBlobs.has(blobId)).toBe(false);
+    second.storage.sync.setVaultTransport(second.opened.vaultId, {
+      ...second.storage.sync.vaultTransport(second.opened.vaultId),
+      retryAt: 0,
+    });
+    await second.engine.run();
+    expect(second.storage.sync.localEntity(second.opened.vaultId, 'global/note.md')).toBeDefined();
+  });
   async function referenceFixture() {
     const peers = await setup();
     const { first } = peers;
@@ -592,8 +635,9 @@ describe('durable encrypted synchronization over HTTP', () => {
     );
     const recoveredOp = first.storage.sync.outboxRecovery(first.opened.vaultId, originalOp)
       ?.opId as string;
-    await first.engine.run();
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'RATE_LIMITED' });
     server.sync.finalize();
+    server.sync.pendingCommits = false;
     await first.engine.run();
     const entityId = first.storage.sync.getOperation(first.opened.vaultId, originalOp)
       ?.entityId as string;
@@ -725,7 +769,7 @@ describe('durable encrypted synchronization over HTTP', () => {
     expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([]);
   });
 
-  it('queries an uncertain commit at most three times across restart and never repeats POST or upload', async () => {
+  it('continues polling a pending commit beyond the worker cycle without another POST or upload', async () => {
     let loseResponse = true;
     const { server, first } = await setup(async (input, init) => {
       const result = await fetch(input, init);
@@ -745,7 +789,7 @@ describe('durable encrypted synchronization over HTTP', () => {
     first.enqueue('Synthetic response loss');
     await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
     const original = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
-    for (let index = 0; index < 3; index++) {
+    for (let index = 0; index < 10; index++) {
       const commit = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
       first.storage.transaction(() => first.storage.sync.putCommit({ ...commit, retryAt: 0 }));
       await first.engine.run();
@@ -753,20 +797,21 @@ describe('durable encrypted synchronization over HTTP', () => {
     }
     const commit = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
     first.storage.transaction(() => first.storage.sync.putCommit({ ...commit, retryAt: 0 }));
-    await expect(first.engine.run()).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    await first.engine.run();
     expect(server.sync.attempts).toMatchObject({ commits: 1, uploads: 1 });
     expect(
       server.requests.filter((path) => path.endsWith(`/commits/${original.commitId}`)),
-    ).toHaveLength(3);
+    ).toHaveLength(11);
     expect(first.storage.sync.commits(first.opened.vaultId)[0]?.body).toBe(original.body);
     server.sync.finalize();
-    await expect(first.engine.run()).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    const pending = first.storage.sync.commits(first.opened.vaultId)[0]!;
+    first.storage.transaction(() => first.storage.sync.putCommit({ ...pending, retryAt: 0 }));
     await first.engine.run();
     expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([]);
     expect(server.sync.attempts.commits).toBe(1);
   });
 
-  it('does not treat NOT_FOUND as proof after an attempted commit and preserves deletion as a recovery branch', async () => {
+  it('reposts the same deletion after NOT_FOUND without manufacturing a recovery branch', async () => {
     let offline = false;
     const { first, second } = await setup(async (input, init) => {
       if (
@@ -803,18 +848,10 @@ describe('durable encrypted synchronization over HTTP', () => {
     );
     await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
     const original = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
-    await expect(first.engine.run()).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
     expect(first.storage.sync.commits(first.opened.vaultId)[0]?.body).toBe(original.body);
     second.enqueue('Synthetic concurrent remote edit');
     await second.engine.run();
-    await new SyncOutboxRecovery({
-      storage: first.storage,
-      client: first.client,
-      engine: first.engine,
-    }).recover(
-      { expectedDeviceId: first.opened.deviceId, commitIds: [original.commitId] },
-      new AbortController().signal,
-    );
     offline = false;
     await first.engine.run();
     await second.engine.run();
@@ -826,7 +863,7 @@ describe('durable encrypted synchronization over HTTP', () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'delete',
-          content: expect.objectContaining({ deleted: true, recoveredFrom: expect.any(Object) }),
+          content: expect.objectContaining({ deleted: true }),
         }),
         expect.objectContaining({
           kind: 'put',

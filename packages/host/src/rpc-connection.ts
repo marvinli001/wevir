@@ -791,7 +791,11 @@ export class RpcConnection {
           params: unknown,
           context: RequestContext,
         ) => unknown;
-        let result = await handler(params, { client, capabilities: this.#capabilities });
+        let result = await handler(params, {
+          client,
+          capabilities: this.#capabilities,
+          principal: this.#grant.principal,
+        });
         if (method === 'session.list' && this.#host.sessionList !== undefined) {
           result = {
             ...(result as MethodResult<'session.list'>),

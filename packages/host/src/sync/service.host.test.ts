@@ -67,6 +67,13 @@ async function fixture(withTools = false) {
       importEnv: {},
       adapter,
       engine: 'echo',
+      testConnectionGrant: (client) =>
+        client.clientId === 'remote_preview'
+          ? {
+              principal: { kind: 'device', deviceId: 'device_preview' },
+              permissions: ['workspace.read'],
+            }
+          : undefined,
       zuv: {
         origin: mock.origin,
         allowLoopback: true,
@@ -102,6 +109,47 @@ async function fixture(withTools = false) {
 }
 
 type Peer = Awaited<ReturnType<typeof fixture>>['first'];
+async function confirmNative(peer: Peer, vaultId: string, entityId: string, name: string) {
+  const preview = await peer.rpc.request('sync.bundlePreview', { vaultId, entityId });
+  const target = (await peer.rpc.request('sync.bundleTargets', { vaultId, entityId })).targets.find(
+    (item: { managed: boolean; name: string }) => !item.managed && item.name === name,
+  );
+  if (!target) throw new Error('missing native target');
+  await peer.rpc.request('sync.applyBundle', {
+    vaultId,
+    entityId,
+    expectedHeads: preview.heads,
+    selectedOpId: preview.heads[0],
+    targetId: target.targetId,
+    fingerprint: target.fingerprint,
+    localRevision: preview.binding?.revision,
+  });
+}
+
+async function waitForBundleText(
+  peer: Peer,
+  vaultId: string,
+  entityId: string,
+  path: string,
+  text: string,
+) {
+  await expect
+    .poll(
+      async () => {
+        const preview = await peer.rpc.request('sync.bundlePreview', { vaultId, entityId });
+        return (
+          await peer.rpc.request('sync.bundleFile', {
+            vaultId,
+            entityId,
+            path,
+            opId: preview.heads[0],
+          })
+        ).text;
+      },
+      { timeout: 10000 },
+    )
+    .toBe(text);
+}
 async function linkSessions(first: Peer, second: Peer, includeHistory = true, artifacts = false) {
   await first.rpc.request('provider.upsert', {
     id: 'synthetic-api',
@@ -742,6 +790,17 @@ describe('full Host material synchronization with synthetic identities', () => {
             .filter((operation) => !baseline.includes(operation.opId)).length,
         { timeout: 8000 },
       )
+      .toBe(1);
+    mock.sync.pendingEntities.delete(source.entityId);
+    mock.sync.finalize();
+    await expect
+      .poll(
+        () =>
+          mock.sync
+            .acceptedOperations(source.entityId)
+            .filter((operation) => !baseline.includes(operation.opId)).length,
+        { timeout: 8000 },
+      )
       .toBe(2);
     const branches = mock.sync
       .acceptedOperations(source.entityId)
@@ -790,6 +849,15 @@ describe('full Host material synchronization with synthetic identities', () => {
       localRevision: preview.binding.revision,
     });
     for (const peer of [first, second]) {
+      await expect
+        .poll(
+          async () =>
+            (await peer.rpc.request('sync.bundlePreview', { vaultId, entityId: source.entityId }))
+              .heads.length,
+          { timeout: 10000 },
+        )
+        .toBe(1);
+      if (peer === first) await confirmNative(peer, vaultId, source.entityId, 'synthetic-package');
       await expect
         .poll(() => readFile(join(packagePath(peer), 'binary.bin')), { timeout: 10000 })
         .toEqual(changed);
@@ -904,13 +972,25 @@ describe('full Host material synchronization with synthetic identities', () => {
       fingerprint: local.fingerprint,
       localRevision: local.localRevision,
     });
-    await expect
-      .poll(() => readFile(join(first.project, 'AGENTS.md'), 'utf8'), { timeout: 8000 })
-      .toBe('Edited on second Host');
+    await waitForBundleText(
+      first,
+      vaultId,
+      original.entityId,
+      'AGENTS.md',
+      'Edited on second Host',
+    );
+    expect(await readFile(join(first.project, 'AGENTS.md'), 'utf8')).toBe('Initial first rule');
+    await confirmNative(first, vaultId, original.entityId, 'AGENTS.md');
     await writeFile(join(first.project, 'AGENTS.md'), 'Returned from first Host');
-    await expect
-      .poll(() => readFile(join(second.project, 'AGENTS.md'), 'utf8'), { timeout: 8000 })
-      .toBe('Returned from first Host');
+    await waitForBundleText(
+      second,
+      vaultId,
+      original.entityId,
+      'AGENTS.md',
+      'Returned from first Host',
+    );
+    expect(await readFile(join(second.project, 'AGENTS.md'), 'utf8')).toBe('Edited on second Host');
+    await confirmNative(second, vaultId, original.entityId, 'AGENTS.md');
     await expect
       .poll(
         async () => {
@@ -969,9 +1049,17 @@ describe('full Host material synchronization with synthetic identities', () => {
       fingerprint: copy.fingerprint,
       localRevision: copy.localRevision,
     });
-    await expect
-      .poll(() => readFile(join(first.project, 'AGENTS.md'), 'utf8'), { timeout: 8000 })
-      .toBe('Edited independent copy');
+    await waitForBundleText(
+      first,
+      vaultId,
+      original.entityId,
+      'AGENTS.md',
+      'Edited independent copy',
+    );
+    expect(await readFile(join(first.project, 'AGENTS.md'), 'utf8')).toBe(
+      'Returned from first Host',
+    );
+    await confirmNative(first, vaultId, original.entityId, 'AGENTS.md');
     expect(await readFile(join(second.project, 'AGENTS.md'), 'utf8')).toBe(
       'Returned from first Host',
     );
@@ -1389,6 +1477,20 @@ describe('full Host material synchronization with synthetic identities', () => {
       artifactSeq: firstShare.seq,
     });
     expect(preview.url).toBeDefined();
+    const remote = await TestRpcClient.connect(second.url);
+    cleanups.push(() => remote.ws.terminate());
+    await remote.hello(second.token, {
+      deviceId: 'device_preview',
+      clientId: 'remote_preview',
+      clientKind: 'mobile',
+    });
+    expect(
+      await remote.request('workspace.fileUrl', {
+        ...scope,
+        path: 'page.html',
+        artifactSeq: firstShare.seq,
+      }),
+    ).not.toHaveProperty('localPath');
     expect(await readFile(preview.localPath, 'utf8')).toBe('<h1>Synthetic artifact</h1>');
     const download = await second.rpc.request('workspace.fileUrl', {
       ...scope,
@@ -1525,6 +1627,12 @@ describe('full Host material synchronization with synthetic identities', () => {
       .toBeGreaterThanOrEqual(commits + 2);
     mock.sync.pendingCommits = false;
     mock.sync.finalize();
+    await expect
+      .poll(
+        async () => (await first.rpc.request('sync.projectCatalog')).projects[0]?.versions.length,
+        { timeout: 12000 },
+      )
+      .toBe(2);
     const catalog = await first.rpc.request('sync.projectCatalog');
     expect(catalog.projects[0].versions).toHaveLength(2);
     expect(

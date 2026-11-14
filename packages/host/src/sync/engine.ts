@@ -35,7 +35,6 @@ type PreparedDraft = {
 
 const PACK_TARGET_BYTES = 256 * 1024;
 const MAX_PREPARATION_REFERENCES = 4096;
-const MAX_COMMIT_QUERIES = 3;
 const COMMIT_REJECTIONS = new Set([
   'MISSING_PARENT',
   'REVISION_CONFLICT',
@@ -57,6 +56,7 @@ export interface SyncEngineOptions {
 export class SyncEngine {
   readonly #options: SyncEngineOptions;
   #running: Promise<boolean> | undefined;
+  #missingAt = 0;
   #abort = new AbortController();
   constructor(options: SyncEngineOptions) {
     this.#options = options;
@@ -198,6 +198,8 @@ export class SyncEngine {
   async #run(signal: AbortSignal): Promise<boolean> {
     const vault = this.eligible();
     if (!vault || signal.aborted) return false;
+    const previous = this.#options.storage.sync.vaultTransport(vault.vaultId);
+    if (previous.errorCode === 'BLOB_INCOMPLETE' && previous.retryAt > Date.now()) return false;
     this.#state(vault.vaultId, 'syncing');
     try {
       const epoch = this.#options.client.entitlements?.vault?.keyEpoch as string;
@@ -209,6 +211,7 @@ export class SyncEngine {
           ...transport,
           keyEpoch: epoch,
         });
+      await this.#repairMissing(vault, signal);
       let pushFailure: unknown;
       try {
         await this.#push(vault, signal);
@@ -224,6 +227,7 @@ export class SyncEngine {
             'NETWORK_ERROR',
             'RATE_LIMITED',
             'QUOTA_EXCEEDED',
+            'SCOPE_DISABLED',
           ].includes(error.code)
         )
           throw error;
@@ -262,7 +266,12 @@ export class SyncEngine {
         vault.vaultId,
         state,
         code,
-        Date.now() + (error instanceof ZuvRequestError ? (error.retryAfterMs ?? 5000) : 5000),
+        Date.now() +
+          (code === 'BLOB_INCOMPLETE'
+            ? 60000
+            : error instanceof ZuvRequestError
+              ? (error.retryAfterMs ?? 5000)
+              : 5000),
       );
       throw error;
     }
@@ -593,7 +602,7 @@ export class SyncEngine {
   }
 
   async #push(vault: SyncVaultRecord, signal: AbortSignal): Promise<void> {
-    const { storage, client, cache } = this.#options;
+    const { storage, client } = this.#options;
     const commit = storage.sync
       .commits(vault.vaultId)
       .find((value) => this.#commitInScope(vault, value));
@@ -616,80 +625,38 @@ export class SyncEngine {
     }
     if (commit.state === 'pending' || commit.attempts > 0) {
       this.#guard(vault, signal);
-      if ((commit.queries ?? 0) >= MAX_COMMIT_QUERIES)
-        throw new ZuvRequestError('RECOVERY_REQUIRED');
       const queried = {
         ...commit,
         outcome: 'uncertain' as const,
         queries: (commit.queries ?? 0) + 1,
-        retryAt: Date.now() + 5000,
+        retryAt: Date.now() + 10000,
       };
       storage.transaction(() => storage.sync.putCommit(queried));
-      let result: typeof schemas.commitResult._output;
       try {
-        result = await client.json(
+        const result = await client.json(
           'commitResult',
           'GET',
           `/api/wevir/sync/v1/commits/${commit.commitId}`,
           undefined,
           { signal },
         );
+        this.#guard(vault, signal);
+        this.#commitResult(vault, queried, result, batch.operations);
+        return;
       } catch (error) {
-        if (error instanceof ZuvRequestError && error.code === 'NOT_FOUND')
-          throw new ZuvRequestError('RECOVERY_REQUIRED');
-        throw error;
+        if (!(error instanceof ZuvRequestError) || error.code !== 'NOT_FOUND') throw error;
       }
-      this.#guard(vault, signal);
-      this.#commitResult(vault, queried, result, batch.operations);
-      return;
     }
+
     for (const blobId of new Set(
       batch.operations.flatMap((op) => (op.payload ? [op.payload.blobId] : [])),
     )) {
-      this.#guard(vault, signal);
-      const blob = storage.sync.blob(vault.vaultId, blobId);
-      if (!blob) throw new ZuvRequestError('INTEGRITY_FAILED');
-      if (blob.state === 'ready') continue;
-      if (blob.state === 'quarantined') throw new ZuvRequestError('INTEGRITY_FAILED');
-      if (blob.uploadAttempts >= MAX_AUTOMATIC_TRANSFERS) throw new ZuvRequestError('RATE_LIMITED');
-      const bytes = await cache.read(vault.vaultId, blobId, blob.cipherBytes, blob.cipherSha256);
-      if (bytes.length > this.#maximumTransferBytes()) throw new ZuvRequestError('QUOTA_EXCEEDED');
-      storage.sync.putBlob({ ...blob, uploadAttempts: blob.uploadAttempts + 1 });
-      const reserved = await client.json(
-        'blobReserved',
-        'POST',
-        '/api/wevir/sync/v1/blobs/reserve',
-        {
-          blobId,
-          cipherBytes: bytes.length,
-          cipherSha256: blob.cipherSha256,
-          purpose: batch.operations[0]?.entityType,
-        },
-        { signal },
-      );
-      if (Date.parse(reserved.expiresAt) <= Date.now()) throw new ZuvRequestError('RATE_LIMITED');
-      this.#guard(vault, signal);
-      storage.sync.putBlob({
-        ...blob,
-        state: 'reserved',
-        uploadAttempts: blob.uploadAttempts + 1,
-        uploadId: reserved.uploadId,
-        uploadExpiresAt: reserved.expiresAt,
-      });
-      const uploaded = await client.transfer({
-        method: 'PUT',
-        path: `/api/wevir/sync/v1/uploads/${reserved.uploadId}`,
-        body: bytes,
-        contentType: 'application/octet-stream',
-        maxBytes: 8192,
+      await this.#upload(
+        vault,
+        blobId,
+        (batch.operations.find((op) => op.payload?.blobId === blobId) as SyncOperation).entityType,
         signal,
-        transfer: this.#transferLimits(),
-      });
-      const result = schemas.uploaded.safeParse(JSON.parse(uploaded.bytes.toString('utf8')));
-      if (!result.success || result.data.blobId !== blobId)
-        throw new ZuvRequestError('INTEGRITY_FAILED');
-      this.#guard(vault, signal);
-      storage.sync.putBlob({ ...blob, state: 'ready', uploadAttempts: blob.uploadAttempts + 1 });
+      );
     }
     this.#guard(vault, signal);
     const attempted = { ...commit, attempts: commit.attempts + 1, outcome: 'uncertain' as const };
@@ -709,6 +676,17 @@ export class SyncEngine {
     } catch (error) {
       if (
         error instanceof ZuvRequestError &&
+        [
+          'RATE_LIMITED',
+          'BUDGET_PAUSED',
+          'SUBSCRIPTION_REQUIRED',
+          'AUTH_REQUIRED',
+          'DEVICE_REVOKED',
+        ].includes(error.code)
+      )
+        storage.transaction(() => storage.sync.putCommit({ ...commit, attempts: 0, queries: 0 }));
+      if (
+        error instanceof ZuvRequestError &&
         error.status >= 400 &&
         error.status < 500 &&
         COMMIT_REJECTIONS.has(error.code)
@@ -726,6 +704,93 @@ export class SyncEngine {
     }
   }
 
+  async #repairMissing(vault: SyncVaultRecord, signal: AbortSignal) {
+    if (this.#missingAt > Date.now()) return;
+    this.#missingAt = Date.now() + 10 * 60 * 1000;
+    const { storage, client, cache } = this.#options;
+    let after: string | undefined;
+    do {
+      const page = await client.json(
+        'missingBlobs',
+        'GET',
+        `/api/wevir/sync/v1/blobs/missing${after ? `?after=${after}` : ''}`,
+        undefined,
+        { signal },
+      );
+      for (const missing of page.blobs) {
+        const blob = storage.sync.blob(vault.vaultId, missing.blobId);
+        if (
+          !blob ||
+          blob.cipherBytes !== missing.cipherBytes ||
+          blob.cipherSha256 !== missing.cipherSha256 ||
+          blob.keyEpoch !== missing.keyEpoch
+        )
+          continue;
+        try {
+          await cache.read(vault.vaultId, blob.blobId, blob.cipherBytes, blob.cipherSha256);
+        } catch {
+          continue;
+        }
+        await this.#upload(vault, blob.blobId, missing.purpose, signal, true);
+      }
+      after = page.next ?? undefined;
+    } while (after);
+  }
+
+  async #upload(
+    vault: SyncVaultRecord,
+    blobId: string,
+    purpose: string,
+    signal: AbortSignal,
+    force = false,
+  ) {
+    const { storage, client, cache } = this.#options;
+    this.#guard(vault, signal);
+    const blob = storage.sync.blob(vault.vaultId, blobId);
+    if (!blob) throw new ZuvRequestError('INTEGRITY_FAILED');
+    if (blob.state === 'ready' && !force) return;
+    if (blob.state === 'quarantined') throw new ZuvRequestError('INTEGRITY_FAILED');
+    if (blob.uploadAttempts >= MAX_AUTOMATIC_TRANSFERS) throw new ZuvRequestError('RATE_LIMITED');
+    const bytes = await cache.read(vault.vaultId, blobId, blob.cipherBytes, blob.cipherSha256);
+    if (bytes.length > this.#maximumTransferBytes()) throw new ZuvRequestError('QUOTA_EXCEEDED');
+    storage.sync.putBlob({ ...blob, uploadAttempts: blob.uploadAttempts + 1 });
+    const reserved = await client.json(
+      'blobReserved',
+      'POST',
+      '/api/wevir/sync/v1/blobs/reserve',
+      {
+        blobId,
+        cipherBytes: bytes.length,
+        cipherSha256: blob.cipherSha256,
+        purpose,
+      },
+      { signal },
+    );
+    if (Date.parse(reserved.expiresAt) <= Date.now()) throw new ZuvRequestError('RATE_LIMITED');
+    this.#guard(vault, signal);
+    storage.sync.putBlob({
+      ...blob,
+      state: 'reserved',
+      uploadAttempts: blob.uploadAttempts + 1,
+      uploadId: reserved.uploadId,
+      uploadExpiresAt: reserved.expiresAt,
+    });
+    const uploaded = await client.transfer({
+      method: 'PUT',
+      path: `/api/wevir/sync/v1/uploads/${reserved.uploadId}`,
+      body: bytes,
+      contentType: 'application/octet-stream',
+      maxBytes: 8192,
+      signal,
+      transfer: this.#transferLimits(),
+    });
+    const result = schemas.uploaded.safeParse(JSON.parse(uploaded.bytes.toString('utf8')));
+    if (!result.success || result.data.blobId !== blobId)
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    this.#guard(vault, signal);
+    storage.sync.putBlob({ ...blob, state: 'ready', uploadAttempts: blob.uploadAttempts + 1 });
+  }
+
   #commitResult(
     vault: SyncVaultRecord,
     commit: SyncCommitRecord,
@@ -740,8 +805,9 @@ export class SyncEngine {
         outcome: result.state === 'committed' ? 'ready' : 'uncertain',
         errorCode: undefined,
         state: result.state,
+        queries: 0,
         ...(result.state === 'committed' && { cursor: result.cursor }),
-        retryAt: result.state === 'pending' ? Date.now() + 5000 : 0,
+        retryAt: result.state === 'pending' ? Date.now() + 10000 : 0,
       });
       for (const op of operations)
         storage.sync.markOperation(

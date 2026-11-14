@@ -1285,6 +1285,7 @@ export const SessionCreateFromHistoryParamsSchema = z.object({
   workspaceSnapshot: SyncWorkspaceRefSchema.optional(),
   workspaceRestoreId: z.string().min(8).max(128).optional(),
   trustWorkspace: z.boolean().optional(),
+  trustWorkspacePaths: z.array(z.string().min(1).max(1024)).max(10000).optional(),
 });
 
 /**

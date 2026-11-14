@@ -53,6 +53,19 @@ const fullAccess = {
  */
 export const PARAM_PERMISSION_RULES: ParamPermissionRules = {
   'session.create': [fullAccess],
+  'session.createFromHistory': [
+    {
+      permission: 'host.manage',
+      applies: (params) =>
+        params.workspaceSnapshot !== undefined ||
+        params.workspaceRestoreId !== undefined ||
+        params.trustWorkspace !== undefined ||
+        params.trustWorkspacePaths !== undefined,
+    },
+  ],
+  'readiness.install': [
+    { permission: 'host.manage', applies: (params) => params.workspaceRestoreId !== undefined },
+  ],
   'session.configure': [fullAccess],
   'automation.create': [fullAccess],
   'automation.update': [fullAccess],

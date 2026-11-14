@@ -83,6 +83,22 @@
           "retryAfterMs": 60000
         }
       }
+    },
+    {
+      "schema": "missingBlobs",
+      "value": {
+        "blobs": [
+          {
+            "blobId": "blob_fixture",
+            "cipherBytes": 64,
+            "cipherSha256": "8W0F7GspJI0sYa2x6SY_eOT3us4blVAUotF4cs_kBk0",
+            "purpose": "memory",
+            "keyEpoch": "1"
+          }
+        ],
+        "next": null,
+        "recovery": "client-reupload"
+      }
     }
   ],
   "invalid": [
@@ -223,6 +239,14 @@
         "enabled": true,
         "categories": ["token"],
         "projectIds": []
+      }
+    },
+    {
+      "schema": "missingBlobs",
+      "value": {
+        "blobs": [],
+        "next": null,
+        "recovery": "index-reconstruction"
       }
     }
   ]

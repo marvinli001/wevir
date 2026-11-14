@@ -30,15 +30,7 @@
   },
   "quotas": {
     "locks": ["global", "lane", "account", "account lane", "device"],
-    "failClosed": [
-      "price missing/expired",
-      "budget/DB unavailable",
-      "global pause for ordinary sync"
-    ],
-    "conservative": [
-      "unknown provider outcome",
-      "all approved network bytes",
-      "all extant versions and backups"
-    ]
+    "failClosed": ["price missing/expired", "budget/DB unavailable", "global pause for ordinary sync"],
+    "conservative": ["unknown provider outcome", "all approved network bytes", "all extant versions and backups"]
   }
 }

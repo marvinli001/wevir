@@ -646,6 +646,8 @@ export class SyncBundles {
     const binding = this.options.storage.sync.bundleBinding(op.vaultId, op.entityId);
     if (!binding || !(await this.allowed(binding, vault)))
       throw new ZuvRequestError('SCOPE_DISABLED');
+    if (binding.targetPath !== join(this.options.home, 'sync/working', vault.vaultId, op.entityId))
+      throw new ZuvRequestError('REVISION_CONFLICT');
     await this.files.prepare(op, body, root, signal);
     return this.files.apply(op.opId, signal);
   }
@@ -931,11 +933,14 @@ export class SyncBundles {
   #heads(vaultId: string, entity: SyncEntityRecord): string[] {
     const heads = this.options.storage.sync.heads(vaultId, entity.entityId);
     const current = this.options.storage.sync.entity(vaultId, entity.entityId)?.revision;
+    const operation = current && this.options.storage.sync.getOperation(vaultId, current);
     if (
       current &&
       !heads.includes(current) &&
       (this.options.storage.sync.draft(vaultId, current) ||
-        this.options.storage.sync.getOperation(vaultId, current)?.direction === 'outbox')
+        (operation &&
+          operation.direction === 'outbox' &&
+          ['queued', 'pending'].includes(operation.state)))
     ) {
       const ancestors = new Set<string>(),
         pending = [current];

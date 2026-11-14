@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { homedir, hostname } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   AUTOMATION_QUIET_MARKER,
   type ClientIdentity,
@@ -862,6 +862,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     const dispatcher = hookDispatcher;
+    const ruleImportRoots = (cwd: string) => {
+      const roots = cwd.startsWith(join(home, 'sync/workspaces/trees/')) ? [cwd] : [];
+      for (const vault of sessionsDb.sync.vaults()) {
+        let after = '';
+        while (true) {
+          const bindings = sessionsDb.sync.bundleBindings(vault.vaultId, after);
+          if (!bindings.length) break;
+          for (const binding of bindings)
+            roots.push(
+              binding.targetKind === 'file' ? dirname(binding.targetPath) : binding.targetPath,
+            );
+          after = bindings[bindings.length - 1]?.entityId as string;
+        }
+      }
+      return roots;
+    };
     const manager = new SessionManager({
       storage,
       events: store,
@@ -877,7 +893,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           snapshot: request.workspaceSnapshot,
           ...(request.workspaceRestoreId && { restoreId: request.workspaceRestoreId }),
         });
-        if (restored.requiresTrust.length && request.trustWorkspace !== true)
+        const trustMatches = (paths: string[]) =>
+          !paths.length ||
+          (request.trustWorkspace === true &&
+            request.workspaceRestoreId === restored.restoreId &&
+            JSON.stringify([...paths].sort()) ===
+              JSON.stringify([...(request.trustWorkspacePaths ?? [])].sort()));
+        if (!trustMatches(restored.requiresTrust))
           throw new HostError('INVALID_STATE', 'Restored agent configuration requires approval', {
             state: 'closed',
           });
@@ -889,12 +911,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           restored.cwd,
         );
         if (report.status === 'not_ready')
-          throw new HostError(
-            'INVALID_STATE',
-            `Workspace dependencies require setup: ${restored.cwd}`,
-            { state: 'closed' },
-          );
+          throw new HostError('INVALID_STATE', 'Workspace dependencies require setup', {
+            state: 'closed',
+          });
         await sync.workspaces.restoredRoot(source.workspaceId, restored.restoreId);
+        const current = await sync.workspaceRestore({
+          sessionId,
+          snapshot: request.workspaceSnapshot,
+          restoreId: restored.restoreId,
+        });
+        if (!trustMatches(current.requiresTrust))
+          throw new HostError('INVALID_STATE', 'Restored agent configuration requires approval', {
+            state: 'closed',
+          });
         return {
           cwd: restored.cwd,
           origin: {
@@ -1060,7 +1089,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       // 跨引擎的规则文件（0.68.0）：引擎不读的由 Host 补；设置关掉时只记引擎自己读的。
       ruleFiles: {
         discover: (cwd) =>
-          discoverRuleFiles({ cwd, home: options.userHome ?? options.pluginUserHome ?? homedir() }),
+          discoverRuleFiles({
+            cwd,
+            home: options.userHome ?? options.pluginUserHome ?? homedir(),
+            importRoots: ruleImportRoots(cwd),
+          }),
         enabled: () => settings.get().ruleFiles !== false,
       },
       // 用户的说明与输出风格（0.78.0）：每次建立、恢复与接力引擎会话时按当时的设置与项目算。

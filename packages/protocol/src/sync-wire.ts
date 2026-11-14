@@ -1,5 +1,6 @@
 // Adapted from wevir-zuv packages/sync-protocol/src/index.ts
 // Commit: 7e9f90f6d859ce352490cb5fc6b74ee58b5a2912; MIT, Copyright (c) 2026 Wevir Labs.
+// missingBlobs: wevir-zuv packages/sync-protocol/src/index.ts, commit 71f2837; MIT.
 // License and frozen artifacts: contracts/wevir-sync/v1/.
 import canonicalize from 'canonicalize';
 import { z } from 'zod';
@@ -107,6 +108,21 @@ export const publicKey = z.strictObject({
 });
 export const empty = z.strictObject({});
 export const schemas = {
+  missingBlobs: z.strictObject({
+    blobs: z
+      .array(
+        z.strictObject({
+          blobId: id,
+          cipherBytes: z.number().int().positive().max(LIMITS.blobBytes),
+          cipherSha256: digest,
+          purpose: entityType,
+          keyEpoch: decimal,
+        }),
+      )
+      .max(100),
+    next: id.nullable(),
+    recovery: z.literal('client-reupload'),
+  }),
   signingKeys: z.strictObject({
     keys: z.array(z.strictObject({ keyId: id, publicKey: z.string().min(40).max(1024) })).max(1),
   }),

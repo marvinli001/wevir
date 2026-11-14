@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { PROJECT_FILES } from '../rule-files.js';
 import { useTempDir } from '../test-utils.js';
 import { sha256 } from './crypto.js';
 import {
@@ -10,6 +11,7 @@ import {
   validateWorkspacePaths,
   workspaceGit,
   workspaceLayers,
+  workspaceRequiresTrust,
 } from './workspace-git.js';
 
 const temp = useTempDir();
@@ -60,6 +62,14 @@ const metadata = (captured: Awaited<ReturnType<typeof captureWorkspaceTree>>) =>
 });
 
 describe('workspace snapshots preserve Git layers without execution', () => {
+  it('trusts every discovered rule name and rejects Windows aliases on all platforms', () => {
+    for (const name of ['CLAUDE.local.md', 'GEMINI.md', '.cursorrules'])
+      expect(workspaceRequiresTrust(name)).toBe(true);
+    for (const file of PROJECT_FILES) expect(workspaceRequiresTrust(file.name)).toBe(true);
+    expect(workspaceRequiresTrust('.cursor/rules/base.mdc')).toBe(true);
+    for (const path of ['GIT~1/hooks/pre-commit', 'src/a:b', '.git./config', 'CON', 'id_rsa '])
+      expect(() => validateWorkspacePaths([path])).toThrow();
+  });
   it('restores staged, unstaged, selected untracked, deletion, rename and binary without the source base', async () => {
     const source = await repo();
     await writeFile(join(source, 'mixed.txt'), 'staged\n');

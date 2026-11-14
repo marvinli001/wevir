@@ -70,6 +70,7 @@ export class MockSyncGateway {
   readonly acknowledgements: Array<{ deviceId: string; cursor: string; restoreId?: string }> = [];
   readonly attempts = { uploads: 0, downloads: 0, reservations: 0, commits: 0 };
   pendingCommits = false;
+  readonly missingBlobs = new Set<string>();
   readonly pendingEntities = new Set<string>();
   acceptedOperations(entityId: string): SyncOperation[] {
     return [...this.#vaults.values()].flatMap((vault) =>
@@ -443,6 +444,33 @@ export class MockSyncGateway {
       vault.uploads.set(uploadId, input.blobId);
       return { value: { uploadId, expiresAt: new Date(Date.now() + 300000).toISOString() } };
     }
+    if (path === '/sync/v1/blobs/missing' && method === 'GET') {
+      const after = url.searchParams.get('after') ?? '';
+      const blobs = [...vault.blobs]
+        .filter(
+          ([id, blob]) =>
+            this.missingBlobs.has(id) &&
+            id > after &&
+            scopes.categories.includes(blob.purpose as Scopes['categories'][number]) &&
+            (!blob.projectId || scopes.projectIds.includes(blob.projectId)),
+        )
+        .sort(([a], [b]) => a.localeCompare(b))
+        .slice(0, 100)
+        .map(([blobId, blob]) => ({
+          blobId,
+          cipherBytes: blob.cipherBytes,
+          cipherSha256: blob.cipherSha256,
+          purpose: blob.purpose,
+          keyEpoch: '1',
+        }));
+      return {
+        value: {
+          blobs,
+          next: blobs.length === 100 ? blobs.at(-1)?.blobId : null,
+          recovery: 'client-reupload',
+        },
+      };
+    }
     if (path.startsWith('/sync/v1/uploads/') && method === 'PUT') {
       const uploadId = path.split('/').at(-1) as string;
       const blobId = vault.uploads.get(uploadId);
@@ -453,6 +481,7 @@ export class MockSyncGateway {
       if (raw.length !== blob.cipherBytes || sha256(raw) !== blob.cipherSha256)
         throw new MockSyncError('INTEGRITY_FAILED');
       blob.bytes = raw;
+      this.missingBlobs.delete(blobId);
       return { value: { blobId, state: 'ready' } };
     }
     if (path === '/sync/v1/commits' && method === 'POST') {
@@ -462,11 +491,20 @@ export class MockSyncGateway {
       if (previous) {
         if (jcs(previous.batch) !== jcs(batch)) throw new MockSyncError('OP_ID_REUSED');
       } else {
+        if ([...vault.commits.values()].some((commit) => commit.state === 'pending'))
+          throw new MockSyncError('RATE_LIMITED', 429);
         for (const operation of batch.operations) {
           const manifest = batch.recordManifest.find(
             (entry) => entry.opId === operation.opId,
           ) as RecordManifest;
           allowed(operation.entityType, manifest.projectId);
+          if (
+            ['project', 'session', 'event-segment', 'workspace-snapshot'].includes(
+              operation.entityType,
+            ) &&
+            !manifest.projectId
+          )
+            throw new MockSyncError('SCOPE_DISABLED', 403);
           if (
             operation.vaultId !== vault.id ||
             operation.deviceId !== deviceId ||
@@ -488,7 +526,11 @@ export class MockSyncGateway {
             throw new MockSyncError('SCOPE_DISABLED', 403);
           if (operation.payload) {
             const blob = vault.blobs.get(operation.payload.blobId);
-            if (!blob?.bytes || blob.purpose !== operation.entityType)
+            if (
+              !blob?.bytes ||
+              this.missingBlobs.has(operation.payload.blobId) ||
+              blob.purpose !== operation.entityType
+            )
               throw new MockSyncError('BLOB_INCOMPLETE');
             if (blob.projectId !== undefined && blob.projectId !== manifest.projectId)
               throw new MockSyncError('SCOPE_DISABLED', 403);
@@ -559,7 +601,9 @@ export class MockSyncGateway {
       const reference = vault.operations.find(
         (entry) => entry.operation.payload?.blobId === input.blobId,
       );
-      if (!blob?.bytes || !reference) throw new MockSyncError('NOT_FOUND', 404);
+      if (!blob || !reference) throw new MockSyncError('NOT_FOUND', 404);
+      if (!blob.bytes || this.missingBlobs.has(input.blobId))
+        throw new MockSyncError('BLOB_INCOMPLETE');
       if (restore) {
         if (!restore.entries.some((entry) => entry.operation.payload?.blobId === input.blobId))
           throw new MockSyncError('SCOPE_DISABLED', 403);

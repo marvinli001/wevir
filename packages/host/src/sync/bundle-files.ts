@@ -100,7 +100,7 @@ export class SyncBundleFiles {
     if (
       binding.revision &&
       binding.revision !== operation.opId &&
-      !operation.parents.includes(binding.revision)
+      !this.#descends(operation, binding.revision)
     )
       throw new ZuvRequestError('REVISION_CONFLICT');
     await this.#directory(dirname(binding.targetPath), binding.targetAnchor, false);
@@ -649,6 +649,27 @@ export class SyncBundleFiles {
   }
   #staging(app: SyncBundleApplication): string {
     return join(this.#options.home, 'sync/bundle-writes', app.vaultId, app.opId);
+  }
+  #descends(operation: SyncMaterialRevision, revision: string): boolean {
+    const pending = [...operation.parents],
+      seen = new Set<string>();
+    while (pending.length) {
+      const opId = pending.pop() as string;
+      if (opId === revision) return true;
+      if (seen.has(opId)) continue;
+      seen.add(opId);
+      if (seen.size > 4096) throw new ZuvRequestError('QUOTA_EXCEEDED');
+      const stored = this.#options.storage.sync.getOperation(operation.vaultId, opId);
+      const draft = this.#options.storage.sync.draft(operation.vaultId, opId);
+      if (
+        stored &&
+        stored.entityId === operation.entityId &&
+        ['applied', 'committed'].includes(stored.state)
+      )
+        pending.push(...(stored.envelope as SyncMaterialRevision).parents);
+      else if (draft?.entityId === operation.entityId) pending.push(...draft.parents);
+    }
+    return false;
   }
   #path(binding: SyncBundleBinding, path: string): string {
     if (!SyncRelativePathSchema.safeParse(path).success || excludedBundlePath(path))

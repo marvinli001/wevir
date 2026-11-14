@@ -51,8 +51,10 @@ export class SyncEventCapture {
             vault,
             session,
             project.projectId,
-            this.#storage.sync.captureRange(vault.vaultId, session.id, source.streamId)
-              ?.preparedSeq ?? (includeHistory ? 0 : session.lastSeq),
+            includeHistory
+              ? (this.#storage.sync.captureRange(vault.vaultId, session.id, source.streamId)
+                  ?.preparedSeq ?? 0)
+              : session.lastSeq,
             { baselineOnly: !includeHistory, force: backfill },
           );
           this.#storage.sync.capture({
@@ -63,6 +65,15 @@ export class SyncEventCapture {
             throughSeq: session.lastSeq,
             preparedSeq: includeHistory ? 0 : session.lastSeq,
           });
+          if (!includeHistory) {
+            const range = this.#storage.sync.captureRange(
+              vault.vaultId,
+              session.id,
+              source.streamId,
+            );
+            if (range && range.preparedSeq < session.lastSeq)
+              this.#storage.sync.prepareCapture(range, session.lastSeq);
+          }
           if (backfill)
             this.#storage.sync.rewindCapture(vault.vaultId, session.id, source.streamId);
         }
@@ -422,7 +433,7 @@ export class SyncEventCapture {
       localId: session.id,
     });
     if (baseline?.fingerprint === fingerprint && !(options.force && !existing?.revision)) return;
-    if (options.baselineOnly && !baseline && !existing?.revision) {
+    if (options.baselineOnly) {
       if (!existing)
         this.#storage.sync.putEntity({
           vaultId: vault.vaultId,

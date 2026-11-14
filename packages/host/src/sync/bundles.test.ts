@@ -182,6 +182,35 @@ async function selection(h: Awaited<ReturnType<typeof fixture>>, managed = false
 }
 
 describe('explicit archived bundle restoration', () => {
+  it('stages inbound native skill revisions for explicit selection without changing executable files', async () => {
+    const h = await fixture();
+    await h.bind();
+    const binding = h.storage.sync.bundleBinding(h.ref.vaultId, h.ref.entityId)!;
+    const source = join(h.home, 'incoming');
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, 'SKILL.md'), 'Unconfirmed remote instructions');
+    const captured = await snapshotBundle({ path: source });
+    const body = archive(captured.files).body;
+    await expect(
+      h.service().receive(
+        {
+          ...h.ref,
+          opId: 'incoming_operation',
+          deviceId: 'device_remote',
+          entityType: 'skill-bundle',
+          kind: 'put',
+          parents: [binding.revision!],
+          clientTime: new Date().toISOString(),
+        },
+        body,
+        source,
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    expect(await readFile(join(h.native, 'SKILL.md'), 'utf8')).toBe(
+      'Initial synthetic instructions',
+    );
+  });
   it('restores complete archived bytes through new operations and fresh local chunks while retaining newer versions', async () => {
     const h = await fixture();
     const old = await snapshotBundle({ path: h.native });

@@ -114,6 +114,7 @@ export function FromHistoryDialog({
             },
             workspaceRestoreId: prepared.restoreId,
             trustWorkspace: trust,
+            trustWorkspacePaths: trust ? prepared.requiresTrust : [],
           }),
       });
       choose(choice);
@@ -168,6 +169,13 @@ export function FromHistoryDialog({
           <label className="flex items-start gap-2 text-sm">
             <Checkbox checked={trust} disabled={busy} onCheckedChange={setTrust} />
             <span>{t('sync.workspaceTrust')}</span>
+            <ul>
+              {restored.requiresTrust.map((path) => (
+                <li key={path}>
+                  <code>{path}</code>
+                </li>
+              ))}
+            </ul>
           </label>
         )}
         {report && report.status === 'not_ready' && (

@@ -42,6 +42,17 @@ function layout(files: Record<string, string>) {
 }
 
 describe('discoverRuleFiles', () => {
+  it('confines restored imports, including absolute paths and symlink targets', async () => {
+    const { home, repo } = layout({
+      'home/code/repo/GEMINI.md': '@~/notes/private.md @./safe.md @./link.md',
+      'home/code/repo/safe.md': 'safe instructions',
+      'home/notes/private.md': 'synthetic private material',
+    });
+    symlinkSync(join(home, 'notes/private.md'), join(repo, 'link.md'));
+    const found = await discoverRuleFiles({ cwd: repo, home, env: {}, importRoots: [repo] });
+    expect(found.map((file) => file.text)).not.toContain('synthetic private material');
+    expect(found.map((file) => file.text)).toContain('safe instructions');
+  });
   it('用户级在前，项目里从仓库根到会话目录，每层按固定先后', async () => {
     const { home, repo } = layout({
       'home/.codex/AGENTS.md': 'user agents',

@@ -155,7 +155,7 @@ export class SyncMaterials {
           }
         };
       }
-      if (op.entityType === 'event-segment') return this.#prepareEvents(op, record);
+      if (op.entityType === 'event-segment') return await this.#prepareEvents(op, record);
       if (op.entityType === 'memory') return await this.#prepareMemory(op, record, context);
       if (op.entityType === 'settings') return await this.#settings.prepare(op, record, context);
       const raw = record.content as { schema?: string };
@@ -216,7 +216,7 @@ export class SyncMaterials {
     return workspace;
   }
 
-  #prepareEvents(op: SyncMaterialRevision, record: MaterialRecord): () => void {
+  async #prepareEvents(op: SyncMaterialRevision, record: MaterialRecord): Promise<() => void> {
     const body = SyncEventStreamContentSchema.parse(record.content);
     const origin = op.origin;
     if (
@@ -225,6 +225,13 @@ export class SyncMaterials {
       body.streamId !== origin.streamId ||
       !record.events
     )
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    if (!this.#deviceHosts.has(op.deviceId)) {
+      for (const device of (await this.#client.json('devices', 'GET', '/api/wevir/sync/v1/devices'))
+        .devices)
+        this.#deviceHosts.set(device.deviceId, device.originHostId);
+    }
+    if (this.#deviceHosts.get(op.deviceId) !== origin.hostId)
       throw new ZuvRequestError('INTEGRITY_FAILED');
     this.#workspace(op.vaultId, record.projectId);
     const decoded = record.events.map((entry) => {

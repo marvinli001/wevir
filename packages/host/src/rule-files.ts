@@ -19,7 +19,7 @@
 
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type {
   RuleDeliveryChannel,
   RuleFile,
@@ -43,7 +43,7 @@ const RULE_PARENT_LEVELS = 32;
 const CURSOR_RULES_MAX = 64;
 
 /** 每一层目录里找的文件，按这个先后。 */
-const PROJECT_FILES: ReadonlyArray<{ kind: RuleFileKind; name: string }> = [
+export const PROJECT_FILES: ReadonlyArray<{ kind: RuleFileKind; name: string }> = [
   { kind: 'agents', name: 'AGENTS.md' },
   { kind: 'claude', name: 'CLAUDE.md' },
   { kind: 'claude', name: join('.claude', 'CLAUDE.md') },
@@ -77,6 +77,7 @@ export interface RuleDiscoveryOptions {
   home?: string;
   /** 读 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`；默认 `process.env`。 */
   env?: NodeJS.ProcessEnv;
+  importRoots?: readonly string[];
 }
 
 /** 找出这个会话目录的规则文件：用户级在前，项目里的从仓库根到会话目录，引入的跟在引入它的后面。 */
@@ -93,7 +94,14 @@ export async function discoverRuleFiles(options: RuleDiscoveryOptions): Promise<
     depth: number,
     importedFrom?: string,
     body?: (text: string) => string | undefined,
+    boundary?: string,
   ): Promise<string | undefined> => {
+    boundary ??= options.importRoots?.find((root) => within(root, path));
+    if (importedFrom && boundary) {
+      if (!within(boundary, path)) return undefined;
+      const real = await realpath(path).catch(() => undefined);
+      if (!real || !within(boundary, real)) return undefined;
+    }
     const file = await readRuleFile(path);
     if (file === undefined) return undefined;
     const existing = seen.get(file.real);
@@ -123,7 +131,7 @@ export async function discoverRuleFiles(options: RuleDiscoveryOptions): Promise<
       depth < RULE_IMPORT_DEPTH
     ) {
       for (const target of importPaths(text, dirname(path), home)) {
-        const real = await add(target, scope, kind, depth + 1, path);
+        const real = await add(target, scope, kind, depth + 1, path, undefined, boundary);
         if (real !== undefined && !entry.imports.includes(real)) entry.imports.push(real);
       }
     }
@@ -143,6 +151,11 @@ export async function discoverRuleFiles(options: RuleDiscoveryOptions): Promise<
     }
   }
   return found;
+}
+
+function within(root: string, path: string) {
+  const child = relative(resolve(root), resolve(path));
+  return !isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`);
 }
 
 /** 规则文件交给这个会话的引擎的计划：列表（谁读的）与要补的正文。 */

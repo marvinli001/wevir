@@ -350,11 +350,22 @@ describe('workspace handoff through two isolated Hosts', () => {
     ).toMatchObject({ code: -32020 });
     expect(second.adapter.created).toBe(before);
     await expect(readFile(marker)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(
+      (
+        await second.rpc.call('session.createFromHistory', {
+          sessionId: mirrored.id,
+          workspaceSnapshot: snapshot,
+          workspaceRestoreId: restored.restoreId,
+          trustWorkspace: true,
+        })
+      ).error,
+    ).toMatchObject({ code: -32020 });
     const allowed = await second.rpc.request('session.createFromHistory', {
       sessionId: mirrored.id,
       workspaceSnapshot: snapshot,
       workspaceRestoreId: restored.restoreId,
       trustWorkspace: true,
+      trustWorkspacePaths: ['.claude/settings.json'],
     });
     expect(allowed.session.cwd).toBe(restored.cwd);
   }, 30000);

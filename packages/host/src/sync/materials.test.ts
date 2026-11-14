@@ -52,8 +52,12 @@ function fixture() {
     });
   });
   const memoryDir = join(home, 'memory');
+  const client = new ZuvClient({ secrets: new FileSecretStore(home) });
+  vi.spyOn(client, 'json').mockResolvedValue({
+    devices: [{ deviceId: 'device_source', originHostId: 'device_source' }],
+  } as never);
   const materials = new SyncMaterials({
-    client: new ZuvClient({ secrets: new FileSecretStore(home) }),
+    client,
     eligible: () => storage.sync.activeVault(),
     nativeSource: () => undefined,
     storage,
@@ -406,10 +410,10 @@ describe('untrusted synchronized packages', () => {
     h.storage.transaction(() =>
       h.storage.sync.bindProject('vault_synthetic', 'project_synthetic', 'ws_synthetic'),
     );
-    const receive = async (streamId: string, text: string) => {
+    const receive = async (streamId: string, text: string, hostId = 'device_source') => {
       const sessionId = 'ses_original';
       const origin = {
-        hostId: 'device_source',
+        hostId,
         sessionId,
         streamId,
         fromSeq: '1',
@@ -462,6 +466,10 @@ describe('untrusted synchronized packages', () => {
         },
       );
     };
+    await expect(receive('stream_spoofed', 'forged source', 'host_other')).rejects.toMatchObject({
+      code: 'INTEGRITY_FAILED',
+    });
+    expect(h.storage.sync.sources('vault_synthetic')).toEqual([]);
     await receive('stream_branchA', 'Synthetic first branch');
     await receive('stream_branchB', 'Synthetic concurrent branch');
     const sources = h.storage.sync.sources('vault_synthetic');

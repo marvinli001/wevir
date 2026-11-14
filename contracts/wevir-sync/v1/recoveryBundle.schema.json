@@ -6,6 +6,9 @@
       "type": "string",
       "const": "wevir-sync-export/1"
     },
+    "indexOnly": {
+      "type": "boolean"
+    },
     "vaultId": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{8,128}$"
@@ -23,6 +26,14 @@
       "pattern": "^(0|[1-9][0-9]{0,38})$"
     },
     "retiredBlobIds": {
+      "maxItems": 50000,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{8,128}$"
+      }
+    },
+    "missingBlobIds": {
       "maxItems": 50000,
       "type": "array",
       "items": {
@@ -273,14 +284,7 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "blobId",
-                "storeId",
-                "objectKey",
-                "cipherBytes",
-                "cipherSha256",
-                "keyEpoch"
-              ],
+              "required": ["blobId", "storeId", "objectKey", "cipherBytes", "cipherSha256", "keyEpoch"],
               "additionalProperties": false
             }
           },
@@ -441,6 +445,11 @@
           "kind": {
             "type": "string",
             "enum": ["blob", "receipt", "key"]
+          },
+          "copies": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2
           },
           "bytes": {
             "type": "integer",

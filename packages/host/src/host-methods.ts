@@ -128,6 +128,7 @@ import { WritingStyleError, type WritingStyleStore } from './writing-style/store
 export interface RequestContext {
   readonly client: ClientIdentity;
   readonly capabilities: ClientCapabilities;
+  readonly principal?: import('./permissions.js').ConnectionPrincipal;
 }
 
 export type MethodHandler<M extends MethodName> = (
@@ -979,7 +980,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     // 0.32.0：文件预览的流式地址与编辑的写回。
-    'workspace.fileUrl': async ({ workspaceId, sessionId, folder, path, artifactSeq }) => {
+    'workspace.fileUrl': async ({ workspaceId, sessionId, folder, path, artifactSeq }, context) => {
       const { root, file } = await resolveWorkspaceFile(
         workspaceId,
         sessionId,
@@ -990,7 +991,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
       // 令牌下只读得到能预览的类型（file-urls.ts），其余的文件不发地址。
       const local =
-        sessionId && storage.sessions.get(sessionId)?.origin?.kind === 'synced'
+        context.principal?.kind === 'local' &&
+        sessionId &&
+        storage.sessions.get(sessionId)?.origin?.kind === 'synced'
           ? { localPath: file.real }
           : {};
       if (!isServablePath(path, true)) return { path, ...local, unavailable: 'unsupported' };

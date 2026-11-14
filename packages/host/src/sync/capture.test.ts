@@ -93,6 +93,41 @@ function fixture() {
 }
 
 describe('same-transaction source event capture', () => {
+  it.each(['disabled', 'project-removed'])(
+    'does not backfill events after %s consent is restored',
+    (reason) => {
+      const h = fixture();
+      h.permit();
+      h.create();
+      h.capture.prepare();
+      const before = h.storage.sync.drafts(h.vault.vaultId).map((row) => row.opId);
+      if (reason === 'disabled') h.disallow();
+      else
+        h.storage.sync.setScopes(h.vault.vaultId, {
+          ...h.storage.sync.activeVault()!,
+          projectIds: [],
+          revision: '2',
+        });
+      h.store.append(h.sessionId, {
+        type: 'user.message',
+        source: 'host',
+        payload: {
+          turnId: 'trn_private',
+          content: [{ type: 'text', text: 'synthetic unconsented event' }],
+          sentBy: { deviceId: 'synthetic', clientId: 'synthetic', clientKind: 'cli' },
+        },
+      });
+      h.storage.sync.setScopes(h.vault.vaultId, {
+        ...h.storage.sync.activeVault()!,
+        projectIds: ['project_fixture'],
+        revision: '3',
+      });
+      h.permit();
+      h.capture.initialize(false);
+      h.capture.prepare();
+      expect(h.storage.sync.drafts(h.vault.vaultId).map((row) => row.opId)).toEqual(before);
+    },
+  );
   it('preserves every already-captured range during removal after sign-out, without adding later unconsented events', () => {
     const h = fixture();
     h.permit();

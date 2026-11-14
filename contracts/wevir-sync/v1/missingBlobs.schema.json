@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "blobs": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "blobId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,128}$"
+          },
+          "cipherBytes": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 4194304
+          },
+          "cipherSha256": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "project",
+              "session",
+              "event-segment",
+              "settings",
+              "memory",
+              "rule",
+              "skill-bundle",
+              "artifact",
+              "workspace-snapshot"
+            ]
+          },
+          "keyEpoch": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,38})$"
+          }
+        },
+        "required": ["blobId", "cipherBytes", "cipherSha256", "purpose", "keyEpoch"],
+        "additionalProperties": false
+      }
+    },
+    "next": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{8,128}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "recovery": {
+      "type": "string",
+      "const": "client-reupload"
+    }
+  },
+  "required": ["blobs", "next", "recovery"],
+  "additionalProperties": false,
+  "$id": "urn:wevir:sync:1:missingBlobs"
+}

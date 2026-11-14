@@ -19,7 +19,17 @@ export const SyncRelativePathSchema = z
       !path.includes('\\') &&
       !path.includes('\0') &&
       !/^[A-Za-z]:/.test(path) &&
-      path.split('/').every((part) => part !== '' && part !== '.' && part !== '..'),
+      path
+        .split('/')
+        .every(
+          (part) =>
+            part !== '' &&
+            part !== '.' &&
+            part !== '..' &&
+            !Array.from(part).some((char) => char.charCodeAt(0) < 32) &&
+            !/[<>:"|?*]|[. ]$|~[0-9]/.test(part) &&
+            !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part),
+        ),
     'unsafe material path',
   );
 

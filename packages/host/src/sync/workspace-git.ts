@@ -5,6 +5,7 @@ import { devNull } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { SyncRelativePathSchema, type SyncWorkspaceMetadata } from '@wevir/protocol';
 import { jcs } from '@wevir/protocol/sync';
+import { PROJECT_FILES } from '../rule-files.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { type BundleFile, excludedBundlePath, snapshotBundle } from './bundle-snapshot.js';
 import { sha256 } from './crypto.js';
@@ -13,7 +14,12 @@ export const WORKSPACE_MAX_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 10000;
 const fold = (path: string) => path.normalize('NFC').toLowerCase();
 export const workspaceRequiresTrust = (path: string) =>
-  /(^|\/)(?:\.claude|\.codex|\.cursor|\.opencode|\.kiro|\.gemini|\.agents|\.wevir|skills|hooks)(?:\/|$)|(^|\/)(?:\.gitattributes|\.mcp\.json|mcp\.json|opencode\.jsonc?|AGENTS\.md|CLAUDE\.md)$/i.test(
+  PROJECT_FILES.some(
+    (file) =>
+      fold(path) === fold(file.name.split('\\').join('/')) ||
+      fold(path).endsWith(`/${fold(file.name.split('\\').join('/'))}`),
+  ) ||
+  /(^|\/)(?:\.claude|\.codex|\.cursor|\.opencode|\.kiro|\.gemini|\.agents|\.wevir)(?:\/|$)|(^|\/)(?:\.gitattributes|\.mcp\.json|mcp\.json|opencode\.jsonc?)$/i.test(
     path,
   );
 
