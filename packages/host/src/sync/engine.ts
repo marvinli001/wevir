@@ -1,4 +1,4 @@
-import { validateSyncBatch, validateSyncPage } from '@wevir/protocol';
+import { SyncBundleContentSchema, validateSyncBatch, validateSyncPage } from '@wevir/protocol';
 import {
   jcs,
   LIMITS,
@@ -27,8 +27,14 @@ import type { SyncDraftPayload } from './queue.js';
 import { rebaseResetCommit } from './reset-queue.js';
 
 type Record = typeof packRecord._output;
+type PreparedDraft = {
+  draft: SyncDraftRecord;
+  entity: SyncEntityRecord;
+  payload: SyncDraftPayload;
+};
 
 const PACK_TARGET_BYTES = 256 * 1024;
+const MAX_PREPARATION_REFERENCES = 4096;
 const MAX_COMMIT_QUERIES = 3;
 const COMMIT_REJECTIONS = new Set([
   'MISSING_PARENT',
@@ -304,6 +310,140 @@ export class SyncEngine {
     });
   }
 
+  // Only dependencies in the same category/project can precede a record inside its pack.
+  #readyDrafts(vault: SyncVaultRecord, initial: SyncDraftRecord[]): Map<string, PreparedDraft[]> {
+    const { storage } = this.#options;
+    const nodes = new Map<string, PreparedDraft>();
+    const dependencies = new Map<string, PreparedDraft[]>();
+    const state = new Map<string, 'visiting' | 'ready'>();
+    const ordered: PreparedDraft[] = [];
+    let references = 0;
+    const node = (draft: SyncDraftRecord): PreparedDraft => {
+      const cached = nodes.get(draft.opId);
+      if (cached) return cached;
+      if (nodes.size >= MAX_PREPARATION_REFERENCES) throw new ZuvRequestError('QUOTA_EXCEEDED');
+      const entity = storage.sync.entity(vault.vaultId, draft.entityId);
+      if (!entity) throw new ZuvRequestError('INTEGRITY_FAILED');
+      this.#scope(vault, entity.entityType, entity.projectId);
+      const payload = draft.content as SyncDraftPayload;
+      if (payload.schema !== 'wevir-sync-draft/1') throw new ZuvRequestError('UPGRADE_REQUIRED');
+      const value = { draft, entity, payload };
+      nodes.set(draft.opId, value);
+      return value;
+    };
+    const referencesOf = (current: PreparedDraft): PreparedDraft[] => {
+      const result: PreparedDraft[] = [];
+      const reference = (
+        opId: string,
+        entityId: string,
+        kind: 'parent' | 'part' | 'rule' | 'project',
+      ) => {
+        if (++references > MAX_PREPARATION_REFERENCES) throw new ZuvRequestError('QUOTA_EXCEEDED');
+        const draft = storage.sync.draft(vault.vaultId, opId);
+        const target = draft ? node(draft) : undefined;
+        const stored = target ? undefined : storage.sync.getOperation(vault.vaultId, opId);
+        const entity = target?.entity ?? stored;
+        if (!entity) {
+          if (
+            (kind === 'parent' || kind === 'project') &&
+            !storage.sync.missingParents(vault.vaultId, entityId, [opId]).length
+          )
+            return;
+          throw new ZuvRequestError('MISSING_PARENT');
+        }
+        const expectedType =
+          kind === 'parent' ? current.entity.entityType : kind === 'part' ? 'artifact' : kind;
+        if (entity.entityId !== entityId || entity.entityType !== expectedType)
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        if (kind !== 'project' || target) this.#scope(vault, entity.entityType, entity.projectId);
+        if (
+          kind === 'project'
+            ? entity.projectId !== entityId
+            : kind === 'rule'
+              ? entity.projectId !== undefined && entity.projectId !== current.entity.projectId
+              : entity.projectId !== current.entity.projectId
+        )
+          throw new ZuvRequestError('SCOPE_DISABLED');
+        if (target) result.push(target);
+        else if (!stored || !['applied', 'committed'].includes(stored.state))
+          throw new ZuvRequestError('RECOVERY_REQUIRED');
+      };
+      for (const parent of current.draft.parents)
+        reference(parent, current.draft.entityId, 'parent');
+      if (current.entity.projectId && current.entity.entityType !== 'project') {
+        const project = storage.sync.projectOperationId(vault.vaultId, current.entity.projectId);
+        if (!project) throw new ZuvRequestError('MISSING_PARENT');
+        reference(project, current.entity.projectId, 'project');
+      }
+      if ((current.payload.body as { schema?: string })?.schema === 'wevir-bundle/1') {
+        const parsed = SyncBundleContentSchema.safeParse(current.payload.body);
+        if (!parsed.success) throw new ZuvRequestError('INTEGRITY_FAILED');
+        for (const file of parsed.data.files)
+          for (const part of file.parts) reference(part.opId, part.entityId, 'part');
+        if (parsed.data.category === 'workspace-snapshot') {
+          const metadata = parsed.data.metadata as { ruleVersions?: unknown } | undefined;
+          if (metadata?.ruleVersions !== undefined) {
+            const rules = SyncBundleContentSchema.shape.files.element.shape.parts.safeParse(
+              metadata.ruleVersions,
+            );
+            if (!rules.success) throw new ZuvRequestError('INTEGRITY_FAILED');
+            for (const rule of rules.data) reference(rule.opId, rule.entityId, 'rule');
+          }
+        }
+      }
+      return result;
+    };
+    for (const draft of initial) {
+      const stack: Array<{ value: PreparedDraft; next: number }> = [
+        { value: node(draft), next: 0 },
+      ];
+      while (stack.length) {
+        const frame = stack[stack.length - 1] as (typeof stack)[number];
+        const id = frame.value.draft.opId;
+        if (state.get(id) === 'ready') {
+          stack.pop();
+          continue;
+        }
+        if (!dependencies.has(id)) {
+          state.set(id, 'visiting');
+          dependencies.set(id, referencesOf(frame.value));
+        }
+        const refs = dependencies.get(id) as PreparedDraft[];
+        const dependency = refs[frame.next++];
+        if (dependency) {
+          if (state.get(dependency.draft.opId) === 'visiting')
+            throw new ZuvRequestError('INTEGRITY_FAILED');
+          if (state.get(dependency.draft.opId) !== 'ready')
+            stack.push({ value: dependency, next: 0 });
+        } else {
+          state.set(id, 'ready');
+          ordered.push(frame.value);
+          stack.pop();
+        }
+      }
+    }
+    const groups = new Map<string, PreparedDraft[]>();
+    const first = ordered[0];
+    if (!first) return groups;
+    const groupKey = (value: PreparedDraft) =>
+      jcs([value.entity.entityType, value.entity.projectId ?? null]);
+    const key = groupKey(first);
+    const selected = new Set<string>();
+    const group: PreparedDraft[] = [];
+    for (const value of ordered) {
+      if (
+        groupKey(value) !== key ||
+        dependencies.get(value.draft.opId)?.some((ref) => !selected.has(ref.draft.opId))
+      )
+        continue;
+      group.push(value);
+      selected.add(value.draft.opId);
+      if (group.length >= this.#limit('operations', LIMITS.operations)) break;
+    }
+    groups.set(key, group);
+    return groups;
+  }
+
   async #prepare(vault: SyncVaultRecord, signal: AbortSignal): Promise<void> {
     const { storage, cache } = this.#options;
     if (storage.sync.commits(vault.vaultId).some((commit) => this.#commitInScope(vault, commit)))
@@ -315,25 +455,7 @@ export class SyncEngine {
       vault,
       true,
     );
-    const groups = new Map<
-      string,
-      Array<{ draft: SyncDraftRecord; entity: SyncEntityRecord; payload: SyncDraftPayload }>
-    >();
-    for (const draft of drafts) {
-      const entity = storage.sync.entity(vault.vaultId, draft.entityId);
-      if (!entity) throw new ZuvRequestError('INTEGRITY_FAILED');
-      if (
-        !vault.categories.includes(entity.entityType) ||
-        (entity.projectId && !vault.projectIds.includes(entity.projectId))
-      )
-        continue;
-      const payload = draft.content as SyncDraftPayload;
-      if (payload.schema !== 'wevir-sync-draft/1') throw new ZuvRequestError('UPGRADE_REQUIRED');
-      const groupKey = jcs([entity.entityType, entity.projectId ?? null]);
-      const group = groups.get(groupKey) ?? [];
-      group.push({ draft, entity, payload });
-      groups.set(groupKey, group);
-    }
+    const groups = this.#readyDrafts(vault, drafts);
     const keyEpoch = storage.sync.vaultTransport(vault.vaultId).keyEpoch;
     for (const group of groups.values()) {
       const blobId = newId('sbl');

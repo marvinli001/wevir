@@ -182,6 +182,25 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         }
       );
     },
+    projectOperationId(vaultId: string, projectId: string): string | undefined {
+      const committed = db
+        .prepare(`SELECT op_id FROM sync_operations WHERE vault_id=? AND entity_id=?
+        AND entity_type='project' AND state IN ('committed','applied') LIMIT 1`)
+        .get(vaultId, projectId);
+      if (committed) return text(committed, 'op_id');
+      const root = db
+        .prepare(`SELECT r.op_id FROM sync_snapshot_roots r JOIN sync_entities e
+        ON e.vault_id=r.vault_id AND e.entity_id=r.entity_id
+        WHERE r.vault_id=? AND r.entity_id=? AND e.entity_type='project' LIMIT 1`)
+        .get(vaultId, projectId);
+      if (root) return text(root, 'op_id');
+      const pending = db
+        .prepare(`SELECT d.op_id FROM sync_entities e JOIN sync_drafts d
+        ON d.vault_id=e.vault_id AND d.op_id=e.revision
+        WHERE e.vault_id=? AND e.entity_id=? AND e.entity_type='project'`)
+        .get(vaultId, projectId);
+      return pending ? text(pending, 'op_id') : undefined;
+    },
     drafts(
       vaultId: string,
       limit = 256,
