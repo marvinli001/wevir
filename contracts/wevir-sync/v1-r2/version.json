@@ -1,0 +1,11 @@
+{
+  "protocol": "wevir-sync/1",
+  "artifactRevision": 2,
+  "status": "candidate",
+  "interoperability": "unverified",
+  "base": "../v1/",
+  "baseArtifactRevision": 1,
+  "schemas": ["executionState"],
+  "extensions": ["GET sync/v1/executions/:runId"],
+  "license": "MIT"
+}

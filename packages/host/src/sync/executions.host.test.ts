@@ -258,6 +258,21 @@ describe('execution ownership in two isolated Hosts', () => {
     expect(f.first.adapter.inputs.size + f.second.adapter.inputs.size).toBe(before);
     expect((await f.current(f.first, source.id)).state).toBe('running');
     await f.first.adapter.complete(source.engine.sessionId);
+    await expect.poll(async () => (await f.current(f.first, source.id)).state).toBe('idle');
+    await f.first.rpc.request('session.send', {
+      sessionId: source.id,
+      clientMessageId: `synthetic-return-${source.id}`,
+      content: [{ type: 'text', text: 'Synthetic return after a released takeover' }],
+    });
+    expect((await f.current(f.first, source.id)).syncExecution).toMatchObject({
+      runId: source.id,
+      epoch: '3',
+      state: 'claimed',
+    });
+    expect(f.mock.sync.executionRequests.filter((value) => value.action === 'read')).toHaveLength(
+      1,
+    );
+    await f.first.adapter.complete(source.engine.sessionId);
   }, 25000);
 
   it('keeps an active holder and a concurrent continuation as separate linked source streams', async () => {

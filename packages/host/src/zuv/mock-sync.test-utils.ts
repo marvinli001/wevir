@@ -213,6 +213,28 @@ export class MockSyncGateway {
     const vault = this.#vault(userId);
     const scopes = vault.scopes.get(deviceId);
     if (!scopes) throw new MockSyncError('SCOPE_DISABLED', 403);
+    if (/^\/sync\/v1\/executions\/[^/]+$/.test(path) && method === 'GET') {
+      const runId = schemas.executionClaim.shape.runId.parse(path.split('/').at(-1));
+      this.executionRequests.push({ action: 'read', deviceId, input: { runId } });
+      if (this.failExecutions) throw new MockSyncError('SERVICE_UNAVAILABLE', 503);
+      if (!scopes.enabled || !vault.trusted.has(deviceId))
+        throw new MockSyncError('SCOPE_DISABLED', 403);
+      if (this.resettingDevices.has(deviceId)) throw new MockSyncError('RESET_REQUIRED', 409);
+      const row = vault.executions.get(runId);
+      return {
+        value: {
+          runId,
+          epoch: row?.epoch ?? '0',
+          state: !row
+            ? 'absent'
+            : row.released
+              ? 'released'
+              : Date.parse(row.expiresAt) > Date.now()
+                ? 'held'
+                : 'expired',
+        },
+      };
+    }
     if (path.startsWith('/sync/v1/executions/') && method === 'POST') {
       const action = path.split('/').at(-1) as string;
       const validator =
@@ -228,14 +250,14 @@ export class MockSyncGateway {
         throw new MockSyncError('SCOPE_DISABLED', 403);
       const previous = vault.executions.get(input.runId);
       if ((previous?.epoch ?? '0') !== input.expectedEpoch)
-        throw new MockSyncError('EXECUTION_CONFLICT');
+        throw new MockSyncError('EXECUTION_CONFLICT', 409);
       const expiresAt = new Date(
         Date.now() +
           (this.executionLeaseMs ?? ('leaseSeconds' in input ? input.leaseSeconds * 1000 : 0)),
       ).toISOString();
       if (action === 'claim') {
         if (previous && Date.parse(previous.expiresAt) > Date.now())
-          throw new MockSyncError('EXECUTION_CONFLICT');
+          throw new MockSyncError('EXECUTION_CONFLICT', 409);
         const next = {
           deviceId,
           runId: input.runId,
@@ -262,7 +284,7 @@ export class MockSyncGateway {
         input.fencingToken !== previous.fencingToken ||
         Date.parse(previous.expiresAt) <= Date.now()
       )
-        throw new MockSyncError('EXECUTION_CONFLICT');
+        throw new MockSyncError('EXECUTION_CONFLICT', 409);
       previous.expiresAt = action === 'release' ? new Date().toISOString() : expiresAt;
       previous.released = action === 'release';
       return {

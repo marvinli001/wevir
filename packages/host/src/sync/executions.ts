@@ -115,14 +115,32 @@ export class SyncExecutions {
     // A crashed or disconnected holder is never evidence that its commands stopped.
     if (previous && previous.state !== 'released') value.streamId = newId('sst');
     let branchRequired = inherited.success;
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(2000)]);
     try {
-      const result = await client.json(
-        'execution',
-        'POST',
-        '/api/wevir/sync/v1/executions/claim',
-        { runId: value.runId, expectedEpoch: value.epoch, leaseSeconds: LEASE_SECONDS },
-        { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
-      );
+      const request = () =>
+        client.json(
+          'execution',
+          'POST',
+          '/api/wevir/sync/v1/executions/claim',
+          { runId: value.runId, expectedEpoch: value.epoch, leaseSeconds: LEASE_SECONDS },
+          { signal: requestSignal },
+        );
+      let result: Awaited<ReturnType<typeof request>>;
+      try {
+        result = await request();
+      } catch (error) {
+        if (!(error instanceof ZuvRequestError) || error.code !== 'EXECUTION_CONFLICT') throw error;
+        if (!this.#sameVault(vault) || signal.aborted) return;
+        const current = await client.executionState(value.runId, requestSignal);
+        if (!this.#sameVault(vault) || signal.aborted) return;
+        requestSignal.throwIfAborted();
+        if (!current) throw error;
+        if (current.runId !== value.runId || BigInt(current.epoch) < BigInt(value.epoch))
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        value.epoch = current.epoch;
+        if (current.state === 'held') throw error;
+        result = await request();
+      }
       if (!this.#sameVault(vault) || (signal.aborted && !claim.finished)) return;
       if (
         result.runId !== value.runId ||

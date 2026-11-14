@@ -617,3 +617,5 @@ T6.3 建立。登记表（§4、§4.1）、文件头与根目录 `NOTICE` 三处
 运行时共用的 npm 原生程序 shim 解析：`packages/runtime-adapter/src/process-tree.ts`，原实现迁自 `packages/adapter-opencode/src/executable.ts`；来源为 pingdotgg/t3code `packages/shared/src/shell.ts`，提交 `b6629dcd68dd26a98250e34087c594592ea55a46`，MIT（Copyright (c) 2026 T3 Tools Inc.）。仅绕过完整匹配的 npm shim，其余脚本保留原执行语义。
 
 ZUV 同步契约补齐（2026-11-14）：`wevir-zuv` 提交 `71f2837` 的 MIT `contracts/wevir-sync/v1/` 中 missingBlobs、recoveryBundle、fixtures 与 state-machines 同步到本仓库；`packages/protocol/src/sync-wire.ts` 消费该提交 `packages/sync-protocol/src/index.ts` 的 missingBlobs 结构。服务端曾原地变更 revision 1，未在本次更改冻结 wire 语义；互操作仍待联合验收。
+
+ZUV 执行状态扩展（2026-11-15）：来源为 `wevir-zuv` 提交 `9e1df7b9614c293fe55d93514e76e7c4fffb6f85` 的 MIT `packages/sync-protocol/src/execution-state.ts` 与 `contracts/wevir-sync/v1-r2/`，分别移植到 `packages/protocol/src/sync-execution-state.ts` 与同名产物目录。该独立 artifact revision 2 引用未改动的 revision 1，仅增加不含 fencing token 的只读执行状态查询；旧写入及错误格式不变。许可证沿用 `contracts/wevir-sync/v1/LICENSE`，未移植服务端私有实现。

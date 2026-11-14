@@ -17,6 +17,11 @@
       "@wevir/source": "./src/sync-wire.ts",
       "types": "./dist/sync-wire.d.ts",
       "default": "./dist/sync-wire.js"
+    },
+    "./sync-execution-state": {
+      "@wevir/source": "./src/sync-execution-state.ts",
+      "types": "./dist/sync-execution-state.d.ts",
+      "default": "./dist/sync-execution-state.js"
     }
   },
   "files": [

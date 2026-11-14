@@ -1,0 +1,11 @@
+# wevir-sync/1 · Artifact revision 2
+
+This additive artifact depends on the unchanged [revision 1](../v1/) schemas, fixtures and state machines. It adds only the execution-state read below. Generate its JSON files with `pnpm --filter @wevir/sync-protocol generate:r2`; this command never writes revision 1. Host JSON-RPC is versioned independently.
+
+`GET /api/wevir/sync/v1/executions/:runId` returns the strict `executionState` schema. It uses the same DPoP identity, active-sync eligibility, owner vault, API rate limits and budget admission as execution claims. The response is `Cache-Control: no-store`, is read from the authoritative database, and contains no fencing token or holder identity. The read does not create, renew, release or increment a lease; proof replay protection and API accounting still apply.
+
+The epoch is a canonical unsigned decimal string. An absent row returns HTTP 200 with epoch `"0"` and state `absent`. Existing rows have a positive epoch and state `released` if explicitly released, `held` if unexpired, or `expired` otherwise. Expiry and release retain the epoch. State is evaluated using server time. A run belonging to another vault is absent in the caller's vault.
+
+The response is an observation, not an execution grant. After `EXECUTION_CONFLICT`, a client may read once and retry the original claim once with the observed epoch if the state is not `held`. The original claim, read and retry share one bounded deadline. The original claim CAS still decides ownership and `branchRequired`; a competing claim may invalidate the observation immediately. A read cannot repair a failed renew/release or authorize replay, cancellation or history merging. Clients must reject epoch regression and discard responses after their account, vault or turn changes.
+
+Revision 1 request, success and error schemas remain unchanged. Old clients require no change. New clients treat HTTP 404/405 on this GET as an unsupported extension, briefly cache that result per authenticated identity, and retain their conservative execution branch behavior. Other failures and malformed responses are not evidence of unsupported capability. Unknown runs use HTTP 200 so they cannot be confused with a missing route.

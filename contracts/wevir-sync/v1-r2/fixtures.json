@@ -1,0 +1,82 @@
+{
+  "valid": [
+    {
+      "runId": "run_fixture",
+      "epoch": "0",
+      "state": "absent"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "7",
+      "state": "held"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "7",
+      "state": "released"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "9007199254740993",
+      "state": "expired"
+    }
+  ],
+  "invalid": [
+    {
+      "runId": "../run_fixture",
+      "epoch": "7",
+      "state": "held"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": 7,
+      "state": "held"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "07",
+      "state": "held"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "-1",
+      "state": "held"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "0",
+      "state": "held"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "1111111111111111111111111111111111111111",
+      "state": "held"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "7",
+      "state": "absent"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "7",
+      "state": "claimed"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "7",
+      "state": "held",
+      "fencingToken": "fence_fixture"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "7",
+      "state": "held",
+      "deviceId": "device_fixture"
+    },
+    {
+      "runId": "run_fixture",
+      "epoch": "7"
+    }
+  ]
+}

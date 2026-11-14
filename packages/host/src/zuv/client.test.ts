@@ -20,6 +20,7 @@ function mock() {
   let challenge = '';
   let publicKey: { kty: string; crv: string; x: string };
   let refreshes = 0;
+  let executionReply: { value: unknown; status: number } | undefined;
   const entitlements = () => ({
     protocol: 'wevir-sync/1',
     vault: null,
@@ -97,6 +98,11 @@ function mock() {
         object: 'list',
         data: [{ id: 'synthetic-model', object: 'model', owned_by: 'synthetic' }],
       });
+    if (path.startsWith('/api/wevir/sync/v1/executions/') && executionReply) {
+      expect(options?.method).toBe('GET');
+      expect(body).toBeUndefined();
+      return Response.json(executionReply.value, { status: executionReply.status });
+    }
     return Response.json({ error: { code: 'NOT_FOUND', message: 'NOT_FOUND' } }, { status: 404 });
   });
   const options = { origin: 'https://zuv.test', secrets, fetch: request, now: () => now };
@@ -113,6 +119,9 @@ function mock() {
     request,
     options,
     entitlements,
+    executionReply: (value: unknown, status = 200) => {
+      executionReply = { value, status };
+    },
     advance: (ms: number) => {
       now += ms;
     },
@@ -126,6 +135,150 @@ function mock() {
 }
 
 describe('Host-owned ZUV identity', () => {
+  it('signs execution-state reads and rejects extra fields instead of accepting a lease grant', async () => {
+    const h = mock();
+    await h.login();
+    h.executionReply({ runId: 'run_fixture', epoch: '7', state: 'expired' });
+    expect(await h.client.executionState('run_fixture')).toEqual({
+      runId: 'run_fixture',
+      epoch: '7',
+      state: 'expired',
+    });
+    h.executionReply({
+      runId: 'run_fixture',
+      epoch: '7',
+      state: 'held',
+      fencingToken: 'fence_fixture',
+    });
+    await expect(h.client.executionState('run_fixture')).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+    h.executionReply({ runId: 'run_fixture', epoch: '7', state: 'released' });
+    expect(await h.client.executionState('run_fixture')).toMatchObject({ state: 'released' });
+  });
+
+  it.each([404, 405])(
+    'temporarily caches unsupported execution-state reads after HTTP %s',
+    async (status) => {
+      const h = mock();
+      await h.login();
+      h.executionReply(
+        {
+          error: {
+            code: 'subscription_endpoint_not_supported',
+            message: 'unsupported subscription endpoint',
+            param: null,
+            type: 'not_found_error',
+          },
+        },
+        status,
+      );
+      const before = h.request.mock.calls.length;
+      expect(await h.client.executionState('run_fixture')).toBeUndefined();
+      expect(await h.client.executionState('other_fixture')).toBeUndefined();
+      expect(h.request.mock.calls.length - before).toBe(1);
+      await h.client.logout();
+      await h.login();
+      h.executionReply({ runId: 'run_fixture', epoch: '0', state: 'absent' });
+      expect(await h.client.executionState('run_fixture')).toMatchObject({
+        epoch: '0',
+        state: 'absent',
+      });
+    },
+  );
+
+  it('rechecks an unsupported execution-state route after five minutes', async () => {
+    const h = mock();
+    await h.login();
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+    try {
+      h.executionReply({ error: { code: 'NOT_FOUND', message: 'NOT_FOUND' } }, 404);
+      expect(await h.client.executionState('run_fixture')).toBeUndefined();
+      h.executionReply({ runId: 'run_fixture', epoch: '0', state: 'absent' });
+      clock.mockReturnValue(300001);
+      expect(await h.client.executionState('run_fixture')).toMatchObject({ state: 'absent' });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it.each([403, 429, 503])(
+    'does not treat HTTP %s as an unsupported execution-state route',
+    async (status) => {
+      const h = mock();
+      await h.login();
+      h.executionReply({ error: { code: 'SCOPE_DISABLED', message: 'SCOPE_DISABLED' } }, status);
+      const before = h.request.mock.calls.length;
+      for (let i = 0; i < 2; i++)
+        await expect(h.client.executionState('run_fixture')).rejects.toMatchObject({ status });
+      expect(h.request.mock.calls.length - before).toBe(2);
+    },
+  );
+
+  it('discards an execution-state response after logout', async () => {
+    const h = mock();
+    await h.login();
+    let resolve = (_response: Response) => {};
+    h.request.mockImplementationOnce(
+      () =>
+        new Promise((accept) => {
+          resolve = accept;
+        }),
+    );
+    const pending = h.client.executionState('run_fixture');
+    const settled = expect(pending).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    await vi.waitFor(() =>
+      expect(h.request.mock.calls.at(-1)?.[0].toString()).toContain('/executions/'),
+    );
+    await h.client.logout();
+    resolve(Response.json({ runId: 'run_fixture', epoch: '7', state: 'released' }));
+    await settled;
+  });
+
+  it('bounds a claim waiting on shared credential refresh without cancelling that refresh', async () => {
+    const h = mock();
+    await h.login();
+    h.advance(880000);
+    const abort = new AbortController();
+    let resolve = (_response: Response) => {};
+    h.request.mockImplementationOnce(
+      () =>
+        new Promise((accept) => {
+          resolve = accept;
+        }),
+    );
+    const pending = h.client.json(
+      'execution',
+      'POST',
+      '/api/wevir/sync/v1/executions/claim',
+      {
+        runId: 'run_fixture',
+        expectedEpoch: '0',
+        leaseSeconds: 30,
+      },
+      { signal: abort.signal },
+    );
+    const settled = expect(pending).rejects.toThrow('synthetic deadline');
+    await vi.waitFor(() =>
+      expect(h.request.mock.calls.at(-1)?.[0].toString()).toContain('/refresh'),
+    );
+    abort.abort(new Error('synthetic deadline'));
+    await settled;
+    resolve(
+      Response.json({
+        client_id: 'wevir',
+        token_type: 'DPoP',
+        access_token: 'synthetic-access-0-token',
+        refresh_token: 'synthetic-refresh-0-token',
+        expires_in: 900,
+      }),
+    );
+    expect(await h.client.models()).toEqual(['synthetic-model']);
+    expect(h.request.mock.calls.some(([url]) => String(url).includes('/executions/claim'))).toBe(
+      false,
+    );
+  });
+
   it('retries a late old-token 401 with the rotated access token', async () => {
     const h = mock();
     await h.login();

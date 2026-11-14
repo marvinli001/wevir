@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { jcs, schemas } from '@wevir/protocol/sync';
+import { type ExecutionState, executionStateSchema } from '@wevir/protocol/sync-execution-state';
 import type { SecretStore } from '@wevir/storage';
 import { sha256 } from '../sync/crypto.js';
 import {
@@ -62,6 +63,7 @@ export class ZuvClient {
   readonly #abort = new AbortController();
   readonly #writes = new Set<Promise<unknown>>();
   #persistence: Promise<unknown> = Promise.resolve();
+  #executionStateUnavailable: { generation: number; until: number } | undefined;
 
   constructor(options: ZuvClientOptions) {
     this.#options = options;
@@ -327,6 +329,43 @@ export class ZuvClient {
     );
   }
 
+  async executionState(runId: string, signal?: AbortSignal): Promise<ExecutionState | undefined> {
+    const generation = this.#generation;
+    const proof = await this.#proof(signal);
+    if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
+    if (
+      this.#executionStateUnavailable?.generation === generation &&
+      this.#executionStateUnavailable.until > performance.now()
+    )
+      return undefined;
+    try {
+      const result = await this.transport.json(
+        {
+          method: 'GET',
+          path: `/api/wevir/sync/v1/executions/${encodeURIComponent(runId)}`,
+          proof,
+          signal,
+          maxBytes: 1024,
+        },
+        executionStateSchema,
+      );
+      signal?.throwIfAborted();
+      if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
+      return result;
+    } catch (error) {
+      if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
+      if (
+        !signal?.aborted &&
+        error instanceof ZuvRequestError &&
+        (error.status === 404 || error.status === 405)
+      ) {
+        this.#executionStateUnavailable = { generation, until: performance.now() + 300000 };
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   async json<N extends keyof typeof schemas>(
     name: N,
     method: 'GET' | 'POST' | 'PUT',
@@ -335,7 +374,7 @@ export class ZuvClient {
     options?: { signal?: AbortSignal; maxBytes?: number },
   ): Promise<(typeof schemas)[N]['_output']> {
     const body = value === undefined ? undefined : Buffer.from(jcs(value));
-    const proof = await this.#proof();
+    const proof = await this.#proof(options?.signal);
     return this.transport.json<(typeof schemas)[N]['_output']>(
       { ...options, method, path, body, proof },
       {
@@ -399,7 +438,20 @@ export class ZuvClient {
       throw new ZuvRequestError('SCOPE_DISABLED', 403);
   }
 
-  async #proof(): Promise<{ key: ZuvDeviceKey; secret: string }> {
+  async #proof(signal?: AbortSignal): Promise<{ key: ZuvDeviceKey; secret: string }> {
+    if (signal) {
+      signal.throwIfAborted();
+      return new Promise((resolve, reject) => {
+        const abort = () => {
+          signal.removeEventListener('abort', abort);
+          reject(signal.reason);
+        };
+        signal.addEventListener('abort', abort, { once: true });
+        void this.#proof()
+          .then(resolve, reject)
+          .finally(() => signal.removeEventListener('abort', abort));
+      });
+    }
     if (this.#closed || this.changingIdentity) throw new ZuvRequestError('AUTH_REQUIRED', 401);
     if (this.#refreshing) {
       const secret = await this.#refreshing;
