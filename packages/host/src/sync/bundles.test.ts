@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SyncVaultRecord } from '@wevir/storage';
 import { openStorage } from '@wevir/storage';
@@ -182,6 +182,51 @@ async function selection(h: Awaited<ReturnType<typeof fixture>>, managed = false
 }
 
 describe('explicit archived bundle restoration', () => {
+  it('creates inbound managed files without executable bits until explicit confirmation', async () => {
+    const h = await fixture();
+    const preview = await h.service().preview(h.ref.vaultId, h.ref.entityId);
+    const target = (await h.service().targets(h.ref.vaultId, h.ref.entityId)).targets.find(
+      (item) => item.managed,
+    );
+    if (!target) throw new Error('missing managed target');
+    await h
+      .service()
+      .apply(
+        {
+          ...h.ref,
+          expectedHeads: preview.heads,
+          selectedOpId: preview.heads[0] as string,
+          targetId: target.targetId,
+          fingerprint: target.fingerprint,
+        },
+        new AbortController().signal,
+      );
+    const binding = h.storage.sync.bundleBinding(h.ref.vaultId, h.ref.entityId);
+    if (!binding?.revision) throw new Error('missing binding');
+    const incoming = join(h.home, 'incoming-managed');
+    await mkdir(incoming);
+    await writeFile(join(incoming, 'tool.sh'), 'synthetic script');
+    await chmod(join(incoming, 'tool.sh'), 0o700);
+    const snapshot = await snapshotBundle({ path: incoming });
+    const finish = await h
+      .service()
+      .receive(
+        {
+          ...h.ref,
+          opId: 'managed_incoming_operation',
+          deviceId: 'device_remote',
+          entityType: 'skill-bundle',
+          kind: 'put',
+          parents: [binding.revision],
+          clientTime: new Date().toISOString(),
+        },
+        archive(snapshot.files).body,
+        incoming,
+        new AbortController().signal,
+      );
+    h.storage.transaction(finish);
+    expect((await stat(join(binding.targetPath, 'tool.sh'))).mode & 0o111).toBe(0);
+  });
   it('stages inbound native skill revisions for explicit selection without changing executable files', async () => {
     const h = await fixture();
     await h.bind();
@@ -550,6 +595,9 @@ describe('local bundle choices and authority', () => {
     );
     expect(h.storage.sync.pendingBundleApplication(h.ref.vaultId, h.ref.entityId)).toBeUndefined();
     expect(h.storage.sync.bundleApplication(h.ref.vaultId, pending.opId)?.state).toBe('abandoned');
+    await expect(stat(join(h.native, `.wevir-sync-${pending.opId}`))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
     expect((await h.service().file({ ...h.ref, opId: result.opId, path: 'SKILL.md' })).text).toBe(
       'Local correction after interruption',
     );

@@ -487,7 +487,9 @@ export class SyncSessionMaterials {
       ? undefined
       : (this.#options.nativeSource(sessionId) ??
         (kind === 'session'
-          ? storage.sync.sources(vault.vaultId).find((value) => value.localSessionId === sessionId)
+          ? storage.sync
+              .sources(vault.vaultId, sessionId)
+              .find((value) => value.localSessionId === sessionId)
           : undefined));
     if (!ref && (!native || (native.mirrored && kind !== 'session'))) return;
     const source = ref?.source ?? {

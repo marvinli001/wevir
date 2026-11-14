@@ -1,4 +1,9 @@
-import { SyncBundleContentSchema, validateSyncBatch, validateSyncPage } from '@wevir/protocol';
+import {
+  PROTOCOL_VERSION,
+  SyncBundleContentSchema,
+  validateSyncBatch,
+  validateSyncPage,
+} from '@wevir/protocol';
 import {
   jcs,
   LIMITS,
@@ -22,8 +27,8 @@ import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import type { SyncBlobCache } from './cache.js';
 import { decryptPack, encryptPack, parseEnvelope, sha256 } from './crypto.js';
-import { MAX_AUTOMATIC_TRANSFERS, SyncDownloads } from './downloads.js';
-import type { SyncDraftPayload } from './queue.js';
+import { SyncDownloads, TRANSFER_RETRY_MS } from './downloads.js';
+import { MAX_PREPARATION_REFERENCES, type SyncDraftPayload } from './queue.js';
 import { rebaseResetCommit } from './reset-queue.js';
 
 type Record = typeof packRecord._output;
@@ -34,7 +39,6 @@ type PreparedDraft = {
 };
 
 const PACK_TARGET_BYTES = 256 * 1024;
-const MAX_PREPARATION_REFERENCES = 4096;
 const COMMIT_REJECTIONS = new Set([
   'MISSING_PARENT',
   'REVISION_CONFLICT',
@@ -326,7 +330,7 @@ export class SyncEngine {
     const dependencies = new Map<string, PreparedDraft[]>();
     const state = new Map<string, 'visiting' | 'ready'>();
     const ordered: PreparedDraft[] = [];
-    let references = 0;
+    const references = new Set<string>();
     const node = (draft: SyncDraftRecord): PreparedDraft => {
       const cached = nodes.get(draft.opId);
       if (cached) return cached;
@@ -347,7 +351,9 @@ export class SyncEngine {
         entityId: string,
         kind: 'parent' | 'part' | 'rule' | 'project',
       ) => {
-        if (++references > MAX_PREPARATION_REFERENCES) throw new ZuvRequestError('QUOTA_EXCEEDED');
+        references.add(opId);
+        if (references.size > MAX_PREPARATION_REFERENCES)
+          throw new ZuvRequestError('QUOTA_EXCEEDED');
         const draft = storage.sync.draft(vault.vaultId, opId);
         const target = draft ? node(draft) : undefined;
         const stored = target ? undefined : storage.sync.getOperation(vault.vaultId, opId);
@@ -455,7 +461,16 @@ export class SyncEngine {
 
   async #prepare(vault: SyncVaultRecord, signal: AbortSignal): Promise<void> {
     const { storage, cache } = this.#options;
-    if (storage.sync.commits(vault.vaultId).some((commit) => this.#commitInScope(vault, commit)))
+    if (
+      storage.sync
+        .commits(vault.vaultId)
+        .some(
+          (commit) =>
+            commit.outcome !== 'rejected' &&
+            commit.outcome !== 'recovered' &&
+            this.#commitInScope(vault, commit),
+        )
+    )
       return;
     // A later bundle revision can reference chunks queued after an earlier bundle draft.
     const drafts = storage.sync.drafts(
@@ -605,7 +620,12 @@ export class SyncEngine {
     const { storage, client } = this.#options;
     const commit = storage.sync
       .commits(vault.vaultId)
-      .find((value) => this.#commitInScope(vault, value));
+      .find(
+        (value) =>
+          value.outcome !== 'rejected' &&
+          value.outcome !== 'recovered' &&
+          this.#commitInScope(vault, value),
+      );
     if (!commit || commit.retryAt > Date.now()) return;
     if (commit.outcome === 'rejected')
       throw new ZuvRequestError(
@@ -691,14 +711,38 @@ export class SyncEngine {
         error.status < 500 &&
         COMMIT_REJECTIONS.has(error.code)
       ) {
-        storage.transaction(() =>
+        storage.transaction(() => {
           storage.sync.putCommit({
             ...attempted,
             outcome: 'rejected',
             errorCode: error.code,
             retryAt: 0,
-          }),
-        );
+          });
+          for (const op of batch.operations) {
+            const entity = storage.sync.entity(vault.vaultId, op.entityId);
+            if (op.kind === 'resolve' && entity?.revision === op.opId) {
+              storage.sync.putEntity({ ...entity, revision: undefined });
+              storage.db
+                .prepare('DELETE FROM sync_heads WHERE vault_id=? AND entity_id=? AND op_id=?')
+                .run(vault.vaultId, op.entityId, op.opId);
+              for (const parent of op.parents) {
+                const descendant = storage.db
+                  .prepare(`SELECT 1 FROM sync_operations o LEFT JOIN sync_commits c
+                  ON c.vault_id=o.vault_id AND c.commit_id=o.commit_id
+                  WHERE o.vault_id=? AND o.entity_id=? AND o.state IN ('queued','pending','committed','applied')
+                  AND coalesce(c.outcome,'ready')!='rejected'
+                  AND ? IN (SELECT value FROM json_each(o.envelope,'$.parents')) LIMIT 1`)
+                  .get(vault.vaultId, op.entityId, parent);
+                if (!descendant)
+                  storage.db
+                    .prepare(
+                      'INSERT OR IGNORE INTO sync_heads (vault_id,entity_id,op_id) VALUES (?,?,?)',
+                    )
+                    .run(vault.vaultId, op.entityId, parent);
+              }
+            }
+          }
+        });
       }
       throw error;
     }
@@ -708,6 +752,22 @@ export class SyncEngine {
     if (this.#missingAt > Date.now()) return;
     this.#missingAt = Date.now() + 10 * 60 * 1000;
     const { storage, client, cache } = this.#options;
+    const referenced = storage.db
+      .prepare(`SELECT json_extract(envelope,'$.payload.blobId') AS blob_id
+      FROM sync_operations WHERE vault_id=? UNION SELECT json_extract(envelope,'$.payload.blobId') AS blob_id
+      FROM sync_bootstrap_entries WHERE vault_id=?`)
+      .all(vault.vaultId, vault.vaultId);
+    const removed = await cache.collect(
+      vault.vaultId,
+      new Set(referenced.flatMap((row) => (typeof row.blob_id === 'string' ? [row.blob_id] : []))),
+      Date.now() - 7 * 86400000,
+    );
+    if (removed.length)
+      storage.db
+        .prepare(
+          'DELETE FROM sync_blobs WHERE vault_id=? AND blob_id IN (SELECT value FROM json_each(?))',
+        )
+        .run(vault.vaultId, JSON.stringify(removed));
     let after: string | undefined;
     do {
       const page = await client.json(
@@ -750,10 +810,14 @@ export class SyncEngine {
     if (!blob) throw new ZuvRequestError('INTEGRITY_FAILED');
     if (blob.state === 'ready' && !force) return;
     if (blob.state === 'quarantined') throw new ZuvRequestError('INTEGRITY_FAILED');
-    if (blob.uploadAttempts >= MAX_AUTOMATIC_TRANSFERS) throw new ZuvRequestError('RATE_LIMITED');
+    if ((blob.retryAt ?? 0) > Date.now()) throw new ZuvRequestError('RATE_LIMITED');
     const bytes = await cache.read(vault.vaultId, blobId, blob.cipherBytes, blob.cipherSha256);
     if (bytes.length > this.#maximumTransferBytes()) throw new ZuvRequestError('QUOTA_EXCEEDED');
-    storage.sync.putBlob({ ...blob, uploadAttempts: blob.uploadAttempts + 1 });
+    storage.sync.putBlob({
+      ...blob,
+      uploadAttempts: blob.uploadAttempts + 1,
+      retryAt: Date.now() + TRANSFER_RETRY_MS,
+    });
     const reserved = await client.json(
       'blobReserved',
       'POST',
@@ -771,6 +835,7 @@ export class SyncEngine {
     storage.sync.putBlob({
       ...blob,
       state: 'reserved',
+      retryAt: Date.now() + TRANSFER_RETRY_MS,
       uploadAttempts: blob.uploadAttempts + 1,
       uploadId: reserved.uploadId,
       uploadExpiresAt: reserved.expiresAt,
@@ -788,7 +853,7 @@ export class SyncEngine {
     if (!result.success || result.data.blobId !== blobId)
       throw new ZuvRequestError('INTEGRITY_FAILED');
     this.#guard(vault, signal);
-    storage.sync.putBlob({ ...blob, state: 'ready', uploadAttempts: blob.uploadAttempts + 1 });
+    storage.sync.putBlob({ ...blob, state: 'ready', uploadAttempts: 0, retryAt: 0 });
   }
 
   #commitResult(
@@ -904,6 +969,21 @@ export class SyncEngine {
       { cursor: changes.nextCursor },
       { signal },
     );
+    storage.transaction(() => {
+      storage.db
+        .prepare(
+          "UPDATE sync_operations SET acknowledged=1 WHERE vault_id=? AND direction='outbox' AND op_id IN (SELECT value FROM json_each(?))",
+        )
+        .run(vault.vaultId, JSON.stringify(changes.operations.map((op) => op.opId)));
+      storage.db
+        .prepare(`UPDATE sync_commits SET body='' WHERE vault_id=? AND state='committed' AND body!=''
+        AND EXISTS (SELECT 1 FROM sync_operations o WHERE o.vault_id=sync_commits.vault_id AND o.commit_id=sync_commits.commit_id)
+        AND NOT EXISTS (SELECT 1 FROM sync_operations o WHERE o.vault_id=sync_commits.vault_id AND o.commit_id=sync_commits.commit_id AND o.acknowledged=0)`)
+        .run(vault.vaultId);
+      storage.db
+        .prepare('DELETE FROM sync_pages WHERE vault_id=? AND applied=1')
+        .run(vault.vaultId);
+    });
   }
 
   async #applyPage(
@@ -926,7 +1006,13 @@ export class SyncEngine {
         });
         continue;
       }
-      if (stored.state === 'quarantined')
+      if (
+        stored.state === 'quarantined' &&
+        stored.errorCode === 'UPGRADE_REQUIRED' &&
+        stored.quarantineVersion !== PROTOCOL_VERSION
+      )
+        storage.sync.markOperation(vault.vaultId, stored.opId, 'received');
+      else if (stored.state === 'quarantined')
         throw new ZuvRequestError(
           stored.errorCode === 'UPGRADE_REQUIRED' ? 'UPGRADE_REQUIRED' : 'INTEGRITY_FAILED',
         );
@@ -956,6 +1042,20 @@ export class SyncEngine {
         else {
           const bytes = await this.#download(vault, blobId, signal);
           const header = parseEnvelope(bytes).header;
+          if (
+            BigInt(header.keyEpoch) > BigInt(storage.sync.vaultTransport(vault.vaultId).keyEpoch)
+          ) {
+            const refreshed = await this.#options.client.getEntitlements();
+            if (
+              refreshed.vault?.vaultId !== vault.vaultId ||
+              BigInt(header.keyEpoch) > BigInt(refreshed.vault.keyEpoch)
+            )
+              throw new ZuvRequestError('RECOVERY_REQUIRED');
+            storage.sync.setVaultTransport(vault.vaultId, {
+              ...storage.sync.vaultTransport(vault.vaultId),
+              keyEpoch: refreshed.vault.keyEpoch,
+            });
+          }
           if (
             header.vaultId !== vault.vaultId ||
             header.blobId !== blobId ||
@@ -1000,7 +1100,13 @@ export class SyncEngine {
           error instanceof ZuvRequestError &&
           ['INTEGRITY_FAILED', 'UPGRADE_REQUIRED'].includes(error.code)
         )
-          storage.sync.markOperation(vault.vaultId, op.opId, 'quarantined', error.code);
+          storage.sync.markOperation(
+            vault.vaultId,
+            op.opId,
+            'quarantined',
+            error.code,
+            PROTOCOL_VERSION,
+          );
         throw error;
       }
       this.#guard(vault, signal);

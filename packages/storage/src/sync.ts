@@ -37,6 +37,7 @@ export interface SyncOperationRecord {
   state: 'queued' | 'pending' | 'committed' | 'received' | 'applied' | 'quarantined';
   commitId?: string;
   errorCode?: string;
+  quarantineVersion?: string;
 }
 
 export interface SyncSourceRecord {
@@ -252,10 +253,12 @@ export function createSyncRepository(db: SqliteDatabase) {
         source.deviceId ?? null,
       );
     },
-    sources(vaultId: string): SyncSourceRecord[] {
+    sources(vaultId: string, localSessionId?: string): SyncSourceRecord[] {
       return db
-        .prepare('SELECT * FROM sync_sources WHERE vault_id = ? ORDER BY rowid')
-        .all(vaultId)
+        .prepare(
+          `SELECT * FROM sync_sources WHERE vault_id = ?${localSessionId === undefined ? '' : ' AND local_session_id = ?'} ORDER BY rowid`,
+        )
+        .all(...(localSessionId === undefined ? [vaultId] : [vaultId, localSessionId]))
         .map((row) => ({
           vaultId: text(row, 'vault_id'),
           hostId: text(row, 'host_id'),
@@ -267,6 +270,15 @@ export function createSyncRepository(db: SqliteDatabase) {
           mirrored: Boolean(integer(row, 'mirrored')),
           ...(optionalText(row, 'device_id') && { deviceId: text(row, 'device_id') }),
         }));
+    },
+    projectForWorkspace(
+      vaultId: string,
+      workspaceId: string,
+    ): { projectId: string; workspaceId: string } | undefined {
+      const row = db
+        .prepare('SELECT project_id FROM sync_projects WHERE vault_id = ? AND workspace_id = ?')
+        .get(vaultId, workspaceId);
+      return row ? { projectId: text(row, 'project_id'), workspaceId } : undefined;
     },
     sourceEvent(
       source: Pick<SyncSourceRecord, 'vaultId' | 'hostId' | 'sessionId' | 'streamId'>,
@@ -390,10 +402,11 @@ export function createSyncRepository(db: SqliteDatabase) {
       opId: string,
       state: SyncOperationRecord['state'],
       errorCode?: string,
+      quarantineVersion?: string,
     ): void {
       db.prepare(
-        'UPDATE sync_operations SET state = ?, error_code = ? WHERE vault_id = ? AND op_id = ?',
-      ).run(state, errorCode ?? null, vaultId, opId);
+        'UPDATE sync_operations SET state = ?, error_code = ?, quarantine_version = ? WHERE vault_id = ? AND op_id = ?',
+      ).run(state, errorCode ?? null, quarantineVersion ?? null, vaultId, opId);
     },
     heads(vaultId: string, entityId: string): string[] {
       return db
@@ -509,6 +522,7 @@ function operationFromRow(row: SqlRow): SyncOperationRecord {
   const commitId = optionalText(row, 'commit_id');
   const errorCode = optionalText(row, 'error_code');
   return {
+    quarantineVersion: optionalText(row, 'quarantine_version'),
     vaultId: text(row, 'vault_id'),
     opId: text(row, 'op_id'),
     deviceId: text(row, 'device_id'),

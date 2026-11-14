@@ -35,6 +35,7 @@ export interface SyncBlobRecord {
   uploadAttempts: number;
   downloadAttempts: number;
   errorCode?: string;
+  retryAt?: number;
 }
 
 export interface SyncCommitRecord {
@@ -212,6 +213,10 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
           WHERE d.vault_id = :vaultId
           AND (:categories IS NULL OR e.entity_type IN (SELECT value FROM json_each(:categories)))
           AND (:projects IS NULL OR e.project_id IS NULL OR e.project_id IN (SELECT value FROM json_each(:projects)))
+          AND NOT EXISTS (SELECT 1 FROM sync_operations o JOIN sync_commits c
+            ON c.vault_id=o.vault_id AND c.commit_id=o.commit_id
+            WHERE o.vault_id=d.vault_id AND c.outcome='rejected'
+            AND o.op_id IN (SELECT value FROM json_each(d.parents)))
           ORDER BY CASE WHEN :prioritizeChunks AND json_extract(d.content,'$.body.schema')='wevir-chunk/1' THEN 0 ELSE 1 END, d.rowid LIMIT :limit`)
         .all({
           vaultId,
@@ -367,10 +372,10 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
           (text(previous, 'key_epoch') !== '' && text(previous, 'key_epoch') !== blob.keyEpoch))
       )
         throw new Error('sync blob identity changed');
-      db.prepare(`INSERT INTO sync_blobs (vault_id, blob_id, cipher_sha256, cipher_bytes, key_epoch, cache_path, state, upload_id, upload_expires_at, upload_attempts, download_attempts, error_code)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (vault_id, blob_id) DO UPDATE SET cache_path = excluded.cache_path,
+      db.prepare(`INSERT INTO sync_blobs (vault_id, blob_id, cipher_sha256, cipher_bytes, key_epoch, cache_path, state, upload_id, upload_expires_at, upload_attempts, download_attempts, error_code, retry_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (vault_id, blob_id) DO UPDATE SET cache_path = excluded.cache_path,
         state = excluded.state, upload_id = excluded.upload_id, upload_expires_at = excluded.upload_expires_at,
-        upload_attempts = excluded.upload_attempts, download_attempts = excluded.download_attempts, error_code = excluded.error_code`).run(
+        upload_attempts = excluded.upload_attempts, download_attempts = excluded.download_attempts, error_code = excluded.error_code, retry_at = excluded.retry_at`).run(
         blob.vaultId,
         blob.blobId,
         blob.cipherSha256,
@@ -383,6 +388,7 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         blob.uploadAttempts,
         blob.downloadAttempts,
         blob.errorCode ?? null,
+        blob.retryAt ?? 0,
       );
     },
     putCommit(commit: SyncCommitRecord): void {
@@ -518,6 +524,7 @@ function blobFromRow(row: SqlRow): SyncBlobRecord {
     state: text(row, 'state') as SyncBlobRecord['state'],
     uploadAttempts: integer(row, 'upload_attempts'),
     downloadAttempts: integer(row, 'download_attempts'),
+    retryAt: integer(row, 'retry_at'),
     ...(optionalText(row, 'upload_id') !== undefined && { uploadId: text(row, 'upload_id') }),
     ...(optionalText(row, 'upload_expires_at') !== undefined && {
       uploadExpiresAt: text(row, 'upload_expires_at'),

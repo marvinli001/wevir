@@ -1,3 +1,4 @@
+import { stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RecordManifest, SyncOperation } from '@wevir/protocol/sync';
 import {
@@ -16,6 +17,7 @@ import { ZuvRequestError } from '../zuv/transport.js';
 import { SyncBootstrap } from './bootstrap.js';
 import { SyncBlobCache } from './cache.js';
 import { encryptPack, sha256 } from './crypto.js';
+import { SyncDownloads } from './downloads.js';
 import { SyncEngine } from './engine.js';
 import { SyncVaultKeys } from './keys.js';
 import { SyncOutboxRecovery } from './outbox-recovery.js';
@@ -161,6 +163,143 @@ async function setup(fetcher?: typeof fetch) {
 }
 
 describe('durable encrypted synchronization over HTTP', () => {
+  it('refreshes stale entitlements before decrypting a newer key epoch', async () => {
+    const { first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    const opId = first.enqueue('new epoch refresh') as string;
+    await first.engine.run();
+    const current = second.client.entitlements;
+    if (!current?.vault) throw new Error('missing entitlements');
+    let stale = true;
+    vi.spyOn(second.client, 'entitlements', 'get').mockImplementation(() =>
+      stale ? { ...current, vault: { ...current.vault!, keyEpoch: '0' } } : current,
+    );
+    const read = second.client.getEntitlements.bind(second.client);
+    const refresh = vi.spyOn(second.client, 'getEntitlements').mockImplementation(async () => {
+      stale = false;
+      return read();
+    });
+    second.storage.sync.setVaultTransport(second.opened.vaultId, {
+      keyEpoch: '0',
+      state: 'idle',
+      retryAt: 0,
+    });
+    await second.engine.run();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(second.storage.sync.getOperation(second.opened.vaultId, opId)?.state).toBe('applied');
+  });
+
+  it('keeps a stale resolve pending for another choice and sends unrelated entities', async () => {
+    const { first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    first.enqueue('base');
+    await first.engine.run();
+    await second.engine.run();
+    const left = first.enqueue('left') as string;
+    second.enqueue('right');
+    await first.engine.run();
+    await second.engine.run();
+    await first.engine.run();
+    const entity = first.storage.sync.localEntity(first.opened.vaultId, 'global/note.md');
+    if (!entity) throw new Error('missing entity');
+    const heads = first.storage.sync.heads(first.opened.vaultId, entity.entityId);
+    expect(heads).toHaveLength(2);
+    const latest = second.enqueue('new remote head') as string;
+    await second.engine.run();
+    const resolve = first.storage.transaction(() =>
+      new SyncQueue(first.storage).enqueue({
+        vaultId: first.opened.vaultId,
+        entityId: entity.entityId,
+        entityType: 'memory',
+        localKey: entity.localKey,
+        kind: 'resolve',
+        parents: heads,
+        content: {
+          schema: 'synthetic-memory/1',
+          localKey: entity.localKey,
+          text: 'selected value',
+        },
+      }),
+    );
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'MISSING_PARENT' });
+    expect(first.storage.sync.heads(first.opened.vaultId, entity.entityId).sort()).toEqual(
+      [left, latest].sort(),
+    );
+    expect(first.storage.sync.entity(first.opened.vaultId, entity.entityId)?.revision).not.toBe(
+      resolve,
+    );
+    const unrelated = first.enqueue('independent task', 'global/independent-resolve.md') as string;
+    await first.engine.run();
+    expect(first.storage.sync.getOperation(first.opened.vaultId, unrelated)?.state).toBe(
+      'committed',
+    );
+  });
+  it('retires acknowledged pages and commit bodies while collecting only old unreferenced ciphertext', async () => {
+    const { first } = await setup();
+    await first.enable();
+    first.enqueue('retained material');
+    await first.engine.run();
+    await first.engine.run();
+    expect(first.storage.db.prepare('SELECT COUNT(*) AS n FROM sync_pages').get()?.n).toBe(0);
+    expect(first.storage.sync.commits(first.opened.vaultId, false)[0]?.body).toBe('');
+    const cache = new SyncBlobCache(join(first.home, 'sync/blobs'));
+    const orphan = Buffer.from('orphan ciphertext');
+    await cache.put(first.opened.vaultId, 'blob_orphan', orphan, sha256(orphan));
+    const old = new Date(Date.now() - 8 * 86400000);
+    await utimes(cache.path(first.opened.vaultId, 'blob_orphan'), old, old);
+    const active = first.storage.db.prepare('SELECT blob_id FROM sync_blobs LIMIT 1').get()
+      ?.blob_id as string;
+    await utimes(cache.path(first.opened.vaultId, active), old, old);
+    await first.reopen();
+    await first.engine.run();
+    await expect(stat(cache.path(first.opened.vaultId, 'blob_orphan'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    await expect(stat(cache.path(first.opened.vaultId, active))).resolves.toHaveProperty('size');
+  });
+  it('redownloads corrupt local ciphertext instead of quarantining a valid remote record', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    first.enqueue('cache repair');
+    await first.engine.run();
+    await second.engine.run();
+    const row = second.storage.db.prepare('SELECT blob_id FROM sync_blobs LIMIT 1').get();
+    const blobId = row?.blob_id as string;
+    const cache = new SyncBlobCache(join(second.home, 'sync/blobs'));
+    await writeFile(cache.path(second.opened.vaultId, blobId), 'corrupt cache');
+    const before = server.sync.attempts.downloads;
+    await new SyncDownloads({
+      storage: second.storage,
+      client: second.client,
+      cache,
+      guard: () => {},
+    }).read(second.storage.sync.activeVault()!, blobId, new AbortController().signal);
+    expect(server.sync.attempts.downloads).toBe(before + 1);
+  });
+
+  it('reconsiders upgrade quarantine after the client protocol changes', async () => {
+    const { first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    const opId = first.enqueue('upgrade retry') as string;
+    await first.engine.run();
+    vi.spyOn(second.storage.sync, 'putEntity').mockImplementationOnce(() => {
+      throw new ZuvRequestError('UPGRADE_REQUIRED');
+    });
+    await expect(second.engine.run()).rejects.toMatchObject({ code: 'UPGRADE_REQUIRED' });
+    second.storage.sync.markOperation(
+      second.opened.vaultId,
+      opId,
+      'quarantined',
+      'UPGRADE_REQUIRED',
+    );
+    await second.reopen();
+    await second.engine.run();
+    expect(second.storage.sync.getOperation(second.opened.vaultId, opId)?.state).toBe('applied');
+  });
   it('retries a commit rejected before acceptance using its exact original body', async () => {
     const { server, first, second } = await setup();
     await first.enable();
@@ -258,7 +397,16 @@ describe('durable encrypted synchronization over HTTP', () => {
     const accepted = () =>
       first.storage.sync
         .commits(vaultId, false)
-        .flatMap((commit) => JSON.parse(commit.body).operations as SyncOperation[])
+        .flatMap((commit) =>
+          commit.body
+            ? (JSON.parse(commit.body).operations as SyncOperation[])
+            : first.storage.db
+                .prepare(
+                  'SELECT envelope FROM sync_operations WHERE vault_id=? AND commit_id=? ORDER BY rowid',
+                )
+                .all(vaultId, commit.commitId)
+                .map((row) => JSON.parse(row.envelope as string) as SyncOperation),
+        )
         .map((op) => op.opId);
     return { ...peers, vaultId, projectId, queue, bundle, accepted };
   }
@@ -737,11 +885,15 @@ describe('durable encrypted synchronization over HTTP', () => {
     await expect(first.engine.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
     const original = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
     expect(original).toMatchObject({ outcome: 'rejected', attempts: 1 });
+    first.enqueue('Synthetic independent local work', 'global/independent.md');
     second.enqueue('Synthetic remote work', 'global/remote.md');
     await second.engine.run();
-    await expect(first.engine.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    await first.engine.run();
+    expect(
+      first.storage.sync.localEntity(first.opened.vaultId, 'global/independent.md')?.revision,
+    ).toBeDefined();
     expect(first.storage.sync.localEntity(first.opened.vaultId, 'global/remote.md')).toBeDefined();
-    expect(rejected).toBe(1);
+    expect(rejected).toBe(2);
     await new SyncOutboxRecovery({
       storage: first.storage,
       client: first.client,
@@ -1101,12 +1253,15 @@ describe('durable encrypted synchronization over HTTP', () => {
     const before = first.storage.sync.commits(first.opened.vaultId)[0];
     expect(before).toBeDefined();
     await first.reopen();
+    first.storage.db
+      .prepare('UPDATE sync_blobs SET retry_at = 0 WHERE vault_id = ?')
+      .run(first.opened.vaultId);
     await first.engine.run();
     await second.engine.run();
     const after = first.storage.sync.commits(first.opened.vaultId, false)[0];
     expect(after).toMatchObject({
       commitId: before?.commitId,
-      body: before?.body,
+      body: '',
       state: 'committed',
     });
     expect(second.storage.sync.operations(first.opened.vaultId, 'inbox', 'applied')).toHaveLength(
@@ -1223,17 +1378,27 @@ describe('durable encrypted synchronization over HTTP', () => {
     expect(second.storage.sync.getOperation(first.opened.vaultId, opId)?.state).toBe('quarantined');
   });
 
-  it('bounds automatic paid download attempts across repeated runs and restart', async () => {
+  it('backs off paid download failures across restart and resumes after the window', async () => {
     const { server, first, second } = await setup();
     await first.enable();
     await second.enable();
     first.enqueue('download retry budget');
     await first.engine.run();
     server.sync.failDownloads = true;
-    for (let attempt = 0; attempt < 3; attempt++)
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    for (let attempt = 0; attempt < 3; attempt++) {
       await expect(second.engine.run()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+      await expect(second.engine.run()).rejects.toMatchObject({ code: 'RATE_LIMITED' });
+      now += 60001;
+    }
     await second.reopen();
-    await expect(second.engine.run()).rejects.toMatchObject({ code: 'RATE_LIMITED' });
-    expect(server.sync.attempts.downloads).toBe(3);
+    server.sync.failDownloads = false;
+    await second.engine.run();
+    expect(server.sync.attempts.downloads).toBe(4);
+    const blob = second.storage.db
+      .prepare('SELECT download_attempts FROM sync_blobs LIMIT 1')
+      .get();
+    expect(blob?.download_attempts).toBe(0);
   });
 });

@@ -1,0 +1,28 @@
+{
+  "protocolVersion": "0.187.0",
+  "methods": {
+    "sync.cancelRecovery": {
+      "params": [{}],
+      "result": [
+        {
+          "cancelled": false
+        }
+      ]
+    },
+    "sync.workspaceDiscard": {
+      "params": [
+        {
+          "restoreId": "restore_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "discarded": true
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

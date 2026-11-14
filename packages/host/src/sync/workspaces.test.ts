@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SyncBundleContentSchema } from '@wevir/protocol';
 import type { SyncVaultRecord } from '@wevir/storage';
@@ -58,6 +58,102 @@ async function fixture() {
 }
 
 describe('workspace identity fences', () => {
+  it('reuses an unclaimed restore and discards it explicitly', async () => {
+    const data = await fixture();
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () => data.storage.sync.activeVault(),
+    });
+    const { snapshot } = await service.capture({
+      sessionId: 'ses_workspace',
+      untracked: ['selected.txt'],
+    });
+    const first = await service.restore({ sessionId: 'ses_workspace', snapshot });
+    const second = await service.restore({ sessionId: 'ses_workspace', snapshot });
+    expect(second.restoreId).toBe(first.restoreId);
+    await service.discard(first.restoreId);
+    await expect(readFile(join(first.cwd, 'selected.txt'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+  it('counts identical Git layers once and reuses their chunks', async () => {
+    const data = await fixture();
+    const root = join(temp(), 'repo');
+    await writeFile(join(root, 'selected.txt'), Buffer.alloc(24 * 1024 * 1024, 71));
+    await workspaceGit(root, ['add', 'selected.txt']);
+    await workspaceGit(root, [
+      '-c',
+      'user.name=Synthetic',
+      '-c',
+      'user.email=synthetic@localhost',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '-m',
+      'Synthetic base',
+    ]);
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () => data.storage.sync.activeVault(),
+    });
+    const { snapshot } = await service.capture({ sessionId: 'ses_workspace' });
+    const body = SyncBundleContentSchema.parse(
+      (
+        data.storage.sync.draft(data.vault.vaultId, snapshot.opId)?.content as
+          | SyncDraftPayload
+          | undefined
+      )?.body,
+    );
+    expect(new Set(body.files.flatMap((file) => file.parts.map((part) => part.opId))).size).toBe(
+      384,
+    );
+    expect(snapshot.bytes).toBe(24 * 1024 * 1024);
+    expect(service.read(snapshot).files).toHaveLength(3);
+  }, 30000);
+  it('reopens a restore with hundreds of agent paths without a large journal', async () => {
+    const data = await fixture();
+    const root = join(temp(), 'repo');
+    await mkdir(join(root, '.claude/rules'), { recursive: true });
+    const paths = Array.from(
+      { length: 400 },
+      (_, i) => `.claude/rules/${i}-${'long-name-'.repeat(6)}.md`,
+    );
+    for (const path of paths) await writeFile(join(root, path), 'Synthetic rule');
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () => data.storage.sync.activeVault(),
+    });
+    const { snapshot } = await service.capture({ sessionId: 'ses_workspace', untracked: paths });
+    const restored = await service.restore({ sessionId: 'ses_workspace', snapshot });
+    expect(restored.requiresTrust).toHaveLength(400);
+    await expect(service.restoredRoot('ws_workspace', restored.restoreId)).resolves.toBe(
+      restored.cwd,
+    );
+  }, 30000);
+
+  it('reopens after dependency installation and reports local modifications', async () => {
+    const data = await fixture();
+    const service = new SyncWorkspaces({
+      ...data,
+      eligible: () => data.storage.sync.activeVault(),
+    });
+    const { snapshot } = await service.capture({
+      sessionId: 'ses_workspace',
+      untracked: ['selected.txt'],
+    });
+    const restored = await service.restore({ sessionId: 'ses_workspace', snapshot });
+    await mkdir(join(restored.cwd, 'vendor/bin'), { recursive: true });
+    await symlink('../../selected.txt', join(restored.cwd, 'vendor/bin/tool'));
+    await expect(service.restoredRoot('ws_workspace', restored.restoreId)).resolves.toBe(
+      restored.cwd,
+    );
+    const reopened = await service.restore({
+      sessionId: 'ses_workspace',
+      snapshot,
+      restoreId: restored.restoreId,
+    });
+    expect(reopened.modified).toBe(true);
+  });
   it.each(['deviceId', 'originHostId'] as const)(
     'rejects a late capture after %s changes within the same vault and revision',
     async (field) => {

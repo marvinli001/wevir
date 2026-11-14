@@ -29,7 +29,7 @@ export class SyncVaultKeys {
       });
       this.#unlocking.set(ref, pending);
     }
-    return pending;
+    return pending.then((key) => Buffer.from(key));
   }
 
   async cached(vaultId: string, keyEpoch: string): Promise<Uint8Array> {

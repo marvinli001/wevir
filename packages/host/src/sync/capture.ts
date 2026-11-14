@@ -26,12 +26,6 @@ export class SyncEventCapture {
     this.projects();
     if (!vault?.categories.includes('event-segment')) return;
     const projects = this.#storage.sync.projects(vault.vaultId);
-    const mirrored = new Set(
-      this.#storage.sync
-        .sources(vault.vaultId)
-        .filter((source) => source.mirrored)
-        .map((source) => source.localSessionId),
-    );
     this.#storage.transaction(() => {
       for (const project of projects) {
         if (!project.workspaceId || !vault.projectIds.includes(project.projectId)) continue;
@@ -41,11 +35,7 @@ export class SyncEventCapture {
           includeSide: true,
           archived: 'include',
         })) {
-          if (
-            mirrored.has(session.id) ||
-            this.#storage.sync.foreignSource(vault.vaultId, session.id)
-          )
-            continue;
+          if (this.#storage.sync.foreignSource(vault.vaultId, session.id)) continue;
           const source = this.#source(vault, session);
           this.#metadata(
             vault,
@@ -193,26 +183,11 @@ export class SyncEventCapture {
     if (!vault?.categories.includes('event-segment') || !events.length) return;
     if (!this.#storage.db.isTransaction)
       throw new Error('sync event capture requires the business transaction');
-    const projects = this.#storage.sync.projects(vault.vaultId);
-    const mirrored = new Set(
-      this.#storage.sync
-        .sources(vault.vaultId)
-        .filter((source) => source.mirrored)
-        .map((source) => source.localSessionId),
-    );
     for (const sessionId of new Set(events.map((event) => event.sessionId))) {
       const session = this.#storage.sessions.get(sessionId);
-      if (
-        !session ||
-        mirrored.has(session.id) ||
-        this.#storage.sync.foreignSource(vault.vaultId, session.id)
-      )
-        continue;
-      const project = projects.find(
-        (value) =>
-          value.workspaceId === session.workspaceId && vault.projectIds.includes(value.projectId),
-      );
-      if (!project) continue;
+      if (!session || this.#storage.sync.foreignSource(vault.vaultId, session.id)) continue;
+      const project = this.#storage.sync.projectForWorkspace(vault.vaultId, session.workspaceId);
+      if (!project || !vault.projectIds.includes(project.projectId)) continue;
       const source = this.#source(vault, session);
       const firstSeq = events.find((event) => event.sessionId === sessionId)?.seq as number;
       this.#metadata(
@@ -279,7 +254,7 @@ export class SyncEventCapture {
       )
         continue;
       const source = this.#storage.sync
-        .sources(vault.vaultId)
+        .sources(vault.vaultId, capture.localSessionId)
         .find(
           (value) =>
             value.streamId === capture.streamId &&
@@ -351,7 +326,7 @@ export class SyncEventCapture {
   #source(vault: SyncVaultRecord, session: SessionRecord): SyncSourceRecord {
     const execution = this.#storage.sync.execution(vault.vaultId, session.id);
     const existing = this.#storage.sync
-      .sources(vault.vaultId)
+      .sources(vault.vaultId, session.id)
       .find(
         (value) =>
           value.localSessionId === session.id &&
@@ -365,7 +340,7 @@ export class SyncEventCapture {
       hostId: vault.originHostId,
       sessionId:
         this.#storage.sync
-          .sources(vault.vaultId)
+          .sources(vault.vaultId, session.id)
           .find(
             (value) =>
               value.localSessionId === session.id &&
@@ -385,14 +360,14 @@ export class SyncEventCapture {
     vault: SyncVaultRecord,
     session: SessionRecord,
     projectId: string,
-    throughSeq: number,
+    _throughSeq: number,
     options: { baselineOnly?: boolean; force?: boolean } = {},
   ): void {
     if (vault.categories.includes('project')) this.#project(vault, projectId, session.workspaceId);
     if (!vault.categories.includes('session')) return;
     const native =
       this.#storage.sync
-        .sources(vault.vaultId)
+        .sources(vault.vaultId, session.id)
         .find(
           (value) =>
             value.localSessionId === session.id &&
@@ -409,7 +384,6 @@ export class SyncEventCapture {
       schema: 'wevir-session/1',
       source,
       sessionId: native.sessionId,
-      throughSeq: String(throughSeq),
       title: session.title,
       titleSource: session.titleSource,
       providerId: session.providerId,

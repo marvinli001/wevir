@@ -4,7 +4,6 @@ import { lstat, mkdir, open, realpath, writeFile } from 'node:fs/promises';
 import { devNull } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { SyncRelativePathSchema, type SyncWorkspaceMetadata } from '@wevir/protocol';
-import { jcs } from '@wevir/protocol/sync';
 import { PROJECT_FILES } from '../rule-files.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { type BundleFile, excludedBundlePath, snapshotBundle } from './bundle-snapshot.js';
@@ -24,7 +23,12 @@ export const workspaceRequiresTrust = (path: string) =>
   );
 
 /** Plumbing only: no shell, global Git config, filters, fsmonitor or hooks. */
-export function workspaceGit(cwd: string, args: readonly string[], input?: Uint8Array) {
+export function workspaceGit(
+  cwd: string,
+  args: readonly string[],
+  input?: Uint8Array,
+  maximumOutputBytes = WORKSPACE_MAX_BYTES,
+) {
   return new Promise<Buffer>((accept, reject) => {
     const env = { ...process.env };
     for (const key of Object.keys(env)) if (key.startsWith('GIT_')) delete env[key];
@@ -69,7 +73,7 @@ export function workspaceGit(cwd: string, args: readonly string[], input?: Uint8
     }, 30000);
     child.stdout.on('data', (bytes: Buffer) => {
       length += bytes.length;
-      if (length > WORKSPACE_MAX_BYTES) {
+      if (length > maximumOutputBytes) {
         error = new ZuvRequestError('QUOTA_EXCEEDED');
         child.kill();
       } else output.push(bytes);
@@ -197,11 +201,16 @@ export async function captureWorkspaceTree(
     throw new ZuvRequestError('REVISION_CONFLICT');
   const selected = [...new Set([...tracked, ...untracked])].sort();
   validateWorkspacePaths(selected);
-  const worktree = await snapshotBundle({ path: root, paths: selected, guard });
+  const executables = new Map(index.map((file) => [file.path, file.executable]));
+  const worktree = await snapshotBundle({ path: root, paths: selected, guard, executables });
   const files: BundleFile[] = [];
   let bytes = 0;
+  const contents = new Set<string>();
   const add = (file: BundleFile) => {
-    bytes += file.bytes.length;
+    if (!contents.has(file.sha256)) {
+      bytes += file.bytes.length;
+      contents.add(file.sha256);
+    }
     if (bytes > WORKSPACE_MAX_BYTES || files.length >= MAX_FILES)
       throw new ZuvRequestError('QUOTA_EXCEEDED');
     files.push(file);
@@ -232,7 +241,7 @@ export async function captureWorkspaceTree(
   }
   for (const file of worktree.files) add({ ...file, path: `worktree/${file.path}` });
   workspaceLayers(files);
-  const afterFiles = await snapshotBundle({ path: root, paths: selected, guard });
+  const afterFiles = await snapshotBundle({ path: root, paths: selected, guard, executables });
   guard();
   if (
     before.hash !== (await gitState(root)).hash ||
@@ -260,6 +269,7 @@ export function workspaceLayers(files: readonly BundleFile[]) {
     worktree: [] as BundleFile[],
   };
   let total = 0;
+  const contents = new Set<string>();
   for (const file of files) {
     const slash = file.path.indexOf('/'),
       layer = file.path.slice(0, slash);
@@ -267,7 +277,10 @@ export function workspaceLayers(files: readonly BundleFile[]) {
       throw new ZuvRequestError('INTEGRITY_FAILED');
     if (file.bytes.length > WORKSPACE_MAX_BYTES || sha256(file.bytes) !== file.sha256)
       throw new ZuvRequestError('INTEGRITY_FAILED');
-    total += file.bytes.length;
+    if (!contents.has(file.sha256)) {
+      total += file.bytes.length;
+      contents.add(file.sha256);
+    }
     if (total > WORKSPACE_MAX_BYTES || files.length > MAX_FILES)
       throw new ZuvRequestError('QUOTA_EXCEEDED');
     layers[layer as keyof typeof layers].push({ ...file, path: file.path.slice(slash + 1) });
@@ -357,10 +370,71 @@ export async function restoreWorkspaceTree(
 }
 
 export async function inspectWorkspaceTree(cwd: string) {
-  const files = await snapshotBundle({ path: cwd });
+  const info = await lstat(cwd);
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new ZuvRequestError('INTEGRITY_FAILED');
+  const names = [
+    ...PROJECT_FILES.map((file) => file.name.split('\\').join('/')),
+    '.gitattributes',
+    '.mcp.json',
+    'mcp.json',
+    'opencode.json',
+    'opencode.jsonc',
+    ...['.claude', '.codex', '.cursor', '.opencode', '.kiro', '.gemini', '.agents', '.wevir'].map(
+      (dir) => `${dir}/**`,
+    ),
+  ];
+  const candidates = (
+    await workspaceGit(
+      cwd,
+      [
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+        '-z',
+        '--',
+        ...names.map((name) => `:(glob)**/${name}`),
+      ],
+      undefined,
+      1024 * 1024,
+    )
+  )
+    .toString()
+    .split('\0')
+    .filter(Boolean);
+  const requiresTrust: string[] = [];
+  for (const path of new Set(candidates)) {
+    if (!workspaceRequiresTrust(path)) continue;
+    const file = await lstat(join(cwd, path)).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    });
+    if (file) requiresTrust.push(path);
+  }
+  let fingerprint: string | undefined;
+  try {
+    const status = await workspaceGit(
+      cwd,
+      ['status', '--porcelain=v1', '-z', '--untracked-files=normal'],
+      undefined,
+      1024 * 1024,
+    );
+    const revision = await workspaceGit(cwd, ['rev-parse', '--verify', 'HEAD']).then(
+      () => 'HEAD',
+      () => '--cached',
+    );
+    const diff = await workspaceGit(
+      cwd,
+      ['diff', '--no-ext-diff', '--no-textconv', '--binary', revision],
+      undefined,
+      1024 * 1024,
+    );
+    fingerprint = sha256(Buffer.concat([status, diff]));
+  } catch (error) {
+    if (!(error instanceof ZuvRequestError && error.code === 'QUOTA_EXCEEDED')) throw error;
+  }
   return {
-    fingerprint: sha256(jcs({ files: files.fingerprint, git: (await gitState(cwd)).hash })),
-    requiresTrust: files.files.map((file) => file.path).filter(workspaceRequiresTrust),
+    fingerprint,
+    requiresTrust: requiresTrust.sort(),
   };
 }
 

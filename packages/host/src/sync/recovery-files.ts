@@ -17,9 +17,8 @@ export class SyncRecoveryFiles {
       storage: Storage;
     },
   ) {}
-  async snapshot(vaultId: string, jobId?: string) {
+  async snapshot(vaultId: string, jobId?: string, signal = new AbortController().signal) {
     const vault = this.#vault(vaultId);
-    const signal = new AbortController().signal;
     const plan = jobId
       ? await this.options.snapshots.resume(jobId, vault, signal)
       : await this.options.snapshots.prepare(vault, signal);
@@ -32,7 +31,10 @@ export class SyncRecoveryFiles {
       expiresAt: descriptor.exported.expiresAt,
     };
   }
-  async download(input: MethodParams<'sync.recoveryDownload'>) {
+  async download(
+    input: MethodParams<'sync.recoveryDownload'>,
+    signal = new AbortController().signal,
+  ) {
     const vault = this.#vault(input.vaultId);
     const descriptor = await this.options.snapshots.describe(input.jobId);
     if (
@@ -45,7 +47,6 @@ export class SyncRecoveryFiles {
     this.options.storage.transaction(() => this.options.storage.sync.rememberRecoveryVault(vault));
     const categories: EntityType[] = [...new Set(input.categories)];
     const data = this.options.data;
-    const signal = new AbortController().signal;
     async function* versions() {
       const seen = new Set<string>();
       const refs = new Map<string, string>();
@@ -104,11 +105,15 @@ export class SyncRecoveryFiles {
       if ([...refs.keys()].some((opId) => !seen.has(opId)))
         throw new ZuvRequestError('MISSING_PARENT');
     }
-    return this.options.portable.stageRecords(versions(), {
-      schema: 'wevir-portable-snapshot/1',
-      exported: descriptor.exported,
-      selection: { categories, projectIds: input.projectIds, includeReferencedMaterials: true },
-    });
+    return this.options.portable.stageRecords(
+      versions(),
+      {
+        schema: 'wevir-portable-snapshot/1',
+        exported: descriptor.exported,
+        selection: { categories, projectIds: input.projectIds, includeReferencedMaterials: true },
+      },
+      signal,
+    );
   }
   #vault(vaultId: string): SyncVaultRecord {
     const client = this.options.client;

@@ -1,11 +1,27 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useTempDir } from '../test-utils.js';
 import { bundleFingerprint, snapshotBundle } from './bundle-snapshot.js';
 
 const tempDir = useTempDir();
 describe('bounded package snapshots', () => {
+  it('ignores unsupported executable bits in Windows fingerprints', () => {
+    vi.stubGlobal(
+      'process',
+      new Proxy(process, {
+        get: (target, key) => (key === 'platform' ? 'win32' : Reflect.get(target, key)),
+      }),
+    );
+    try {
+      const file = { path: 'tool.sh', sha256: 'synthetic' };
+      expect(bundleFingerprint({ files: [{ ...file, executable: true }], exclusions: [] })).toBe(
+        bundleFingerprint({ files: [{ ...file, executable: false }], exclusions: [] }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('canonicalizes names and ignores owned promotion scratch data without reading excluded files', async () => {
     const root = tempDir();
     await writeFile(join(root, 'z.txt'), 'Z');

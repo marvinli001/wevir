@@ -6,9 +6,9 @@ import type { Storage, SyncLocalWriteRecord, SyncVaultRecord } from '@wevir/stor
 import { newId } from '../ids.js';
 import { MEMORY_NAME_PATTERN } from '../memory.js';
 import { ZuvRequestError } from '../zuv/transport.js';
-import { bundleFingerprint, snapshotBundle } from './bundle-snapshot.js';
+import { BundleReadCache, bundleFingerprint, snapshotBundle } from './bundle-snapshot.js';
 import { sha256 } from './crypto.js';
-import { SyncQueue } from './queue.js';
+import { MAX_PREPARATION_REFERENCES, SyncQueue } from './queue.js';
 
 export interface SyncBundleRoot {
   category: 'rule' | 'skill-bundle' | 'artifact';
@@ -24,6 +24,7 @@ export interface SyncBundleRoot {
   parents?: string[];
   kind?: 'put' | 'delete' | 'resolve';
   expectedFingerprint?: string;
+  executables?: ReadonlyMap<string, boolean>;
 }
 
 export class SyncFilesCapture {
@@ -32,15 +33,19 @@ export class SyncFilesCapture {
   readonly #queue: SyncQueue;
   readonly #activeWrites = new Set<string>();
   readonly #eligible: (() => SyncVaultRecord | undefined) | undefined;
+  readonly #watch: ((path: string) => void) | undefined;
+  readonly #readCache = new BundleReadCache();
   constructor(options: {
     storage: Storage;
     memoryDir: string;
     eligible?: () => SyncVaultRecord | undefined;
+    watch?: (path: string) => void;
   }) {
     this.#storage = options.storage;
     this.#memoryDir = options.memoryDir;
     this.#queue = new SyncQueue(options.storage);
     this.#eligible = options.eligible;
+    this.#watch = options.watch;
   }
 
   beforeMemoryWrite(
@@ -221,6 +226,7 @@ export class SyncFilesCapture {
         const owner = this.#storage.sync.owner(key);
         if (owner && owner !== vault.vaultId) continue;
         const path = join(scope.root, file.name);
+        this.#watch?.(path);
         const info = await lstat(path);
         if (!info.isFile() || info.isSymbolicLink() || info.size > 128 * 1024)
           throw new ZuvRequestError('INTEGRITY_FAILED');
@@ -362,8 +368,31 @@ export class SyncFilesCapture {
     const binding = root.entityId
       ? this.#storage.sync.bundleBinding(vault.vaultId, root.entityId)
       : undefined;
-    const snapshot = await snapshotBundle({ ...root, guard }, Boolean(binding));
+    const snapshot = await snapshotBundle(
+      {
+        ...root,
+        guard,
+        ...(binding && {
+          executables: new Map(
+            binding.manifest.files.map((file) => [file.path, file.executable === true]),
+          ),
+        }),
+      },
+      Boolean(binding),
+      this.#readCache,
+    );
     const { files, exclusions } = snapshot;
+    if (this.#watch && !snapshot.deleted) {
+      const directory = (await lstat(root.path)).isDirectory();
+      for (const file of files) this.#watch(directory ? join(root.path, file.path) : root.path);
+    }
+    if (
+      files.reduce(
+        (sum, file) => sum + Math.ceil(file.bytes.length / (64 * 1024)),
+        2 + (root.parents?.length ?? 0),
+      ) > MAX_PREPARATION_REFERENCES
+    )
+      throw new ZuvRequestError('QUOTA_EXCEEDED');
     const deleted =
       root.kind === 'delete' ||
       snapshot.deleted ||

@@ -43,7 +43,7 @@ export const SyncSessionContentSchema = z.object({
   schema: z.literal('wevir-session/1'),
   recoveredFrom: SyncRecoveredFromSchema.optional(),
   sessionId: SessionIdSchema,
-  throughSeq: decimal,
+  throughSeq: decimal.optional(),
   title: z.string().max(2048),
   titleSource: z.enum(['first_prompt', 'user', 'generated']),
   providerId: z.string().min(1).max(256),
@@ -114,50 +114,54 @@ export const SyncChunkContentSchema = z.object({
     .max(256 * 1024),
   sha256: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 });
-export const SyncBundleContentSchema = z.object({
-  schema: z.literal('wevir-bundle/1'),
-  category: z.enum(['rule', 'skill-bundle', 'artifact', 'workspace-snapshot']),
-  name: z.string().min(1).max(256),
-  files: z
-    .array(
-      z.object({
-        path: SyncRelativePathSchema,
-        bytes: z
-          .number()
-          .int()
-          .min(0)
-          .max(64 * 1024 * 1024),
-        sha256: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-        parts: z.array(z.object({ entityId: id, opId: id })).max(1024),
-        executable: z.boolean().optional(),
-      }),
-    )
-    .max(10000)
-    .refine(
-      (files) => files.reduce((total, file) => total + file.bytes, 0) <= 64 * 1024 * 1024,
-      'material size limit',
-    ),
-  exclusions: z.array(SyncRelativePathSchema).max(10000),
-  metadata: z.json().optional(),
-  recoveredFrom: z
-    .object({
-      vaultId: id,
-      deviceId: id,
-      opId: id,
-      commitId: id.optional(),
-      source: SyncStreamRefSchema.optional(),
-      origin: z
-        .object({
-          hostId: id,
-          sessionId: SessionIdSchema,
-          streamId: id,
-          fromSeq: decimal,
-          throughSeq: decimal,
-        })
-        .optional(),
-    })
-    .optional(),
-});
+export const SyncBundleContentSchema = z
+  .object({
+    schema: z.literal('wevir-bundle/1'),
+    category: z.enum(['rule', 'skill-bundle', 'artifact', 'workspace-snapshot']),
+    name: z.string().min(1).max(256),
+    files: z
+      .array(
+        z.object({
+          path: SyncRelativePathSchema,
+          bytes: z
+            .number()
+            .int()
+            .min(0)
+            .max(64 * 1024 * 1024),
+          sha256: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+          parts: z.array(z.object({ entityId: id, opId: id })).max(1024),
+          executable: z.boolean().optional(),
+        }),
+      )
+      .max(10000),
+    exclusions: z.array(SyncRelativePathSchema).max(10000),
+    metadata: z.json().optional(),
+    recoveredFrom: z
+      .object({
+        vaultId: id,
+        deviceId: id,
+        opId: id,
+        commitId: id.optional(),
+        source: SyncStreamRefSchema.optional(),
+        origin: z
+          .object({
+            hostId: id,
+            sessionId: SessionIdSchema,
+            streamId: id,
+            fromSeq: decimal,
+            throughSeq: decimal,
+          })
+          .optional(),
+      })
+      .optional(),
+  })
+  .refine((bundle) => {
+    const files =
+      bundle.category === 'workspace-snapshot'
+        ? [...new Map(bundle.files.map((file) => [`${file.sha256}:${file.bytes}`, file])).values()]
+        : bundle.files;
+    return files.reduce((total, file) => total + file.bytes, 0) <= 64 * 1024 * 1024;
+  }, 'material size limit');
 
 export const SyncSharedFilesMetadataSchema = z.object({
   schema: z.literal('wevir-shared-files/1'),

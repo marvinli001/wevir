@@ -129,6 +129,7 @@ export interface RequestContext {
   readonly client: ClientIdentity;
   readonly capabilities: ClientCapabilities;
   readonly principal?: import('./permissions.js').ConnectionPrincipal;
+  readonly signal?: AbortSignal;
 }
 
 export type MethodHandler<M extends MethodName> = (
@@ -827,6 +828,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         if (extra !== undefined && !sameFolders(extra, current.extraFolders ?? [])) {
           storage.workspaces.setExtraFolders(workspaceId, extra, isoNow());
         }
+        options.sync?.changed();
         return { workspace: toWorkspace(mustGetWorkspace(storage, workspaceId)) };
       };
       if (extraFolders === undefined) return apply(undefined);
@@ -1725,10 +1727,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
       return options.sync.devices();
     },
-    'sync.approveDevice': ({ deviceId }) => {
+    'sync.approveDevice': ({ deviceId }, context) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
-      return options.sync.approveDevice(deviceId);
+      return options.sync.approveDevice(deviceId, context.signal);
     },
     'sync.workspaceCapture': (params) => {
       if (!options.sync)
@@ -1737,6 +1739,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
     'sync.workspaceSnapshots': ({ sessionId }) =>
       options.sync?.workspaceSnapshots(sessionId) ?? { snapshots: [] },
+    'sync.workspaceDiscard': ({ restoreId }) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.workspaceDiscard(restoreId);
+    },
     'sync.workspaceRestore': (params) => {
       if (!options.sync)
         throw new HostError('INVALID_STATE', 'sync is unavailable', { state: 'closed' });
@@ -1762,20 +1769,20 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
       return options.sync.recoveryComplete(vaultId, requestId);
     },
-    'sync.recoverySnapshot': ({ vaultId, jobId }) => {
+    'sync.recoverySnapshot': ({ vaultId, jobId }, context) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
-      return options.sync.recoverySnapshot(vaultId, jobId);
+      return options.sync.recoverySnapshot(vaultId, jobId, context.signal);
     },
-    'sync.recoveryDownload': (params) => {
+    'sync.recoveryDownload': (params, context) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
-      return options.sync.recoveryDownload(params);
+      return options.sync.recoveryDownload(params, context.signal);
     },
-    'sync.unlockKeys': ({ vaultId }) => {
+    'sync.unlockKeys': ({ vaultId }, context) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
-      return options.sync.unlockKeys(vaultId);
+      return options.sync.unlockKeys(vaultId, context.signal);
     },
     'sync.deleteCloud': ({ vaultId, stepUpId }) => {
       if (!options.sync)
@@ -1787,20 +1794,25 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
       return options.sync.detach(vaultId);
     },
-    'sync.exportLocal': ({ directory }) => {
+    'sync.cancelRecovery': () => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
-      return options.sync.exportLocal(directory);
+      return options.sync.cancelRecovery();
     },
-    'sync.importPrepare': ({ path }) => {
+    'sync.exportLocal': ({ directory }, context) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
-      return options.sync.importPrepare(path);
+      return options.sync.exportLocal(directory, context.signal);
     },
-    'sync.importApply': ({ importId }) => {
+    'sync.importPrepare': ({ path }, context) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
-      return options.sync.importApply(importId);
+      return options.sync.importPrepare(path, context.signal);
+    },
+    'sync.importApply': ({ importId }, context) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importApply(importId, context.signal);
     },
     'sync.importList': () => {
       if (!options.sync)

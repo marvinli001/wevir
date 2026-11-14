@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, rename, statfs } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { lstat, mkdir, open, readdir, rename, rm, statfs } from 'node:fs/promises';
+import { dirname, join, sep } from 'node:path';
 import {
   type MethodParams,
   type SessionId,
@@ -17,7 +17,7 @@ import { newId } from '../ids.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import type { BundleFile } from './bundle-snapshot.js';
 import { sha256 } from './crypto.js';
-import { SyncQueue } from './queue.js';
+import { MAX_PREPARATION_REFERENCES, SyncQueue } from './queue.js';
 import {
   captureWorkspaceTree,
   inspectWorkspaceTree,
@@ -46,7 +46,8 @@ interface RestoreJob {
   state: 'building' | 'ready';
   fingerprint?: string;
   head?: string;
-  requiresTrust?: string[];
+  device?: number;
+  inode?: number;
 }
 
 export class SyncWorkspaces {
@@ -111,6 +112,13 @@ export class SyncWorkspaces {
       ruleVersions,
       capturedAt: new Date().toISOString(),
     });
+    if (
+      [...new Map(captured.files.map((file) => [file.sha256, file])).values()].reduce(
+        (sum, file) => sum + Math.ceil(file.bytes.length / (64 * 1024)),
+        2 + ruleVersions.length,
+      ) > MAX_PREPARATION_REFERENCES
+    )
+      throw new ZuvRequestError('QUOTA_EXCEEDED');
     guard();
     if (storage.sessions.get(params.sessionId)?.lastSeq !== seq)
       throw new ZuvRequestError('REVISION_CONFLICT');
@@ -118,27 +126,36 @@ export class SyncWorkspaces {
       queue = new SyncQueue(storage);
     const opId = storage.transaction(() => {
       guard();
+      const chunks = new Map<string, Array<{ entityId: string; opId: string }>>();
       const files = captured.files.map((file) => {
-        const parts: Array<{ entityId: string; opId: string }> = [];
-        for (let offset = 0, index = 0; offset < file.bytes.length; offset += 64 * 1024, index++) {
-          const chunkId = newId('spart'),
-            bytes = file.bytes.subarray(offset, offset + 64 * 1024);
-          const part = queue.enqueue({
-            vaultId: vault.vaultId,
-            entityId: chunkId,
-            entityType: 'artifact',
-            projectId: project.projectId,
-            localKey: `chunk:${chunkId}`,
-            content: {
-              schema: 'wevir-chunk/1',
-              ownerId: entityId,
-              index,
-              data: bytes.toString('base64url'),
-              sha256: sha256(bytes),
-            },
-          });
-          if (!part) throw new ZuvRequestError('SCOPE_DISABLED');
-          parts.push({ entityId: chunkId, opId: part });
+        const cached = chunks.get(file.sha256);
+        const parts: Array<{ entityId: string; opId: string }> = cached ?? [];
+        if (!cached) {
+          for (
+            let offset = 0, index = 0;
+            offset < file.bytes.length;
+            offset += 64 * 1024, index++
+          ) {
+            const chunkId = newId('spart'),
+              bytes = file.bytes.subarray(offset, offset + 64 * 1024);
+            const part = queue.enqueue({
+              vaultId: vault.vaultId,
+              entityId: chunkId,
+              entityType: 'artifact',
+              projectId: project.projectId,
+              localKey: `chunk:${chunkId}`,
+              content: {
+                schema: 'wevir-chunk/1',
+                ownerId: entityId,
+                index,
+                data: bytes.toString('base64url'),
+                sha256: sha256(bytes),
+              },
+            });
+            if (!part) throw new ZuvRequestError('SCOPE_DISABLED');
+            parts.push({ entityId: chunkId, opId: part });
+          }
+          chunks.set(file.sha256, parts);
         }
         return {
           path: file.path,
@@ -265,28 +282,37 @@ export class SyncWorkspaces {
       queue = new SyncQueue(storage);
     const commit = () => {
       guard();
+      const chunks = new Map<string, Array<{ entityId: string; opId: string }>>();
       const files = archived.files.map((file) => {
-        const parts: Array<{ entityId: string; opId: string }> = [];
-        for (let offset = 0, index = 0; offset < file.bytes.length; offset += 64 * 1024, index++) {
-          guard();
-          const chunkId = newId('spart'),
-            bytes = file.bytes.subarray(offset, offset + 64 * 1024);
-          const opId = queue.enqueue({
-            vaultId: vault.vaultId,
-            entityId: chunkId,
-            entityType: 'artifact',
-            projectId: original.projectId,
-            localKey: `chunk:${chunkId}`,
-            content: {
-              schema: 'wevir-chunk/1',
-              ownerId: entityId,
-              index,
-              data: bytes.toString('base64url'),
-              sha256: sha256(bytes),
-            },
-          });
-          if (!opId) throw new ZuvRequestError('SCOPE_DISABLED');
-          parts.push({ entityId: chunkId, opId });
+        const cached = chunks.get(file.sha256);
+        const parts: Array<{ entityId: string; opId: string }> = cached ?? [];
+        if (!cached) {
+          for (
+            let offset = 0, index = 0;
+            offset < file.bytes.length;
+            offset += 64 * 1024, index++
+          ) {
+            guard();
+            const chunkId = newId('spart'),
+              bytes = file.bytes.subarray(offset, offset + 64 * 1024);
+            const opId = queue.enqueue({
+              vaultId: vault.vaultId,
+              entityId: chunkId,
+              entityType: 'artifact',
+              projectId: original.projectId,
+              localKey: `chunk:${chunkId}`,
+              content: {
+                schema: 'wevir-chunk/1',
+                ownerId: entityId,
+                index,
+                data: bytes.toString('base64url'),
+                sha256: sha256(bytes),
+              },
+            });
+            if (!opId) throw new ZuvRequestError('SCOPE_DISABLED');
+            parts.push({ entityId: chunkId, opId });
+          }
+          chunks.set(file.sha256, parts);
         }
         return {
           path: file.path,
@@ -390,7 +416,10 @@ export class SyncWorkspaces {
       source: metadata.source,
       capturedAt: metadata.capturedAt,
       files: bundle.files.filter((file) => file.path.startsWith('worktree/')).length,
-      bytes: bundle.files.reduce((n, file) => n + file.bytes, 0),
+      bytes: [...new Map(bundle.files.map((file) => [file.sha256, file.bytes])).values()].reduce(
+        (n, size) => n + size,
+        0,
+      ),
       exclusions: bundle.exclusions,
     });
   }
@@ -490,13 +519,24 @@ export class SyncWorkspaces {
       !this.#matches(params.sessionId, metadata.source, recoveredFrom?.source)
     )
       throw new ZuvRequestError('SCOPE_DISABLED');
-    const restoreId = params.restoreId ?? newId('swr');
+    const reusable =
+      !params.restoreId &&
+      (await this.#jobs()).find(
+        (job) =>
+          job.state === 'ready' &&
+          job.sessionId === params.sessionId &&
+          jcs(job.snapshot) === jcs(ref) &&
+          job.deviceId === vault.deviceId &&
+          job.originHostId === vault.originHostId &&
+          !this.#claimed(job),
+      );
+    const restoreId = params.restoreId ?? (reusable ? reusable.restoreId : newId('swr'));
     id.parse(restoreId);
     if (this.#restoring.has(restoreId)) throw new ZuvRequestError('EXECUTION_CONFLICT');
     this.#restoring.add(restoreId);
     try {
       let job: RestoreJob;
-      if (params.restoreId) {
+      if (params.restoreId || reusable) {
         job = JSON.parse((await this.#readFile(this.#journal(restoreId), 16 * 1024)).toString());
         if (
           job.restoreId !== restoreId ||
@@ -534,13 +574,16 @@ export class SyncWorkspaces {
           throw new ZuvRequestError('QUOTA_EXCEEDED');
         const restored = await restoreWorkspaceTree(cwd, files, metadata, guard);
         job.head = restored.head;
-        job.requiresTrust = restored.requiresTrust;
+        const identity = await lstat(cwd);
+        job.device = identity.dev;
+        job.inode = identity.ino;
         job.fingerprint = await workspaceTreeFingerprint(cwd);
         job.state = 'ready';
         await this.#save(job);
         guard();
       } else if (job.state !== 'ready') throw new ZuvRequestError('INTEGRITY_FAILED');
       const cwd = this.#directory(job);
+      await this.#identity(job);
       const current = await inspectWorkspaceTree(cwd);
       guard();
       return {
@@ -549,7 +592,7 @@ export class SyncWorkspaces {
         sourceHead: metadata.sourceHead,
         head: job.head as string,
         requiresTrust: current.requiresTrust,
-        modified: current.fingerprint !== job.fingerprint,
+        modified: !current.fingerprint || current.fingerprint !== job.fingerprint,
         ...(recoveredFrom && {
           recoveredFrom: {
             deviceId: recoveredFrom.deviceId,
@@ -579,9 +622,86 @@ export class SyncWorkspaces {
       throw new ZuvRequestError('SCOPE_DISABLED');
     this.#guardRestore(job);
     const cwd = this.#directory(job);
-    await workspaceTreeFingerprint(cwd);
+    await this.#identity(job);
     this.#guardRestore(job);
     return cwd;
+  }
+
+  async #identity(job: RestoreJob) {
+    const info = await lstat(this.#directory(job));
+    if (
+      !info.isDirectory() ||
+      info.isSymbolicLink() ||
+      (job.device !== undefined && job.device !== info.dev) ||
+      (job.inode !== undefined && job.inode !== info.ino)
+    )
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+  }
+  #claimed(job: RestoreJob) {
+    const cwd = this.#directory(job);
+    return this.#options.storage.sessions
+      .list({
+        includeRemovedWorkspaces: true,
+        includeChildren: true,
+        includeSide: true,
+        archived: 'include',
+      })
+      .some((session) => session.cwd === cwd || session.cwd.startsWith(`${cwd}${sep}`));
+  }
+  async #jobs(): Promise<RestoreJob[]> {
+    await this.#safeRoot();
+    const jobs: RestoreJob[] = [];
+    for (const name of await readdir(join(this.#options.home, 'sync/workspaces/jobs'))) {
+      if (!name.endsWith('.json') || !id.safeParse(name.slice(0, -5)).success) continue;
+      const job: RestoreJob = JSON.parse(
+        (await this.#readFile(this.#journal(name.slice(0, -5)), 16 * 1024)).toString(),
+      );
+      if (job.restoreId !== name.slice(0, -5)) throw new ZuvRequestError('INTEGRITY_FAILED');
+      jobs.push(job);
+    }
+    return jobs;
+  }
+  async discard(restoreId: string) {
+    await this.#safeRoot();
+    if (this.#restoring.has(restoreId)) throw new ZuvRequestError('EXECUTION_CONFLICT');
+    const job: RestoreJob = JSON.parse(
+      (await this.#readFile(this.#journal(restoreId), 16 * 1024)).toString(),
+    );
+    if (job.restoreId !== restoreId) throw new ZuvRequestError('INTEGRITY_FAILED');
+    if (this.#claimed(job)) return { discarded: false };
+    await rm(this.#directory(job), { recursive: true, force: true });
+    await rm(this.#journal(restoreId), { force: true });
+    return { discarded: true };
+  }
+  async collect() {
+    const jobs = await this.#jobs(),
+      retained = new Set<string>();
+    for (const job of jobs) {
+      if (
+        this.#restoring.has(job.restoreId) ||
+        this.#claimed(job) ||
+        (this.#options.storage.sessions.get(job.sessionId) &&
+          this.#options.storage.sync.getVault(job.snapshot.vaultId)?.active)
+      )
+        retained.add(job.directory);
+      else await this.discard(job.restoreId);
+    }
+    const trees = join(this.#options.home, 'sync/workspaces/trees');
+    const sessions = this.#options.storage.sessions.list({
+      includeRemovedWorkspaces: true,
+      includeChildren: true,
+      includeSide: true,
+      archived: 'include',
+    });
+    for (const name of await readdir(trees)) {
+      if (!id.safeParse(name).success || retained.has(name)) continue;
+      const path = join(trees, name);
+      if (
+        sessions.some((session) => session.cwd === path || session.cwd.startsWith(`${path}${sep}`))
+      )
+        continue;
+      await rm(path, { recursive: true, force: true });
+    }
   }
 
   #guardRestore(job: RestoreJob) {

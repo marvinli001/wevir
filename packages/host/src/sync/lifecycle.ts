@@ -100,12 +100,12 @@ export class SyncLifecycle {
     return this.unlock(vaultId);
   }
 
-  async unlock(vaultId: string) {
+  async unlock(vaultId: string, signal = new AbortController().signal) {
     const binding = this.#identity(vaultId);
     const epoch = this.options.client.entitlements?.vault?.keyEpoch;
     if (!epoch) throw new ZuvRequestError('RECOVERY_REQUIRED');
     const state = await this.#load(binding);
-    const key = await this.options.keys.unlock(vaultId, epoch, new AbortController().signal);
+    const key = await this.options.keys.unlock(vaultId, epoch, signal);
     key.fill(0);
     this.#guard(binding);
     state.unlockedEpoch = epoch;

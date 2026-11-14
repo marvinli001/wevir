@@ -97,7 +97,7 @@ export async function discoverRuleFiles(options: RuleDiscoveryOptions): Promise<
     boundary?: string,
   ): Promise<string | undefined> => {
     boundary ??= options.importRoots?.find((root) => within(root, path));
-    if (importedFrom && boundary) {
+    if (boundary) {
       if (!within(boundary, path)) return undefined;
       const real = await realpath(path).catch(() => undefined);
       if (!real || !within(boundary, real)) return undefined;

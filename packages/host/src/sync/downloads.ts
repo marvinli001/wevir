@@ -2,10 +2,10 @@ import { LIMITS } from '@wevir/protocol/sync';
 import type { Storage, SyncBlobRecord, SyncVaultRecord } from '@wevir/storage';
 import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
-import type { SyncBlobCache } from './cache.js';
+import { type SyncBlobCache, SyncCacheIntegrityError } from './cache.js';
 import { parseEnvelope, sha256 } from './crypto.js';
 
-export const MAX_AUTOMATIC_TRANSFERS = 3;
+export const TRANSFER_RETRY_MS = 60000;
 export class SyncDownloads {
   constructor(
     readonly options: {
@@ -36,11 +36,11 @@ export class SyncDownloads {
       try {
         return await cache.read(vault.vaultId, blobId, blob.cipherBytes, blob.cipherSha256);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        if (error instanceof SyncCacheIntegrityError) await cache.remove(vault.vaultId, blobId);
+        else if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
-    if ((blob?.downloadAttempts ?? 0) >= MAX_AUTOMATIC_TRANSFERS)
-      throw new ZuvRequestError('RATE_LIMITED');
+    if ((blob?.retryAt ?? 0) > Date.now()) throw new ZuvRequestError('RATE_LIMITED');
     const limit = (name: string, baseline: number) => {
       const value = Math.min(baseline, client.entitlements?.limits[name] ?? baseline);
       if (!Number.isSafeInteger(value) || value < 1) throw new ZuvRequestError('QUOTA_EXCEEDED');
@@ -88,6 +88,7 @@ export class SyncDownloads {
       state: 'local',
       uploadAttempts: blob?.uploadAttempts ?? 0,
       downloadAttempts: (blob?.downloadAttempts ?? 0) + 1,
+      retryAt: Date.now() + TRANSFER_RETRY_MS,
     } satisfies SyncBlobRecord;
     storage.sync.putBlob(blob);
     guard(vault, signal);
@@ -107,7 +108,14 @@ export class SyncDownloads {
     const header = parseEnvelope(response.bytes).header;
     if (header.vaultId !== vault.vaultId || header.blobId !== blobId)
       throw new ZuvRequestError('INTEGRITY_FAILED');
-    storage.sync.putBlob({ ...blob, state: 'ready', cachePath: path, keyEpoch: header.keyEpoch });
+    storage.sync.putBlob({
+      ...blob,
+      state: 'ready',
+      cachePath: path,
+      keyEpoch: header.keyEpoch,
+      downloadAttempts: 0,
+      retryAt: 0,
+    });
     return response.bytes;
   }
 }

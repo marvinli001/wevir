@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, rename, rm, statfs, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
   PORTABLE_RECOVERY_INSTRUCTIONS,
@@ -19,7 +19,18 @@ import {
   WevirEventSchema,
 } from '@wevir/protocol';
 import { jcs, matchRecord, packRecord, schemas, validateOperation } from '@wevir/protocol/sync';
-import type { Storage, SyncVaultRecord } from '@wevir/storage';
+import {
+  createEpisodeRepository,
+  createEventRepository,
+  createRetroRepository,
+  createSessionRepository,
+  createSyncRepository,
+  createWorkspaceRepository,
+  openReadOnlyDatabase,
+  type SqliteDatabase,
+  type Storage,
+  type SyncVaultRecord,
+} from '@wevir/storage';
 import type { EventStore } from '../event-store.js';
 import { newId } from '../ids.js';
 import type { HostSettingsStore } from '../settings.js';
@@ -48,7 +59,7 @@ export interface PortableOptions {
 export class SyncPortable {
   constructor(readonly options: PortableOptions) {}
 
-  async exportLocal(directory = join(this.options.home, 'portable/exports')) {
+  async exportLocal(directory = join(this.options.home, 'portable/exports'), signal?: AbortSignal) {
     if (!isAbsolute(directory)) throw new ZuvRequestError('INVALID_REQUEST');
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const packageId = newId('wpk');
@@ -79,6 +90,7 @@ export class SyncPortable {
       value: unknown,
       extra: Partial<Entry> = {},
     ) => {
+      signal?.throwIfAborted();
       const bytes = value instanceof Uint8Array ? Buffer.from(value) : Buffer.from(jcs(value));
       total += bytes.length;
       if (bytes.length > MAX_ENTRY || total > MAX_BYTES || manifest.entries.length >= 100000)
@@ -96,8 +108,21 @@ export class SyncPortable {
       manifest.entries.push(entry);
       return entry.id;
     };
+    let snapshot: SqliteDatabase | undefined;
     try {
-      const { storage, events } = this.options;
+      snapshot = openReadOnlyDatabase(this.options.storage.path);
+      snapshot.exec('BEGIN');
+      const storage: Storage = {
+        ...this.options.storage,
+        db: snapshot,
+        workspaces: createWorkspaceRepository(snapshot),
+        sessions: createSessionRepository(snapshot),
+        events: createEventRepository(snapshot),
+        sync: createSyncRepository(snapshot),
+        episodes: createEpisodeRepository(snapshot),
+        retros: createRetroRepository(snapshot),
+      };
+      const { events } = this.options;
       const workspaces = storage.workspaces.list({ includeRemoved: true });
       const sessions = storage.sessions.list({
         includeRemovedWorkspaces: true,
@@ -113,8 +138,6 @@ export class SyncPortable {
       const settingsBefore = this.options.settings.get();
       const sourceStamp = () =>
         jcs({
-          changes: storage.db.prepare('SELECT total_changes() AS n').get(),
-          version: storage.db.prepare('PRAGMA data_version').get(),
           settings: this.options.settings.get(),
         });
       const stamp = sourceStamp();
@@ -276,7 +299,7 @@ export class SyncPortable {
             : [],
         });
         for (const opId of storage.sync.portableVersionIds(vault.vaultId)) {
-          const version = await this.#version(vault.vaultId, opId);
+          const version = await this.#version(vault.vaultId, opId, storage);
           await add('version', versionKey(vault.vaultId, opId), version, {
             vaultId: vault.vaultId,
             entityId: version.entityId,
@@ -288,7 +311,7 @@ export class SyncPortable {
         flag: 'wx',
         mode: 0o600,
       });
-      await this.#verify(path);
+      await this.#verify(path, signal);
       for (const { root, fingerprint } of fileSnapshots)
         if ((await snapshotBundle(root, true)).fingerprint !== fingerprint)
           throw new ZuvRequestError('REVISION_CONFLICT');
@@ -297,10 +320,13 @@ export class SyncPortable {
     } catch (error) {
       await rm(path, { recursive: true, force: true });
       throw error;
+    } finally {
+      snapshot?.exec('ROLLBACK');
+      snapshot?.close();
     }
   }
 
-  async importPrepare(source: string) {
+  async importPrepare(source: string, signal?: AbortSignal) {
     if (!isAbsolute(source)) throw new ZuvRequestError('INVALID_REQUEST');
     const importId = newId('wpi');
     const path = this.#path('staged', importId);
@@ -309,19 +335,30 @@ export class SyncPortable {
     await mkdir(join(path, 'entries'), { mode: 0o700 });
     try {
       const manifest = await this.#manifest(resolve(source));
+      const space = await statfs(path, { bigint: true });
+      if (
+        space.bavail * space.bsize <
+        BigInt(manifest.entries.reduce((n, entry) => n + entry.bytes, 16 * 1024 * 1024))
+      )
+        throw new ZuvRequestError('QUOTA_EXCEEDED');
       for (const entry of manifest.entries) {
+        signal?.throwIfAborted();
         const bytes = await this.#bytes(source, entry);
         await writeFile(join(path, 'entries', entry.id), bytes, { flag: 'wx', mode: 0o600 });
       }
       await writeFile(join(path, 'manifest.json'), jcs(manifest), { flag: 'wx', mode: 0o600 });
-      await this.#verify(path);
+      await this.#verify(path, signal);
       return this.#preview(path, manifest, importId, 'staged');
     } catch (error) {
       await rm(path, { recursive: true, force: true });
       throw error;
     }
   }
-  async stageRecords(records: AsyncIterable<typeof Version._output>, proof: unknown) {
+  async stageRecords(
+    records: AsyncIterable<typeof Version._output>,
+    proof: unknown,
+    signal?: AbortSignal,
+  ) {
     const importId = newId('wpi');
     const path = this.#path('staged', importId);
     await mkdir(join(this.options.home, 'portable/staged'), { recursive: true, mode: 0o700 });
@@ -365,6 +402,7 @@ export class SyncPortable {
         proofBytes,
       );
       for await (const record of records) {
+        signal?.throwIfAborted();
         const version = Version.parse(record);
         const bytes = Buffer.from(jcs(version));
         await save(
@@ -383,14 +421,14 @@ export class SyncPortable {
         );
       }
       await writeFile(join(path, 'manifest.json'), jcs(manifest), { flag: 'wx', mode: 0o600 });
-      await this.#verify(path);
+      await this.#verify(path, signal);
       return this.#preview(path, manifest, importId, 'staged');
     } catch (error) {
       await rm(path, { recursive: true, force: true });
       throw error;
     }
   }
-  async importApply(importId: string) {
+  async importApply(importId: string, signal?: AbortSignal) {
     const path = this.#path('staged', importId);
     const exists = await lstat(path).catch((error) => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
@@ -398,11 +436,12 @@ export class SyncPortable {
     });
     if (!exists) {
       const target = this.#path('imported', importId);
-      return this.#preview(target, await this.#verify(target), importId, 'imported');
+      return this.#preview(target, await this.#verify(target, signal), importId, 'imported');
     }
-    const manifest = await this.#verify(path);
+    const manifest = await this.#verify(path, signal);
     await mkdir(join(this.options.home, 'portable/imported'), { recursive: true, mode: 0o700 });
     const target = this.#path('imported', importId);
+    signal?.throwIfAborted();
     await rename(path, target);
     return this.#preview(target, manifest, importId, 'imported');
   }
@@ -594,8 +633,7 @@ export class SyncPortable {
     };
   }
 
-  async #version(vaultId: string, opId: string) {
-    const { storage } = this.options;
+  async #version(vaultId: string, opId: string, storage = this.options.storage) {
     const stored = storage.sync.getOperation(vaultId, opId);
     if (stored) {
       const operation = schemas.operation.parse(stored.envelope);
@@ -702,49 +740,29 @@ export class SyncPortable {
       throw new ZuvRequestError('INTEGRITY_FAILED');
     return bytes;
   }
-  async #verify(path: string) {
+  async #verify(path: string, signal?: AbortSignal) {
     const manifest = await this.#manifest(path);
     const versions = new Map<string, Entry>();
     const entries = new Map(manifest.entries.map((entry) => [entry.id, entry]));
-    for (const entry of manifest.entries) {
-      const data = await this.#bytes(path, entry);
-      if (entry.kind === 'events') {
-        const events = WevirEventSchema.array().parse(JSON.parse(data.toString()));
-        if (events.some((event) => event.sessionId !== entry.key || event.type === 'engine.raw'))
-          throw new ZuvRequestError('INTEGRITY_FAILED');
-      }
-      if (entry.kind === 'references' && entry.key === 'local-files') {
-        const groups = PortableLocalFilesSchema.parse(JSON.parse(data.toString()));
-        for (const file of groups.files) {
-          const parts: Buffer[] = [];
-          let length = 0;
-          for (const id of file.parts) {
-            const part = entries.get(id);
-            if (part?.encoding !== 'binary' || part.key !== file.key || part.path !== file.path)
-              throw new ZuvRequestError('INTEGRITY_FAILED');
-            const bytes = await this.#bytes(path, part);
-            length += bytes.length;
-            if (length > file.bytes || length > 64 * 1024 * 1024)
-              throw new ZuvRequestError('INTEGRITY_FAILED');
-            parts.push(bytes);
-          }
-          if (length !== file.bytes || sha256(Buffer.concat(parts)) !== file.sha256)
-            throw new ZuvRequestError('INTEGRITY_FAILED');
-        }
-      }
-      if (entry.kind === 'version') {
-        if (
-          !entry.vaultId ||
-          !entry.opId ||
-          !entry.entityId ||
-          versions.has(versionKey(entry.vaultId, entry.opId))
-        )
-          throw new ZuvRequestError('INTEGRITY_FAILED');
-        versions.set(versionKey(entry.vaultId, entry.opId), entry);
-      }
-    }
-    const readVersion = async (entry: Entry) => {
-      const version = Version.parse(JSON.parse((await this.#bytes(path, entry)).toString()));
+    const infos = new Map<string, { schema?: string; entityType: string; projectId?: string }>();
+    const usedEntries = new Set<string>();
+    const budget = manifest.entries.reduce((sum, entry) => sum + entry.bytes, 0);
+    let verifiedBytes = 0;
+    const nested = async (entry: Entry) => {
+      signal?.throwIfAborted();
+      if (usedEntries.has(entry.id)) throw new ZuvRequestError('INTEGRITY_FAILED');
+      usedEntries.add(entry.id);
+      verifiedBytes += entry.bytes;
+      if (verifiedBytes > budget) throw new ZuvRequestError('QUOTA_EXCEEDED');
+      return this.#bytes(path, entry);
+    };
+    if (
+      manifest.entries.filter((entry) => entry.kind === 'references' && entry.key === 'local-files')
+        .length > 1
+    )
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    const readVersion = async (entry: Entry, data?: Buffer) => {
+      const version = Version.parse(JSON.parse((data ?? (await nested(entry))).toString()));
       if (
         version.vaultId !== entry.vaultId ||
         version.opId !== entry.opId ||
@@ -779,7 +797,58 @@ export class SyncPortable {
       }
       return version;
     };
+    for (const entry of manifest.entries) {
+      signal?.throwIfAborted();
+      const data = await this.#bytes(path, entry);
+      if (entry.kind === 'events') {
+        const events = WevirEventSchema.array().parse(JSON.parse(data.toString()));
+        if (events.some((event) => event.sessionId !== entry.key || event.type === 'engine.raw'))
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+      }
+      if (entry.kind === 'references' && entry.key === 'local-files') {
+        const groups = PortableLocalFilesSchema.parse(JSON.parse(data.toString()));
+        for (const file of groups.files) {
+          const parts: Buffer[] = [];
+          let length = 0;
+          for (const id of file.parts) {
+            const part = entries.get(id);
+            if (part?.encoding !== 'binary' || part.key !== file.key || part.path !== file.path)
+              throw new ZuvRequestError('INTEGRITY_FAILED');
+            const bytes = await nested(part);
+            length += bytes.length;
+            if (length > file.bytes || length > 64 * 1024 * 1024)
+              throw new ZuvRequestError('INTEGRITY_FAILED');
+            parts.push(bytes);
+          }
+          if (length !== file.bytes || sha256(Buffer.concat(parts)) !== file.sha256)
+            throw new ZuvRequestError('INTEGRITY_FAILED');
+        }
+      }
+      if (entry.kind === 'version') {
+        if (
+          !entry.vaultId ||
+          !entry.opId ||
+          !entry.entityId ||
+          versions.has(versionKey(entry.vaultId, entry.opId))
+        )
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        const version = await readVersion(entry, data);
+        infos.set(versionKey(entry.vaultId, entry.opId), {
+          schema: (version.record.content as { schema?: string } | null)?.schema,
+          entityType: version.entityType,
+          projectId: version.record.projectId,
+        });
+        versions.set(versionKey(entry.vaultId, entry.opId), entry);
+      }
+    }
+    const verifiedFiles = new Set<string>();
+    const chunkFiles = new Map<string, string>();
     for (const entry of versions.values()) {
+      if (
+        infos.get(versionKey(entry.vaultId as string, entry.opId as string))?.schema !==
+        'wevir-bundle/1'
+      )
+        continue;
       const version = await readVersion(entry);
       if ((version.record.content as { schema?: string } | null)?.schema !== 'wevir-bundle/1')
         continue;
@@ -793,20 +862,38 @@ export class SyncPortable {
           const ruleEntry = versions.get(versionKey(version.vaultId, ref.opId));
           if (!ruleEntry || ruleEntry.entityId !== ref.entityId)
             throw new ZuvRequestError('MISSING_PARENT');
-          const rule = await readVersion(ruleEntry);
+          const rule = infos.get(versionKey(version.vaultId, ref.opId)) as {
+            entityType: string;
+            projectId?: string;
+          };
           if (
             rule.entityType !== 'rule' ||
-            (rule.record.projectId !== undefined &&
-              rule.record.projectId !== version.record.projectId)
+            (rule.projectId !== undefined && rule.projectId !== version.record.projectId)
           )
             throw new ZuvRequestError('INTEGRITY_FAILED');
         }
       }
+      const paths = new Set<string>();
       for (const file of bundle.files) {
+        signal?.throwIfAborted();
+        if (paths.has(file.path)) throw new ZuvRequestError('INTEGRITY_FAILED');
+        paths.add(file.path);
+        const fileKey = jcs([
+          version.vaultId,
+          version.entityId,
+          bundle.category === 'workspace-snapshot' ? 'workspace-content' : file.path,
+          file.sha256,
+          file.bytes,
+          file.parts,
+        ]);
+        if (verifiedFiles.has(fileKey)) continue;
         const parts: Buffer[] = [];
         let length = 0;
         for (const [index, ref] of file.parts.entries()) {
-          const chunkEntry = versions.get(versionKey(version.vaultId, ref.opId));
+          const chunkKey = versionKey(version.vaultId, ref.opId);
+          if (chunkFiles.has(chunkKey)) throw new ZuvRequestError('INTEGRITY_FAILED');
+          chunkFiles.set(chunkKey, fileKey);
+          const chunkEntry = versions.get(chunkKey);
           if (!chunkEntry || chunkEntry.entityId !== ref.entityId)
             throw new ZuvRequestError('MISSING_PARENT');
           const chunkVersion = await readVersion(chunkEntry);
@@ -826,6 +913,7 @@ export class SyncPortable {
         }
         if (length !== file.bytes || sha256(Buffer.concat(parts)) !== file.sha256)
           throw new ZuvRequestError('INTEGRITY_FAILED');
+        verifiedFiles.add(fileKey);
       }
     }
     return manifest;

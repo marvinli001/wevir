@@ -359,7 +359,14 @@ export class SyncBundles {
       selectedOperation !== undefined &&
       !moving &&
       input.expectedHeads.length === 1 &&
-      input.expectedHeads[0] === input.selectedOpId;
+      input.expectedHeads[0] === input.selectedOpId &&
+      !this.options.storage.sync
+        .bundleApplication(vault.vaultId, input.selectedOpId)
+        ?.manifest.files.some(
+          (file) =>
+            file.executable !==
+            (body.files.find((selected) => selected.path === file.path)?.executable === true),
+        );
     const op: SyncMaterialRevision =
       materialize && selectedOperation
         ? selectedOperation
@@ -461,6 +468,10 @@ export class SyncBundles {
     );
     if (!commit) throw new ZuvRequestError('SCOPE_DISABLED');
     signal.throwIfAborted();
+    const abandoned = this.options.storage.sync.pendingBundleApplication(
+      vault.vaultId,
+      entity.entityId,
+    );
     this.options.storage.transaction(() => {
       this.#write(vault.vaultId, entity.entityId, vault.revision);
       this.#checkHeads(entity, input.expectedHeads);
@@ -482,6 +493,7 @@ export class SyncBundles {
         input.expectedHeads,
       );
     });
+    if (abandoned) await this.files.discard(abandoned);
     return { opId };
   }
   async edit(input: MethodParams<'sync.editBundleFile'>, signal: AbortSignal) {
@@ -581,6 +593,14 @@ export class SyncBundles {
     return { opId };
   }
   async recover(vault: SyncVaultRecord) {
+    for (const row of this.options.storage.db
+      .prepare(
+        "SELECT op_id FROM sync_bundle_applications WHERE vault_id=? AND state IN ('applied','abandoned')",
+      )
+      .all(vault.vaultId)) {
+      const app = this.options.storage.sync.bundleApplication(vault.vaultId, row.op_id as string);
+      if (app) await this.files.discard(app);
+    }
     let after = '';
     while (true) {
       const [app] = this.options.storage.sync.pendingBundleApplications(vault.vaultId, after);
@@ -998,6 +1018,9 @@ export class SyncBundles {
       ...(entity.projectId && { projectId: entity.projectId }),
       metadata: binding.manifest.metadata,
       exclusions: binding.manifest.exclusions,
+      executables: new Map(
+        binding.manifest.files.map((file) => [file.path, file.executable === true]),
+      ),
     };
   }
   async #targets(vault: SyncVaultRecord, entity: SyncEntityRecord): Promise<Target[]> {

@@ -370,6 +370,7 @@ export class RpcConnection {
   #leaseTimer: ReturnType<typeof setTimeout> | undefined;
   #terminateTimer: ReturnType<typeof setTimeout> | undefined;
   #resolveClosed!: () => void;
+  readonly #requestAbort = new AbortController();
   /** WebSocket 关闭（含被 terminate）时完成。 */
   readonly closed = new Promise<void>((resolve) => {
     this.#resolveClosed = resolve;
@@ -795,6 +796,7 @@ export class RpcConnection {
           client,
           capabilities: this.#capabilities,
           principal: this.#grant.principal,
+          signal: this.#requestAbort.signal,
         });
         if (method === 'session.list' && this.#host.sessionList !== undefined) {
           result = {
@@ -1618,6 +1620,7 @@ export class RpcConnection {
   }
 
   #cleanup(): void {
+    this.#requestAbort.abort();
     clearTimeout(this.#helloTimer);
     clearTimeout(this.#leaseTimer);
     for (const subscription of [...this.#subscriptions.values()]) this.#drop(subscription);

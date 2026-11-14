@@ -17,6 +17,8 @@ import type { Storage, SyncEntityRecord } from '@wevir/storage';
 import { newId } from '../ids.js';
 import { sha256 } from './crypto.js';
 
+export const MAX_PREPARATION_REFERENCES = 4096;
+
 export class SyncQueue {
   readonly #storage: Storage;
   constructor(storage: Storage) {

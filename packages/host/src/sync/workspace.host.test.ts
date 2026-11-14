@@ -451,7 +451,7 @@ describe('workspace handoff through two isolated Hosts', () => {
     expect(await readFile(join(first.project, 'mixed.txt'), 'utf8')).toBe('worktree\n');
   }, 30000);
 
-  it('reopens a ready restore safely, preserves later local edits and refuses symlinks', async () => {
+  it('reopens a ready restore with local edits and symlinks while refusing directory aliases', async () => {
     const { second, mirrored, snapshot } = await linked();
     const restored: MethodResult<'sync.workspaceRestore'> = await second.rpc.request(
       'sync.workspaceRestore',
@@ -478,6 +478,16 @@ describe('workspace handoff through two isolated Hosts', () => {
     );
     await rm(join(restored.cwd, 'mixed.txt'));
     await symlink(join(second.project, 'outside'), join(restored.cwd, 'mixed.txt'));
+    expect(
+      await second.rpc.request('sync.workspaceRestore', {
+        sessionId: mirrored.id,
+        snapshot,
+        restoreId: restored.restoreId,
+      }),
+    ).toMatchObject({ modified: true });
+    const moved = `${restored.cwd}-moved`;
+    await rename(restored.cwd, moved);
+    await symlink(moved, restored.cwd);
     expect(
       (
         await second.rpc.call('sync.workspaceRestore', {

@@ -289,7 +289,7 @@ describe('recoverable package file application', () => {
     h.storage.transaction(resumed);
     expect(await readFile(join(h.target, 'kept.txt'), 'utf8')).toBe('Incoming kept text');
     expect(await readFile(join(h.target, 'binary.bin'))).toEqual(Buffer.from([0, 255, 17, 128]));
-    expect((await stat(join(h.target, 'script.sh'))).mode & 0o100).toBe(0o100);
+    expect((await stat(join(h.target, 'script.sh'))).mode & 0o111).toBe(0);
     expect(await readFile(join(h.target, '.env'), 'utf8')).toBe('Synthetic excluded local value');
     await expect(stat(join(h.target, 'removed.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
     const index = app.files.findIndex((file) => file.path === 'removed.txt');

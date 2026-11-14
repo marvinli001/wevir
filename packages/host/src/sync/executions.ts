@@ -101,7 +101,7 @@ export class SyncExecutions {
         'POST',
         '/api/wevir/sync/v1/executions/claim',
         { runId: value.runId, expectedEpoch: value.epoch, leaseSeconds: LEASE_SECONDS },
-        { signal },
+        { signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]) },
       );
       if (!this.#sameVault(vault) || signal.aborted) return;
       if (

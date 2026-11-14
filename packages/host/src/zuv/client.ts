@@ -241,11 +241,13 @@ export class ZuvClient {
     }
   }
 
-  async getEntitlements(): Promise<Entitlements> {
+  async getEntitlements(signal?: AbortSignal): Promise<Entitlements> {
     const generation = this.#generation;
     let result: Entitlements;
     try {
-      result = await this.json('entitlements', 'GET', '/api/wevir/entitlements');
+      result = await this.json('entitlements', 'GET', '/api/wevir/entitlements', undefined, {
+        signal,
+      });
     } catch (error) {
       if (
         generation === this.#generation &&

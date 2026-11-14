@@ -86,6 +86,11 @@ export const PortableConversationSchema = z.object({
   events: z.array(WevirEventSchema),
 });
 export const PortableMethodSchemas = {
+  'sync.cancelRecovery': {
+    params: z.object({}),
+    result: z.object({ cancelled: z.boolean() }),
+    permission: 'host.manage',
+  },
   'sync.exportLocal': {
     params: z.object({ directory: z.string().min(1).max(4096).optional() }),
     result: PortablePreviewSchema,

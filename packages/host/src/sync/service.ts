@@ -1,5 +1,6 @@
+import { type FSWatcher, watch } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import {
   type MethodParams,
   type SessionId,
@@ -45,6 +46,7 @@ import { SyncSettings } from './settings.js';
 import { SyncSettingsConflicts } from './settings-conflicts.js';
 import { SyncSnapshots } from './snapshots.js';
 import { SyncVersionRestore } from './version-restore.js';
+import { workspaceRequiresTrust } from './workspace-git.js';
 import { SyncWorkspaces } from './workspaces.js';
 
 export interface SyncServiceOptions {
@@ -94,12 +96,18 @@ export class SyncService {
   #closed = false;
   #initialized = false;
   #lastRefresh = 0;
+  #lastFullScan = 0;
+  #dirty = true;
+  readonly #watchers = new Map<string, FSWatcher>();
   #errorCode: string | undefined;
   #configuring = false;
   #configurationDone: Promise<void> | undefined;
   #finishConfiguration: (() => void) | undefined;
   #resetTask: Promise<void> | undefined;
   #resetAbort: AbortController | undefined;
+  #recoveryIoAbort: AbortController | undefined;
+  #recoveryIoTask: Promise<unknown> | undefined;
+  #workspaceCleanup: Promise<void> | undefined;
   constructor(options: SyncServiceOptions) {
     this.#options = options;
     this.#settings = new SyncSettings(options);
@@ -127,6 +135,7 @@ export class SyncService {
     this.#files = new SyncFilesCapture({
       ...options,
       eligible: () => (this.#closed ? undefined : this.#localConsent()),
+      watch: (path) => this.#watch(path, false),
     });
     this.#bundles = new SyncBundles({
       ...options,
@@ -242,24 +251,83 @@ export class SyncService {
   }
 
   start(): void {
+    this.#collectWorkspaces();
     this.#schedule(0);
   }
+  #collectWorkspaces() {
+    const task = (this.#workspaceCleanup ?? Promise.resolve())
+      .then(() => this.workspaces.collect())
+      .catch(() => {
+        this.#errorCode = 'LOCAL_STORAGE_ERROR';
+      });
+    this.#workspaceCleanup = task;
+  }
+  changed = (): void => {
+    this.#dirty = true;
+  };
+  #watch(path: string, recursive = true, filter?: (name: string) => boolean) {
+    if (this.#watchers.has(path)) return;
+    try {
+      const watcher = watch(path, { recursive, persistent: false }, (_event, name) => {
+        if (name && filter && !filter(String(name).split('\\').join('/'))) return;
+        if (_event === 'rename' && !recursive) {
+          watcher.close();
+          this.#watchers.delete(path);
+        }
+        this.changed();
+      });
+      watcher.on('error', () => {
+        watcher.close();
+        this.#watchers.delete(path);
+      });
+      this.#watchers.set(path, watcher);
+    } catch (error) {
+      if (
+        !['ENOENT', 'ENOSYS', 'ENOTSUP', 'ENOSPC', 'EPERM'].includes(
+          (error as NodeJS.ErrnoException).code ?? '',
+        )
+      )
+        throw error;
+    }
+  }
   record = (events: Parameters<SyncEventCapture['record']>[0]): void => {
-    this.#capture.record(events);
-    this.#materials.sessions.metadataChanged([
-      ...new Set(
-        events
-          .filter((event) => event.type === 'session.title_changed')
-          .map((event) => event.sessionId),
-      ),
-    ]);
+    if (
+      events.some(
+        (event) =>
+          event.type === 'file.shared' ||
+          (event.type === 'user.message' &&
+            event.payload.content.some((part) => part.type === 'image')),
+      )
+    )
+      this.changed();
+    this.#captureOperation(() => {
+      this.#capture.record(events);
+      this.#materials.sessions.metadataChanged([
+        ...new Set(
+          events
+            .filter((event) => event.type === 'session.title_changed')
+            .map((event) => event.sessionId),
+        ),
+      ]);
+    });
   };
   recordEpisode = (record: Parameters<SyncMaterials['sessions']['episode']>[0]): void => {
-    this.#materials.sessions.episode(record);
+    this.#captureOperation(() => this.#materials.sessions.episode(record));
   };
   recordSummary = (record: Parameters<SyncMaterials['sessions']['summary']>[0]): void => {
-    this.#materials.sessions.summary(record);
+    this.#captureOperation(() => this.#materials.sessions.summary(record));
   };
+  #captureOperation(operation: () => void) {
+    const { db } = this.#options.storage;
+    db.exec('SAVEPOINT sync_capture');
+    try {
+      operation();
+      db.exec('RELEASE sync_capture');
+    } catch {
+      if (db.isTransaction) db.exec('ROLLBACK TO sync_capture; RELEASE sync_capture');
+      this.#errorCode = 'LOCAL_STORAGE_ERROR';
+    }
+  }
   recordMetadata = (ids: readonly string[]): void => {
     try {
       this.#capture.metadataChanged(ids);
@@ -289,8 +357,10 @@ export class SyncService {
   recordRemoval = (sessionIds: readonly string[]): void => {
     this.#capture.preserveForRemoval(sessionIds);
     this.#materials.sessions.remove(sessionIds);
+    this.#collectWorkspaces();
   };
   beforeMemoryWrite = (path: string, markdown?: string): (() => void) | undefined => {
+    this.changed();
     const vault = this.#consented();
     return vault && this.#fileWrite(() => this.#files.beforeMemoryWrite(vault, path, markdown));
   };
@@ -327,6 +397,9 @@ export class SyncService {
     this.#resetAbort?.abort();
     this.#bundleAbort?.abort();
     this.#initialized = false;
+    this.#lastFullScan = 0;
+    for (const watcher of this.#watchers.values()) watcher.close();
+    this.#watchers.clear();
   }
   async suspend(): Promise<void> {
     this.executions.stop();
@@ -337,6 +410,9 @@ export class SyncService {
     await this.executions.drain();
   }
   async close(): Promise<void> {
+    this.#recoveryIoAbort?.abort();
+    await this.#recoveryIoTask?.catch(() => {});
+    await this.#workspaceCleanup;
     this.executions.stop();
     this.#closed = true;
     this.stop();
@@ -676,7 +752,33 @@ export class SyncService {
     if (vault && this.#options.storage.sync.activeBootstrapJob(vault.vaultId))
       return this.resetPrepare();
     await this.#running?.catch(() => {});
+    if (
+      vault &&
+      ['reset_required', 'revoked'].includes(
+        this.#options.storage.sync.vaultTransport(vault.vaultId).state,
+      )
+    )
+      return this.status();
     this.#errorCode = undefined;
+    this.#dirty = true;
+    if (vault) {
+      const { storage } = this.#options;
+      storage.transaction(() => {
+        const current = storage.sync.vaultTransport(vault.vaultId);
+        storage.sync.setVaultTransport(vault.vaultId, {
+          ...current,
+          state: 'pending',
+          errorCode: undefined,
+          retryAt: 0,
+        });
+        storage.db
+          .prepare('UPDATE sync_blobs SET retry_at = 0 WHERE vault_id = ?')
+          .run(vault.vaultId);
+        storage.db
+          .prepare('UPDATE sync_commits SET retry_at = 0 WHERE vault_id = ?')
+          .run(vault.vaultId);
+      });
+    }
     this.#engine.restart();
     await this.flush();
     return this.status();
@@ -1183,6 +1285,38 @@ export class SyncService {
   #recoveryOperation<T>(operation: () => Promise<T>): Promise<T> {
     return this.#memoryOperation(operation, true);
   }
+  async #recoveryIo<T>(
+    operation: (signal: AbortSignal) => Promise<T>,
+    parent?: AbortSignal,
+  ): Promise<T> {
+    if (this.#closed || this.#recoveryIoAbort)
+      throw new HostError('RESOURCE_IN_USE', 'Recovery operation in progress', { sessionIds: [] });
+    const controller = new AbortController();
+    this.#recoveryIoAbort = controller;
+    const signal = parent ? AbortSignal.any([parent, controller.signal]) : controller.signal;
+    try {
+      signal.throwIfAborted();
+      this.#recoveryIoTask = operation(signal);
+      return (await this.#recoveryIoTask) as T;
+    } catch (error) {
+      throw this.#failure(error);
+    } finally {
+      this.#recoveryIoAbort = undefined;
+      this.#recoveryIoTask = undefined;
+    }
+  }
+  cancelRecovery() {
+    const cancelled = Boolean(this.#recoveryIoAbort);
+    this.#recoveryIoAbort?.abort();
+    return { cancelled };
+  }
+  async workspaceDiscard(restoreId: string) {
+    try {
+      return await this.workspaces.discard(restoreId);
+    } catch (error) {
+      throw this.#failure(error);
+    }
+  }
   importRestorePreview(input: MethodParams<'sync.importRestorePreview'>) {
     return this.#recoveryOperation(() => this.#versionRestore.preview(input));
   }
@@ -1196,14 +1330,14 @@ export class SyncService {
   recoveryInfo() {
     return this.#lifecycle.info();
   }
-  exportLocal(directory?: string) {
-    return this.#recoveryOperation(() => this.#portable.exportLocal(directory));
+  exportLocal(directory?: string, signal?: AbortSignal) {
+    return this.#recoveryIo((token) => this.#portable.exportLocal(directory, token), signal);
   }
-  importPrepare(path: string) {
-    return this.#recoveryOperation(() => this.#portable.importPrepare(path));
+  importPrepare(path: string, signal?: AbortSignal) {
+    return this.#recoveryIo((token) => this.#portable.importPrepare(path, token), signal);
   }
-  importApply(importId: string) {
-    return this.#recoveryOperation(() => this.#portable.importApply(importId));
+  importApply(importId: string, signal?: AbortSignal) {
+    return this.#recoveryIo((token) => this.#portable.importApply(importId, token), signal);
   }
   importList() {
     return this.#portable.list().catch((error) => {
@@ -1231,17 +1365,17 @@ export class SyncService {
   recoveryComplete(vaultId: string, requestId: string) {
     return this.#recoveryOperation(() => this.#lifecycle.complete(vaultId, requestId));
   }
-  recoverySnapshot(vaultId: string, jobId?: string) {
-    return this.#recoveryOperation(() => this.#recoveryFiles.snapshot(vaultId, jobId));
+  recoverySnapshot(vaultId: string, jobId?: string, signal?: AbortSignal) {
+    return this.#recoveryIo((token) => this.#recoveryFiles.snapshot(vaultId, jobId, token), signal);
   }
-  recoveryDownload(input: MethodParams<'sync.recoveryDownload'>) {
-    return this.#recoveryOperation(() => this.#recoveryFiles.download(input));
+  recoveryDownload(input: MethodParams<'sync.recoveryDownload'>, signal?: AbortSignal) {
+    return this.#recoveryIo((token) => this.#recoveryFiles.download(input, token), signal);
   }
-  unlockKeys(vaultId: string) {
-    return this.#recoveryOperation(async () => {
-      await this.#options.client.getEntitlements();
-      return this.#lifecycle.unlock(vaultId);
-    });
+  unlockKeys(vaultId: string, signal?: AbortSignal) {
+    return this.#recoveryIo(async (token) => {
+      await this.#options.client.getEntitlements(token);
+      return this.#lifecycle.unlock(vaultId, token);
+    }, signal);
   }
   deleteCloud(vaultId: string, stepUpId: string) {
     return this.#recoveryOperation(async () => {
@@ -1256,23 +1390,25 @@ export class SyncService {
       const vault = this.#options.storage.sync.activeVault();
       if (vault?.vaultId !== vaultId) throw new ZuvRequestError('REVISION_CONFLICT');
       this.#options.storage.transaction(() => this.#options.storage.sync.detachVault(vaultId));
+      await this.workspaces.collect();
       return { detached: true as const };
     });
   }
 
-  async approveDevice(deviceId: string) {
+  async approveDevice(deviceId: string, parent?: AbortSignal) {
     const vault = this.#options.storage.sync.activeVault();
     if (!vault) throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
-    return this.#recoveryOperation(async () => {
-      await this.#options.client.getEntitlements();
-      await this.#lifecycle.unlock(vault.vaultId);
+    return this.#recoveryIo(async (signal) => {
+      await this.#options.client.getEntitlements(signal);
+      await this.#lifecycle.unlock(vault.vaultId, signal);
       return await this.#options.client.json(
         'approved',
         'POST',
         `/api/wevir/sync/v1/devices/${deviceId}/approve`,
         { keyEpoch: this.#options.client.entitlements?.vault?.keyEpoch },
+        { signal },
       );
-    });
+    }, parent);
   }
 
   #consented(): SyncVaultRecord | undefined {
@@ -1303,13 +1439,31 @@ export class SyncService {
     this.#capture.projects();
     await this.#files.recoverWrites(vault);
     await this.#files.memory(vault, initialize, includeHistory);
+    if (vault.categories.includes('memory')) this.#watch(this.#options.memoryDir);
+    if (vault.categories.includes('memory'))
+      this.#watch(join(this.#options.memoryDir, 'global'), false);
+    if (vault.categories.includes('memory'))
+      this.#watch(
+        dirname(this.#options.memoryDir),
+        false,
+        (name) => name === basename(this.#options.memoryDir),
+      );
+    for (const project of this.#options.storage.sync.projects(vault.vaultId)) {
+      if (!project.workspaceId || !vault.projectIds.includes(project.projectId)) continue;
+      const workspace = this.#options.storage.workspaces.get(project.workspaceId);
+      if (workspace) this.#watch(workspace.rootPath, true, workspaceRequiresTrust);
+      if (vault.categories.includes('memory'))
+        this.#watch(join(this.#options.memoryDir, 'projects', project.workspaceId), false);
+    }
     await this.#artifacts.scan(vault, initialize, includeHistory);
     this.#settings.capture(vault, initialize, includeHistory);
     this.#materials.sessions.scan(initialize, includeHistory);
     await this.#bundles.recover(vault);
     if (vault.categories.some((value) => ['rule', 'skill-bundle', 'artifact'].includes(value)))
-      for await (const root of this.#bundles.roots(vault))
+      for await (const root of this.#bundles.roots(vault)) {
+        this.#watch(root.path);
         await this.#files.bundle(vault, root, initialize, includeHistory);
+      }
   }
 
   async #flush(): Promise<void> {
@@ -1344,7 +1498,12 @@ export class SyncService {
         });
         this.#initialized = true;
       }
-      await this.#scan(vault, false, false);
+      await this.#files.recoverWrites(vault);
+      if (this.#dirty || Date.now() - this.#lastFullScan >= 10 * 60 * 1000) {
+        this.#dirty = false;
+        await this.#scan(vault, false, false);
+        this.#lastFullScan = Date.now();
+      }
       this.#capture.prepare();
       await this.#engine.run();
       this.#errorCode = undefined;

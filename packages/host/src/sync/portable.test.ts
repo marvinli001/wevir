@@ -60,6 +60,55 @@ function fixture(name: string) {
 }
 
 describe('portable local data', () => {
+  it.each(['part-reuse', 'multiple-indexes'] as const)(
+    'rejects amplified local file references: %s',
+    async (failure) => {
+      const source = fixture(`source-${failure}`),
+        target = fixture(`target-${failure}`);
+      const bytes = Buffer.from('synthetic part');
+      const file = join(source.home, 'part.bin');
+      await writeFile(file, bytes);
+      source.portable.options.exportRoots = async () => [{ path: file }];
+      const exported = await source.portable.exportLocal();
+      const manifestPath = join(exported.path, 'manifest.json');
+      const manifest = PortableManifestSchema.parse(
+        JSON.parse(await readFile(manifestPath, 'utf8')),
+      );
+      const index = manifest.entries.find((entry) => entry.key === 'local-files');
+      if (!index) throw new Error('missing file index');
+      const indexPath = join(exported.path, 'entries', index.id);
+      const body = JSON.parse(await readFile(indexPath, 'utf8'));
+      if (failure === 'part-reuse') {
+        body.files[0].parts.push(body.files[0].parts[0]);
+        body.files[0].bytes *= 2;
+        body.files[0].sha256 = sha256(Buffer.concat([bytes, bytes]));
+        const changed = Buffer.from(jcs(body));
+        await writeFile(indexPath, changed);
+        index.bytes = changed.length;
+        index.sha256 = sha256(changed);
+      } else {
+        const duplicate = { ...index, id: 'duplicate_index_entry' };
+        manifest.entries.push(duplicate);
+        await writeFile(join(exported.path, 'entries', duplicate.id), await readFile(indexPath));
+      }
+      await writeFile(manifestPath, jcs(manifest));
+      await expect(target.portable.importPrepare(exported.path)).rejects.toMatchObject({
+        code: 'INTEGRITY_FAILED',
+      });
+    },
+  );
+  it('exports a consistent database snapshot while unrelated writes continue', async () => {
+    const h = fixture('active-host');
+    h.portable.options.exportRoots = async () => {
+      h.storage.sync.setVaultTransport('vault_synthetic', {
+        keyEpoch: '1',
+        state: 'idle',
+        retryAt: 0,
+      });
+      return [];
+    };
+    await expect(h.portable.exportLocal()).resolves.toHaveProperty('path');
+  });
   it('rejects a linked entry leaf as an integrity error before following its bytes', async () => {
     const source = fixture('leaf-source'),
       target = fixture('leaf-target');
@@ -102,7 +151,7 @@ describe('portable local data', () => {
   it('rejects source changes during export instead of publishing mixed revisions', async () => {
     const a = fixture('concurrent-source');
     a.portable.options.exportRoots = async () => {
-      a.storage.transaction(() => a.storage.sync.nextDeviceSeq('vault_synthetic'));
+      await a.portable.options.settings.update({ autoMemory: false });
       return [];
     };
     await expect(a.portable.exportLocal()).rejects.toThrow('REVISION_CONFLICT');

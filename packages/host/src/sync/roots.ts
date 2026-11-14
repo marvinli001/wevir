@@ -60,6 +60,20 @@ export async function syncBundleRoots(options: {
     }
   if (vault.categories.includes('rule')) {
     const seen = new Set<string>();
+    const importRoots: string[] = [];
+    for (const local of storage.sync.vaults()) {
+      let after = '';
+      while (true) {
+        const bindings = storage.sync.bundleBindings(local.vaultId, after);
+        if (!bindings.length) break;
+        for (const binding of bindings) {
+          importRoots.push(
+            binding.targetKind === 'file' ? dirname(binding.targetPath) : binding.targetPath,
+          );
+          after = binding.entityId;
+        }
+      }
+    }
     const userHome = options.userHome ?? homedir();
     for (const cwd of projects.length
       ? projects.map((value) => value.workspace.rootPath)
@@ -68,6 +82,7 @@ export async function syncBundleRoots(options: {
         cwd,
         home: userHome,
         env: options.env ?? process.env,
+        importRoots,
       })) {
         if (seen.has(rule.real) || rule.unreadable) continue;
         const project = rule.scope === 'project' ? projectFor(rule.real) : undefined;

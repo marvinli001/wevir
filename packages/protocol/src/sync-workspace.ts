@@ -23,6 +23,11 @@ export const SyncWorkspaceSnapshotSchema = SyncWorkspaceRefSchema.extend({
 });
 
 export const SyncWorkspaceMethodSchemas = {
+  'sync.workspaceDiscard': {
+    params: z.object({ restoreId: id }),
+    result: z.object({ discarded: z.boolean() }),
+    permission: 'host.manage',
+  },
   'sync.workspaceCapture': {
     params: z.object({
       sessionId: SessionIdSchema,

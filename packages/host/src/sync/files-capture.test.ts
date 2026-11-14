@@ -58,6 +58,25 @@ function fixture() {
 }
 
 describe('durable local file capture', () => {
+  it('rejects a package before queuing a dependency closure larger than the preparation limit', async () => {
+    const h = fixture();
+    h.storage.sync.setScopes(h.vault().vaultId, {
+      ...h.vault(),
+      categories: ['skill-bundle', 'artifact'],
+    });
+    const path = join(h.home, 'large-skill');
+    await mkdir(path);
+    for (let i = 0; i < 4095; i++) await writeFile(join(path, `${i}.md`), 'x');
+    await expect(
+      h.capture.bundle(
+        h.vault(),
+        { path, name: 'Large', category: 'skill-bundle', localKey: 'large-skill' },
+        false,
+        false,
+      ),
+    ).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
+    expect(h.storage.sync.drafts(h.vault().vaultId)).toEqual([]);
+  }, 30000);
   it('does not queue an in-flight package after consent is withdrawn', async () => {
     const h = fixture();
     h.storage.sync.setScopes(h.vault().vaultId, {

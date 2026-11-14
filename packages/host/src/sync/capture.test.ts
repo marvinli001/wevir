@@ -93,6 +93,33 @@ function fixture() {
 }
 
 describe('same-transaction source event capture', () => {
+  it('does not revise a session declaration for event progress alone', () => {
+    const h = fixture();
+    h.permit();
+    h.create();
+    h.capture.prepare();
+    const declarations = () =>
+      h.storage.sync
+        .drafts(h.vault.vaultId)
+        .filter(
+          (draft) =>
+            (draft.content as SyncDraftPayload).body &&
+            ((draft.content as SyncDraftPayload).body as { schema?: string }).schema ===
+              'wevir-session/1',
+        ).length;
+    const before = declarations();
+    h.store.append(h.sessionId, {
+      type: 'user.message',
+      source: 'host',
+      payload: {
+        turnId: 'trn_progress',
+        content: [{ type: 'text', text: 'event progress' }],
+        sentBy: { deviceId: 'synthetic', clientId: 'synthetic', clientKind: 'cli' },
+      },
+    });
+    h.capture.prepare();
+    expect(declarations()).toBe(before);
+  });
   it.each(['disabled', 'project-removed'])(
     'does not backfill events after %s consent is restored',
     (reason) => {

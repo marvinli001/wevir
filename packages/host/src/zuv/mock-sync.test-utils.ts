@@ -514,6 +514,20 @@ export class MockSyncGateway {
           const duplicate = vault.operations.find(
             (entry) => entry.operation.opId === operation.opId,
           );
+          if (operation.kind === 'resolve' && !duplicate) {
+            const heads = new Set<string>();
+            for (const entry of vault.operations) {
+              if (
+                entry.operation.entityId !== operation.entityId ||
+                entry.operation.entityType !== operation.entityType
+              )
+                continue;
+              for (const parent of entry.operation.parents) heads.delete(parent);
+              heads.add(entry.operation.opId);
+            }
+            if ([...heads].some((head) => !operation.parents.includes(head)))
+              throw new MockSyncError('MISSING_PARENT');
+          }
           if (duplicate && jcs(duplicate) !== jcs({ operation, manifest }))
             throw new MockSyncError('OP_ID_REUSED');
           if (

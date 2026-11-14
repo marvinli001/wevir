@@ -22,77 +22,105 @@ describe('execution claim lifecycle fencing', () => {
     ['stop', 'rejected'],
     ['identity', 'accepted'],
     ['identity', 'rejected'],
-  ] as const)('ignores a late %s claim response when %s', async (change, outcome) => {
-    const storage = openStorage({ dataDir: join(directory(), 'home') });
-    cleanup.push(() => storage.close());
-    storage.workspaces.insert(workspace({ id: 'ws_synthetic', rootPath: '/synthetic/project' }));
-    const native = session({ id: 'ses_synthetic', workspaceId: 'ws_synthetic' });
-    storage.sessions.insert(native);
-    storage.transaction(() => {
-      storage.sync.bindVault({
-        vaultId: 'vault_synthetic',
-        accountId: 'user_synthetic',
-        deviceId: 'device_synthetic',
-        originHostId: 'device_synthetic',
-        appliedCursor: 'cursor_synthetic',
+    ['timeout', 'rejected'],
+  ] as const)(
+    'ignores a late %s claim response when %s',
+    async (change, outcome) => {
+      const storage = openStorage({ dataDir: join(directory(), 'home') });
+      cleanup.push(() => storage.close());
+      storage.workspaces.insert(workspace({ id: 'ws_synthetic', rootPath: '/synthetic/project' }));
+      const native = session({ id: 'ses_synthetic', workspaceId: 'ws_synthetic' });
+      storage.sessions.insert(native);
+      storage.transaction(() => {
+        storage.sync.bindVault({
+          vaultId: 'vault_synthetic',
+          accountId: 'user_synthetic',
+          deviceId: 'device_synthetic',
+          originHostId: 'device_synthetic',
+          appliedCursor: 'cursor_synthetic',
+        });
+        storage.sync.setScopes('vault_synthetic', {
+          revision: '1',
+          enabled: true,
+          categories: ['project', 'session', 'event-segment'],
+          projectIds: ['project_synthetic'],
+        });
+        storage.sync.bindProject('vault_synthetic', 'project_synthetic', 'ws_synthetic');
       });
-      storage.sync.setScopes('vault_synthetic', {
-        revision: '1',
-        enabled: true,
-        categories: ['project', 'session', 'event-segment'],
-        projectIds: ['project_synthetic'],
+      let permitted = true;
+      const eligible = () => (permitted ? storage.sync.activeVault() : undefined);
+      const capture = new SyncEventCapture({ storage, eligible });
+      const events = new EventStore({
+        storage,
+        onAppendInTransaction: (batch) => capture.record(batch),
       });
-      storage.sync.bindProject('vault_synthetic', 'project_synthetic', 'ws_synthetic');
-    });
-    let permitted = true;
-    const eligible = () => (permitted ? storage.sync.activeVault() : undefined);
-    const capture = new SyncEventCapture({ storage, eligible });
-    const events = new EventStore({
-      storage,
-      onAppendInTransaction: (batch) => capture.record(batch),
-    });
-    cleanup.push(() => events.close());
-    events.append(native.id as SessionId, {
-      type: 'session.created',
-      source: 'host',
-      payload: {
-        workspaceId: 'ws_synthetic',
-        cwd: '/synthetic/project',
-        providerId: native.providerId,
-        modelId: native.modelId,
-      },
-    });
-    let accept = (_result: unknown) => {};
-    let reject = (_error: Error) => {};
-    const pending = new Promise((resolve, fail) => {
-      accept = resolve;
-      reject = fail;
-    });
-    const request = vi.fn(() => pending);
-    const executions = new SyncExecutions({
-      storage,
-      events,
-      capture,
-      eligible,
-      client: { json: request } as unknown as ZuvClient,
-    });
-    cleanup.push(() => executions.stop());
-    const prepared = executions.prepare(native.id as SessionId, 'trn_synthetic');
-    await expect.poll(() => request.mock.calls.length).toBe(1);
-    if (change === 'stop') executions.stop();
-    else permitted = false;
-    if (outcome === 'accepted')
-      accept({
-        runId: native.id,
-        epoch: '1',
-        fencingToken: 'fence_synthetic',
-        expiresAt: new Date(Date.now() + 30000).toISOString(),
-        branchRequired: false,
+      cleanup.push(() => events.close());
+      events.append(native.id as SessionId, {
+        type: 'session.created',
+        source: 'host',
+        payload: {
+          workspaceId: 'ws_synthetic',
+          cwd: '/synthetic/project',
+          providerId: native.providerId,
+          modelId: native.modelId,
+        },
       });
-    else reject(new ZuvRequestError('NETWORK_ERROR'));
-    await prepared;
-    expect(storage.sync.execution('vault_synthetic', native.id)).toBeUndefined();
-    expect(events.state(native.id as SessionId)?.syncExecution).toBeUndefined();
-    expect(request).toHaveBeenCalledTimes(1);
-  });
+      let accept = (_result: unknown) => {};
+      let reject = (_error: Error) => {};
+      const pending = new Promise((resolve, fail) => {
+        accept = resolve;
+        reject = fail;
+      });
+      const request = vi.fn((...args: unknown[]) => {
+        if (change !== 'timeout') return pending;
+        const signal = (args[4] as { signal: AbortSignal }).signal;
+        return new Promise((_, fail) => {
+          const timer = setTimeout(() => fail(new ZuvRequestError('NETWORK_ERROR')), 15000);
+          signal.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer);
+              fail(new ZuvRequestError('NETWORK_ERROR'));
+            },
+            { once: true },
+          );
+        });
+      });
+      const executions = new SyncExecutions({
+        storage,
+        events,
+        capture,
+        eligible,
+        client: { json: request } as unknown as ZuvClient,
+      });
+      cleanup.push(() => executions.stop());
+      const started = performance.now();
+      const prepared = executions.prepare(native.id as SessionId, 'trn_synthetic');
+      await expect.poll(() => request.mock.calls.length).toBe(1);
+      if (change === 'stop') executions.stop();
+      else if (change === 'identity') permitted = false;
+      if (change === 'timeout') {
+        await prepared;
+        const elapsed = performance.now() - started;
+        process.stdout.write(`hung execution claim: ${elapsed.toFixed(1)}ms\n`);
+        expect(elapsed).toBeLessThan(2500);
+        expect(storage.sync.execution('vault_synthetic', native.id)?.state).toBe('offline');
+        return;
+      }
+      if (outcome === 'accepted')
+        accept({
+          runId: native.id,
+          epoch: '1',
+          fencingToken: 'fence_synthetic',
+          expiresAt: new Date(Date.now() + 30000).toISOString(),
+          branchRequired: false,
+        });
+      else reject(new ZuvRequestError('NETWORK_ERROR'));
+      await prepared;
+      expect(storage.sync.execution('vault_synthetic', native.id)).toBeUndefined();
+      expect(events.state(native.id as SessionId)?.syncExecution).toBeUndefined();
+      expect(request).toHaveBeenCalledTimes(1);
+    },
+    20000,
+  );
 });

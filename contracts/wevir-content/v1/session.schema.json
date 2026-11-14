@@ -182,7 +182,6 @@
   "required": [
     "schema",
     "sessionId",
-    "throughSeq",
     "title",
     "titleSource",
     "providerId",

@@ -654,6 +654,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         }),
     });
     syncService = sync;
+    plugins.watch(sync.changed);
+    settings.watch(sync.changed);
+    memory.watch(sync.changed);
     // 写作风格（0.95.0）：档案与建档期间的样本；放了太久的样本启动时删掉。
     const writingStyle = new WritingStyleStore({ dir: homePath(home, 'writingStyleDir') });
     writingStyle.pruneStale().catch((error: unknown) => {

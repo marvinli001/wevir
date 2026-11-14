@@ -38,7 +38,12 @@ interface Options {
 }
 const folded = (path: string) => path.normalize('NFC').toLowerCase();
 const signature = (value: SyncBundleChange['next']) =>
-  value ? jcs({ sha256: value.sha256, executable: value.executable }) : 'missing';
+  value
+    ? jcs({
+        sha256: value.sha256,
+        executable: process.platform === 'win32' ? false : value.executable,
+      })
+    : 'missing';
 export class SyncBundleFiles {
   readonly #options: Options;
   constructor(options: Options) {
@@ -141,7 +146,11 @@ export class SyncBundleFiles {
       path: file.path.normalize('NFC'),
       bytes: file.bytes,
       sha256: file.sha256,
-      executable: file.executable === true,
+      executable:
+        (publish ||
+          explicit ||
+          before.files.some((old) => folded(old.path) === folded(file.path))) &&
+        file.executable === true,
     }));
     this.#validatePaths(
       files.map((file) => file.path),
@@ -649,6 +658,30 @@ export class SyncBundleFiles {
   }
   #staging(app: SyncBundleApplication): string {
     return join(this.#options.home, 'sync/bundle-writes', app.vaultId, app.opId);
+  }
+  async discard(app: SyncBundleApplication) {
+    const binding = this.#options.storage.sync.bundleBinding(app.vaultId, app.entityId);
+    if (
+      !['abandoned', 'applied'].includes(
+        this.#options.storage.sync.bundleApplication(app.vaultId, app.opId)?.state ?? '',
+      )
+    )
+      throw new ZuvRequestError('REVISION_CONFLICT');
+    if (binding) {
+      const scratch = new Set(
+        app.files.map((file) => this.#scratch(app, this.#path(binding, file.path))),
+      );
+      for (const path of scratch) await rm(path, { recursive: true, force: true });
+    }
+    const stored = this.#options.storage.sync.getOperation(app.vaultId, app.opId);
+    const draft = this.#options.storage.sync.draft(app.vaultId, app.opId);
+    const content =
+      (stored?.record as { content?: unknown } | undefined)?.content ??
+      (draft?.content as { body?: unknown } | undefined)?.body ??
+      app.content;
+    const body = SyncBundleContentSchema.parse(content);
+    if (body.files.every((file) => file.bytes === 0 || file.parts.length > 0))
+      await rm(this.#staging(app), { recursive: true, force: true });
   }
   #descends(operation: SyncMaterialRevision, revision: string): boolean {
     const pending = [...operation.parents],

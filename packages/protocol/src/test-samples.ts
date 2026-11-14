@@ -3566,6 +3566,10 @@ export const methodSamples: MethodSamples = {
       invalid: [{}],
     },
   },
+  'sync.workspaceDiscard': {
+    params: { valid: [{ restoreId: 'restore_synthetic' }], invalid: [{}] },
+    result: { valid: [{ discarded: true }], invalid: [{}] },
+  },
   'sync.cancelBundle': {
     params: { valid: [{ vaultId: 'vault_fixture', entityId: 'bundle_fixture' }], invalid: [{}] },
     result: { valid: [{ cancelled: true }], invalid: [{}] },
@@ -3776,6 +3780,10 @@ export const methodSamples: MethodSamples = {
   'sync.exportLocal': {
     params: { valid: [{}, { directory: '/synthetic/export' }], invalid: [{ directory: '' }] },
     result: { valid: [portablePreview], invalid: [{}] },
+  },
+  'sync.cancelRecovery': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ cancelled: false }], invalid: [{}] },
   },
   'sync.importPrepare': {
     params: { valid: [{ path: '/synthetic/package' }], invalid: [{}] },
