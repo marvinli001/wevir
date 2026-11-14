@@ -442,8 +442,31 @@ describe('fixed recoverable snapshot metadata', () => {
 
   it('stages selected event segments using the exact event tuple while excluding unselected content', async () => {
     const h = await fixture();
-    const scopes = await h.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+    const registration = await h.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
       expectedRevision: h.vault.revision,
+      enabled: true,
+      categories: ['project'],
+      projectIds: ['project_synthetic'],
+    });
+    h.storage.sync.setScopes(h.vault.vaultId, registration);
+    await h.client.getEntitlements();
+    h.storage.transaction(() =>
+      new SyncQueue(h.storage).enqueue({
+        vaultId: h.vault.vaultId,
+        entityType: 'project',
+        entityId: 'project_synthetic',
+        projectId: 'project_synthetic',
+        localKey: 'synthetic-project',
+        content: {
+          schema: 'wevir-project/1',
+          projectId: 'project_synthetic',
+          displayName: 'Synthetic project',
+        },
+      }),
+    );
+    expect(await h.engine.run()).toBe(true);
+    const scopes = await h.client.json('scopesUpdated', 'PUT', '/api/wevir/sync/v1/scopes', {
+      expectedRevision: registration.revision,
       enabled: true,
       categories: ['event-segment'],
       projectIds: ['project_synthetic'],
@@ -496,7 +519,7 @@ describe('fixed recoverable snapshot metadata', () => {
     await h.engine.run();
     const staging = h.bootstrap();
     const prepared = await staging.prepare(new AbortController().signal);
-    expect(prepared).toMatchObject({ operations: 4, selected: 1, staged: 1 });
+    expect(prepared).toMatchObject({ operations: 5, selected: 1, staged: 1 });
     const records = [];
     for await (const entry of staging.records(prepared.job.jobId, new AbortController().signal))
       records.push(entry.record);
