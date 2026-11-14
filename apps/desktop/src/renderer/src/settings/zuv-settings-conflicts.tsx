@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
+import { useSyncPresentation } from './sync-presentation';
 
 type Preview = MethodResult<'sync.previewSettingsMerge'>;
 const LABELS: Record<Preview['key'], PlainMessageKey> = {
@@ -70,6 +71,7 @@ export function ZuvSettingsConflicts({
   const label = useId();
   const [open, setOpen] = useState(false),
     [busy, setBusy] = useState(false);
+  const { versionLabel: versionText } = useSyncPresentation(client, open);
   const [entries, setEntries] = useState<MethodResult<'sync.settingsConflicts'>['conflicts']>();
   const [next, setNext] = useState<string>();
   const [preview, setPreview] = useState<Preview>();
@@ -199,15 +201,13 @@ export function ZuvSettingsConflicts({
                       />
                     </div>
                   )}
-                  {preview.versions.map((version) => (
+                  {preview.versions.map((version, index) => (
                     <div key={version.opId} className="min-w-0 space-y-1">
                       <span
                         id={`${label}-${version.opId}`}
-                        className="text-xs text-muted-foreground"
+                        className="block min-w-0 max-w-full break-words text-xs text-muted-foreground"
                       >
-                        {version.opId === preview.localRevision
-                          ? t('sync.localVersion')
-                          : version.opId.slice(-8)}
+                        {versionText(version, preview.localRevision, index)}
                       </span>
                       <Textarea
                         readOnly
@@ -224,12 +224,9 @@ export function ZuvSettingsConflicts({
                   aria-label={t('sync.selectVersion')}
                   options={[
                     { value: '', label: t('sync.selectVersion') },
-                    ...preview.versions.map((version) => ({
+                    ...preview.versions.map((version, index) => ({
                       value: version.opId,
-                      label:
-                        version.opId === preview.localRevision
-                          ? t('sync.localVersion')
-                          : version.opId.slice(-8),
+                      label: versionText(version, preview.localRevision, index),
                     })),
                     ...(!preview.versions.some(
                       (version) => version.opId === preview.localRevision,

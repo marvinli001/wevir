@@ -71,7 +71,7 @@ export function WorkspaceCaptureButton({
           if (!busy) setOpen(next);
         }}
       >
-        <DialogContent className="flex max-h-[80vh] flex-col">
+        <DialogContent aria-describedby={undefined} className="flex max-h-[80vh] flex-col">
           <DialogTitle>{t('sync.workspaceCapture')}</DialogTitle>
           {untracked.length > 0 && (
             <div className="min-h-0 flex-1 overflow-y-auto">

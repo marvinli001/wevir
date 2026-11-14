@@ -292,6 +292,8 @@ export class SyncMemoryConflicts {
       return {
         opId,
         parents: record.parents,
+        deviceId: op.deviceId,
+        clientTime: (op.envelope as { clientTime?: string }).clientTime,
         content: SyncMemoryContentSchema.parse(record.content),
       };
     }
@@ -299,6 +301,8 @@ export class SyncMemoryConflicts {
     return {
       opId,
       parents: draft.parents,
+      deviceId: storage.sync.getVault(vaultId)?.deviceId,
+      clientTime: draft.createdAt,
       content: SyncMemoryContentSchema.parse((draft.content as SyncDraftPayload).body),
     };
   }

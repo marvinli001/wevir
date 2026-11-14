@@ -58,12 +58,18 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={change}>
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+      <DialogContent
+        className="sm:max-w-md"
+        showCloseButton={false}
+        {...(!children && { 'aria-describedby': undefined })}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription render={<div />} className="space-y-2 leading-relaxed">
-            {children}
-          </DialogDescription>
+          {children && (
+            <DialogDescription render={<div />} className="space-y-2 leading-relaxed">
+              {children}
+            </DialogDescription>
+          )}
         </DialogHeader>
         {error && (
           <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">

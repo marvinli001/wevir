@@ -156,7 +156,7 @@ export function ZuvVersionRestore({
                     </section>
                   ))}
                 </div>
-                {done ? (
+                {done && (
                   <p role="status">
                     {t(
                       preview.kind === 'workspace'
@@ -164,13 +164,6 @@ export function ZuvVersionRestore({
                         : 'portable.restored',
                     )}
                   </p>
-                ) : (
-                  preview.canRestore &&
-                  preview.kind === 'workspace' && (
-                    <p className="text-sm text-muted-foreground">
-                      {t('portable.restoreConsequence')}
-                    </p>
-                  )
                 )}
               </>
             )}

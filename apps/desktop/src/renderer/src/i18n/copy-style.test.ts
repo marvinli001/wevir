@@ -16,8 +16,23 @@ const isModelFacing = (key: string) =>
 
 /** 说明、提示、副标题一类的 key。只允许下面这些：错误的处理建议、确认框里的后果、配置事实与必要的安全提醒。 */
 const EXPLANATORY_KEY =
-  /(hint|note|description|subtitle|intro|helper|explain|tip|caption|body|warning)(\.|$)/i;
+  /(hint|note|description|subtitle|intro|helper|explain|tip|caption|body|warning|consequences?|[a-z]trust(?:Required)?|plaintext)(\.|$)/i;
 const EXPLANATORY_ALLOWED = new Set<string>([
+  // 确认框里的文件覆盖、删除、密钥轮换和分支后果。
+  'sync.applyPackageConsequences',
+  'sync.deleteFileConsequences',
+  'sync.keepLocalPackageConsequences',
+  'sync.recoverOutboxConsequences',
+  'sync.resetApplyConsequences',
+  'sync.approveConsequence',
+  'portable.completeConsequence',
+  'portable.deleteConsequence',
+  'portable.detachConsequence',
+  'settings.episodes.deleteConsequence',
+  // 明文导出与恢复配置的安全确认，及未确认错误。
+  'portable.plaintext',
+  'sync.workspaceTrust',
+  'sync.workspaceTrustRequired',
   'sync.deleteMemoryConsequence',
   'portable.clearCacheConsequence',
   'portable.restoreMemoryConsequence',
@@ -120,6 +135,17 @@ const entries = Object.entries(zhCN) as [string, string][];
 const plain = (value: string) => value.replace(/\{[^{}]*\}/g, '');
 
 describe('界面文案的写法', () => {
+  it('后果、安全确认与明文键也受检查，信任按钮不算说明', () => {
+    for (const key of [
+      'actionConsequence',
+      'actionConsequences',
+      'workspaceTrust',
+      'workspaceTrustRequired',
+      'portable.plaintext',
+    ])
+      expect(EXPLANATORY_KEY.test(key)).toBe(true);
+    expect(EXPLANATORY_KEY.test('plugins.hooks.trust')).toBe(false);
+  });
   it('不新增说明、提示、副标题一类的文案', () => {
     const added = entries
       .map(([key]) => key)

@@ -14,7 +14,9 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { describe } from '@/host/host-connection';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
+import { formatFileSize } from '@/session/shared-files-model';
+import { useSyncPresentation } from './sync-presentation';
 
 type Preview = MethodResult<'sync.bundlePreview'>;
 type File = MethodResult<'sync.bundleFile'>;
@@ -31,6 +33,7 @@ export function ZuvBundles({
     [busy, setBusy] = useState(false),
     [error, setError] = useState<string>(),
     [applying, setApplying] = useState(false);
+  const { versionLabel: versionText } = useSyncPresentation(client, open);
   const [vaults, setVaults] = useState<MethodResult<'sync.bundleVaults'>['vaults']>([]),
     [vault, setVault] = useState('');
   const [bundles, setBundles] = useState<MethodResult<'sync.bundles'>['bundles']>([]),
@@ -238,7 +241,9 @@ export function ZuvBundles({
                     ? t('sync.currentAccount')
                     : [
                         item.projects.join(' · ') || `${t('sync.localData')} ${index + 1}`,
-                        item.lastSyncAt ? new Date(item.lastSyncAt).toLocaleDateString() : '',
+                        item.lastSyncAt
+                          ? new Date(item.lastSyncAt).toLocaleDateString(currentLocale())
+                          : '',
                       ]
                         .filter(Boolean)
                         .join(' · '),
@@ -259,7 +264,7 @@ export function ZuvBundles({
                   { value: '', label: t('sync.choosePackage') },
                   ...bundles.map((item) => ({
                     value: item.entityId,
-                    label: `${item.name} · ${item.binding ? t('sync.bound') : item.entityId.slice(-6)}`,
+                    label: item.binding ? `${item.name} · ${t('sync.bound')}` : item.name,
                   })),
                 ]}
                 onValueChange={(id) => {
@@ -293,9 +298,9 @@ export function ZuvBundles({
                   value={version}
                   disabled={busy}
                   aria-label={t('sync.selectVersion')}
-                  options={versions.map((item) => ({
+                  options={versions.map((item, index) => ({
                     value: item.opId,
-                    label: `${item.opId === preview.binding?.revision ? t('sync.localVersion') : item.opId.slice(-8)}${item.deleted ? ` · ${t('rail.outputs.kind.deleted')}` : ''}`,
+                    label: `${versionText(item, preview.binding?.revision, index)}${item.deleted ? ` · ${t('rail.outputs.kind.deleted')}` : ''}`,
                   }))}
                   onValueChange={(id) => {
                     setVersion(id);
@@ -417,7 +422,7 @@ export function ZuvBundles({
                           {file.path}
                         </button>
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          {file.bytes.toLocaleString()} B
+                          {formatFileSize(file.bytes, currentLocale())}
                         </span>
                       </li>
                     ))}
@@ -446,10 +451,15 @@ export function ZuvBundles({
                 )}
                 {contents.length > 0 && (
                   <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                    {contents.map((item) => (
+                    {contents.map((item, index) => (
                       <div key={item.opId} className="min-w-0 space-y-1">
                         <span className="text-xs text-muted-foreground">
-                          {item.opId.slice(-8)} · {path}
+                          {versionText(
+                            versions.find((version) => version.opId === item.opId) ?? item,
+                            preview.binding?.revision,
+                            index,
+                          )}{' '}
+                          · {path}
                         </span>
                         {item.file.binary ? (
                           <p className="break-all font-mono text-xs">
@@ -458,7 +468,7 @@ export function ZuvBundles({
                         ) : (
                           <Textarea
                             readOnly
-                            aria-label={`${item.opId.slice(-8)} ${path}`}
+                            aria-label={`${versionText(versions.find((version) => version.opId === item.opId) ?? item, preview.binding?.revision, index)} ${path}`}
                             value={item.file.text ?? ''}
                             className="h-40 resize-none overflow-auto font-mono text-xs [field-sizing:fixed]"
                           />

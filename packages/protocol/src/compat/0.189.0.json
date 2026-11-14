@@ -1,0 +1,193 @@
+{
+  "protocolVersion": "0.189.0",
+  "methods": {
+    "sync.previewMemoryMerge": {
+      "params": [
+        {
+          "entityId": "memory_fixture"
+        }
+      ],
+      "result": [
+        {
+          "entityId": "memory_fixture",
+          "name": "synthetic-note",
+          "scope": "global",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "fileFingerprint": "missing",
+          "versions": [
+            {
+              "opId": "operation_left",
+              "parents": [],
+              "deleted": true,
+              "deviceId": "device_fixture",
+              "clientTime": "2026-11-14T00:00:00.000Z"
+            },
+            {
+              "opId": "operation_right",
+              "parents": [],
+              "deleted": true,
+              "deviceId": "device_fixture",
+              "clientTime": "2026-11-14T00:00:00.000Z"
+            }
+          ],
+          "mergeState": "unavailable"
+        }
+      ]
+    },
+    "sync.previewSettingsMerge": {
+      "params": [
+        {
+          "entityId": "settings_agentInstructions"
+        }
+      ],
+      "result": [
+        {
+          "entityId": "settings_agentInstructions",
+          "key": "agentInstructions",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "valueFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "localValues": {
+            "agentInstructions": "Left"
+          },
+          "mergeState": "unavailable",
+          "versions": [
+            {
+              "opId": "operation_left",
+              "parents": [],
+              "values": {
+                "agentInstructions": "Left"
+              },
+              "deviceId": "device_fixture",
+              "clientTime": "2026-11-14T00:00:00.000Z"
+            },
+            {
+              "opId": "operation_right",
+              "parents": [],
+              "values": {
+                "agentInstructions": "Right"
+              },
+              "deviceId": "device_fixture",
+              "clientTime": "2026-11-14T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "sync.previewSessionMerge": {
+      "params": [
+        {
+          "entityId": "ses_synthetic"
+        }
+      ],
+      "result": [
+        {
+          "vaultId": "vault_synthetic",
+          "entityId": "ses_synthetic",
+          "kind": "session",
+          "sessionId": "ses_synthetic",
+          "expectedHeads": ["operation_left", "operation_right"],
+          "localRevision": "operation_left",
+          "localFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "mergeState": "unavailable",
+          "versions": [
+            {
+              "opId": "operation_left",
+              "parents": [],
+              "content": {
+                "schema": "wevir-session-state/1",
+                "source": {
+                  "hostId": "host_synthetic",
+                  "deviceId": "device_synthetic",
+                  "sessionId": "ses_synthetic",
+                  "streamId": "stream_synthetic"
+                },
+                "title": "operation_left",
+                "titleSource": "user",
+                "archivedAt": null
+              },
+              "deviceId": "device_fixture",
+              "clientTime": "2026-11-14T00:00:00.000Z"
+            },
+            {
+              "opId": "operation_right",
+              "parents": [],
+              "content": {
+                "schema": "wevir-session-state/1",
+                "source": {
+                  "hostId": "host_synthetic",
+                  "deviceId": "device_synthetic",
+                  "sessionId": "ses_synthetic",
+                  "streamId": "stream_synthetic"
+                },
+                "title": "operation_right",
+                "titleSource": "user",
+                "archivedAt": null
+              },
+              "deviceId": "device_fixture",
+              "clientTime": "2026-11-14T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "sync.bundlePreview": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture"
+        }
+      ],
+      "result": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture",
+          "heads": ["operation_fixture"],
+          "versions": [
+            {
+              "opId": "operation_fixture",
+              "parents": [],
+              "name": "Fixture",
+              "deleted": false,
+              "files": [],
+              "fileCount": 0,
+              "bytes": 0,
+              "deviceId": "device_fixture",
+              "clientTime": "2026-11-14T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "sync.bundleVersions": {
+      "params": [
+        {
+          "vaultId": "vault_fixture",
+          "entityId": "bundle_fixture"
+        }
+      ],
+      "result": [
+        {
+          "versions": []
+        }
+      ]
+    },
+    "sync.projectCatalog": {
+      "params": [
+        {},
+        {
+          "enable": true
+        }
+      ],
+      "result": [
+        {
+          "projects": []
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

@@ -220,12 +220,15 @@ export function OfflineLibrary() {
         {t('portable.library')}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-2xl">
+        <DialogContent
+          aria-describedby={undefined}
+          className="flex max-h-[85dvh] flex-col sm:max-w-2xl"
+        >
           <DialogHeader>
             <DialogTitle>{t('portable.library')}</DialogTitle>
           </DialogHeader>
           {(error || transcript.failed) && (
-            <p role="alert" className="text-destructive">
+            <p role="alert" className="break-words text-destructive">
               {error ?? t('portable.readError')}
             </p>
           )}
@@ -236,9 +239,10 @@ export function OfflineLibrary() {
                   key={`${value.hostId}/${value.clientId}/${value.session.id}`}
                   variant="outline"
                   size="sm"
+                  className="min-w-0 max-w-full truncate"
                   onClick={() => selectConversation(value)}
                 >
-                  {value.session.title}
+                  <span className="min-w-0 truncate">{value.session.title}</span>
                 </Button>
               ))}
               {online &&
@@ -247,6 +251,7 @@ export function OfflineLibrary() {
                     key={session.id}
                     variant="ghost"
                     size="sm"
+                    className="min-w-0 max-w-full truncate"
                     onClick={() => {
                       if (client) {
                         selectConversation({
@@ -259,7 +264,7 @@ export function OfflineLibrary() {
                       }
                     }}
                   >
-                    {session.title}
+                    <span className="min-w-0 truncate">{session.title}</span>
                   </Button>
                 ))}
             </div>

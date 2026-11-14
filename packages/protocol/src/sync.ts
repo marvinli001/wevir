@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { SessionIdSchema, WorkspaceIdSchema } from './common.js';
 import { BundleMethodSchemas } from './sync-bundles.js';
 import { SyncSettingsValuesSchema } from './sync-settings.js';
+import { SyncVersionInfoSchema } from './sync-version-info.js';
 import { decimal, digest, entityType, id, PROTOCOL, schemas } from './sync-wire.js';
 
 export const SyncStreamRefSchema = z.object({
@@ -115,7 +116,7 @@ export const SyncProjectCatalogSchema = z.object({
         projectId: id,
         versions: z
           .array(
-            z.object({
+            SyncVersionInfoSchema.extend({
               opId: id,
               displayName: z.string().max(256).optional(),
               repoUrl: z.string().max(2048).optional(),
@@ -129,7 +130,7 @@ export const SyncProjectCatalogSchema = z.object({
     .max(1000),
 });
 
-const memoryVersion = z.object({
+const memoryVersion = SyncVersionInfoSchema.extend({
   opId: id,
   parents: z.array(id).max(32),
   markdown: z
@@ -144,7 +145,7 @@ const resolutionHeads = z
   .max(32)
   .refine((heads) => new Set(heads).size === heads.length);
 const fileFingerprint = z.union([digest, z.literal('missing')]);
-const settingsVersion = z.object({
+const settingsVersion = SyncVersionInfoSchema.extend({
   opId: id,
   parents: z.array(id).max(32),
   values: SyncSettingsValuesSchema,

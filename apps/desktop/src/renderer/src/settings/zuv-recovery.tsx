@@ -12,8 +12,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { describe } from '@/host/host-connection';
-import { type PlainMessageKey, t } from '@/i18n';
+import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { capabilities, platformApi } from '@/platform/platform';
+import { useSyncPresentation } from './sync-presentation';
 import { ZuvVersionRestore } from './zuv-version-restore';
 
 type Preview = MethodResult<'sync.importPrepare'>;
@@ -46,6 +47,7 @@ export function ZuvRecoverySection({
 }) {
   const [open, setOpen] = useState(false);
   const grantId = useId();
+  const { projectLabel: projectText } = useSyncPresentation(client, open);
   const [info, setInfo] = useState<MethodResult<'sync.recoveryInfo'>>();
   const [recovery, setRecovery] = useState<MethodResult<'sync.recoveryStatus'>>();
   const [snapshot, setSnapshot] = useState<MethodResult<'sync.recoverySnapshot'>>();
@@ -121,12 +123,15 @@ export function ZuvRecoverySection({
           if (!busy) setOpen(value);
         }}
       >
-        <DialogContent className="flex max-h-[85dvh] flex-col sm:max-w-2xl">
+        <DialogContent
+          aria-describedby={undefined}
+          className="flex max-h-[85dvh] flex-col sm:max-w-2xl"
+        >
           <DialogHeader>
             <DialogTitle>{t('portable.recovery')}</DialogTitle>
           </DialogHeader>
           {error && (
-            <p role="alert" className="text-destructive">
+            <p role="alert" className="break-words text-destructive">
               {error}
             </p>
           )}
@@ -176,7 +181,6 @@ export function ZuvRecoverySection({
               <div className="space-y-2 rounded-lg border border-border p-3">
                 <p className="break-all text-xs">{preview.path}</p>
                 <p>{t('portable.entries', { count: preview.entries })}</p>
-                <p className="text-xs text-muted-foreground">{t('portable.plaintext')}</p>
                 <details>
                   <summary>
                     {t('portable.omissions')} · {preview.omissionCount ?? preview.omissions.length}
@@ -211,12 +215,13 @@ export function ZuvRecoverySection({
             {packages.map((value) => (
               <Button
                 key={value.importId}
+                className="min-w-0 max-w-full truncate"
                 variant="outline"
                 size="sm"
                 disabled={busy}
                 onClick={() => void run(() => readMirror(value.importId))}
               >
-                {value.createdAt}
+                {new Date(value.createdAt).toLocaleString(currentLocale())}
               </Button>
             ))}
             {entries && (
@@ -228,7 +233,7 @@ export function ZuvRecoverySection({
                       variant="ghost"
                       size="sm"
                       disabled={busy}
-                      className="max-w-full justify-start truncate"
+                      className="min-w-0 max-w-full justify-start truncate"
                       onClick={() =>
                         void run(async () => {
                           if (!importId) return;
@@ -272,7 +277,7 @@ export function ZuvRecoverySection({
                         })
                       }
                     >
-                      {entry.path ?? entry.key}
+                      <span className="min-w-0 truncate">{entry.path ?? entry.key}</span>
                     </Button>
                     {entry.kind === 'version' && importId && (
                       <ZuvVersionRestore
@@ -346,6 +351,7 @@ export function ZuvRecoverySection({
             {files.map((file) => (
               <Button
                 key={`${file.key}/${file.path}`}
+                className="min-w-0 max-w-full truncate"
                 variant="ghost"
                 size="sm"
                 disabled={busy}
@@ -361,14 +367,11 @@ export function ZuvRecoverySection({
                   })
                 }
               >
-                {file.path}
+                <span className="min-w-0 truncate">{file.path}</span>
               </Button>
             ))}
             {vaultId && account.status === 'signed_in' && (
               <div className="space-y-3 border-t border-border pt-3">
-                <p className="break-all font-mono text-xs">
-                  {vaultId} · {info.keyEpoch}
-                </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     disabled={busy}
@@ -430,7 +433,8 @@ export function ZuvRecoverySection({
                   <div className="space-y-2 text-xs">
                     <p>{t(`portable.state.${recovery.request.state}`)}</p>
                     <p>
-                      {recovery.request.notBefore} · {recovery.request.expiresAt}
+                      {new Date(recovery.request.notBefore).toLocaleString(currentLocale())} ·{' '}
+                      {new Date(recovery.request.expiresAt).toLocaleString(currentLocale())}
                     </p>
                     {recovery.request.state === 'approved' && (
                       <Button disabled={busy} size="sm" onClick={() => setConfirm('complete')}>
@@ -441,7 +445,6 @@ export function ZuvRecoverySection({
                 )}
                 {snapshot && (
                   <div className="space-y-2">
-                    <p className="break-all font-mono text-xs">{snapshot.restoreId}</p>
                     {GROUPS.map((group) => (
                       <label key={group.label} className="flex items-center gap-2 text-xs">
                         <Checkbox
@@ -459,7 +462,7 @@ export function ZuvRecoverySection({
                         {t(group.label)}
                       </label>
                     ))}
-                    {snapshot.projectIds.map((projectId) => (
+                    {snapshot.projectIds.map((projectId, index) => (
                       <label key={projectId} className="flex items-center gap-2 text-xs">
                         <Checkbox
                           checked={projects.includes(projectId)}
@@ -471,7 +474,7 @@ export function ZuvRecoverySection({
                             )
                           }
                         />
-                        {projectId}
+                        {projectText(projectId, index)}
                       </label>
                     ))}
                     <Button
@@ -495,17 +498,9 @@ export function ZuvRecoverySection({
                   </div>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    disabled={busy}
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setConfirm('detach')}
-                  >
-                    {t('portable.detach')}
-                  </Button>
                   <label
                     htmlFor={grantId}
-                    className="min-w-0 flex-1 space-y-1 text-xs text-muted-foreground"
+                    className="w-full min-w-0 space-y-1 text-xs text-muted-foreground"
                   >
                     <span>{t('portable.stepUp')}</span>
                     <Input
@@ -516,6 +511,14 @@ export function ZuvRecoverySection({
                       onChange={(event) => setStepUpId(event.target.value)}
                     />
                   </label>
+                  <Button
+                    disabled={busy}
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setConfirm('detach')}
+                  >
+                    {t('portable.detach')}
+                  </Button>
                   <Button
                     disabled={busy || !stepUpId}
                     size="sm"

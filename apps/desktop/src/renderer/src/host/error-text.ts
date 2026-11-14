@@ -104,6 +104,37 @@ const RPC_ERROR_TEXT: Record<Exclude<ErrorCodeName, 'ENGINE_ERROR'>, PlainMessag
   SYNC_FAILED: 'rpcError.SYNC_FAILED',
 };
 
+const SYNC_ERROR_TEXT: Record<string, PlainMessageKey> = {
+  AUTH_REQUIRED: 'source.zuv.reauthorize',
+  DEVICE_REVOKED: 'source.zuv.revoked',
+  SUBSCRIPTION_REQUIRED: 'sync.error.subscription',
+  SCOPE_DISABLED: 'sync.error.scopeDisabled',
+  QUOTA_EXCEEDED: 'sync.error.quota',
+  BUDGET_PAUSED: 'sync.paused',
+  RATE_LIMITED: 'sync.error.rateLimited',
+  MISSING_PARENT: 'sync.error.versionChanged',
+  REVISION_CONFLICT: 'sync.error.versionChanged',
+  OP_ID_REUSED: 'sync.error.integrity',
+  INTEGRITY_FAILED: 'sync.error.integrity',
+  BLOB_INCOMPLETE: 'sync.error.incomplete',
+  RESET_REQUIRED: 'sync.resetRequired',
+  EXECUTION_CONFLICT: 'sync.error.executionChanged',
+  RECOVERY_REQUIRED: 'sync.error.recovery',
+  UPGRADE_REQUIRED: 'sync.error.upgrade',
+  INVALID_REQUEST: 'rpcError.INVALID_PARAMS',
+  INVALID_RESPONSE: 'sync.error.responseInvalid',
+  NOT_FOUND: 'sync.error.notFound',
+  ENROLLMENT_EXPIRED: 'sync.error.authorizationExpired',
+  STEP_UP_REQUIRED: 'sync.error.stepUp',
+  SERVICE_UNAVAILABLE: 'sync.error.unavailable',
+  NETWORK_ERROR: 'source.zuv.offline',
+  LOCAL_STORAGE_ERROR: 'sync.error.localStorage',
+};
+export function syncErrorText(code: string): string {
+  const key = Object.hasOwn(SYNC_ERROR_TEXT, code) ? SYNC_ERROR_TEXT[code] : undefined;
+  return t(key ?? 'rpcError.SYNC_FAILED');
+}
+
 const RPC_DETAIL: ReadonlySet<ErrorCodeName> = new Set([
   'SPEECH_FAILED',
   'MCP_OAUTH_FAILED',
@@ -133,6 +164,7 @@ const CLIENT_ERROR_TEXT: Record<Exclude<ClientErrorKind, 'rpc'>, PlainMessageKey
  */
 export function describeError(error: unknown): string {
   if (isRpcError(error)) {
+    if (isRpcError(error, 'SYNC_FAILED')) return syncErrorText(error.data?.code ?? '');
     if (isRpcError(error, 'ENGINE_ERROR')) {
       const category = error.data?.category ?? 'unknown';
       return withDetail(t(`engineError.category.${category}`), error.message);

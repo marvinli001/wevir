@@ -191,7 +191,15 @@ export class SyncSettingsConflicts {
     const key = this.#key(entityId);
     if (Object.keys(content.values).length !== 1 || !(key in content.values) || record?.projectId)
       throw new ZuvRequestError('INTEGRITY_FAILED');
-    return { opId, parents: record?.parents ?? draft?.parents ?? [], values: content.values };
+    return {
+      opId,
+      parents: record?.parents ?? draft?.parents ?? [],
+      values: content.values,
+      deviceId: operation?.deviceId ?? this.options.storage.sync.getVault(vaultId)?.deviceId,
+      clientTime:
+        (operation?.envelope as { clientTime?: string } | undefined)?.clientTime ??
+        draft?.createdAt,
+    };
   }
   #heads(vault: SyncVaultRecord, entity: SyncEntityRecord): string[] {
     const heads = this.options.storage.sync.heads(vault.vaultId, entity.entityId);

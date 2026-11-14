@@ -12,10 +12,12 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select } from '@/components/ui/select';
 import { useWorkbenchSelector } from '@/data/workbench-data';
+import { syncErrorText } from '@/host/error-text';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { everyWhileVisible } from '@/lib/visible-interval';
 import { NoticeBanner } from './settings-ui';
+import { useSyncPresentation } from './sync-presentation';
 import { ZuvBundles } from './zuv-bundles';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
 import { ZuvOutbox } from './zuv-outbox';
@@ -76,6 +78,10 @@ export function ZuvSyncSection({
   const [devices, setDevices] = useState<MethodResult<'sync.devices'>['devices']>();
   const [approving, setApproving] = useState<MethodResult<'sync.devices'>['devices'][number]>();
   const supported = client.supports('cloud_sync');
+  const { versionLabel: versionText, projectLabel: projectText } = useSyncPresentation(
+    client,
+    editing,
+  );
   useEffect(() => {
     if (account.status === 'signed_in') return;
     generation.current++;
@@ -203,7 +209,7 @@ export function ZuvSyncSection({
       ) : null}
       {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
       {status?.errorCode && !error && (
-        <NoticeBanner notice={{ tone: 'error', text: status.errorCode }} />
+        <NoticeBanner notice={{ tone: 'error', text: syncErrorText(status.errorCode) }} />
       )}
       {editing ? (
         <div className="space-y-3">
@@ -264,12 +270,12 @@ export function ZuvSyncSection({
                             value.projectId === project.projectId,
                         )),
                   )
-                  .map((project) => ({
+                  .map((project, index) => ({
                     value: project.projectId,
                     label:
                       project.versions.length === 1
-                        ? project.versions[0]?.displayName || project.projectId
-                        : `${project.projectId.slice(-8)} · ${t('sync.projectVersions', { count: project.versions.length })}`,
+                        ? project.versions[0]?.displayName || projectText(project.projectId, index)
+                        : `${projectText(project.projectId, index)} · ${t('sync.projectVersions', { count: project.versions.length })}`,
                   })),
               ];
               if (bound && !options.some((value) => value.value === bound.projectId))
@@ -308,9 +314,10 @@ export function ZuvSyncSection({
                       <div className="space-y-2 rounded-lg border border-border p-2">
                         {cloud.versions
                           .filter((version) => version.deleted)
-                          .map((version) => (
+                          .map((version, index) => (
                             <p key={version.opId} className="text-xs text-muted-foreground">
-                              {t('rail.outputs.kind.deleted')} · {version.opId.slice(-8)}
+                              {t('rail.outputs.kind.deleted')} ·{' '}
+                              {versionText(version, undefined, index)}
                             </p>
                           ))}
                         <Select
@@ -319,9 +326,9 @@ export function ZuvSyncSection({
                             { value: '', label: t('sync.selectVersion') },
                             ...cloud.versions
                               .filter((version) => !version.deleted)
-                              .map((version) => ({
+                              .map((version, index) => ({
                                 value: version.opId,
-                                label: `${version.displayName || cloud.projectId} · ${version.opId.slice(-8)}`,
+                                label: `${version.displayName || projectText(cloud.projectId)} · ${versionText(version, undefined, index)}`,
                               })),
                           ]}
                           disabled={busy || !active}
@@ -543,9 +550,7 @@ export function ZuvSyncSection({
             setEditing(false);
           }}
         >
-          <p>
-            {t(resetConfirm === 'apply' ? 'sync.resetApplyConsequences' : 'sync.resetConsequences')}
-          </p>
+          {resetConfirm === 'apply' && <p>{t('sync.resetApplyConsequences')}</p>}
         </ConfirmDialog>
       )}
       {client.supports('sync_session_conflicts') &&
@@ -645,7 +650,7 @@ export function ZuvSyncSection({
         >
           <p>{approving.name}</p>
           <p className="break-all font-mono text-xs">{approving.thumbprint}</p>
-          <p>{t('sync.approveAccess')}</p>
+          <p>{t('sync.approveConsequence')}</p>
         </ConfirmDialog>
       )}
     </div>

@@ -1747,7 +1747,13 @@ describe('full Host material synchronization with synthetic identities', () => {
       .toBe(0);
     const after = await second.rpc.request('sync.projectCatalog');
     expect(after.projects[0].versions).toEqual([
-      { opId: resolved.opId, displayName: 'Synthetic branch B', deleted: false },
+      {
+        opId: resolved.opId,
+        displayName: 'Synthetic branch B',
+        deleted: false,
+        deviceId: (await second.rpc.request('sync.status')).binding.deviceId,
+        clientTime: expect.any(String),
+      },
     ]);
     const status = await first.rpc.request('sync.status');
     const received = schemas.changes.parse(

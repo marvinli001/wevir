@@ -287,7 +287,15 @@ export class SyncSessionConflicts {
           : 'session';
     if (contentKind !== ref.kind || !content.source || jcs(content.source) !== jcs(ref.source))
       throw new ZuvRequestError('INTEGRITY_FAILED');
-    return { opId, parents: record?.parents ?? draft?.parents ?? [], content };
+    return {
+      opId,
+      parents: record?.parents ?? draft?.parents ?? [],
+      content,
+      deviceId: operation?.deviceId ?? this.options.storage.sync.getVault(vault.vaultId)?.deviceId,
+      clientTime:
+        (operation?.envelope as { clientTime?: string } | undefined)?.clientTime ??
+        draft?.createdAt,
+    };
   }
   #heads(vault: SyncVaultRecord, entity: SyncEntityRecord): string[] {
     const heads = this.options.storage.sync.heads(vault.vaultId, entity.entityId);

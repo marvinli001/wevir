@@ -12,6 +12,7 @@ import {
 import { Select } from '@/components/ui/select';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { useSyncPresentation } from './sync-presentation';
 
 type Preview = MethodResult<'sync.previewSessionMerge'>;
 function contentText(content: Preview['versions'][number]['content']): string {
@@ -47,6 +48,7 @@ export function ZuvSessionConflicts({
   onResolved: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const { versionLabel: versionText } = useSyncPresentation(client, open);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [entries, setEntries] = useState<MethodResult<'sync.sessionConflicts'>['conflicts']>();
@@ -162,15 +164,13 @@ export function ZuvSessionConflicts({
             {preview && (
               <>
                 <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-                  {preview.versions.map((version) => (
+                  {preview.versions.map((version, index) => (
                     <div
                       key={version.opId}
                       className="min-w-0 space-y-2 rounded-md border border-border p-3"
                     >
-                      <p className="break-all font-mono text-xs text-muted-foreground">
-                        {version.opId === preview.localRevision
-                          ? t('sync.localVersion')
-                          : version.opId}
+                      <p className="break-words text-xs text-muted-foreground">
+                        {versionText(version, preview.localRevision, index)}
                       </p>
                       <pre className="whitespace-pre-wrap break-words text-sm">
                         {contentText(version.content)}
@@ -185,12 +185,9 @@ export function ZuvSessionConflicts({
                   options={[
                     { value: '', label: t('sync.selectVersion') },
                     ...(preview.merged ? [{ value: 'merged', label: t('sync.mergeResult') }] : []),
-                    ...preview.versions.map((version) => ({
+                    ...preview.versions.map((version, index) => ({
                       value: version.opId,
-                      label:
-                        version.opId === preview.localRevision
-                          ? t('sync.localVersion')
-                          : version.opId,
+                      label: versionText(version, preview.localRevision, index),
                     })),
                   ]}
                   onValueChange={setChoice}

@@ -7,6 +7,7 @@ import {
   SyncSessionStateContentSchema,
   SyncSessionTombstoneSchema,
 } from './sync-content.js';
+import { SyncVersionInfoSchema } from './sync-version-info.js';
 import { digest, id } from './sync-wire.js';
 
 export const SyncSessionConflictContentSchema = z.union([
@@ -22,7 +23,7 @@ const heads = z
   .max(32)
   .refine((values) => new Set(values).size === values.length);
 const kind = z.enum(['session', 'episode', 'retro-summary']);
-const version = z.object({
+const version = SyncVersionInfoSchema.extend({
   opId: id,
   parents: z.array(id).max(32),
   content: SyncSessionConflictContentSchema,

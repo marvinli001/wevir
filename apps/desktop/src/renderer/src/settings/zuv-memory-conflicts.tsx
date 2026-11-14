@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { useSyncPresentation } from './sync-presentation';
 
 type Preview = MethodResult<'sync.previewMemoryMerge'>;
 const MEMORY_HEADER = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/;
@@ -43,6 +44,10 @@ export function ZuvMemoryConflicts({
 }) {
   const versionLabel = useId();
   const [open, setOpen] = useState(false);
+  const { versionLabel: versionText, projectLabel: projectText } = useSyncPresentation(
+    client,
+    open,
+  );
   const [entries, setEntries] = useState<MethodResult<'sync.memoryConflicts'>['conflicts']>();
   const [next, setNext] = useState<string>();
   const [selected, setSelected] = useState('');
@@ -170,9 +175,9 @@ export function ZuvMemoryConflicts({
                 aria-label={t('sync.memoryConflicts')}
                 options={[
                   { value: '', label: t('sync.memory') },
-                  ...entries.map((entry) => ({
+                  ...entries.map((entry, index) => ({
                     value: entry.entityId,
-                    label: `${entry.name} · ${entry.scope === 'global' ? t('settings.memory.global') : entry.projectId?.slice(-8)}`,
+                    label: `${entry.name} · ${entry.scope === 'global' ? t('settings.memory.global') : projectText(entry.projectId ?? '', index)}`,
                   })),
                 ]}
                 onValueChange={(value) => {
@@ -201,12 +206,13 @@ export function ZuvMemoryConflicts({
             {preview && (
               <>
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] gap-3">
-                  {preview.versions.map((version) => (
+                  {preview.versions.map((version, index) => (
                     <div key={version.opId} className="min-w-0 space-y-1 text-xs">
-                      <span id={`${versionLabel}-${version.opId}`}>
-                        {version.opId === preview.localRevision
-                          ? t('sync.localVersion')
-                          : version.opId.slice(-8)}
+                      <span
+                        id={`${versionLabel}-${version.opId}`}
+                        className="block min-w-0 max-w-full break-words"
+                      >
+                        {versionText(version, preview.localRevision, index)}
                       </span>
                       {noteDisabled(version.markdown ?? '') && (
                         <span className="ml-2 text-muted-foreground">
@@ -237,9 +243,9 @@ export function ZuvMemoryConflicts({
                   aria-label={t('sync.selectVersion')}
                   options={[
                     { value: '', label: t('sync.selectVersion') },
-                    ...preview.versions.map((version) => ({
+                    ...preview.versions.map((version, index) => ({
                       value: version.opId,
-                      label: `${version.deleted ? t('rail.outputs.kind.deleted') : version.opId === preview.localRevision ? t('sync.localVersion') : version.opId.slice(-8)}`,
+                      label: `${versionText(version, preview.localRevision, index)}${version.deleted ? ` · ${t('rail.outputs.kind.deleted')}` : ''}`,
                     })),
                     ...(preview.merged !== undefined
                       ? [{ value: 'merged', label: t('sync.mergeResult') }]

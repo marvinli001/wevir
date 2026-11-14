@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SyncVersionInfoSchema } from './sync-version-info.js';
 import { digest, id } from './sync-wire.js';
 
 const file = z.object({
@@ -22,7 +23,7 @@ const binding = z.object({
     .object({ opId: id, state: z.enum(['prepared', 'applying', 'conflict']), paused: z.boolean() })
     .optional(),
 });
-const version = z.object({
+const version = SyncVersionInfoSchema.extend({
   opId: id,
   parents: z.array(id).max(32),
   name: z.string().max(256),

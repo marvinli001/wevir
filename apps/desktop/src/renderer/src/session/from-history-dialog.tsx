@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/u
 import { Select } from '@/components/ui/select';
 import { useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 import { InstallDialog } from '@/layout/readiness-dialogs';
 import { mergeChange } from '@/layout/readiness-model';
 import { paths } from '@/routes/paths';
@@ -148,7 +148,7 @@ export function FromHistoryDialog({
               JSON.stringify([...prepared.requiresTrust].sort()))
         ) {
           setTrust(false);
-          setError(t('sync.workspaceTrust'));
+          setError(t('sync.workspaceTrustRequired'));
           return;
         }
         if (next.status === 'not_ready') {
@@ -194,7 +194,10 @@ export function FromHistoryDialog({
         }
       }}
     >
-      <DialogContent className="flex max-h-[80vh] flex-col overflow-y-auto">
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex max-h-[80vh] flex-col overflow-y-auto"
+      >
         <DialogTitle>{t('recovery.continue')}</DialogTitle>
         {choice && (
           <ModelPicker
@@ -213,7 +216,7 @@ export function FromHistoryDialog({
               { value: '', label: t('sync.workspaceCurrent') },
               ...snapshots.map((snapshot) => ({
                 value: snapshot.opId,
-                label: new Date(snapshot.capturedAt).toLocaleString(),
+                label: new Date(snapshot.capturedAt).toLocaleString(currentLocale()),
               })),
             ]}
             onValueChange={(value) => {

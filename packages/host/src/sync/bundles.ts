@@ -127,6 +127,8 @@ export class SyncBundles {
     return {
       opId,
       parents: operation.parents,
+      deviceId: operation.deviceId,
+      clientTime: operation.clientTime,
       name: body.name,
       deleted: operation.kind === 'delete',
       fileCount: body.files.length,

@@ -44,7 +44,14 @@ export class SyncProjectCatalog {
       {
         versions: Map<
           string,
-          { opId: string; displayName?: string; repoUrl?: string; deleted: boolean }
+          {
+            opId: string;
+            deviceId?: string;
+            clientTime?: string;
+            displayName?: string;
+            repoUrl?: string;
+            deleted: boolean;
+          }
         >;
         parents: Set<string>;
       }
@@ -57,7 +64,13 @@ export class SyncProjectCatalog {
     )) {
       const op = entry.operation;
       const project = projects.get(op.entityId) ?? { versions: new Map(), parents: new Set() };
-      if (op.kind === 'delete') project.versions.set(op.opId, { opId: op.opId, deleted: true });
+      if (op.kind === 'delete')
+        project.versions.set(op.opId, {
+          opId: op.opId,
+          deviceId: op.deviceId,
+          clientTime: op.clientTime,
+          deleted: true,
+        });
       else {
         if ((entry.record.content as { schema?: string })?.schema !== 'wevir-project/1')
           throw new ZuvRequestError('UPGRADE_REQUIRED');
@@ -66,6 +79,8 @@ export class SyncProjectCatalog {
           throw new ZuvRequestError('INTEGRITY_FAILED');
         project.versions.set(op.opId, {
           opId: op.opId,
+          deviceId: op.deviceId,
+          clientTime: op.clientTime,
           displayName: body.data.displayName,
           ...(body.data.repoUrl && { repoUrl: body.data.repoUrl }),
           deleted: false,

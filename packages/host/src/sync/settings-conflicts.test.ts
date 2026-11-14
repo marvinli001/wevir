@@ -134,6 +134,14 @@ async function fixture(
   };
 }
 describe('durable preference conflict resolution', () => {
+  it('includes device and creation time for version presentation', async () => {
+    const h = await fixture();
+    const preview = await h.conflicts.preview('settings_agentInstructions');
+    expect(preview.versions.find((version) => version.opId === 'operation_left')).toMatchObject({
+      deviceId: 'device_source',
+      clientTime: expect.any(String),
+    });
+  });
   it('keeps a single remote head and a local version selectable across truncated ancestry', async () => {
     const h = await fixture();
     await h.apply('operation_remote', ['operation_left', 'operation_right'], 'Remote');

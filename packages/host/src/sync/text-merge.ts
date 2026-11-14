@@ -13,6 +13,9 @@ const EDIT_FIELDS = new Set([
   'updated-imported-app',
   'updated-imported-path',
 ]);
+function lineEnding(text: string): string {
+  return text.includes('\r\n') ? '\r\n' : text.includes('\r') ? '\r' : '\n';
+}
 function stripMemoryEdit(text: string): string {
   return text.replace(
     /^---\r?\n([\s\S]*?)\r?\n---/,
@@ -24,10 +27,10 @@ function stripMemoryEdit(text: string): string {
   );
 }
 export function markMemoryResolution(text: string): string {
-  return stripMemoryEdit(text).replace(
-    /^---\n/,
-    `---\nupdated: ${new Date().toISOString()}\nupdated-by: user\n`,
-  );
+  return stripMemoryEdit(text)
+    .replace(/^---\n/, `---\nupdated: ${new Date().toISOString()}\nupdated-by: user\n`)
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n/g, lineEnding(text));
 }
 export async function mergeMemoryText(home: string, base: string, local: string, remote: string) {
   const merged = await mergeSyncText(
@@ -36,7 +39,9 @@ export async function mergeMemoryText(home: string, base: string, local: string,
     stripMemoryEdit(local),
     stripMemoryEdit(remote),
   );
-  return merged === undefined ? undefined : markMemoryResolution(merged);
+  return merged === undefined
+    ? undefined
+    : markMemoryResolution(merged).replace(/\r\n?/g, '\n').replace(/\n/g, lineEnding(local));
 }
 
 export async function mergeSyncText(home: string, base: string, local: string, remote: string) {
@@ -46,8 +51,18 @@ export async function mergeSyncText(home: string, base: string, local: string, r
     )
   )
     return undefined;
-  if (local === remote || remote === base) return local;
-  if (local === base) return remote;
+  const newline = lineEnding(local);
+  [base, local, remote] = [base, local, remote].map((text) => text.replace(/\r\n?/g, '\n')) as [
+    string,
+    string,
+    string,
+  ];
+  const finish = (text: string) => {
+    const value = text.replace(/\n/g, newline);
+    return Buffer.byteLength(value) <= 128 * 1024 ? value : undefined;
+  };
+  if (local === remote || remote === base) return finish(local);
+  if (local === base) return finish(remote);
   const root = join(home, 'sync/merges');
   await mkdir(root, { recursive: true, mode: 0o700 });
   const directory = await mkdtemp(join(root, 'merge-'));
@@ -82,7 +97,7 @@ export async function mergeSyncText(home: string, base: string, local: string, r
       },
     );
     if (result.code !== 0 || result.stdout.length > 128 * 1024) return undefined;
-    return new TextDecoder('utf-8', { fatal: true }).decode(result.stdout);
+    return finish(new TextDecoder('utf-8', { fatal: true }).decode(result.stdout));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
