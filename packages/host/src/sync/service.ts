@@ -755,8 +755,11 @@ export class SyncService {
 
   async retry(): Promise<SyncStatus> {
     const vault = this.#options.storage.sync.activeVault();
-    if (vault && this.#options.storage.sync.activeBootstrapJob(vault.vaultId))
-      return this.resetPrepare();
+    const resetJob = vault && this.#options.storage.sync.activeBootstrapJob(vault.vaultId);
+    if (resetJob)
+      return this.#options.storage.sync.bootstrapApplication(resetJob.vaultId, resetJob.jobId)
+        ? this.resetApply(resetJob.jobId)
+        : this.resetPrepare();
     await this.#running?.catch(() => {});
     if (
       vault &&
@@ -856,17 +859,23 @@ export class SyncService {
     if (this.#resetTask && this.#resetTask !== task)
       throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
     const application = storage.sync.bootstrapApplication(job.vaultId, jobId);
-    if (!application) {
-      storage.transaction(() => storage.sync.closeBootstrapJob(job.vaultId, jobId));
-      if (this.#options.client.entitlements?.syncState === 'ready') {
-        this.#errorCode = undefined;
-        storage.sync.setVaultTransport(job.vaultId, {
-          ...storage.sync.vaultTransport(job.vaultId),
-          state: 'pending',
-          errorCode: undefined,
-          retryAt: 0,
-        });
-      }
+    storage.transaction(() => storage.sync.closeBootstrapJob(job.vaultId, jobId));
+    if (application) {
+      this.#errorCode = 'RESET_REQUIRED';
+      storage.sync.setVaultTransport(job.vaultId, {
+        ...storage.sync.vaultTransport(job.vaultId),
+        state: 'reset_required',
+        errorCode: 'RESET_REQUIRED',
+        retryAt: 0,
+      });
+    } else if (this.#options.client.entitlements?.syncState === 'ready') {
+      this.#errorCode = undefined;
+      storage.sync.setVaultTransport(job.vaultId, {
+        ...storage.sync.vaultTransport(job.vaultId),
+        state: 'pending',
+        errorCode: undefined,
+        retryAt: 0,
+      });
     }
     return this.status();
   }
@@ -965,28 +974,8 @@ export class SyncService {
     const active = this.#options.storage.sync.activeVault();
     if (active && this.#options.storage.sync.activeBootstrapJob(active.vaultId))
       throw this.#failure(new ZuvRequestError('RECOVERY_REQUIRED'));
-    if (enable && !this.#consented()?.categories.includes('project')) {
-      const { storage } = this.#options;
-      const current = storage.sync.activeVault();
-      await this.configure({
-        enabled: true,
-        categories: current?.enabled
-          ? ([...new Set([...current.categories, 'project'])] as SyncConfigureParams['categories'])
-          : ['project'],
-        projects: current?.enabled
-          ? storage.sync
-              .projects(current.vaultId)
-              .filter((value) => value.workspaceId && current.projectIds.includes(value.projectId))
-              .map((value) => ({
-                projectId: value.projectId,
-                workspaceId:
-                  value.workspaceId as SyncConfigureParams['projects'][number]['workspaceId'],
-              }))
-          : [],
-        includeHistory: current?.enabled ? storage.sync.includeHistory(current.vaultId) : false,
-        ...(current && { expectedRevision: current.revision }),
-      });
-    }
+    if (enable && !this.#consented()?.categories.includes('project'))
+      throw this.#failure(new ZuvRequestError('SCOPE_DISABLED'));
     await this.#running?.catch(() => {});
     if (this.#configuring || this.#closed)
       throw this.#failure(new ZuvRequestError('SCOPE_DISABLED'));

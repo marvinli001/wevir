@@ -70,7 +70,7 @@ async function fixture() {
           .find((event) => (event.account as { status: string }).status === 'signed_in'),
       'synthetic sign-in',
     );
-    return { rpc, workspaceId, adapter };
+    return { rpc, workspaceId, adapter, host };
   }
   const first = await boot('first');
   const second = await boot('second');
@@ -137,6 +137,17 @@ async function fixture() {
 }
 
 describe('execution ownership in two isolated Hosts', () => {
+  it('releases an active execution before shutting down its account transport', async () => {
+    const f = await fixture();
+    await f.enable();
+    const source = await f.create(f.first);
+    await f.send(f.first, source.id);
+    expect((await f.current(f.first, source.id)).syncExecution?.state).toBe('claimed');
+    await f.first.host.shutdown();
+    expect(
+      f.mock.sync.executionRequests.filter((value) => value.action === 'release'),
+    ).toHaveLength(1);
+  }, 20000);
   it('keeps local execution independent when sync is disabled or the gateway is unavailable', async () => {
     const f = await fixture();
     const local = await f.create(f.first);

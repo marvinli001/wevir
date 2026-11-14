@@ -160,12 +160,8 @@ export function ZuvSyncSection({
     });
   const readClouds = () =>
     run(async () => {
-      try {
-        setClouds((await client.request('sync.projectCatalog', { enable: true })).projects);
-        setVersionChoices({});
-      } finally {
-        await refresh();
-      }
+      setClouds((await client.request('sync.projectCatalog', {})).projects);
+      setVersionChoices({});
     });
   const projectScope = status?.binding?.enabled && status.binding.categories.includes('project');
   const reset = status?.reset;
@@ -216,10 +212,10 @@ export function ZuvSyncSection({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={busy || !active}
+                disabled={busy || !active || !projectScope}
                 onClick={() => void readClouds()}
               >
-                {t(projectScope ? 'sync.cloudProjects' : 'sync.enableCatalog')}
+                {t('sync.cloudProjects')}
               </Button>
             )}
           </div>

@@ -2235,7 +2235,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         push: pushService,
       },
       shutdown: (trigger = { kind: 'api' }) => {
-        const zuvClosed = Promise.all([sync.close(), zuv.close()]);
+        sync.stop();
         episodeService.dispose();
         contexts.dispose();
         stopMemoryContextIndex();
@@ -2243,43 +2243,43 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         pushService.close();
         stopIdleExpiry();
         clearTimeout(checkpointTimer);
-        stopping ??= zuvClosed.then(() =>
-          shutdownSequence({
-            trigger,
-            budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,
-            logger,
-            rpc: server,
-            remoteListener,
-            appMcp: mcp,
-            mcpRemote,
-            mcpOAuth,
-            processes,
-            previews,
-            speech,
-            office,
-            terminals,
-            simulators,
-            verification,
-            readiness: readinessService,
-            lsp,
-            lspStatus,
-            sessions: manager,
-            adapter,
-            accounts,
-            automations: automationService,
-            channels: channelService,
-            checkpoints,
-            events: store,
-            search,
-            sessionList: listFeed,
-            inbox: inboxService,
-            notifications: notificationService,
-            storage: db,
-            runtimeFile,
-            ...(options.web !== undefined && { web: options.web }),
-            closeProcessGroups,
-          }),
-        );
+        stopping ??= shutdownSequence({
+          trigger,
+          budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,
+          logger,
+          rpc: server,
+          remoteListener,
+          appMcp: mcp,
+          mcpRemote,
+          mcpOAuth,
+          processes,
+          previews,
+          speech,
+          office,
+          terminals,
+          simulators,
+          verification,
+          readiness: readinessService,
+          lsp,
+          lspStatus,
+          sessions: manager,
+          sync,
+          zuv,
+          adapter,
+          accounts,
+          automations: automationService,
+          channels: channelService,
+          checkpoints,
+          events: store,
+          search,
+          sessionList: listFeed,
+          inbox: inboxService,
+          notifications: notificationService,
+          storage: db,
+          runtimeFile,
+          ...(options.web !== undefined && { web: options.web }),
+          closeProcessGroups,
+        });
         return stopping;
       },
       releaseRuntimeFileSync: () => runtimeFile.releaseSync(),
@@ -2384,6 +2384,8 @@ interface ShutdownParts {
   /** 语言服务器的安装（0.71.0）：结束还在跑的安装命令。 */
   lspStatus: LspStatusService | undefined;
   sessions: SessionManager;
+  sync: SyncService;
+  zuv: ZuvAccounts;
   adapter: AgentRuntimeAdapter;
   accounts: HostAccounts | undefined;
   /** 自动化（0.66.0）：先停计时，回合取消后等运行记录写完。 */
@@ -2463,6 +2465,9 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
       logger.error('session manager dispose failed', { error });
     });
   }
+  await beforeDeadline(parts.sync.executions.drain(), Math.min(deadline, performance.now() + 2000));
+  await step('close_sync', () => parts.sync.close());
+  await step('close_zuv', () => parts.zuv.close());
   parts.accounts?.dispose();
   // 自动化的运行记录（随回合取消记下的 cancelled）写完再关，不超过预算。
   await beforeDeadline(parts.automations.flush(), deadline);

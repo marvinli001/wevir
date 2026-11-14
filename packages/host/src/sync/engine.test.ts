@@ -163,6 +163,48 @@ async function setup(fetcher?: typeof fetch) {
 }
 
 describe('durable encrypted synchronization over HTTP', () => {
+  it('skips definite rejected commits during RESET reconciliation', async () => {
+    const { first } = await setup(async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith('/commits') && init?.method === 'POST')
+        return Response.json(
+          { error: { code: 'REVISION_CONFLICT', message: 'REVISION_CONFLICT' } },
+          { status: 409 },
+        );
+      return fetch(input, init);
+    });
+    await first.enable();
+    first.enqueue('Rejected before acceptance');
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    const vault = first.storage.sync.activeVault();
+    if (!vault) throw new Error('missing synthetic vault');
+    first.storage.transaction(() => {
+      first.storage.sync.putBootstrapJob({
+        vaultId: vault.vaultId,
+        jobId: 'job_synthetic',
+        accountId: vault.accountId,
+        deviceId: vault.deviceId,
+        hostId: vault.originHostId,
+        origin: first.client.transport.origin,
+        scopeRevision: vault.revision,
+        categories: vault.categories,
+        projectIds: vault.projectIds,
+        fromCursor: vault.appliedCursor,
+        pendingBefore: 1,
+        state: 'staged',
+        active: true,
+      });
+      first.storage.sync.putBootstrapApplication({
+        vaultId: vault.vaultId,
+        jobId: 'job_synthetic',
+        snapshotCursor: vault.appliedCursor,
+        state: 'acknowledged',
+      });
+    });
+    await expect(
+      first.engine.reconcileReset('job_synthetic', new AbortController().signal),
+    ).resolves.toBeUndefined();
+    expect(first.storage.sync.commits(vault.vaultId)[0]?.outcome).toBe('rejected');
+  });
   it('refreshes stale entitlements before decrypting a newer key epoch', async () => {
     const { first, second } = await setup();
     await first.enable();

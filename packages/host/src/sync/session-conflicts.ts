@@ -298,8 +298,7 @@ export class SyncSessionConflicts {
         (operation?.direction === 'outbox' && ['queued', 'pending'].includes(operation.state))
       ) {
         const ancestors = this.#ancestors(vault, entity, this.#ref(vault, entity), entity.revision);
-        if (!ancestors) throw new ZuvRequestError('RECOVERY_REQUIRED');
-        return [...heads.filter((head) => !ancestors.has(head)), entity.revision].sort();
+        return [...heads.filter((head) => !ancestors?.has(head)), entity.revision].sort();
       }
     }
     return heads;

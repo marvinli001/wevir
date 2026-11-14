@@ -35,7 +35,17 @@ export const messages: Messages = {
   'sync.applyingPackage': 'Applying',
   'portable.restoreVersion': 'Restore as new revision',
   'portable.selectedVersion': 'Historical version',
-  'portable.restoreConsequence': 'Creates a new revision and keeps the current version.',
+  'portable.restoreMemoryConsequence': 'Local memory will be overwritten; history is retained.',
+  'portable.restoreSettingsConsequence': 'Local settings will be overwritten; history is retained.',
+  'portable.restoreBundleConsequence':
+    'Local target files will be overwritten; history is retained.',
+  'portable.restoreProjectConsequence':
+    'The local project name will be overwritten; history is retained.',
+  'portable.restoreSessionConsequence':
+    'Local session data will be overwritten; history is retained.',
+  'portable.restoreDeletedConsequence':
+    'Current local content will be deleted; history is retained.',
+  'portable.restoreConsequence': 'Creates an independent snapshot.',
   'portable.restored': 'Restored',
   'portable.restoredSnapshot': 'New snapshot created',
   'portable.restore.scope_disabled': 'Restore scope disabled',

@@ -3,6 +3,7 @@ import type { SecretStore } from '@wevir/storage';
 import { describe, expect, it, vi } from 'vitest';
 import { sha256 } from '../sync/crypto.js';
 import { ZuvClient } from './client.js';
+import { zuvGatewayAuth } from './gateway-auth.js';
 
 function mock() {
   const values = new Map<string, string>();
@@ -125,6 +126,39 @@ function mock() {
 }
 
 describe('Host-owned ZUV identity', () => {
+  it.each([
+    [401, 'AUTH_REQUIRED'],
+    [403, 'SCOPE_DISABLED'],
+    [429, 'RATE_LIMITED'],
+  ] as const)('preserves refresh refusal %s %s at the inference boundary', async (status, code) => {
+    const h = mock();
+    await h.login();
+    h.advance(900000);
+    const send = h.request.getMockImplementation();
+    if (!send) throw new Error('missing synthetic fetch');
+    h.request.mockImplementation((input, options) =>
+      new URL(String(input)).pathname === '/api/wevir/refresh'
+        ? Promise.resolve(
+            Response.json(
+              { error: { code, message: code, ...(status === 429 && { retryAfterMs: 1000 }) } },
+              { status },
+            ),
+          )
+        : send(input, options),
+    );
+    const auth = zuvGatewayAuth(h.client);
+    const request = {
+      providerId: 'zuv',
+      url: 'https://zuv.test/api/wevir/v1/responses',
+      body: Buffer.from('{}'),
+      signal: new AbortController().signal,
+    };
+    expect(await auth.authorize(request)).toMatchObject({ ok: false, status, code });
+    if (status === 429) {
+      h.request.mockImplementation(send);
+      expect(await auth.authorize(request)).toMatchObject({ ok: true });
+    }
+  });
   it('ignores an entitlement response that belongs to the identity before sign-out', async () => {
     const h = mock();
     await h.login();

@@ -1197,9 +1197,14 @@ describe('full Host material synchronization with synthetic identities', () => {
     expect((await first.rpc.request('settings.get')).settings.promptSuggestions).toBe(false);
     expect(mock.errors).toEqual([]);
   }, 30000);
-  it.each([false, true])(
-    'rebuilds a reset device explicitly while preserving offline edits against remote deletion=%s',
-    async (deleted) => {
+  it.each([
+    [false, 'normal'],
+    [true, 'normal'],
+    [false, 'retry'],
+    [false, 'cancel'],
+  ] as const)(
+    'rebuilds a reset device explicitly while preserving offline edits against remote deletion=%s using %s',
+    async (deleted, recovery) => {
       const { mock, first, second } = await fixture();
       const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
       await first.rpc.request('sync.configure', scope);
@@ -1274,7 +1279,37 @@ describe('full Host material synchronization with synthetic identities', () => {
         ...scope,
         expectedRevision: staged.binding.revision,
       });
+      if (recovery !== 'normal') mock.sync.refusedResetAcks.add(before.binding.deviceId);
       await second.rpc.request('sync.resetApply', { jobId: staged.reset.jobId });
+      if (recovery !== 'normal') {
+        await expect
+          .poll(
+            async () => {
+              const status = await second.rpc.request('sync.status');
+              return status.reset?.busy ? undefined : status.errorCode;
+            },
+            { timeout: 8000 },
+          )
+          .toBe('SERVICE_UNAVAILABLE');
+        mock.sync.refusedResetAcks.delete(before.binding.deviceId);
+        if (recovery === 'retry') await second.rpc.request('sync.retry');
+        else {
+          await second.rpc.request('sync.resetCancel', { jobId: staged.reset.jobId });
+          expect((await second.rpc.request('sync.status')).reset).toBeUndefined();
+          await second.rpc.request('sync.resetPrepare');
+          await expect
+            .poll(
+              async () => {
+                const reset = (await second.rpc.request('sync.status')).reset;
+                return reset?.busy ? undefined : reset?.phase;
+              },
+              { timeout: 8000 },
+            )
+            .toBe('staged');
+          const next = (await second.rpc.request('sync.status')).reset;
+          await second.rpc.request('sync.resetApply', { jobId: next.jobId });
+        }
+      }
       await expect
         .poll(async () => (await second.rpc.request('sync.status')).reset, { timeout: 8000 })
         .toBeUndefined();
@@ -1581,12 +1616,34 @@ describe('full Host material synchronization with synthetic identities', () => {
     });
     expect(mock.sync.exports).toBe(0);
     expect((await second.rpc.call('sync.projectCatalog', { enable: true })).error).toMatchObject({
+      data: { code: 'SCOPE_DISABLED' },
+    });
+    expect((await second.rpc.request('sync.status')).binding).toBeUndefined();
+    expect(
+      (
+        await second.rpc.call('sync.configure', {
+          enabled: true,
+          categories: ['project'],
+          projects: [],
+        })
+      ).error,
+    ).toMatchObject({
       data: { code: 'RECOVERY_REQUIRED' },
     });
     const binding = (await second.rpc.request('sync.status')).binding;
     await first.rpc.request('sync.approveDevice', { deviceId: binding.deviceId });
     const nativeCreate = vi.spyOn(second.adapter, 'createSession');
-    const catalog = await second.rpc.request('sync.projectCatalog', { enable: true });
+    const unchanged = await second.rpc.request('sync.status');
+    expect((await second.rpc.call('sync.projectCatalog', { enable: true })).error).toMatchObject({
+      data: { code: 'SCOPE_DISABLED' },
+    });
+    expect((await second.rpc.request('sync.status')).binding).toEqual(unchanged.binding);
+    await second.rpc.request('sync.configure', {
+      enabled: true,
+      categories: ['project'],
+      projects: [],
+    });
+    const catalog = await second.rpc.request('sync.projectCatalog');
     expect(catalog.projects).toMatchObject([
       {
         projectId: initial.binding.projectIds[0],

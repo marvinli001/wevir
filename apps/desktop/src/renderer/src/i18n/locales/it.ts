@@ -35,7 +35,19 @@ export const messages: Messages = {
   'sync.applyingPackage': 'Applicazione in corso',
   'portable.restoreVersion': 'Ripristina come nuova revisione',
   'portable.selectedVersion': 'Versione precedente',
-  'portable.restoreConsequence': 'Crea una nuova revisione e conserva quella attuale.',
+  'portable.restoreMemoryConsequence':
+    'La memoria locale verrà sovrascritta; la cronologia resta disponibile.',
+  'portable.restoreSettingsConsequence':
+    'Le impostazioni locali verranno sovrascritte; la cronologia resta disponibile.',
+  'portable.restoreBundleConsequence':
+    'I file di destinazione locali verranno sovrascritti; la cronologia resta disponibile.',
+  'portable.restoreProjectConsequence':
+    'Il nome del progetto locale verrà sovrascritto; la cronologia resta disponibile.',
+  'portable.restoreSessionConsequence':
+    'I dati della sessione locale verranno sovrascritti; la cronologia resta disponibile.',
+  'portable.restoreDeletedConsequence':
+    'Il contenuto locale attuale verrà eliminato; la cronologia resta disponibile.',
+  'portable.restoreConsequence': 'Crea uno snapshot indipendente.',
   'portable.restored': 'Ripristinato',
   'portable.restoredSnapshot': 'Nuova istantanea creata',
   'portable.restore.scope_disabled': 'Ambito di ripristino disattivato',

@@ -143,6 +143,7 @@ export class SyncEngine {
     if (!vault || storage.sync.bootstrapApplication(vault.vaultId, jobId)?.state !== 'acknowledged')
       throw new ZuvRequestError('RECOVERY_REQUIRED');
     for (const commit of storage.sync.commits(vault.vaultId)) {
+      if (commit.outcome === 'rejected') continue;
       if (!this.#commitInScope(vault, commit)) continue;
       this.#guard(vault, signal);
       try {

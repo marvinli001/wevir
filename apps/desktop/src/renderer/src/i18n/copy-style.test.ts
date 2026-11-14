@@ -18,6 +18,12 @@ const isModelFacing = (key: string) =>
 const EXPLANATORY_KEY =
   /(hint|note|description|subtitle|intro|helper|explain|tip|caption|body|warning)(\.|$)/i;
 const EXPLANATORY_ALLOWED = new Set<string>([
+  'portable.restoreMemoryConsequence',
+  'portable.restoreSettingsConsequence',
+  'portable.restoreBundleConsequence',
+  'portable.restoreProjectConsequence',
+  'portable.restoreSessionConsequence',
+  'portable.restoreDeletedConsequence',
   'connection.waitingHint',
   'pending.heldHint',
   'engineError.hint.missing_credentials',

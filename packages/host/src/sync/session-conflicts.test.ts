@@ -132,6 +132,30 @@ function fixture() {
 }
 
 describe('causal session material selection', () => {
+  it('keeps explicit version choices when local ancestry crosses a missing RESET boundary', async () => {
+    const h = fixture();
+    await h.apply('operation_remote', [], h.body('Remote'));
+    const entity = h.storage.sync.entity(h.vaultId, SES);
+    if (!entity) throw new Error('missing synthetic entity');
+    h.storage.transaction(() =>
+      new SyncQueue(h.storage).enqueue({
+        vaultId: h.vaultId,
+        entityId: SES,
+        entityType: 'session',
+        localKey: entity.localKey,
+        projectId: 'project_synthetic',
+        parents: ['operation_pruned'],
+        content: h.body('Local'),
+      }),
+    );
+    expect(h.conflicts.list().conflicts).toHaveLength(1);
+    expect(h.conflicts.preview(SES)).toMatchObject({ mergeState: 'unavailable' });
+    await h.conflicts.resolve({
+      ...h.selection(),
+      selection: { kind: 'version', opId: 'operation_remote' },
+    });
+    expect(h.storage.sessions.get(SES)?.title).toBe('Remote');
+  });
   it('merges independent title and archive changes, preserving versions and execution history', async () => {
     const h = fixture();
     await h.apply('operation_base', [], h.body());

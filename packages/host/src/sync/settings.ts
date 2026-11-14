@@ -79,7 +79,9 @@ export class SyncSettings {
         .localWrites(vault.vaultId)
         .filter((value) => value.entityType === 'settings' && value.state === 'pending')) {
         const key = pending.localKey.slice('settings:'.length) as Key;
-        if (sha256(jcs(values[key] ?? null)) === pending.nextHash) this.#finish(pending);
+        if (pending.resolution && !this.#resolutionCurrent(pending))
+          this.#storage.sync.abandonLocalWrite(pending.id);
+        else if (sha256(jcs(values[key] ?? null)) === pending.nextHash) this.#finish(pending);
         else this.#storage.sync.abandonLocalWrite(pending.id);
       }
       for (const key of Object.keys(values) as Key[]) {
@@ -180,8 +182,14 @@ export class SyncSettings {
       });
       return { opId: intent.id };
     } catch (error) {
-      if (sha256(jcs(this.#values(this.#settings.get())[key] ?? null)) !== intent.nextHash)
+      if (
+        (error instanceof ZuvRequestError && error.code === 'REVISION_CONFLICT') ||
+        sha256(jcs(this.#values(this.#settings.get())[key] ?? null)) !== intent.nextHash
+      ) {
         this.#storage.sync.abandonLocalWrite(intent.id);
+        const journal = this.#storage.sync.materialJournal(vault.vaultId, intent.id);
+        if (journal) this.#storage.sync.putMaterialJournal({ ...journal, state: 'conflict' });
+      }
       throw error;
     }
   }
@@ -322,5 +330,27 @@ export class SyncSettings {
     this.#storage.sync.removeLocalWrite(pending.id);
     if (pending.resolution)
       this.#storage.sync.clearMaterialConflicts(pending.vaultId, pending.entityId, pending.parents);
+  }
+  #resolutionCurrent(pending: SyncLocalWriteRecord): boolean {
+    const observed = new Set<string>();
+    const frontier = [...pending.parents];
+    while (frontier.length) {
+      const opId = frontier.pop() as string;
+      if (observed.has(opId)) continue;
+      if (observed.size >= 1024) return false;
+      observed.add(opId);
+      const operation = this.#storage.sync.getOperation(pending.vaultId, opId);
+      const draft = this.#storage.sync.draft(pending.vaultId, opId);
+      if (operation?.entityId === pending.entityId)
+        frontier.push(...packRecord.parse(operation.record).parents);
+      else if (draft?.entityId === pending.entityId) frontier.push(...draft.parents);
+    }
+    const revision = this.#storage.sync.entity(pending.vaultId, pending.entityId)?.revision;
+    return (
+      (revision === pending.id || (revision !== undefined && observed.has(revision))) &&
+      this.#storage.sync
+        .heads(pending.vaultId, pending.entityId)
+        .every((head) => observed.has(head))
+    );
   }
 }

@@ -273,8 +273,7 @@ export class SyncMemoryConflicts {
       )
         return heads;
       const ancestors = this.#ancestors(vault.vaultId, entity.entityId, entity.revision);
-      if (!ancestors) throw new ZuvRequestError('RECOVERY_REQUIRED');
-      return [...heads.filter((head) => !ancestors.has(head)), entity.revision].sort();
+      return [...heads.filter((head) => !ancestors?.has(head)), entity.revision].sort();
     }
     return heads;
   }

@@ -35,7 +35,18 @@ export const messages: Messages = {
   'sync.applyingPackage': 'Применение',
   'portable.restoreVersion': 'Восстановить новой редакцией',
   'portable.selectedVersion': 'Предыдущая версия',
-  'portable.restoreConsequence': 'Создаётся новая редакция, текущая версия сохраняется.',
+  'portable.restoreMemoryConsequence': 'Локальная память будет перезаписана; история сохраняется.',
+  'portable.restoreSettingsConsequence':
+    'Локальные настройки будут перезаписаны; история сохраняется.',
+  'portable.restoreBundleConsequence':
+    'Локальные целевые файлы будут перезаписаны; история сохраняется.',
+  'portable.restoreProjectConsequence':
+    'Имя локального проекта будет перезаписано; история сохраняется.',
+  'portable.restoreSessionConsequence':
+    'Локальные данные сеанса будут перезаписаны; история сохраняется.',
+  'portable.restoreDeletedConsequence':
+    'Текущее локальное содержимое будет удалено; история сохраняется.',
+  'portable.restoreConsequence': 'Создаётся независимый снимок.',
   'portable.restored': 'Восстановлено',
   'portable.restoredSnapshot': 'Создан новый снимок',
   'portable.restore.scope_disabled': 'Область восстановления отключена',

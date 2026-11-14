@@ -366,11 +366,30 @@ export class ZuvClient {
     const generation = this.#generation;
     // Refresh consumes its token; an uncertain attempt must survive restart without replaying it.
     await this.#save({ ...identity, refreshPending: true });
-    const tokens = await this.#exchange(
-      '/api/wevir/refresh',
-      identity.key,
-      identity.tokens.refreshToken,
-    );
+    let tokens: Tokens;
+    try {
+      tokens = await this.#exchange(
+        '/api/wevir/refresh',
+        identity.key,
+        identity.tokens.refreshToken,
+      );
+    } catch (error) {
+      if (
+        generation === this.#generation &&
+        !this.#closed &&
+        this.#identity &&
+        error instanceof ZuvRequestError &&
+        ['AUTH_REQUIRED', 'DEVICE_REVOKED', 'SCOPE_DISABLED', 'RATE_LIMITED'].includes(error.code)
+      )
+        await this.#save({
+          ...this.#identity,
+          refreshPending: false,
+          ...((error.code === 'AUTH_REQUIRED' || error.code === 'DEVICE_REVOKED') && {
+            blocked: error.code,
+          }),
+        });
+      throw error;
+    }
     if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
     await this.#save({ ...identity, tokens, refreshPending: false });
     return tokens.accessToken;

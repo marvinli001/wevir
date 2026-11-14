@@ -1,6 +1,7 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { MethodResult } from '@wevir/protocol';
 import { useState } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,9 +12,16 @@ import {
 } from '@/components/ui/dialog';
 import { Select } from '@/components/ui/select';
 import { describe } from '@/host/host-connection';
-import { t } from '@/i18n';
+import { type PlainMessageKey, t } from '@/i18n';
 
 type Preview = MethodResult<'sync.importRestorePreview'>;
+const CONSEQUENCES: Partial<Record<Preview['kind'], PlainMessageKey>> = {
+  memory: 'portable.restoreMemoryConsequence',
+  settings: 'portable.restoreSettingsConsequence',
+  bundle: 'portable.restoreBundleConsequence',
+  project: 'portable.restoreProjectConsequence',
+  session: 'portable.restoreSessionConsequence',
+};
 export function ZuvVersionRestore({
   client,
   importId,
@@ -27,7 +35,8 @@ export function ZuvVersionRestore({
     [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<Preview>(),
     [error, setError] = useState<string>(),
-    [done, setDone] = useState(false);
+    [done, setDone] = useState(false),
+    [confirming, setConfirming] = useState(false);
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     setError(undefined);
@@ -47,6 +56,13 @@ export function ZuvVersionRestore({
         ...(targetId && { targetId }),
       }),
     );
+  const restore = async () => {
+    if (!preview) return;
+    await client.request('sync.importRestore', preview);
+    await load(preview.targetId);
+    setDone(true);
+  };
+  const consequence = preview && CONSEQUENCES[preview.kind];
   if (!client.supports('sync_version_restore')) return null;
   return (
     <>
@@ -146,7 +162,8 @@ export function ZuvVersionRestore({
                     )}
                   </p>
                 ) : (
-                  preview.canRestore && (
+                  preview.canRestore &&
+                  preview.kind === 'workspace' && (
                     <p className="text-sm text-muted-foreground">
                       {t('portable.restoreConsequence')}
                     </p>
@@ -163,11 +180,8 @@ export function ZuvVersionRestore({
               disabled={busy || !preview?.canRestore || done}
               onClick={() => {
                 if (!preview) return;
-                void run(async () => {
-                  await client.request('sync.importRestore', preview);
-                  setDone(true);
-                  await load(preview.targetId);
-                });
+                if (consequence) setConfirming(true);
+                else void run(restore);
               }}
             >
               {t('portable.restoreVersion')}
@@ -175,6 +189,17 @@ export function ZuvVersionRestore({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={open && confirming}
+        onOpenChange={setConfirming}
+        title={t('portable.restoreVersion')}
+        confirmLabel={t('portable.restoreVersion')}
+        onConfirm={restore}
+        failure={(message) => message}
+      >
+        {consequence &&
+          t(preview?.selectedDeleted ? 'portable.restoreDeletedConsequence' : consequence)}
+      </ConfirmDialog>
     </>
   );
 }

@@ -109,7 +109,7 @@ export async function startMockZuv() {
         const deviceId = credentials.get(body.token);
         const key = deviceId && devices.get(deviceId);
         if (!key || !deviceId || body.client_id !== 'wevir')
-          throw new Error('invalid token exchange');
+          throw new MockSyncError('AUTH_REQUIRED', 401);
         proof(req, raw, key, body.token);
         credentials.delete(body.token);
         const access = id('access');
@@ -127,7 +127,7 @@ export async function startMockZuv() {
         const token = /^DPoP (.+)$/.exec(req.headers.authorization ?? '')?.[1];
         const deviceId = token && tokens.get(token);
         const key = deviceId && devices.get(deviceId);
-        if (!deviceId || !key || !token) throw new Error('missing identity');
+        if (!deviceId || !key || !token) throw new MockSyncError('AUTH_REQUIRED', 401);
         proof(req, raw, key, token);
         if (path === '/api/wevir/entitlements') {
           response = schemas.entitlements.parse(

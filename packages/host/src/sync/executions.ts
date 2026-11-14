@@ -244,7 +244,7 @@ export class SyncExecutions {
         'POST',
         '/api/wevir/sync/v1/executions/release',
         { runId: value.runId, expectedEpoch: value.epoch, fencingToken: value.fencingToken },
-        { signal: this.#abort.signal },
+        { signal: AbortSignal.any([this.#abort.signal, AbortSignal.timeout(2000)]) },
       );
       const current = this.#options.storage.sync.execution(value.vaultId, value.localSessionId);
       if (!this.#sameVault(vault) || current?.turnId !== value.turnId) return;

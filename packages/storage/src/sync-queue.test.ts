@@ -12,6 +12,50 @@ const vault = {
 describe('sync durable preparation', () => {
   const { storage, dataDir } = useTempStorage();
   const bind = () => storage().transaction(() => storage().sync.bindVault(vault));
+  it.each(['memory', 'settings'] as const)(
+    'lists a single remote head conflicting with a local %s draft',
+    (entityType) => {
+      bind();
+      storage().transaction(() => {
+        storage().sync.putEntity({
+          vaultId: vault.vaultId,
+          entityId: 'entity_synthetic',
+          entityType,
+          localKey: entityType,
+          revision: 'operation_local',
+          materialized: true,
+        });
+        storage().sync.putDraft({
+          vaultId: vault.vaultId,
+          opId: 'operation_local',
+          entityId: 'entity_synthetic',
+          kind: 'put',
+          parents: [],
+          content: {},
+          createdAt: '2026-11-13T00:00:00.000Z',
+        });
+        storage().sync.putOperation({
+          vaultId: vault.vaultId,
+          opId: 'operation_remote',
+          deviceId: 'device_remote',
+          deviceSeq: '1',
+          entityType,
+          entityId: 'entity_synthetic',
+          envelope: {},
+          manifest: {},
+          digest: 'synthetic',
+          direction: 'inbox',
+          state: 'applied',
+        });
+        storage().sync.applyHeads(vault.vaultId, 'entity_synthetic', 'operation_remote', []);
+      });
+      const conflicts =
+        entityType === 'memory'
+          ? storage().sync.memoryConflictEntities(vault.vaultId, [])
+          : storage().sync.settingsConflictEntities(vault.vaultId);
+      expect(conflicts.map((value) => value.entityId)).toEqual(['entity_synthetic']);
+    },
+  );
   it('finds workspace rule-version references even without parent or file-part references', () => {
     bind();
     storage().transaction(() => {

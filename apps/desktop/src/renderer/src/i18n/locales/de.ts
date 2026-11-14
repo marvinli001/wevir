@@ -35,7 +35,19 @@ export const messages: Messages = {
   'sync.applyingPackage': 'Wird angewendet',
   'portable.restoreVersion': 'Als neue Revision wiederherstellen',
   'portable.selectedVersion': 'Frühere Version',
-  'portable.restoreConsequence': 'Erstellt eine neue Revision und behält die aktuelle Version.',
+  'portable.restoreMemoryConsequence':
+    'Lokale Erinnerungen werden überschrieben; der Verlauf bleibt erhalten.',
+  'portable.restoreSettingsConsequence':
+    'Lokale Einstellungen werden überschrieben; der Verlauf bleibt erhalten.',
+  'portable.restoreBundleConsequence':
+    'Lokale Zieldateien werden überschrieben; der Verlauf bleibt erhalten.',
+  'portable.restoreProjectConsequence':
+    'Der lokale Projektname wird überschrieben; der Verlauf bleibt erhalten.',
+  'portable.restoreSessionConsequence':
+    'Lokale Sitzungsdaten werden überschrieben; der Verlauf bleibt erhalten.',
+  'portable.restoreDeletedConsequence':
+    'Aktuelle lokale Inhalte werden gelöscht; der Verlauf bleibt erhalten.',
+  'portable.restoreConsequence': 'Erstellt einen unabhängigen Snapshot.',
   'portable.restored': 'Wiederhergestellt',
   'portable.restoredSnapshot': 'Neuer Snapshot erstellt',
   'portable.restore.scope_disabled': 'Wiederherstellungsbereich deaktiviert',

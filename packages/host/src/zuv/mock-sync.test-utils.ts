@@ -84,6 +84,7 @@ export class MockSyncGateway {
   failExecutions = false;
   executionLeaseMs?: number;
   readonly executionRequests: Array<{ action: string; deviceId: string; input: unknown }> = [];
+  readonly refusedResetAcks = new Set<string>();
   expireExecution(runId: string): void {
     for (const vault of this.#vaults.values()) {
       const value = vault.executions.get(runId);
@@ -411,6 +412,7 @@ export class MockSyncGateway {
       return { value: result };
     }
     if (path === '/sync/v1/devices/ack' && method === 'POST' && restore) {
+      if (this.refusedResetAcks.has(deviceId)) throw new MockSyncError('SERVICE_UNAVAILABLE', 503);
       const input = schemas.ack.parse(value);
       if (input.cursor !== restore.response.snapshotCursor)
         throw new MockSyncError('RESET_REQUIRED');

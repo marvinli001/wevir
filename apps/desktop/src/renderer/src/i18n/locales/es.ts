@@ -35,7 +35,19 @@ export const messages: Messages = {
   'sync.applyingPackage': 'Aplicando',
   'portable.restoreVersion': 'Restaurar como revisión nueva',
   'portable.selectedVersion': 'Versión anterior',
-  'portable.restoreConsequence': 'Crea una revisión nueva y conserva la versión actual.',
+  'portable.restoreMemoryConsequence':
+    'La memoria local se sobrescribirá; se conserva el historial.',
+  'portable.restoreSettingsConsequence':
+    'La configuración local se sobrescribirá; se conserva el historial.',
+  'portable.restoreBundleConsequence':
+    'Los archivos de destino locales se sobrescribirán; se conserva el historial.',
+  'portable.restoreProjectConsequence':
+    'El nombre del proyecto local se sobrescribirá; se conserva el historial.',
+  'portable.restoreSessionConsequence':
+    'Los datos de la sesión local se sobrescribirán; se conserva el historial.',
+  'portable.restoreDeletedConsequence':
+    'El contenido local actual se eliminará; se conserva el historial.',
+  'portable.restoreConsequence': 'Crea una instantánea independiente.',
   'portable.restored': 'Restaurado',
   'portable.restoredSnapshot': 'Nueva instantánea creada',
   'portable.restore.scope_disabled': 'Ámbito de restauración desactivado',

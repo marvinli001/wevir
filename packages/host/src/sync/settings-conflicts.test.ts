@@ -134,6 +134,23 @@ async function fixture(
   };
 }
 describe('durable preference conflict resolution', () => {
+  it('keeps a single remote head and a local version selectable across truncated ancestry', async () => {
+    const h = await fixture();
+    await h.apply('operation_remote', ['operation_left', 'operation_right'], 'Remote');
+    await h.settings.update({ agentInstructions: 'Local' });
+    const revision = h.storage.sync.entity(h.vault.vaultId, 'settings_agentInstructions')?.revision;
+    const draft = revision && h.storage.sync.draft(h.vault.vaultId, revision);
+    if (!draft) throw new Error('missing synthetic draft');
+    h.storage.transaction(() => {
+      h.storage.sync.removeDraft(h.vault.vaultId, draft.opId);
+      h.storage.sync.putDraft({ ...draft, parents: ['operation_pruned'] });
+    });
+    expect(h.conflicts.list().conflicts).toHaveLength(1);
+    const preview = await h.conflicts.preview(draft.entityId);
+    expect(preview.mergeState).toBe('unavailable');
+    await h.conflicts.resolve({ ...preview, values: { agentInstructions: 'Remote' } });
+    expect(h.settings.get().agentInstructions).toBe('Remote');
+  });
   it('retains all revisions when the parent limit prevents a bounded conflict response', async () => {
     const h = await fixture();
     for (let index = 0; index < 31; index++)

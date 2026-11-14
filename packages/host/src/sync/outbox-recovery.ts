@@ -134,6 +134,17 @@ export class SyncOutboxRecovery {
     const entityIds = new Map<string, string>();
     const sessionIds = new Map<string, string>();
     const sessionsById = new Map<string, string>();
+    const declarations = new Set(
+      entries.flatMap(({ draft }) => {
+        const body = (draft.content as SyncDraftPayload).body as {
+          schema?: string;
+          source?: { hostId: string; sessionId: string };
+        };
+        return body?.schema === 'wevir-session/1' && body.source
+          ? [jcs([body.source.hostId, body.source.sessionId])]
+          : [];
+      }),
+    );
     const sourceKey = (source: { hostId: string; sessionId: string; streamId: string }) =>
       jcs([source.hostId, source.sessionId, source.streamId]);
     const recoverSource = (source: { hostId: string; sessionId: string; streamId: string }) => {
@@ -141,7 +152,9 @@ export class SyncOutboxRecovery {
       let value = sources.get(key);
       if (!value) {
         const sessionKey = jcs([source.hostId, source.sessionId]);
-        const sessionId = sessionIds.get(sessionKey) ?? newId('ses');
+        const sessionId =
+          sessionIds.get(sessionKey) ??
+          (declarations.has(sessionKey) ? newId('ses') : source.sessionId);
         sessionIds.set(sessionKey, sessionId);
         sessionsById.set(source.sessionId, sessionId);
         value = {
@@ -324,7 +337,7 @@ export class SyncOutboxRecovery {
           opId,
           entityId,
           kind: draft.kind === 'resolve' ? 'put' : draft.kind,
-          parents: draft.parents.flatMap((id) => (ids.has(id) ? [ids.get(id) as string] : [])),
+          parents: draft.parents.map((id) => ids.get(id) ?? id),
           content,
         };
         if (!operation) storage.sync.removeDraft(vault.vaultId, draft.opId);
