@@ -53,9 +53,9 @@ export class SyncSessionConflicts {
     return { conflicts, ...(entries.length > 100 && { next: entries[99]?.entityId }) };
   }
 
-  preview(entityId: string) {
+  preview(entityId: string, historical = false) {
     const vault = this.#vault();
-    const snapshot = this.#snapshot(vault, entityId);
+    const snapshot = this.#snapshot(vault, entityId, historical);
     const baseId =
       snapshot.heads.length === 2
         ? this.#base(vault, snapshot.entity, snapshot.ref, snapshot.heads)
@@ -101,10 +101,10 @@ export class SyncSessionConflicts {
     };
   }
 
-  async resolve(input: MethodParams<'sync.resolveSession'>) {
+  async resolve(input: MethodParams<'sync.resolveSession'>, historical?: Content) {
     const vault = this.#vault();
     if (vault.vaultId !== input.vaultId) throw new ZuvRequestError('REVISION_CONFLICT');
-    const snapshot = this.#snapshot(vault, input.entityId);
+    const snapshot = this.#snapshot(vault, input.entityId, historical !== undefined);
     const check = () => {
       const current = this.#vault();
       const entity = this.options.storage.sync.entity(vault.vaultId, input.entityId);
@@ -123,12 +123,13 @@ export class SyncSessionConflicts {
     };
     check();
     const body =
-      input.selection.kind === 'merged'
+      historical ??
+      (input.selection.kind === 'merged'
         ? this.preview(input.entityId).merged
         : snapshot.versions.find(
             (version) =>
               version.opId === (input.selection.kind === 'version' ? input.selection.opId : ''),
-          )?.content;
+          )?.content);
     if (!body) throw new ZuvRequestError('INVALID_REQUEST');
     const opId = newId('sop');
     const op = {
@@ -137,7 +138,13 @@ export class SyncSessionConflicts {
       entityId: input.entityId,
       entityType: 'session' as const,
       deviceId: vault.deviceId,
-      kind: 'resolve' as const,
+      kind:
+        input.expectedHeads.length > 1
+          ? ('resolve' as const)
+          : body.schema === 'wevir-session-deleted/1' ||
+              (body.schema === 'wevir-episode/1' && body.deleted)
+            ? ('delete' as const)
+            : ('put' as const),
       parents: input.expectedHeads,
       clientTime: new Date().toISOString(),
     };
@@ -147,7 +154,7 @@ export class SyncSessionConflicts {
         opId,
         entityId: input.entityId,
         projectId: snapshot.entity.projectId,
-        kind: 'resolve',
+        kind: op.kind,
         parents: input.expectedHeads,
         content: body,
       }),
@@ -185,12 +192,12 @@ export class SyncSessionConflicts {
     if (!vault?.categories.includes('session')) throw new ZuvRequestError('SCOPE_DISABLED');
     return vault;
   }
-  #snapshot(vault: SyncVaultRecord, entityId: string) {
+  #snapshot(vault: SyncVaultRecord, entityId: string, historical = false) {
     const entity = this.options.storage.sync.entity(vault.vaultId, entityId);
     if (!entity) throw new ZuvRequestError('SCOPE_DISABLED');
     const ref = this.#ref(vault, entity);
     const heads = this.#heads(vault, entity);
-    if (heads.length < 2) throw new ZuvRequestError('REVISION_CONFLICT');
+    if (heads.length < (historical ? 1 : 2)) throw new ZuvRequestError('REVISION_CONFLICT');
     if (heads.length > 32) throw new ZuvRequestError('QUOTA_EXCEEDED');
     return {
       entity,

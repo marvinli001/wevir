@@ -71,11 +71,11 @@ export class SyncMemoryConflicts {
     return { conflicts, ...(entries.length > 100 && { next: entries[99]?.entityId }) };
   }
 
-  async preview(entityId: string) {
+  async preview(entityId: string, historical = false) {
     const vault = this.#vault();
     await this.#options.files.recoverWrites(vault);
     await this.#options.files.memory(vault, false, false);
-    const snapshot = this.#snapshot(vault, entityId);
+    const snapshot = this.#snapshot(vault, entityId, historical);
     const path = this.#path(vault, snapshot.entity, snapshot.versions[0]?.content as Body);
     const fileFingerprint = await this.#fingerprint(path);
     const baseId =
@@ -133,12 +133,12 @@ export class SyncMemoryConflicts {
     };
   }
 
-  async resolve(input: Selection) {
+  async resolve(input: Selection, historical = false) {
     const vault = this.#vault();
     const { storage, files, materials } = this.#options;
     await files.recoverWrites(vault);
     await files.memory(vault, false, false);
-    const snapshot = this.#snapshot(vault, input.entityId);
+    const snapshot = this.#snapshot(vault, input.entityId, historical);
     this.#check(vault, snapshot.entity, input.expectedHeads, input.localRevision);
     const original = this.#revision(vault.vaultId, input.entityId, input.localRevision).content;
     const content: Body = {
@@ -190,7 +190,7 @@ export class SyncMemoryConflicts {
         entityId: input.entityId,
         entityType: 'memory' as const,
         deviceId: vault.deviceId,
-        kind: 'resolve' as const,
+        kind: intent.parents.length > 1 ? ('resolve' as const) : intent.kind,
         parents: intent.parents,
         clientTime: new Date().toISOString(),
       };
@@ -199,7 +199,7 @@ export class SyncMemoryConflicts {
         packRecord.parse({
           opId: intent.id,
           entityId: input.entityId,
-          kind: 'resolve',
+          kind: revision.kind,
           parents: intent.parents,
           ...(intent.projectId && { projectId: intent.projectId }),
           content,
@@ -227,7 +227,7 @@ export class SyncMemoryConflicts {
     if (!vault?.categories.includes('memory')) throw new ZuvRequestError('SCOPE_DISABLED');
     return vault;
   }
-  #snapshot(vault: SyncVaultRecord, entityId: string) {
+  #snapshot(vault: SyncVaultRecord, entityId: string, historical = false) {
     const entity = this.#options.storage.sync.entity(vault.vaultId, entityId);
     if (
       entity?.entityType !== 'memory' ||
@@ -238,7 +238,7 @@ export class SyncMemoryConflicts {
     )
       throw new ZuvRequestError('SCOPE_DISABLED');
     const heads = this.#heads(vault, entity);
-    if (heads.length < 2) throw new ZuvRequestError('REVISION_CONFLICT');
+    if (heads.length < (historical ? 1 : 2)) throw new ZuvRequestError('REVISION_CONFLICT');
     if (heads.length > 32) throw new ZuvRequestError('QUOTA_EXCEEDED');
     const versions = heads.map((head) => this.#revision(vault.vaultId, entityId, head));
     const first = versions[0]?.content as Body;

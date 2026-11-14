@@ -158,14 +158,14 @@ export class SyncSettings {
           entityId: input.entityId,
           entityType: 'settings',
           deviceId: vault.deviceId,
-          kind: 'resolve',
+          kind: intent.parents.length > 1 ? 'resolve' : 'put',
           parents: intent.parents,
           clientTime: new Date().toISOString(),
         },
         packRecord.parse({
           opId: intent.id,
           entityId: input.entityId,
-          kind: 'resolve',
+          kind: intent.parents.length > 1 ? 'resolve' : 'put',
           parents: intent.parents,
           content: intent.content,
         }),
@@ -299,7 +299,10 @@ export class SyncSettings {
     const opId = this.#queue.enqueue({
       ...pending,
       entityType: 'settings',
-      ...(pending.resolution && { opId: pending.id, kind: 'resolve' }),
+      ...(pending.resolution && {
+        opId: pending.id,
+        kind: pending.parents.length > 1 ? 'resolve' : pending.kind,
+      }),
     });
     this.#storage.sync.putFileBaseline({
       ...pending,

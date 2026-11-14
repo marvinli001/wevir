@@ -8,11 +8,13 @@ import {
   type PortableManifest,
   PortableManifestSchema,
   PortablePreviewSchema,
+  PortableVersionSchema,
   PROTOCOL_VERSION,
   type SessionId,
   SyncBundleContentSchema,
   SyncChunkContentSchema,
   SyncSettingsValuesSchema,
+  SyncWorkspaceMetadataSchema,
   PortableVersionSchema as Version,
   WevirEventSchema,
 } from '@wevir/protocol';
@@ -22,7 +24,7 @@ import type { EventStore } from '../event-store.js';
 import { newId } from '../ids.js';
 import type { HostSettingsStore } from '../settings.js';
 import { ZuvRequestError } from '../zuv/transport.js';
-import { type BundleRoot, snapshotBundle } from './bundle-snapshot.js';
+import { type BundleRoot, excludedBundlePath, snapshotBundle } from './bundle-snapshot.js';
 import { SyncBlobCache } from './cache.js';
 import { decryptPack, eventDigest, parseEnvelope, sha256 } from './crypto.js';
 import type { SyncVaultKeys } from './keys.js';
@@ -432,6 +434,124 @@ export class SyncPortable {
     if (!entry) throw new ZuvRequestError('NOT_FOUND');
     return { entry, base64: (await this.#bytes(path, entry)).toString('base64') };
   }
+  async version(importId: string, entryId: string) {
+    const data = await this.entry(importId, entryId);
+    if (data.entry.kind !== 'version') throw new ZuvRequestError('INVALID_REQUEST');
+    const version = PortableVersionSchema.parse(
+      JSON.parse(Buffer.from(data.base64, 'base64').toString()),
+    );
+    if (
+      version.vaultId !== data.entry.vaultId ||
+      version.entityId !== data.entry.entityId ||
+      version.opId !== data.entry.opId ||
+      version.record.opId !== version.opId ||
+      version.record.entityId !== version.entityId
+    )
+      throw new ZuvRequestError('INTEGRITY_FAILED');
+    return version;
+  }
+  async material(importId: string, entryId: string) {
+    const path = this.#path('imported', importId),
+      manifest = await this.#manifest(path);
+    const entries = new Map<string, Entry>();
+    for (const entry of manifest.entries.filter((value) => value.kind === 'version')) {
+      const key = versionKey(entry.vaultId as string, entry.opId as string);
+      if (entries.has(key)) throw new ZuvRequestError('INTEGRITY_FAILED');
+      entries.set(key, entry);
+    }
+    const used = new Map<string, string>();
+    const read = async (entry: Entry) => {
+      const value = PortableVersionSchema.parse(
+        JSON.parse((await this.#bytes(path, entry)).toString()),
+      );
+      if (
+        value.vaultId !== entry.vaultId ||
+        value.entityId !== entry.entityId ||
+        value.opId !== entry.opId ||
+        value.record.opId !== value.opId ||
+        value.record.entityId !== value.entityId
+      )
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      used.set(versionKey(value.vaultId, value.opId), entry.sha256);
+      return value;
+    };
+    const selected = manifest.entries.find(
+      (entry) => entry.id === entryId && entry.kind === 'version',
+    );
+    if (!selected) throw new ZuvRequestError('INVALID_REQUEST');
+    const version = await read(selected);
+    let total = 0;
+    const files = async (owner: typeof version) => {
+      const body = SyncBundleContentSchema.parse(owner.record.content);
+      if (body.category !== owner.entityType) throw new ZuvRequestError('INTEGRITY_FAILED');
+      const result: Array<{ path: string; bytes: Buffer; sha256: string; executable: boolean }> =
+        [];
+      const paths = new Set<string>();
+      for (const file of body.files) {
+        const path = file.path.normalize('NFC').toLowerCase();
+        if (paths.has(path) || excludedBundlePath(file.path))
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        paths.add(path);
+        const parts: Buffer[] = [];
+        for (const [index, reference] of file.parts.entries()) {
+          const entry = entries.get(versionKey(owner.vaultId, reference.opId));
+          if (!entry) throw new ZuvRequestError('MISSING_PARENT');
+          const part = await read(entry);
+          if (
+            part.entityId !== reference.entityId ||
+            part.entityType !== 'artifact' ||
+            part.record.projectId !== owner.record.projectId ||
+            part.record.kind === 'delete'
+          )
+            throw new ZuvRequestError('INTEGRITY_FAILED');
+          const chunk = SyncChunkContentSchema.parse(part.record.content),
+            bytes = Buffer.from(chunk.data, 'base64url');
+          if (
+            chunk.ownerId !== owner.entityId ||
+            chunk.index !== index ||
+            bytes.toString('base64url') !== chunk.data ||
+            sha256(bytes) !== chunk.sha256
+          )
+            throw new ZuvRequestError('INTEGRITY_FAILED');
+          parts.push(bytes);
+        }
+        const bytes = Buffer.concat(parts);
+        total += bytes.length;
+        if (total > 64 * 1024 * 1024) throw new ZuvRequestError('QUOTA_EXCEEDED');
+        if (bytes.length !== file.bytes || sha256(bytes) !== file.sha256)
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        result.push({
+          path: file.path,
+          bytes,
+          sha256: file.sha256,
+          executable: file.executable === true,
+        });
+      }
+      return { version: owner, body, files: result };
+    };
+    const material = await files(version);
+    const rules: Array<typeof material> = [];
+    if (version.entityType === 'workspace-snapshot') {
+      const metadata = SyncWorkspaceMetadataSchema.parse(material.body.metadata);
+      for (const reference of metadata.ruleVersions) {
+        const entry = entries.get(versionKey(version.vaultId, reference.opId));
+        if (!entry) throw new ZuvRequestError('MISSING_PARENT');
+        const rule = await read(entry);
+        if (
+          rule.entityType !== 'rule' ||
+          rule.entityId !== reference.entityId ||
+          (rule.record.projectId && rule.record.projectId !== version.record.projectId)
+        )
+          throw new ZuvRequestError('INTEGRITY_FAILED');
+        rules.push(await files(rule));
+      }
+    }
+    return {
+      ...material,
+      rules,
+      fingerprint: sha256(jcs([...used].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))),
+    };
+  }
   async conversation(importId: string, sessionId: string, afterSeq = 0) {
     const path = this.#path('imported', importId);
     const manifest = await this.#manifest(path);
@@ -558,9 +678,14 @@ export class SyncPortable {
     return manifest;
   }
   async #file(path: string, maxBytes: number) {
+    const before = await lstat(path);
+    if (!before.isFile() || before.isSymbolicLink() || before.size > maxBytes)
+      throw new ZuvRequestError('INTEGRITY_FAILED');
     const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     try {
       const info = await file.stat();
+      if (info.dev !== before.dev || info.ino !== before.ino || info.size !== before.size)
+        throw new ZuvRequestError('INTEGRITY_FAILED');
       if (!info.isFile() || info.size > maxBytes) throw new ZuvRequestError('INTEGRITY_FAILED');
       const bytes = await file.readFile();
       if (bytes.length > maxBytes) throw new ZuvRequestError('INTEGRITY_FAILED');

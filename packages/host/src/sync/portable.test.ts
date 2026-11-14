@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PortableManifestSchema, type SessionId } from '@wevir/protocol';
 import { jcs, type SyncOperation } from '@wevir/protocol/sync';
@@ -60,6 +60,24 @@ function fixture(name: string) {
 }
 
 describe('portable local data', () => {
+  it('rejects a linked entry leaf as an integrity error before following its bytes', async () => {
+    const source = fixture('leaf-source'),
+      target = fixture('leaf-target');
+    const exported = await source.portable.exportLocal();
+    const manifest = PortableManifestSchema.parse(
+      JSON.parse(await readFile(join(exported.path, 'manifest.json'), 'utf8')),
+    );
+    const entry = manifest.entries[0];
+    if (!entry) throw new Error('missing synthetic entry');
+    const leaf = join(exported.path, 'entries', entry.id),
+      outside = join(source.home, 'outside-entry');
+    await rename(leaf, outside);
+    await symlink(outside, leaf, 'file');
+    await expect(target.portable.importPrepare(exported.path)).rejects.toMatchObject({
+      code: 'INTEGRITY_FAILED',
+    });
+    expect((await target.portable.list()).packages).toEqual([]);
+  });
   it('splits native binary files into entries that fit the existing remote frame limit', async () => {
     const a = fixture('large-file');
     const path = join(a.home, 'synthetic.bin');

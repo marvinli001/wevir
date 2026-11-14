@@ -34,10 +34,10 @@ export class SyncSettingsConflicts {
     });
     return { conflicts, ...(entries.length > 100 && { next: entries[99]?.entityId }) };
   }
-  async preview(entityId: string) {
+  async preview(entityId: string, historical = false) {
     const vault = this.#vault();
     this.options.settingsSync.capture(vault, false, false);
-    const snapshot = this.#snapshot(vault, entityId);
+    const snapshot = this.#snapshot(vault, entityId, historical);
     const valueFingerprint = this.#fingerprint(snapshot.key);
     const baseId =
       snapshot.heads.length === 2 ? this.#base(vault, entityId, snapshot.heads) : undefined;
@@ -96,16 +96,19 @@ export class SyncSettingsConflicts {
           : ('unavailable' as const),
     };
   }
-  async resolve(input: {
-    entityId: string;
-    expectedHeads: string[];
-    localRevision: string;
-    valueFingerprint: string;
-    values: Values;
-  }) {
+  async resolve(
+    input: {
+      entityId: string;
+      expectedHeads: string[];
+      localRevision: string;
+      valueFingerprint: string;
+      values: Values;
+    },
+    historical = false,
+  ) {
     const vault = this.#vault();
     this.options.settingsSync.capture(vault, false, false);
-    const snapshot = this.#snapshot(vault, input.entityId);
+    const snapshot = this.#snapshot(vault, input.entityId, historical);
     this.#check(vault, snapshot.entity, input.expectedHeads, input.localRevision);
     if (this.#fingerprint(snapshot.key) !== input.valueFingerprint)
       throw new ZuvRequestError('REVISION_CONFLICT');
@@ -129,7 +132,7 @@ export class SyncSettingsConflicts {
   #fingerprint(key: Key) {
     return sha256(jcs(this.options.settings.get()[key] ?? null));
   }
-  #snapshot(vault: SyncVaultRecord, entityId: string) {
+  #snapshot(vault: SyncVaultRecord, entityId: string, historical = false) {
     const entity = this.options.storage.sync.entity(vault.vaultId, entityId);
     const key = this.#key(entityId);
     if (
@@ -142,7 +145,7 @@ export class SyncSettingsConflicts {
     )
       throw new ZuvRequestError('SCOPE_DISABLED');
     const heads = this.#heads(vault, entity);
-    if (heads.length < 2) throw new ZuvRequestError('REVISION_CONFLICT');
+    if (heads.length < (historical ? 1 : 2)) throw new ZuvRequestError('REVISION_CONFLICT');
     if (heads.length > 32) throw new ZuvRequestError('QUOTA_EXCEEDED');
     return {
       entity,

@@ -146,7 +146,10 @@ export class SyncFilesCapture {
       const opId = this.#queue.enqueue({
         ...pending,
         entityType: 'memory',
-        ...(pending.resolution && { opId: pending.id, kind: 'resolve' }),
+        ...(pending.resolution && {
+          opId: pending.id,
+          kind: pending.parents.length > 1 ? 'resolve' : pending.kind,
+        }),
       });
       if (pending.resolution) {
         this.#storage.sync.clearMaterialConflicts(

@@ -12,7 +12,9 @@ import { startHost } from '../host-process.js';
 import { createLogger } from '../logger.js';
 import { MemoryStore } from '../memory.js';
 import { TestRpcClient, useTempDir } from '../test-utils.js';
+import { ZuvClient } from '../zuv/client.js';
 import { startMockZuv } from '../zuv/mock.test-utils.js';
+import { SyncPortable } from './portable.js';
 
 const tempDir = useTempDir();
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -132,6 +134,411 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it('restores an imported rule through its explicit native target with new chunks and retained newer files', async () => {
+    const { mock, first, second } = await fixture();
+    await writeFile(join(first.project, 'AGENTS.md'), 'Archived rule body');
+    const scope = {
+      enabled: true,
+      categories: ['project', 'artifact', 'rule'],
+      includeHistory: true,
+    };
+    const opened = await first.rpc.request('sync.configure', {
+      ...scope,
+      projects: [{ workspaceId: first.workspaceId }],
+    });
+    const target = {
+      ...scope,
+      projects: [{ workspaceId: second.workspaceId, projectId: opened.binding.projectIds[0] }],
+    };
+    await second.rpc.call('sync.configure', target);
+    await first.rpc.request('sync.approveDevice', {
+      deviceId: (await second.rpc.request('sync.status')).binding.deviceId,
+    });
+    await second.rpc.request('sync.configure', target);
+    await first.rpc.request('sync.retry');
+    await expect
+      .poll(async () => (await first.rpc.request('sync.status')).pending, { timeout: 8000 })
+      .toBe(0);
+    const exported = await first.rpc.request('sync.exportLocal', {
+      directory: join(first.home, 'rule-history'),
+    });
+    const prepared = await first.rpc.request('sync.importPrepare', { path: exported.path });
+    const imported = await first.rpc.request('sync.importApply', { importId: prepared.importId });
+    const entries = (await first.rpc.request('sync.importRead', { importId: imported.importId }))
+      .entries;
+    let selected: { id: string; opId: string; entityId: string } | undefined;
+    let oldParts: string[] = [];
+    for (const entry of entries.filter((entry: { kind: string }) => entry.kind === 'version')) {
+      const data = await first.rpc.request('sync.importEntry', {
+        importId: imported.importId,
+        entryId: entry.id,
+      });
+      const version = JSON.parse(Buffer.from(data.base64, 'base64').toString());
+      if (version.entityType === 'rule') {
+        selected = entry;
+        oldParts = version.record.content.files.flatMap(
+          (file: { parts: Array<{ opId: string }> }) => file.parts.map((part) => part.opId),
+        );
+      }
+    }
+    if (!selected) throw new Error('missing archived rule');
+    await writeFile(join(first.project, 'AGENTS.md'), 'Newer native rule');
+    await first.rpc.request('sync.retry');
+    const initial = await first.rpc.request('sync.importRestorePreview', {
+      importId: imported.importId,
+      entryId: selected.id,
+    });
+    const native = initial.targets.find(
+      (value: { managed: boolean; name: string }) => !value.managed && value.name === 'AGENTS.md',
+    );
+    const preview = await first.rpc.request('sync.importRestorePreview', {
+      importId: imported.importId,
+      entryId: selected.id,
+      targetId: native.targetId,
+    });
+    expect(preview.currentText).toContain('Newer native rule');
+    expect(preview.selectedText).toContain('Archived rule body');
+    const newer = preview.expectedHeads[0];
+    const restored = await first.rpc.request('sync.importRestore', preview);
+    expect(restored.opId).not.toBe(selected.opId);
+    expect(await readFile(join(first.project, 'AGENTS.md'), 'utf8')).toBe('Archived rule body');
+    const local = openStorage({ dataDir: first.home });
+    try {
+      const draft = local.sync.draft(preview.vaultId, restored.opId);
+      const value = (draft?.content ??
+        local.sync.getOperation(preview.vaultId, restored.opId)?.record) as
+        | { body?: unknown; content?: unknown }
+        | undefined;
+      if (!value) throw new Error('missing restored version');
+      const body = (value.body ?? value.content) as {
+        files: Array<{ parts: Array<{ opId: string }> }>;
+      };
+      expect(
+        body.files
+          .flatMap((file) => file.parts.map((part) => part.opId))
+          .every((op) => !oldParts.includes(op)),
+      ).toBe(true);
+    } finally {
+      local.close();
+    }
+    await first.rpc.request('sync.retry');
+    await second.rpc.request('sync.retry');
+    await expect
+      .poll(
+        async () => {
+          const result = await second.rpc.call('sync.bundleFile', {
+            vaultId: preview.vaultId,
+            entityId: selected?.entityId,
+            opId: restored.opId,
+            path: 'AGENTS.md',
+          });
+          return (result.result as { text?: string } | undefined)?.text;
+        },
+        { timeout: 8000 },
+      )
+      .toBe('Archived rule body');
+    expect(
+      (
+        await first.rpc.request('sync.bundleFile', {
+          vaultId: preview.vaultId,
+          entityId: selected.entityId,
+          opId: newer,
+          path: 'AGENTS.md',
+        })
+      ).text,
+    ).toBe('Newer native rule');
+    expect(mock.errors).toEqual([]);
+  }, 20000);
+  it.each(['memory', 'settings'] as const)(
+    'restores an archived non-head %s version as a fresh revision while preserving intervening work',
+    async (kind) => {
+      const { mock, first, second } = await fixture();
+      const scope = {
+        enabled: true,
+        categories: ['memory', 'settings'],
+        projects: [],
+        includeHistory: true,
+      };
+      await first.rpc.request('sync.configure', scope);
+      await second.rpc.call('sync.configure', scope);
+      await first.rpc.request('sync.approveDevice', {
+        deviceId: (await second.rpc.request('sync.status')).binding.deviceId,
+      });
+      await second.rpc.request('sync.configure', scope);
+      await first.memory.save('global', undefined, {
+        name: 'historical-note',
+        type: 'project',
+        description: 'Synthetic archive',
+        content: 'Archived body',
+      });
+      await first.rpc.request('settings.update', {
+        settings: { agentInstructions: 'Archived instructions' },
+      });
+      await first.rpc.request('sync.retry');
+      await expect
+        .poll(async () => (await first.rpc.request('sync.status')).pending, { timeout: 8000 })
+        .toBe(0);
+      const exported = await first.rpc.request('sync.exportLocal', {
+        directory: join(first.home, 'history-export'),
+      });
+      const prepared = await first.rpc.request('sync.importPrepare', { path: exported.path });
+      const imported = await first.rpc.request('sync.importApply', { importId: prepared.importId });
+      const entries = (await first.rpc.request('sync.importRead', { importId: imported.importId }))
+        .entries;
+      let selected: { id: string; opId: string; entityId: string } | undefined;
+      for (const entry of entries.filter((value: { kind: string }) => value.kind === 'version')) {
+        const data = await first.rpc.request('sync.importEntry', {
+          importId: imported.importId,
+          entryId: entry.id,
+        });
+        const record = JSON.parse(Buffer.from(data.base64, 'base64').toString());
+        if (
+          (kind === 'memory' && record.record.content?.name === 'historical-note') ||
+          (kind === 'settings' && record.entityId === 'settings_agentInstructions')
+        )
+          selected = entry;
+      }
+      if (!selected) throw new Error('missing historical entry');
+      const old = await first.rpc.request('sync.importEntry', {
+        importId: imported.importId,
+        entryId: selected.id,
+      });
+      const real = mock.sync.entitlements.bind(mock.sync);
+      const expired = vi
+        .spyOn(mock.sync, 'entitlements')
+        .mockImplementation((userId, deviceId) => ({
+          ...real(userId, deviceId),
+          subscriptionState: 'expired',
+        }));
+      await first.rpc.request('account.get', { kind: 'zuv', refresh: true });
+      const edit = async (content: string) => {
+        if (kind === 'memory') {
+          const note = await first.memory.read('global', undefined, 'historical-note');
+          await first.memory.update('global', undefined, 'historical-note', note.revision, {
+            content,
+          });
+        } else
+          await first.rpc.request('settings.update', { settings: { agentInstructions: content } });
+      };
+      await edit('Intervening local work');
+      const preview = await first.rpc.request('sync.importRestorePreview', {
+        importId: imported.importId,
+        entryId: selected.id,
+      });
+      expect(preview).toMatchObject({ canRestore: true, kind, entityId: selected.entityId });
+      expect(preview.selectedText).toContain(
+        kind === 'memory' ? 'Archived body' : 'Archived instructions',
+      );
+      expect(preview.currentText).toContain('Intervening local work');
+      expect(preview.expectedHeads).not.toContain(selected.opId);
+      await edit('Newer unsubmitted work');
+      expect((await first.rpc.call('sync.importRestore', preview)).error).toMatchObject({
+        data: { code: 'REVISION_CONFLICT' },
+      });
+      const fresh = await first.rpc.request('sync.importRestorePreview', {
+        importId: imported.importId,
+        entryId: selected.id,
+      });
+      expect(fresh.currentText).toContain('Newer unsubmitted work');
+      const attempts = { ...mock.sync.attempts };
+      const restored = await first.rpc.request('sync.importRestore', fresh);
+      expect(restored.opId).not.toBe(selected.opId);
+      expect(mock.sync.attempts).toEqual(attempts);
+      expect(
+        (
+          await first.rpc.request('sync.importEntry', {
+            importId: imported.importId,
+            entryId: selected.id,
+          })
+        ).base64,
+      ).toBe(old.base64);
+      const verify = openStorage({ dataDir: first.home });
+      try {
+        const drafts = verify.sync.drafts(fresh.vaultId);
+        expect(drafts.find((value) => value.opId === restored.opId)).toMatchObject({
+          kind: fresh.expectedHeads.length > 1 ? 'resolve' : 'put',
+          parents: fresh.expectedHeads,
+        });
+        expect(JSON.stringify(drafts)).toContain('Newer unsubmitted work');
+      } finally {
+        verify.close();
+      }
+      expired.mockRestore();
+      await first.rpc.request('account.get', { kind: 'zuv', refresh: true });
+      await first.rpc.request('sync.retry');
+      await second.rpc.request('sync.retry');
+      const expected = kind === 'memory' ? 'Archived body' : 'Archived instructions';
+      await expect
+        .poll(
+          async () =>
+            kind === 'memory'
+              ? (await second.memory.read('global', undefined, 'historical-note')).content
+              : (await second.rpc.request('settings.get')).settings.agentInstructions,
+          { timeout: 8000 },
+        )
+        .toBe(expected);
+      expect(
+        mock.sync
+          .acceptedOperations(selected.entityId)
+          .some((value) => value.opId === restored.opId),
+      ).toBe(true);
+      if (kind === 'memory') {
+        await edit('Keep while the identity changes');
+        const chosen = await first.rpc.request('sync.importRestorePreview', {
+          importId: imported.importId,
+          entryId: selected.id,
+        });
+        let release: () => void = () => {},
+          entered = false,
+          logoutStarted = false;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const read = SyncPortable.prototype.version,
+          logout = ZuvClient.prototype.logout;
+        const reader = vi
+          .spyOn(SyncPortable.prototype, 'version')
+          .mockImplementationOnce(async function (this: SyncPortable, ...args) {
+            const value = await read.apply(this, args);
+            entered = true;
+            await held;
+            return value;
+          });
+        const leaving = vi.spyOn(ZuvClient.prototype, 'logout').mockImplementationOnce(function (
+          this: ZuvClient,
+        ) {
+          logoutStarted = true;
+          return logout.call(this);
+        });
+        cleanups.push(() => {
+          release();
+          reader.mockRestore();
+          leaving.mockRestore();
+        });
+        const restoring = first.rpc.call('sync.importRestore', chosen);
+        await expect.poll(() => entered).toBe(true);
+        const signedOut = first.rpc.request('account.logout', { kind: 'zuv' });
+        await expect.poll(() => logoutStarted).toBe(true);
+        release();
+        expect((await restoring).error).toMatchObject({ data: { code: 'SCOPE_DISABLED' } });
+        await signedOut;
+        expect((await first.memory.read('global', undefined, 'historical-note')).content).toBe(
+          'Keep while the identity changes',
+        );
+      }
+    },
+    25000,
+  );
+
+  it('restores project and session metadata from an archive without replacing their source history', async () => {
+    const { first, second, mock } = await fixture();
+    await linkSessions(first, second);
+    const session = (
+      await first.rpc.request('session.create', {
+        workspaceId: first.workspaceId,
+        providerId: 'synthetic-api',
+        modelId: 'synthetic-model',
+      })
+    ).session;
+    await first.rpc.request('session.rename', {
+      sessionId: session.id,
+      title: 'Archived session title',
+    });
+    await first.rpc.request('sync.retry');
+    await expect
+      .poll(async () => (await first.rpc.request('sync.status')).pending, { timeout: 8000 })
+      .toBe(0);
+    const exported = await first.rpc.request('sync.exportLocal', {
+      directory: join(first.home, 'metadata-export'),
+    });
+    const prepared = await first.rpc.request('sync.importPrepare', { path: exported.path });
+    const imported = await first.rpc.request('sync.importApply', { importId: prepared.importId });
+    const entries = (await first.rpc.request('sync.importRead', { importId: imported.importId }))
+      .entries;
+    const candidates = [];
+    for (const entry of entries.filter((value: { kind: string }) => value.kind === 'version')) {
+      const data = await first.rpc.request('sync.importEntry', {
+        importId: imported.importId,
+        entryId: entry.id,
+      });
+      const value = JSON.parse(Buffer.from(data.base64, 'base64').toString());
+      if (
+        value.entityType === 'project' ||
+        (value.entityId === session.id && value.record.content?.title === 'Archived session title')
+      )
+        candidates.push({ entry, value });
+    }
+    await first.rpc.request('session.rename', {
+      sessionId: session.id,
+      title: 'New session progress',
+    });
+    await first.rpc.request('workspace.update', {
+      workspaceId: first.workspaceId,
+      displayName: 'New project progress',
+    });
+    await first.rpc.request('sync.retry');
+    for (const { entry, value } of candidates) {
+      const view = await first.rpc.request('sync.importRestorePreview', {
+        importId: imported.importId,
+        entryId: entry.id,
+      });
+      expect(view.canRestore).toBe(true);
+      const result = await first.rpc.request('sync.importRestore', view);
+      expect(result.opId).not.toBe(entry.opId);
+      if (value.entityType === 'session')
+        expect(
+          (await first.rpc.request('session.get', { sessionId: session.id })).session.title,
+        ).toBe('Archived session title');
+      else
+        expect((await first.rpc.request('sync.status')).projects[0].displayName).toBe(
+          value.record.content.displayName,
+        );
+    }
+    const { subscriptionId } = await first.rpc.request('events.subscribe', {
+      sessionId: session.id,
+      sinceSeq: 0,
+    });
+    await first.rpc.untilTrue(
+      () =>
+        first.rpc
+          .events(subscriptionId)
+          .some(
+            (event) =>
+              event.type === 'session.title_changed' &&
+              event.payload.title === 'New session progress',
+          ),
+      'keeps the intervening title event',
+    );
+    expect(
+      (await first.rpc.request('workspace.list')).workspaces.find(
+        (value: { id: string }) => value.id === first.workspaceId,
+      ).displayName,
+    ).toBe('New project progress');
+    await expect
+      .poll(
+        async () => {
+          await first.rpc.request('sync.retry');
+          await second.rpc.request('sync.retry');
+          return (await first.rpc.request('sync.status')).pending;
+        },
+        { timeout: 8000 },
+      )
+      .toBe(0);
+    await expect
+      .poll(
+        async () => {
+          const sessions = (
+            await second.rpc.request('session.list', { workspaceId: second.workspaceId })
+          ).sessions;
+          return sessions.find(
+            (value: { origin?: { sessionId?: string } }) => value.origin?.sessionId === session.id,
+          )?.title;
+        },
+        { timeout: 8000 },
+      )
+      .toBe('Archived session title');
+    expect(mock.errors).toEqual([]);
+  }, 20000);
   it.each(['expired', 'signed_out'] as const)(
     'exports local data with a pending RESET journal while the account is %s',
     async (accountState) => {

@@ -22,10 +22,12 @@ import type { ZuvClient } from '../zuv/client.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { SyncArtifacts } from './artifacts.js';
 import { SyncBootstrap } from './bootstrap.js';
+import { snapshotBundle } from './bundle-snapshot.js';
 import { SyncBundles } from './bundles.js';
 import { SyncBlobCache } from './cache.js';
 import { SyncEventCapture } from './capture.js';
 import { SyncProjectCatalog } from './catalog.js';
+import { sha256 } from './crypto.js';
 import { SyncEngine } from './engine.js';
 import { SyncExecutions } from './executions.js';
 import { type SyncBundleRoot, SyncFilesCapture } from './files-capture.js';
@@ -42,6 +44,7 @@ import { SyncSessionConflicts } from './session-conflicts.js';
 import { SyncSettings } from './settings.js';
 import { SyncSettingsConflicts } from './settings-conflicts.js';
 import { SyncSnapshots } from './snapshots.js';
+import { SyncVersionRestore } from './version-restore.js';
 import { SyncWorkspaces } from './workspaces.js';
 
 export interface SyncServiceOptions {
@@ -81,6 +84,7 @@ export class SyncService {
   readonly #memoryConflicts: SyncMemoryConflicts;
   readonly #settingsConflicts: SyncSettingsConflicts;
   readonly #sessionConflicts: SyncSessionConflicts;
+  readonly #versionRestore: SyncVersionRestore;
   readonly #bundles: SyncBundles;
   #bundleAbort: AbortController | undefined;
   #bundleEntity: string | undefined;
@@ -122,14 +126,14 @@ export class SyncService {
     });
     this.#files = new SyncFilesCapture({
       ...options,
-      eligible: () => (this.#closed ? undefined : this.#consented()),
+      eligible: () => (this.#closed ? undefined : this.#localConsent()),
     });
     this.#bundles = new SyncBundles({
       ...options,
       userHome: options.userHome ?? homedir(),
       files: this.#files,
       nativeRoots: options.bundleRoots,
-      eligible: () => (this.#closed ? undefined : this.#consented()),
+      eligible: () => (this.#closed ? undefined : this.#localConsent()),
     });
     this.#materials = new SyncMaterials({
       ...options,
@@ -157,7 +161,7 @@ export class SyncService {
     });
     this.workspaces = new SyncWorkspaces({
       ...options,
-      eligible: () => (this.#closed ? undefined : this.#consented()),
+      eligible: () => (this.#closed ? undefined : this.#localConsent()),
       source: (sessionId) => this.#capture.source(sessionId),
     });
     const cache = new SyncBlobCache(join(options.home, 'sync/blobs'));
@@ -187,6 +191,53 @@ export class SyncService {
       cache,
       key: (vaultId, epoch, signal) => this.#keys.unlock(vaultId, epoch, signal),
       prepareApply: (op, record, signal) => this.#materials.prepareApply(op, record, { signal }),
+    });
+    const eligible = () => (this.#closed ? undefined : this.#localConsent());
+    this.#versionRestore = new SyncVersionRestore({
+      ...options,
+      portable: this.#portable,
+      materials: this.#materials,
+      memory: new SyncMemoryConflicts({
+        ...options,
+        files: this.#files,
+        materials: this.#materials,
+        eligible,
+      }),
+      settings: new SyncSettingsConflicts({ ...options, settingsSync: this.#settings, eligible }),
+      sessions: new SyncSessionConflicts({
+        storage: options.storage,
+        materials: this.#materials.sessions,
+        eligible,
+      }),
+      bundles: this.#bundles,
+      workspaces: this.workspaces,
+      eligible,
+      captureProject: (vault, entityId) => this.#capture.projects(vault, entityId),
+      captureBundleTarget: async (vault, entity, targetId) => {
+        const root = (await options.bundleRoots(vault)).find(
+          (root) =>
+            sha256(root.localKey) === targetId &&
+            root.category === entity.entityType &&
+            root.projectId === entity.projectId,
+        );
+        if (!root) return undefined;
+        const guard = () => {
+          const current = this.#localConsent();
+          if (
+            this.#closed ||
+            current?.vaultId !== vault.vaultId ||
+            current.deviceId !== vault.deviceId ||
+            current.originHostId !== vault.originHostId ||
+            current.revision !== vault.revision
+          )
+            throw new ZuvRequestError('SCOPE_DISABLED');
+        };
+        guard();
+        await this.#files.bundle(vault, root, false, false);
+        guard();
+        const result = await snapshotBundle({ ...root, guard }, true);
+        return { files: result.files, deleted: result.deleted };
+      },
     });
   }
 
@@ -1132,6 +1183,12 @@ export class SyncService {
   #recoveryOperation<T>(operation: () => Promise<T>): Promise<T> {
     return this.#memoryOperation(operation, true);
   }
+  importRestorePreview(input: MethodParams<'sync.importRestorePreview'>) {
+    return this.#recoveryOperation(() => this.#versionRestore.preview(input));
+  }
+  importRestore(input: MethodParams<'sync.importRestore'>) {
+    return this.#memoryOperation(() => this.#versionRestore.restore(input));
+  }
 
   recoveryRequest(vaultId: string) {
     return this.#recoveryOperation(() => this.#lifecycle.request(vaultId));
@@ -1219,6 +1276,11 @@ export class SyncService {
   }
 
   #consented(): SyncVaultRecord | undefined {
+    return this.#options.client.entitlements?.subscriptionState === 'active'
+      ? this.#localConsent()
+      : undefined;
+  }
+  #localConsent(): SyncVaultRecord | undefined {
     const vault = this.#options.storage.sync.activeVault();
     const identity = this.#options.client.entitlements;
     return vault?.enabled &&
@@ -1226,7 +1288,7 @@ export class SyncService {
       !this.#options.client.requiresLogin &&
       !this.#options.client.changingIdentity &&
       !this.#options.client.enrollment &&
-      identity?.subscriptionState === 'active' &&
+      identity !== undefined &&
       identity.identity.userId === vault.accountId &&
       identity.identity.deviceId === vault.deviceId
       ? vault

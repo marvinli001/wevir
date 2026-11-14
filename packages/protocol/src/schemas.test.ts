@@ -5530,6 +5530,26 @@ const approvalRuleCases: Case[] = [
 
 const registryCases: Case[] = [
   {
+    name: 'SyncVersionRestorePreview',
+    schema: protocol.SyncVersionRestorePreviewSchema,
+    valid: [
+      {
+        importId: 'import_synthetic',
+        entryId: 'entry_synthetic',
+        vaultId: 'vault_synthetic',
+        entityId: 'entity_synthetic',
+        entityType: 'memory',
+        versionFingerprint: 'A'.repeat(43),
+        canRestore: false,
+        kind: 'memory',
+        selectedText: 'Old',
+        currentText: '',
+        expectedHeads: [],
+      },
+    ],
+    invalid: [{}, { kind: 'memory' }],
+  },
+  {
     name: 'SyncSessionConflictContent',
     schema: protocol.SyncSessionConflictContentSchema,
     valid: [

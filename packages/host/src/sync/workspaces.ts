@@ -87,16 +87,18 @@ export class SyncWorkspaces {
     if (!source?.deviceId) throw new ZuvRequestError('SCOPE_DISABLED');
     const seq = session.lastSeq;
     const captured = await captureWorkspaceTree(session.cwd, untracked, guard);
-    const ruleVersions = storage.sync
-      .entities(vault.vaultId)
-      .filter(
-        (entity) =>
-          entity.entityType === 'rule' &&
-          entity.projectId === project.projectId &&
-          entity.materialized &&
-          entity.revision,
-      )
-      .map((entity) => ({ entityId: entity.entityId, opId: entity.revision as string }));
+    const ruleVersions = vault.categories.includes('rule')
+      ? storage.sync
+          .entities(vault.vaultId)
+          .filter(
+            (entity) =>
+              entity.entityType === 'rule' &&
+              entity.projectId === project.projectId &&
+              entity.materialized &&
+              entity.revision,
+          )
+          .map((entity) => ({ entityId: entity.entityId, opId: entity.revision as string }))
+      : [];
     const metadata = SyncWorkspaceMetadataSchema.parse({
       schema: 'wevir-workspace-snapshot/1',
       projectId: project.projectId,

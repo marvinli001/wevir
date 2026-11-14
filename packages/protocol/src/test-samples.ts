@@ -3406,6 +3406,52 @@ export const recoveryStatus: MethodResult<'sync.recoveryStatus'> = {
   keyEpoch: '1',
 };
 export const methodSamples: MethodSamples = {
+  'sync.importRestorePreview': {
+    params: {
+      valid: [{ importId: 'import_synthetic', entryId: 'entry_synthetic' }],
+      invalid: [{}],
+    },
+    result: {
+      valid: [
+        {
+          importId: 'import_synthetic',
+          entryId: 'entry_synthetic',
+          vaultId: 'vault_synthetic',
+          entityId: 'entity_synthetic',
+          entityType: 'memory',
+          versionFingerprint: 'A'.repeat(43),
+          canRestore: false,
+          reason: 'unmapped',
+          kind: 'memory',
+          selectedText: 'Old body',
+          currentText: '',
+          expectedHeads: [],
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'sync.importRestore': {
+    params: {
+      valid: [
+        {
+          importId: 'import_synthetic',
+          entryId: 'entry_synthetic',
+          vaultId: 'vault_synthetic',
+          entityId: 'entity_synthetic',
+          versionFingerprint: 'A'.repeat(43),
+          expectedHeads: ['operation_synthetic'],
+          localRevision: 'operation_synthetic',
+          localFingerprint: 'A'.repeat(43),
+        },
+      ],
+      invalid: [{}],
+    },
+    result: {
+      valid: [{ entityId: 'entity_synthetic', opId: 'operation_restored' }],
+      invalid: [{}],
+    },
+  },
   'sync.sessionConflicts': {
     params: { valid: [{}], invalid: [null] },
     result: { valid: [{ conflicts: [] }], invalid: [{}] },

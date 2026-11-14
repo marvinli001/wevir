@@ -1819,6 +1819,16 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
       return options.sync.importConversation(importId, sessionId, afterSeq);
     },
+    'sync.importRestorePreview': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importRestorePreview(params);
+    },
+    'sync.importRestore': (params) => {
+      if (!options.sync)
+        throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
+      return options.sync.importRestore(params);
+    },
     'sync.status': () => {
       if (options.sync) return options.sync.status();
       const vault = storage.sync.activeVault();

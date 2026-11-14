@@ -70,11 +70,12 @@ export class SyncEventCapture {
     });
   }
 
-  projects(): void {
-    const vault = this.#eligible();
+  projects(explicitVault?: SyncVaultRecord, onlyProjectId?: string): void {
+    const vault = explicitVault ?? this.#eligible();
     if (!vault?.categories.includes('project')) return;
     this.#storage.transaction(() => {
       for (const project of this.#storage.sync.projects(vault.vaultId)) {
+        if (onlyProjectId !== undefined && project.projectId !== onlyProjectId) continue;
         if (!project.workspaceId || !vault.projectIds.includes(project.projectId)) continue;
         this.#project(vault, project.projectId, project.workspaceId);
       }

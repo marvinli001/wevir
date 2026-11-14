@@ -207,6 +207,87 @@ async function linked() {
 }
 
 describe('workspace handoff through two isolated Hosts', () => {
+  it('restores an imported workspace and exact rule references as new scoped material without changing the target', async () => {
+    const { mock, first, second, mirrored, source } = await linked();
+    await writeFile(join(first.project, 'AGENTS.md'), 'Historical workspace rule');
+    for (const peer of [first, second]) {
+      const status = await peer.rpc.request('sync.status');
+      await peer.rpc.request('sync.configure', {
+        enabled: true,
+        categories: [...status.binding.categories, 'rule'],
+        includeHistory: true,
+        expectedRevision: status.binding.revision,
+        projects: [{ workspaceId: peer.workspaceId, projectId: status.binding.projectIds[0] }],
+      });
+    }
+    await first.rpc.request('sync.retry');
+    const snapshot = (
+      await first.rpc.request('sync.workspaceCapture', {
+        sessionId: source.id,
+        untracked: ['selected.txt', 'AGENTS.md'],
+      })
+    ).snapshot;
+    await expect
+      .poll(
+        async () => {
+          await first.rpc.request('sync.retry');
+          await second.rpc.request('sync.retry');
+          return (
+            await second.rpc.request('sync.workspaceSnapshots', { sessionId: mirrored.id })
+          ).snapshots.some((item: { opId: string }) => item.opId === snapshot.opId);
+        },
+        { timeout: 10000 },
+      )
+      .toBe(true);
+    const exported = await first.rpc.request('sync.exportLocal', {
+      directory: join(first.home, 'workspace-archive'),
+    });
+    const prepared = await second.rpc.request('sync.importPrepare', { path: exported.path });
+    const imported = await second.rpc.request('sync.importApply', { importId: prepared.importId });
+    const entries = (await second.rpc.request('sync.importRead', { importId: imported.importId }))
+      .entries;
+    const entry = entries.find(
+      (entry: { entityId?: string; opId?: string }) =>
+        entry.entityId === snapshot.entityId && entry.opId === snapshot.opId,
+    );
+    expect(entry).toBeDefined();
+    await seed(second.project, 'different archive target base\n');
+    const index = await workspaceGit(second.project, ['ls-files', '--stage', '-z']);
+    const created = second.adapter.created;
+    const preview = await second.rpc.request('sync.importRestorePreview', {
+      importId: imported.importId,
+      entryId: entry.id,
+    });
+    expect(preview).toMatchObject({ canRestore: true, kind: 'workspace', sessionId: mirrored.id });
+    const derived = await second.rpc.request('sync.importRestore', preview);
+    expect(derived.entityId).not.toBe(snapshot.entityId);
+    expect(derived.opId).not.toBe(snapshot.opId);
+    const ref = { vaultId: snapshot.vaultId, entityId: derived.entityId, opId: derived.opId };
+    const restored = await second.rpc.request('sync.workspaceRestore', {
+      sessionId: mirrored.id,
+      snapshot: ref,
+    });
+    expect(await readFile(join(restored.cwd, 'mixed.txt'), 'utf8')).toBe('worktree\n');
+    expect(await readFile(join(restored.cwd, 'AGENTS.md'), 'utf8')).toBe(
+      'Historical workspace rule',
+    );
+    expect(await workspaceGit(second.project, ['ls-files', '--stage', '-z'])).toEqual(index);
+    expect(second.adapter.created).toBe(created);
+    expect(restored.recoveredFrom).toMatchObject({ opId: snapshot.opId, source: snapshot.source });
+    await expect
+      .poll(
+        async () => {
+          await second.rpc.request('sync.retry');
+          await first.rpc.request('sync.retry');
+          return (
+            await first.rpc.request('sync.workspaceSnapshots', { sessionId: source.id })
+          ).snapshots.some((item: { opId: string }) => item.opId === derived.opId);
+        },
+        { timeout: 10000 },
+      )
+      .toBe(true);
+    expect(mock.errors).toEqual([]);
+  }, 30000);
   it('checks dependencies and requires explicit approval for restored agent configuration before creating an engine', async () => {
     const { second, mirrored, snapshot } = await linked();
     const restored = await second.rpc.request('sync.workspaceRestore', {

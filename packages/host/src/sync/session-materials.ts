@@ -73,8 +73,8 @@ export class SyncSessionMaterials {
     this.#episodes.clear();
   }
 
-  episode = (row: EpisodeRecord): void => {
-    const scope = this.#scope(row.sessionId, 'episode', row.id);
+  episode = (row: EpisodeRecord, vault?: SyncVaultRecord): void => {
+    const scope = this.#scope(row.sessionId, 'episode', row.id, vault);
     if (!scope) return;
     const previous = scope.ref && this.#body(scope.vault.vaultId, scope.ref.entityId);
     const source = scope.source;
@@ -123,13 +123,13 @@ export class SyncSessionMaterials {
     );
   };
 
-  metadataChanged(sessionIds: readonly string[]): void {
+  metadataChanged(sessionIds: readonly string[], vault?: SyncVaultRecord): void {
     const { storage } = this.#options;
     const persist = () => {
       for (const id of sessionIds) {
         const row = storage.sessions.get(id);
-        if (row?.origin?.kind !== 'synced') continue;
-        const scope = this.#scope(id, 'session', id);
+        if (!row || (row.origin?.kind !== 'synced' && !vault)) continue;
+        const scope = this.#scope(id, 'session', id, vault);
         if (!scope) continue;
         const entityId = scope.source.sessionId;
         const previous = this.#body(scope.vault.vaultId, entityId);
@@ -171,8 +171,8 @@ export class SyncSessionMaterials {
     else storage.transaction(persist);
   }
 
-  summary = (row: RetroSummaryRecord): void => {
-    const scope = this.#scope(row.sessionId, 'retro-summary', row.sessionId);
+  summary = (row: RetroSummaryRecord, vault?: SyncVaultRecord): void => {
+    const scope = this.#scope(row.sessionId, 'retro-summary', row.sessionId, vault);
     if (!scope || scope.mirrored) return;
     const body = SyncRetroSummaryContentSchema.parse({
       schema: 'wevir-retro-summary/1',
@@ -444,13 +444,33 @@ export class SyncSessionMaterials {
     }
   }
 
+  captureLocal(vault: SyncVaultRecord, entityId: string): void {
+    const { storage } = this.#options;
+    const ref = storage.sync
+      .contentRefs(vault.vaultId)
+      .find((value) => value.entityId === entityId);
+    if (!ref?.localId) throw new ZuvRequestError('SCOPE_DISABLED');
+    if (ref.kind === 'session') this.metadataChanged([ref.localId], vault);
+    else
+      storage.transaction(() => {
+        if (ref.kind === 'episode') {
+          const row = storage.episodes.get(ref.localId as string);
+          if (row) this.episode(row, vault);
+        } else {
+          const row = storage.retros.getSummary(ref.localId as string);
+          if (row) this.summary(row, vault);
+        }
+      });
+  }
+
   #scope(
     sessionId: string,
     kind: SyncContentRefRecord['kind'],
     localId: string,
+    explicitVault?: SyncVaultRecord,
   ): CaptureScope | undefined {
     const { storage } = this.#options;
-    const vault = this.#options.eligible();
+    const vault = explicitVault ?? this.#options.eligible();
     if (!vault?.categories.includes('session')) return;
     const session = storage.sessions.get(sessionId);
     if (!session) return;
@@ -664,8 +684,7 @@ export class SyncSessionMaterials {
         lastSeq: storage.events.lastSeq(session.id),
       });
       storage.sessions.setArchived(session.id, body.archivedAt ?? undefined);
-      if (!body.archivedAt || op.kind === 'resolve')
-        storage.sync.clearSessionDeleted(op.vaultId, op.entityId);
+      storage.sync.clearSessionDeleted(op.vaultId, op.entityId);
     } else {
       if (!source.mirrored && session.activeTurn) {
         storage.sync.putMaterialJournal({

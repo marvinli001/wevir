@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { capabilities, platformApi } from '@/platform/platform';
+import { ZuvVersionRestore } from './zuv-version-restore';
 
 type Preview = MethodResult<'sync.importPrepare'>;
 type Category = MethodParams<'sync.recoveryDownload'>['categories'][number];
@@ -204,54 +205,61 @@ export function ZuvRecoverySection({
             {entries && (
               <div className="space-y-1">
                 {entries.entries.map((entry) => (
-                  <Button
-                    key={entry.id}
-                    variant="ghost"
-                    size="sm"
-                    className="max-w-full justify-start truncate"
-                    onClick={() =>
-                      void run(async () => {
-                        if (!importId) return;
-                        if (entry.kind === 'session') {
-                          setMirror(
-                            await client.request('sync.importConversation', {
-                              importId,
-                              sessionId: entry.key,
-                            }),
-                          );
-                          setContent(undefined);
-                          return;
-                        }
-                        const result = await client.request('sync.importEntry', {
-                          importId,
-                          entryId: entry.id,
-                        });
-                        const bytes = Uint8Array.from(atob(result.base64), (c) => c.charCodeAt(0));
-                        const text = new TextDecoder().decode(bytes);
-                        if (entry.kind === 'references' && entry.key === 'local-files') {
-                          setFiles(PortableLocalFilesSchema.parse(JSON.parse(text)).files);
-                          setContent(undefined);
-                          return;
-                        }
-                        if (entry.encoding === 'binary' && entry.kind !== 'memory') {
-                          download(entry.path ?? entry.key, [bytes]);
-                          return;
-                        }
-                        if (entry.kind === 'version') {
-                          const body = (
-                            JSON.parse(text) as { record?: { content?: { markdown?: string } } }
-                          ).record?.content;
-                          if (body?.markdown !== undefined) {
-                            setContent(body.markdown);
+                  <div key={entry.id} className="flex min-w-0 flex-wrap items-center gap-2">
+                    <Button
+                      key={entry.id}
+                      variant="ghost"
+                      size="sm"
+                      className="max-w-full justify-start truncate"
+                      onClick={() =>
+                        void run(async () => {
+                          if (!importId) return;
+                          if (entry.kind === 'session') {
+                            setMirror(
+                              await client.request('sync.importConversation', {
+                                importId,
+                                sessionId: entry.key,
+                              }),
+                            );
+                            setContent(undefined);
                             return;
                           }
-                        }
-                        setContent(text);
-                      })
-                    }
-                  >
-                    {entry.path ?? entry.key}
-                  </Button>
+                          const result = await client.request('sync.importEntry', {
+                            importId,
+                            entryId: entry.id,
+                          });
+                          const bytes = Uint8Array.from(atob(result.base64), (c) =>
+                            c.charCodeAt(0),
+                          );
+                          const text = new TextDecoder().decode(bytes);
+                          if (entry.kind === 'references' && entry.key === 'local-files') {
+                            setFiles(PortableLocalFilesSchema.parse(JSON.parse(text)).files);
+                            setContent(undefined);
+                            return;
+                          }
+                          if (entry.encoding === 'binary' && entry.kind !== 'memory') {
+                            download(entry.path ?? entry.key, [bytes]);
+                            return;
+                          }
+                          if (entry.kind === 'version') {
+                            const body = (
+                              JSON.parse(text) as { record?: { content?: { markdown?: string } } }
+                            ).record?.content;
+                            if (body?.markdown !== undefined) {
+                              setContent(body.markdown);
+                              return;
+                            }
+                          }
+                          setContent(text);
+                        })
+                      }
+                    >
+                      {entry.path ?? entry.key}
+                    </Button>
+                    {entry.kind === 'version' && importId && (
+                      <ZuvVersionRestore client={client} importId={importId} entryId={entry.id} />
+                    )}
+                  </div>
                 ))}
                 {entries.next !== undefined && (
                   <Button

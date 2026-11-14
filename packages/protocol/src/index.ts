@@ -46,6 +46,7 @@ export * from './sync-lifecycle.js';
 export * from './sync-recovery.js';
 export * from './sync-session-conflicts.js';
 export * from './sync-validation.js';
+export * from './sync-version-restore.js';
 export type { BlobHeader, RecordManifest, SyncOperation } from './sync-wire.js';
 export * from './sync-workspace.js';
 export * from './terminals.js';
