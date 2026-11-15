@@ -741,7 +741,7 @@ describe('预设模板（providers.md §7）', () => {
       const params = toUpsertParams(form);
       expect(upsertSchema.safeParse(params).success, preset.id).toBe(true);
       expect(params).toMatchObject({
-        id: preset.id,
+        id: form.id,
         kind: 'openai-compatible',
         api: preset.api,
         baseURL: form.baseURL,

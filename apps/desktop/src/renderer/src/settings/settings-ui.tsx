@@ -176,7 +176,8 @@ export function Segmented<T extends string>({
 }
 
 /** 卡片：表面色、分隔线、12px 圆角，行之间是细分隔线。 */
-export const LIST_CARD = 'divide-y divide-border rounded-xl border border-border bg-card';
+export const SETTINGS_CARD = 'rounded-xl border border-border bg-card';
+export const LIST_CARD = `divide-y divide-border ${SETTINGS_CARD}`;
 
 /** 列表为空时的说明：虚线框。 */
 export function EmptyList({ children }: { children: ReactNode }) {

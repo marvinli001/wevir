@@ -1,0 +1,28 @@
+.ruler {
+  position: absolute;
+  right: 16px;
+  bottom: 0;
+  left: 16px;
+  height: 6px;
+  pointer-events: none;
+  color: var(--border-strong);
+  background-image:
+    repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 64px),
+    repeating-linear-gradient(to right, currentColor 0 1px, transparent 1px 8px);
+  background-size:
+    64px 6px,
+    8px 3px;
+  background-repeat: repeat-x;
+  background-position: left bottom;
+  transition: color 200ms;
+}
+
+.strip:not(:disabled):hover .ruler {
+  color: oklch(0.5 0.24 268 / 35%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ruler {
+    transition: none;
+  }
+}

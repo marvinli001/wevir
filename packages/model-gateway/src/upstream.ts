@@ -5,13 +5,14 @@ import packageJson from '../package.json' with { type: 'json' };
 import { type ChatTranslation, toChatRequest } from './chat/request.js';
 import { ChatStreamTranslator, type UpstreamFailure } from './chat/response.js';
 import { applyDialects, type EventRewrite } from './dialects.js';
+import { GeminiStreamTranslator, toGeminiRequest } from './gemini.js';
 import {
   ANTHROPIC_VERSION,
   type MessagesTranslation,
   toMessagesRequest,
 } from './messages/request.js';
 import { MessagesStreamTranslator } from './messages/response.js';
-import { routeOf, toolSearchMode } from './providers.js';
+import { providerForModel, routeOf, toolSearchMode } from './providers.js';
 import { SseParser, sseEvent } from './sse.js';
 import { dispatchToolSearch } from './tool-search.js';
 import { isObject } from './tools.js';
@@ -30,7 +31,7 @@ export const USER_AGENT = `wevir-gateway/${GATEWAY_VERSION}`;
 export type Prepared =
   | {
       ok: true;
-      mode: 'responses' | 'chat' | 'messages';
+      mode: 'responses' | 'chat' | 'messages' | 'gemini';
       url: string;
       headers: Record<string, string>;
       payload: unknown;
@@ -62,6 +63,7 @@ export function prepareUpstream(
   request: ResponsesRequest,
   options: PrepareOptions = {},
 ): Prepared {
+  provider = providerForModel(provider, request.model);
   let body = request;
   const route = routeOf(provider, options.deepseekBaseURL, body.model);
   if (route.mode === 'unsupported') return { ok: false, status: 400, message: route.message };
@@ -74,6 +76,32 @@ export function prepareUpstream(
     accept: 'text/event-stream',
     'user-agent': USER_AGENT,
   };
+  if (route.mode === 'gemini') {
+    if (provider.apiKey) headers['x-goog-api-key'] = provider.apiKey;
+    const gemini = toGeminiRequest(body, provider);
+    if (!gemini.ok) return { ok: false, status: 400, message: gemini.message };
+    return {
+      ok: true,
+      mode: 'gemini',
+      url: route.url,
+      headers,
+      payload: gemini.request,
+      contentType: () => 'text/event-stream',
+      translate: (response, signal, onEvent) =>
+        toResponsesEvents(
+          response,
+          rewriting(
+            new GeminiStreamTranslator(gemini.names, {
+              provider: provider.id,
+              model: body.model,
+            }),
+            searchRewrite,
+          ),
+          signal,
+          onEvent,
+        ),
+    };
+  }
   if (route.mode === 'messages') {
     // Anthropic 的认证头是 x-api-key（DeepSeek 等兼容服务同样支持），不发 Authorization。
     if (provider.kind !== 'google-vertex') {

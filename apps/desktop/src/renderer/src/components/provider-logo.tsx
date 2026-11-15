@@ -1,3 +1,4 @@
+// Zuv mark: wevir-zuv apps/web/src/components/zuv/mark.tsx (Mark tile), 55105bd935b13931713c4df6b0262dd82a0f5d99; Wevir Labs branding.
 import { cn } from 'cn';
 import anthropic from '@/assets/provider-logos/anthropic.svg';
 import antigravity from '@/assets/provider-logos/antigravity-color.svg';

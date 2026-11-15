@@ -10,6 +10,7 @@ export type Route =
   | { mode: 'responses'; url: string }
   | { mode: 'chat'; url: string }
   | { mode: 'messages'; url: string }
+  | { mode: 'gemini'; url: string }
   | { mode: 'unsupported'; message: string };
 
 /** `anthropic-messages` 上 `compat.thinkingFormat` 的取值（model-gateway.md §5.4）。 */
@@ -22,6 +23,10 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
   api?: string;
   compat: GatewayCompat;
 }[] = [
+  {
+    matches: isZuvApiHost,
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
   { matches: isXaiHost, compat: { supportsCustomTools: false, supportsNamespaceTools: false } },
   {
     matches: isBailianHost,
@@ -149,6 +154,8 @@ export function toolSearchMode(provider: GatewayProvider): 'native' | 'dispatch'
  * - `openai-compatible` + `openai-completions`：转换后发往 `<baseURL>/chat/completions`。
  * - `openai-compatible` + `anthropic-messages`：转换后发往 `<baseURL>/v1/messages`（`baseURL` 已以 `/v1` 结尾时
  *   只加 `/messages`）。
+ * - `openai-compatible` + `google-gemini`：原生 generateContent 流；Zuv 的 `/v1` 改用 `/v1beta`。
+ *   模型级 `api` 优先于 Provider 的默认协议。
  * - 其余（缺字段、取值不对）：不支持，原因在 `message` 里。
  */
 export function routeOf(
@@ -156,6 +163,7 @@ export function routeOf(
   deepseekBaseURL = DEEPSEEK_RESPONSES_BASE_URL,
   model = provider.defaultModelId,
 ): Route {
+  provider = providerForModel(provider, model);
   if (provider.kind === 'deepseek-official') {
     return { mode: 'responses', url: `${trimSlash(deepseekBaseURL)}/responses` };
   }
@@ -187,7 +195,20 @@ export function routeOf(
       url: base.endsWith('/v1') ? `${base}/messages` : `${base}/v1/messages`,
     };
   }
+  if (provider.api === 'google-gemini') {
+    const nativeBase = base.replace(/\/v1$/, '/v1beta');
+    return {
+      mode: 'gemini',
+      url: `${nativeBase}/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`,
+    };
+  }
   return { mode: 'chat', url: `${base}/chat/completions` };
+}
+
+export function providerForModel(provider: GatewayProvider, modelId: string): GatewayProvider {
+  if (provider.kind !== 'openai-compatible') return provider;
+  const api = provider.models.find((model) => model.id === modelId)?.api;
+  return api === undefined ? provider : { ...provider, api };
 }
 
 /**
@@ -198,7 +219,9 @@ export function validateProvider(provider: GatewayProvider): ProviderIssue[] {
   const issue = (path: ProviderIssue['path'], message: string) => issues.push({ path, message });
   if (provider.kind === 'openai-compatible') {
     if (
-      !['openai-responses', 'openai-completions', 'anthropic-messages'].includes(provider.api ?? '')
+      !['openai-responses', 'openai-completions', 'anthropic-messages', 'google-gemini'].includes(
+        provider.api ?? '',
+      )
     ) {
       issue(
         ['api'],
@@ -211,6 +234,15 @@ export function validateProvider(provider: GatewayProvider): ProviderIssue[] {
     else {
       const problem = baseURLProblem(provider.baseURL);
       if (problem !== undefined) issue(['baseURL'], problem);
+    }
+    for (const [index, model] of provider.models.entries()) {
+      if (
+        model.api !== undefined &&
+        !['openai-responses', 'openai-completions', 'anthropic-messages', 'google-gemini'].includes(
+          model.api,
+        )
+      )
+        issue(['models', index, 'api'], `不认识的协议 ${model.api}`);
     }
   } else if (provider.kind === 'zuv') {
     if (provider.apiKey !== undefined) issue(['apiKey'], 'ZUV 凭据由 Host 管理');
@@ -295,6 +327,10 @@ export function isOpenAIOfficial(baseURL: string): boolean {
 /** Anthropic 按量 API；其他 Messages 兼容服务不套用 Claude 的模型限制。 */
 export function isAnthropicHost(baseURL: string): boolean {
   return hostnameOf(baseURL) === 'api.anthropic.com';
+}
+
+export function isZuvApiHost(baseURL: string): boolean {
+  return hostnameOf(baseURL) === 'zuv.wevir.si' && /^\/v1\/?$/.test(new URL(baseURL).pathname);
 }
 
 export function isDeepSeekHost(baseURL: string): boolean {

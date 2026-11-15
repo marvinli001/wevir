@@ -127,7 +127,7 @@ export function toChatRequest(
   };
   const tools = toChatTools(body.tools, names, dropped);
   const signatures =
-    provider.kind === 'google-vertex' || isGeminiHost(baseURL)
+    provider.kind === 'google-vertex' || provider.api === 'google-gemini' || isGeminiHost(baseURL)
       ? { provider: provider.id, model: body.model }
       : undefined;
   const format = isObject(body.text) ? body.text.format : undefined;

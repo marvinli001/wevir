@@ -1,0 +1,308 @@
+{
+  "protocolVersion": "0.191.0",
+  "methods": {
+    "provider.upsert": {
+      "params": [
+        {
+          "displayName": "Wevir Zuv",
+          "defaultModelId": "fixture/responses",
+          "id": "zuv-api",
+          "kind": "openai-compatible",
+          "api": "openai-responses",
+          "baseURL": "https://zuv.wevir.si/v1",
+          "models": [
+            {
+              "id": "fixture/responses",
+              "displayName": "Fixture responses",
+              "api": "openai-responses",
+              "protocols": ["responses"],
+              "vendor": "fixture",
+              "inputModalities": ["text", "image"],
+              "outputModalities": ["text"],
+              "capabilities": ["tools"],
+              "families": ["chat"],
+              "contextWindow": 65536,
+              "maxTokens": 8192,
+              "supportsImages": true
+            },
+            {
+              "id": "fixture/chat",
+              "displayName": "Fixture chat",
+              "api": "openai-completions",
+              "protocols": ["chat"],
+              "vendor": "fixture",
+              "inputModalities": ["text", "image"],
+              "outputModalities": ["text"],
+              "capabilities": ["tools"],
+              "families": ["chat"],
+              "contextWindow": 65536,
+              "maxTokens": 8192,
+              "supportsImages": true
+            },
+            {
+              "id": "fixture/messages",
+              "displayName": "Fixture messages",
+              "api": "anthropic-messages",
+              "protocols": ["messages"],
+              "vendor": "fixture",
+              "inputModalities": ["text", "image"],
+              "outputModalities": ["text"],
+              "capabilities": ["tools"],
+              "families": ["chat"],
+              "contextWindow": 65536,
+              "maxTokens": 8192,
+              "supportsImages": true
+            },
+            {
+              "id": "fixture/gemini",
+              "displayName": "Fixture gemini",
+              "api": "google-gemini",
+              "protocols": ["gemini"],
+              "vendor": "fixture",
+              "inputModalities": ["text", "image"],
+              "outputModalities": ["text"],
+              "capabilities": ["tools"],
+              "families": ["chat"],
+              "contextWindow": 65536,
+              "maxTokens": 8192,
+              "supportsImages": true
+            }
+          ]
+        }
+      ],
+      "result": [
+        {
+          "provider": {
+            "id": "zuv-api",
+            "kind": "openai-compatible",
+            "displayName": "Wevir Zuv",
+            "api": "openai-responses",
+            "baseURL": "https://zuv.wevir.si/v1",
+            "models": [
+              {
+                "id": "fixture/responses",
+                "displayName": "Fixture responses",
+                "api": "openai-responses",
+                "protocols": ["responses"],
+                "vendor": "fixture",
+                "inputModalities": ["text", "image"],
+                "outputModalities": ["text"],
+                "capabilities": ["tools"],
+                "families": ["chat"],
+                "contextWindow": 65536,
+                "maxTokens": 8192,
+                "supportsImages": true
+              },
+              {
+                "id": "fixture/chat",
+                "displayName": "Fixture chat",
+                "api": "openai-completions",
+                "protocols": ["chat"],
+                "vendor": "fixture",
+                "inputModalities": ["text", "image"],
+                "outputModalities": ["text"],
+                "capabilities": ["tools"],
+                "families": ["chat"],
+                "contextWindow": 65536,
+                "maxTokens": 8192,
+                "supportsImages": true
+              },
+              {
+                "id": "fixture/messages",
+                "displayName": "Fixture messages",
+                "api": "anthropic-messages",
+                "protocols": ["messages"],
+                "vendor": "fixture",
+                "inputModalities": ["text", "image"],
+                "outputModalities": ["text"],
+                "capabilities": ["tools"],
+                "families": ["chat"],
+                "contextWindow": 65536,
+                "maxTokens": 8192,
+                "supportsImages": true
+              },
+              {
+                "id": "fixture/gemini",
+                "displayName": "Fixture gemini",
+                "api": "google-gemini",
+                "protocols": ["gemini"],
+                "vendor": "fixture",
+                "inputModalities": ["text", "image"],
+                "outputModalities": ["text"],
+                "capabilities": ["tools"],
+                "families": ["chat"],
+                "contextWindow": 65536,
+                "maxTokens": 8192,
+                "supportsImages": true
+              }
+            ],
+            "defaultModelId": "fixture/responses",
+            "hasSecret": false,
+            "createdAt": "2026-11-15T00:00:00.000Z",
+            "updatedAt": "2026-11-15T00:00:00.000Z"
+          },
+          "created": true
+        }
+      ]
+    },
+    "provider.list": {
+      "params": [{}],
+      "result": [
+        {
+          "providers": [
+            {
+              "id": "zuv-api",
+              "kind": "openai-compatible",
+              "displayName": "Wevir Zuv",
+              "api": "openai-responses",
+              "baseURL": "https://zuv.wevir.si/v1",
+              "models": [
+                {
+                  "id": "fixture/responses",
+                  "displayName": "Fixture responses",
+                  "api": "openai-responses",
+                  "protocols": ["responses"],
+                  "vendor": "fixture",
+                  "inputModalities": ["text", "image"],
+                  "outputModalities": ["text"],
+                  "capabilities": ["tools"],
+                  "families": ["chat"],
+                  "contextWindow": 65536,
+                  "maxTokens": 8192,
+                  "supportsImages": true
+                },
+                {
+                  "id": "fixture/chat",
+                  "displayName": "Fixture chat",
+                  "api": "openai-completions",
+                  "protocols": ["chat"],
+                  "vendor": "fixture",
+                  "inputModalities": ["text", "image"],
+                  "outputModalities": ["text"],
+                  "capabilities": ["tools"],
+                  "families": ["chat"],
+                  "contextWindow": 65536,
+                  "maxTokens": 8192,
+                  "supportsImages": true
+                },
+                {
+                  "id": "fixture/messages",
+                  "displayName": "Fixture messages",
+                  "api": "anthropic-messages",
+                  "protocols": ["messages"],
+                  "vendor": "fixture",
+                  "inputModalities": ["text", "image"],
+                  "outputModalities": ["text"],
+                  "capabilities": ["tools"],
+                  "families": ["chat"],
+                  "contextWindow": 65536,
+                  "maxTokens": 8192,
+                  "supportsImages": true
+                },
+                {
+                  "id": "fixture/gemini",
+                  "displayName": "Fixture gemini",
+                  "api": "google-gemini",
+                  "protocols": ["gemini"],
+                  "vendor": "fixture",
+                  "inputModalities": ["text", "image"],
+                  "outputModalities": ["text"],
+                  "capabilities": ["tools"],
+                  "families": ["chat"],
+                  "contextWindow": 65536,
+                  "maxTokens": 8192,
+                  "supportsImages": true
+                }
+              ],
+              "defaultModelId": "fixture/responses",
+              "hasSecret": false,
+              "createdAt": "2026-11-15T00:00:00.000Z",
+              "updatedAt": "2026-11-15T00:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "provider.discoverModels": {
+      "params": [
+        {
+          "baseURL": "https://zuv.wevir.si/v1"
+        }
+      ],
+      "result": [
+        {
+          "ok": true,
+          "models": [
+            {
+              "model": {
+                "id": "fixture/responses",
+                "displayName": "Fixture responses",
+                "api": "openai-responses",
+                "protocols": ["responses"],
+                "vendor": "fixture",
+                "inputModalities": ["text", "image"],
+                "outputModalities": ["text"],
+                "capabilities": ["tools"],
+                "families": ["chat"],
+                "contextWindow": 65536,
+                "maxTokens": 8192,
+                "supportsImages": true
+              }
+            },
+            {
+              "model": {
+                "id": "fixture/chat",
+                "displayName": "Fixture chat",
+                "api": "openai-completions",
+                "protocols": ["chat"],
+                "vendor": "fixture",
+                "inputModalities": ["text", "image"],
+                "outputModalities": ["text"],
+                "capabilities": ["tools"],
+                "families": ["chat"],
+                "contextWindow": 65536,
+                "maxTokens": 8192,
+                "supportsImages": true
+              }
+            },
+            {
+              "model": {
+                "id": "fixture/messages",
+                "displayName": "Fixture messages",
+                "api": "anthropic-messages",
+                "protocols": ["messages"],
+                "vendor": "fixture",
+                "inputModalities": ["text", "image"],
+                "outputModalities": ["text"],
+                "capabilities": ["tools"],
+                "families": ["chat"],
+                "contextWindow": 65536,
+                "maxTokens": 8192,
+                "supportsImages": true
+              }
+            },
+            {
+              "model": {
+                "id": "fixture/gemini",
+                "displayName": "Fixture gemini",
+                "api": "google-gemini",
+                "protocols": ["gemini"],
+                "vendor": "fixture",
+                "inputModalities": ["text", "image"],
+                "outputModalities": ["text"],
+                "capabilities": ["tools"],
+                "families": ["chat"],
+                "contextWindow": 65536,
+                "maxTokens": 8192,
+                "supportsImages": true
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

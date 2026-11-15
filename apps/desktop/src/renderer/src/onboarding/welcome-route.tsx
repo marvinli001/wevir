@@ -16,6 +16,7 @@ import { PendingPage } from '@/routes/route-states';
 import type { ModelChoice } from '@/session/model-picker';
 import { lastChoice } from '@/session/start-session';
 import { type CatalogEntry, catalogEntry, FEATURED_PROVIDERS } from '@/settings/provider-catalog';
+import { loadProviderCatalog } from '@/settings/provider-catalog-form';
 import {
   hasProviderPlaceholder,
   newDeepSeekForm,
@@ -166,20 +167,27 @@ function ProviderStep({
   const [failure, setFailure] = useState<TestPresentation>();
   /** 这一步里已经存下的 Provider：改了 Key 再点“下一步”是更新它，不再新建。 */
   const [savedId, setSavedId] = useState<string>();
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogFailed, setCatalogFailed] = useState(false);
+  const catalogGeneration = useRef(0);
 
   const takenIds = data.status === 'ready' ? data.providers.map((p) => p.id) : [];
   const featured = FEATURED_PROVIDERS.map(catalogEntry).filter(
     (item): item is CatalogEntry => item !== undefined,
   );
 
-  const choose = (next: CatalogEntry) => {
-    if (!next.source || (next.id === 'google-vertex' && !vertexAvailable)) return;
+  const choose = async (next: CatalogEntry) => {
+    if (!client || !next.source || (next.id === 'google-vertex' && !vertexAvailable)) return;
     setCatalogOpen(false);
-    if (next.id === entry?.id) return;
+    if (next.id === entry?.id && form) return;
+    const generation = ++catalogGeneration.current;
     setEntry(next);
     setErrors({});
     setFailure(undefined);
     setSavedId(undefined);
+    setForm(undefined);
+    setCatalogLoading(true);
+    setCatalogFailed(false);
     const source = next.source;
     const initial =
       source.kind === 'deepseek-official'
@@ -191,12 +199,20 @@ function ProviderStep({
               id: uniqueCustomId(takenIds),
               displayName: t('provider.catalog.custom'),
             };
-    setForm(
-      initial.kind === 'openai-compatible' &&
-        initial.models.some((model) => hasProviderPlaceholder(model.id))
-        ? { ...initial, models: initial.models.slice(0, 1), defaultIndex: 0 }
-        : initial,
-    );
+    try {
+      const loaded = await loadProviderCatalog(client, initial);
+      if (generation !== catalogGeneration.current) return;
+      setForm(
+        loaded.kind === 'openai-compatible' &&
+          loaded.models.some((model) => hasProviderPlaceholder(model.id))
+          ? { ...loaded, models: loaded.models.slice(0, 1), defaultIndex: 0 }
+          : loaded,
+      );
+    } catch {
+      if (generation === catalogGeneration.current) setCatalogFailed(true);
+    } finally {
+      if (generation === catalogGeneration.current) setCatalogLoading(false);
+    }
   };
 
   const update = (patch: Partial<ProviderForm>) => {
@@ -291,6 +307,19 @@ function ProviderStep({
         </Button>
       )}
 
+      {catalogLoading && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t('provider.models.loading')}
+        </p>
+      )}
+      {catalogFailed && entry && (
+        <div role="alert" className="space-y-3">
+          <p className="text-sm text-destructive">{t('provider.models.loadFailed')}</p>
+          <Button variant="outline" onClick={() => void choose(entry)}>
+            {t('provider.models.refresh')}
+          </Button>
+        </div>
+      )}
       {entry && form && (
         <form key={entry.id} onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-3">
           <ProviderFields entry={entry} form={form} errors={errors} onChange={update} />

@@ -1,6 +1,6 @@
 # 模型服务的标志
 
-`zuv.svg` 是 ZUV 自有品牌标志，取自同一维护者的 `wevir-zuv` 提交 `7e9f90f6d859ce352490cb5fc6b74ee58b5a2912` 的 `apps/web/src/app/icon.svg`；不属于下列 LobeHub 图标集。只用于指认 ZUV 订阅来源。
+`zuv.svg` 是 Wevir Zuv 自有品牌标志，取自同一维护者的 `wevir-zuv` 提交 `55105bd935b13931713c4df6b0262dd82a0f5d99` 的 `apps/web/src/components/zuv/mark.tsx`（`Mark tile`），使用固定群青 `oklch(0.5 0.24 268)`；经维护者授权用于指认 Zuv API 与订阅来源，不属于下列 LobeHub 图标集。
 
 首次引导与 Provider 列表（`components/provider-logo.tsx`）用的标志，原样取自 [lobehub/lobe-icons](https://github.com/lobehub/lobe-icons) 的 npm 包 `@lobehub/icons-static-svg@1.95.1`（`icons/` 目录），文件内容未改（下面注明的浅色版除外）。许可证 MIT，`Copyright (c) 2023 LobeHub`，署名在仓库根目录的 `NOTICE` 第 9 节。各标志是对应公司的商标，只用来指认服务。
 

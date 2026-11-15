@@ -16,7 +16,7 @@ bash scripts/upstream-sync.sh
 
 ZUV 同步公开协议（2026-11-13）：`wevir-zuv` 提交 `7e9f90f6d859ce352490cb5fc6b74ee58b5a2912`，仅移植 MIT 的 `contracts/wevir-sync/v1/`、`packages/sync-protocol/src/index.ts`、`crypto.ts` 与 `recovery.ts` 的 JCS 签名校验函数，分别落在本仓库同名 contracts、`packages/protocol/src/sync-wire.ts` 与 `packages/host/src/sync/crypto.ts` / `signed.ts`。许可证附于 `contracts/wevir-sync/v1/LICENSE`；未引入服务端私有实现。artifact revision 1 的 frozen 状态不代表两端互操作或部署验收。
 
-同来源的 ZUV 品牌标志取自 `apps/web/src/app/icon.svg`，用于桌面 `assets/provider-logos/zuv.svg`，只指认该维护者的订阅服务；来源同时登记在图标目录的 `SOURCE.md`。
+Zuv 品牌标志于 2026-11-15 按 `wevir-zuv` 提交 `55105bd935b13931713c4df6b0262dd82a0f5d99` 的 `apps/web/src/components/zuv/mark.tsx`（`Mark tile`）更新，固定使用群青色，用于桌面 `assets/provider-logos/zuv.svg`，指认 API 与订阅来源；维护者授权复用自有品牌，来源同时登记在图标目录的 `SOURCE.md`。
 
 | 名称（`upstream/<名称>`） | 仓库 URL | 分支 | 锁定提交 | 提交日期（UTC） | 锁定日期 | 许可证结论 |
 |---|---|---|---|---|---|---|

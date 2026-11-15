@@ -85,6 +85,78 @@ async function hostError(promise: Promise<unknown>): Promise<HostError> {
 }
 
 describe('Provider 桥接（Host 侧）', () => {
+  it('discovers Zuv without credentials and preserves per-model protocols through storage and the engine bridge', async () => {
+    const bridge = fakeBridge();
+    const { methods, storage } = setup(bridge);
+    const send = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        data: [
+          {
+            id: 'new-vendor/new-model',
+            name: 'New model',
+            vendor: 'new-vendor',
+            contextLength: 98304,
+            maxOutput: 24576,
+            inputModalities: ['text', 'image'],
+            outputModalities: ['text'],
+            capabilities: ['tools', 'vision'],
+            protocols: ['messages'],
+            families: ['chat'],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', send);
+    try {
+      const discovery = MethodSchemas['provider.discoverModels'].result.parse(
+        await methods['provider.discoverModels'](
+          {
+            baseURL: 'https://zuv.wevir.si/v1',
+            apiKey: 'synthetic-key',
+          },
+          context,
+        ),
+      );
+      expect(discovery.ok).toBe(true);
+      const models = discovery.models.map(({ model }) => model);
+      const saved = await methods['provider.upsert'](
+        {
+          ...qwen,
+          id: 'zuv-api',
+          baseURL: 'https://zuv.wevir.si/v1',
+          api: 'openai-responses',
+          apiKey: 'synthetic-key',
+          models,
+          defaultModelId: 'new-vendor/new-model',
+        },
+        context,
+      );
+      expect(saved.provider.kind).toBe('openai-compatible');
+      expect(saved.provider.models).toEqual(models);
+      expect(storage.providers.get('zuv-api')?.models).toEqual(models);
+      expect(bridge.applied.at(-1)?.[0]?.models).toEqual(models);
+      expect(await methods['provider.discoverModels']({ providerId: 'zuv-api' }, context)).toEqual(
+        discovery,
+      );
+      expect(send).toHaveBeenCalledTimes(2);
+      for (const [url, init] of send.mock.calls) {
+        expect(url).toBe('https://zuv.wevir.si/api/public/models');
+        expect(new Headers(init?.headers).has('authorization')).toBe(false);
+        expect(init?.body).toBeUndefined();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reserves the fixed ZUV subscription ID before an API Key provider can take it', async () => {
+    const { methods, storage } = setup();
+    await expect(methods['provider.upsert']({ ...qwen, id: 'zuv' }, context)).rejects.toMatchObject(
+      { code: 'INVALID_PARAMS' },
+    );
+    expect(storage.providers.list()).toEqual([]);
+  });
+
   it('resolves existing relay models for the engine without rewriting storage or explicit levels', async () => {
     const bridge = fakeBridge();
     const { methods, storage, secrets } = setup(bridge);

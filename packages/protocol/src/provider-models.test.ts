@@ -1,10 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import type { ProviderModel, ProviderProfile } from './entities.js';
+import { type ProviderModel, ProviderModelSchema, type ProviderProfile } from './entities.js';
+import { MethodSchemas } from './methods.js';
 import { inferredReasoningEfforts, resolveProviderModels } from './provider-models.js';
 
 const five = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 describe('Custom provider reasoning', () => {
+  it('preserves discovered per-model routing and raw capabilities across RPC schemas', () => {
+    const model = {
+      id: 'vendor/next-model',
+      displayName: 'Next model',
+      api: 'google-gemini',
+      protocols: ['gemini'],
+      vendor: 'vendor',
+      contextWindow: 262144,
+      maxTokens: 65536,
+      inputModalities: ['text', 'image', 'audio', 'file'],
+      outputModalities: ['text'],
+      capabilities: ['tools', 'reasoning', 'vision'],
+      families: ['chat'],
+      supportsImages: true,
+      reasoningEfforts: [],
+    };
+    expect(ProviderModelSchema.parse(model)).toEqual(model);
+    const discovery = MethodSchemas['provider.discoverModels'].result.parse({
+      ok: true,
+      models: [{ model }],
+    });
+    expect(discovery.models[0]?.model).toEqual(model);
+    const params = MethodSchemas['provider.upsert'].params.parse({
+      id: 'zuv-api',
+      kind: 'openai-compatible',
+      displayName: 'Zuv',
+      api: 'openai-responses',
+      baseURL: 'https://zuv.wevir.si/v1',
+      models: [model],
+      defaultModelId: model.id,
+    });
+    expect(params).toMatchObject({ models: [model] });
+    expect(ProviderModelSchema.safeParse({ ...model, api: 'unsupported' }).success).toBe(false);
+  });
+
   it.each([
     ['claude-opus-5-5', five],
     ['claude-sonnet-5-5', five],
