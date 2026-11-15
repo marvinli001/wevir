@@ -19,13 +19,21 @@ function template(params: Partial<EditContextMenuParams>, platform: NodeJS.Platf
     calls.push(name);
   };
   const items = editContextMenuTemplate(
-    { isEditable: false, selectionText: '', editFlags: NO_FLAGS, ...params },
+    {
+      isEditable: false,
+      selectionText: '',
+      editFlags: NO_FLAGS,
+      mediaType: 'none',
+      hasImageContents: false,
+      ...params,
+    },
     DEFAULT_APP_MENU_LABELS,
     {
       undo: record('undo'),
       redo: record('redo'),
       cut: record('cut'),
       copy: record('copy'),
+      copyImage: record('copyImage'),
       paste: record('paste'),
       selectAll: record('selectAll'),
     },
@@ -86,5 +94,21 @@ describe('edit context menu', () => {
     expect(items.map((item) => [item.label, item.enabled])).toEqual([['Copy', true]]);
     expect(template({ selectionText: '  \n' }).items).toEqual([]);
     expect(template({}).items).toEqual([]);
+  });
+
+  it('图片给拷贝图像；同时选中了文字再加复制；没读出内容的图片不弹', () => {
+    const image = { mediaType: 'image', hasImageContents: true } as const;
+    const { items, calls } = template(image);
+    expect(items.map((item) => item.label)).toEqual(['Copy Image']);
+    items[0]?.click?.({} as never, undefined, {} as never);
+    expect(calls).toEqual(['copyImage']);
+    expect(
+      template({
+        ...image,
+        selectionText: 'hi',
+        editFlags: { ...NO_FLAGS, canCopy: true },
+      }).items.map((item) => item.label ?? item.type),
+    ).toEqual(['Copy Image', 'separator', 'Copy']);
+    expect(template({ mediaType: 'image', hasImageContents: false }).items).toEqual([]);
   });
 });

@@ -144,7 +144,7 @@ export function unsupportedPlatformApi(overrides: Partial<DesktopApi> = {}): Des
     setPreventSleep: resolved,
     getLowGpu: () => Promise.resolve(false),
     onLowGpu: noListener,
-    getWindowChrome: () => ({ trafficLights: false, material: false }),
+    getWindowChrome: () => ({ trafficLights: false, captionButtons: false, material: false }),
     onWindowChrome: noListener,
     notify: () => Promise.resolve(false),
     closeNotifications: resolved,

@@ -2548,6 +2548,7 @@ export const messages: Messages = {
   'appMenu.redo': 'やり直す',
   'appMenu.cut': 'カット',
   'appMenu.copy': 'コピー',
+  'appMenu.copyImage': 'イメージをコピー',
   'appMenu.paste': 'ペースト',
   'appMenu.pasteAndMatchStyle': 'ペーストしてスタイルを合わせる',
   'appMenu.delete': '削除',

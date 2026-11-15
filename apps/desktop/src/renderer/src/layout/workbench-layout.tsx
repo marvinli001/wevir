@@ -371,7 +371,7 @@ export function WorkbenchLayout() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* 顶栏画在壳上，下面的内容卡片自己有边，不再画分隔线。 */}
           <header
-            className="app-drag layout-transition flex h-11 shrink-0 items-center gap-2 pr-3"
+            className="app-drag layout-transition flex h-11 shrink-0 items-center gap-2 pr-[max(0.75rem,calc(var(--caption-buttons-inset)+0.25rem))]"
             {...sidebarMotion}
             // 窗口按钮在窗口左上角不动：侧栏露出得越少，顶栏越要让出它们的位置。
             style={{

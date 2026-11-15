@@ -37,15 +37,33 @@
 }
 
 /* 窗口标题栏（layout/window-chrome.ts）：macOS 隐藏了系统标题栏，红绿灯浮在左上角时，左上角的顶栏让出
- * 这么宽（红绿灯在 x = 16 起，约 52 px 宽，见主进程 createWindow）。 */
+ * 这么宽（红绿灯在 x = 16 起，约 52 px 宽，见主进程 createWindow）。Windows 也隐藏了系统标题栏，最小化、最大化与关闭
+ * 按钮浮在右上角，右上角的顶栏让出 --caption-buttons-inset。 */
 :root {
   --traffic-lights-inset: 0px;
+  --caption-buttons-inset: 0px;
   /* 紧跟红绿灯的后退、前进与侧栏开关（layout/window-controls.tsx）：三个 28 px 的按钮，间距 2 px。 */
   --window-controls-width: 88px;
 }
 
 :root[data-traffic-lights] {
   --traffic-lights-inset: 78px;
+}
+
+/* 按钮的宽度随系统与显示缩放变，取 Chromium 给的标题栏可用区域（env(titlebar-area-*)，窗口宽减去按钮的宽）；取不到时按
+ * 三个 46 px 的按钮算。 */
+:root[data-caption-buttons] {
+  --caption-buttons-inset: calc(
+    100vw -
+    env(titlebar-area-x, 0px) -
+    env(titlebar-area-width, calc(100vw - 138px))
+  );
+}
+
+/* 从右边滑出的浮层从顶栏下面开始，右上角的按钮不被系统的窗口按钮盖住。 */
+:root[data-caption-buttons] [data-slot="sheet-content"][data-side="right"] {
+  top: 2.75rem;
+  height: auto;
 }
 
 /* 停靠的侧栏现在露出多宽（U5）：注册成长度才能过渡。不继承：写在用到它的三个元素上（侧栏、分隔条、顶栏，

@@ -2602,6 +2602,7 @@ export const messages: Messages = {
   'appMenu.redo': 'Rétablir',
   'appMenu.cut': 'Couper',
   'appMenu.copy': 'Copier',
+  'appMenu.copyImage': 'Copier l’image',
   'appMenu.paste': 'Coller',
   'appMenu.pasteAndMatchStyle': 'Coller et adapter le style',
   'appMenu.delete': 'Supprimer',

@@ -2,7 +2,7 @@
 // 对象交给页面（Electron 安全清单第 3、20 条）。渲染进程开着 sandbox，这个文件由 electron-vite 打成单个
 // CJS 文件（沙箱里的 preload 不能是 ESM），只能 import `electron`。
 
-import { contextBridge, type IpcRendererEvent, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, type IpcRendererEvent, ipcRenderer, webFrame, webUtils } from 'electron';
 import {
   type BrowserReveal,
   type BrowserStatePayload,
@@ -19,6 +19,7 @@ import { supportsWindowMaterial } from '../shared/theme.js';
 // 主进程在进出全屏、页面加载完成时推送。沙箱里的 preload 也有 process.platform 与 process.getSystemVersion()。
 let windowChrome: WindowChrome = {
   trafficLights: process.platform === 'darwin',
+  captionButtons: process.platform === 'win32',
   material: supportsWindowMaterial(process.platform, process.getSystemVersion()),
 };
 const windowChromeListeners = new Set<(chrome: WindowChrome) => void>();
@@ -26,6 +27,22 @@ ipcRenderer.on(IPC_CHANNELS.windowChrome, (_event: IpcRendererEvent, chrome: Win
   windowChrome = chrome;
   for (const listener of windowChromeListeners) listener(chrome);
 });
+
+// Windows：系统画的窗口按钮要和页面的顶栏一样高，界面缩放比例变了（菜单的放大、缩小快捷键）就通知主进程重设。
+// 缩放会改变视口的 CSS 尺寸，所以借 resize 事件发现；只发通知，比例由主进程自己读。
+if (process.platform === 'win32') {
+  let zoom = webFrame.getZoomFactor();
+  // preload 的 tsconfig 不带 DOM 类型，只声明用到的这一个方法。
+  const page = globalThis as unknown as {
+    addEventListener(type: 'resize', listener: () => void): void;
+  };
+  page.addEventListener('resize', () => {
+    const next = webFrame.getZoomFactor();
+    if (next === zoom) return;
+    zoom = next;
+    void ipcRenderer.invoke(IPC_CHANNELS.windowZoomChanged);
+  });
+}
 
 const api: DesktopApi = {
   getHostConnection: () => ipcRenderer.invoke(IPC_CHANNELS.getHostConnection),
