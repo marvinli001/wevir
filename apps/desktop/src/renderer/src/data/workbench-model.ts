@@ -3,6 +3,7 @@
 import { sessionActivityAt } from '@wevir/client-sdk';
 import type { ProviderProfile, Session, SessionId, Workspace } from '@wevir/protocol';
 
+import { isWrapUpDismissed } from './dismissed-wrap-ups';
 import { threadSessions } from './session-threads';
 
 export interface WorkspaceEntry {
@@ -148,7 +149,8 @@ export function applySessionsChange(
 
 /**
  * 会话行左侧的状态标记。`cancelling` 仍算运行中；运行中有问题等用户回答（0.10.0 的 `awaitingInput`）是等回答；只读会话与
- * 上一回合失败（idle 下有 lastError）算出错；空闲时 agent 收尾说不等答复做不下去（0.128.0 的 `wrapUp.blocked`）是等决定。
+ * 上一回合失败（idle 下有 lastError）算出错；空闲时 agent 收尾说不等答复做不下去（0.128.0 的 `wrapUp.blocked`）是等决定，
+ * 用户在本机关掉了那个回合的下一步卡片后不再算。
  */
 export type SessionMarker =
   | 'running'
@@ -169,7 +171,9 @@ export function sessionMarker(session: Session): SessionMarker | undefined {
       return 'error';
     case 'idle':
       if (session.lastError || session.readOnly) return 'error';
-      return session.wrapUp?.blocked ? 'awaiting_decision' : undefined;
+      return session.wrapUp?.blocked && !isWrapUpDismissed(session.wrapUp.turnId)
+        ? 'awaiting_decision'
+        : undefined;
     case 'closed':
       return session.readOnly && session.readOnly.reason !== 'imported' ? 'error' : undefined;
   }

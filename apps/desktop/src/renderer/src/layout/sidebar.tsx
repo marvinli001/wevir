@@ -29,6 +29,7 @@ import { ArchiveIcon, PinIcon } from '@/components/session-icons';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useDismissedWrapUps, useWrapUpDismissed } from '@/data/dismissed-wrap-ups';
 import { isUnread, useSeenSessions } from '@/data/seen-sessions';
 import { useLeaving, usePinnedSessions, useSessionActions } from '@/data/session-actions';
 
@@ -311,6 +312,8 @@ function ViewButton({
 function StatusTree() {
   const data = useWorkbenchData();
   const seen = useSeenSessions();
+  // 关掉下一步卡片后“等决定”的会话换组（sessionMarker）。
+  useDismissedWrapUps();
   const pinned = usePinnedSessions();
   const { sessionId } = useParams();
   const { collapsedThreads } = layoutPrefs.use();
@@ -395,6 +398,8 @@ function ProjectTree() {
   const data = useWorkbenchData();
   const { collapsedWorkspaces } = layoutPrefs.use();
   const seen = useSeenSessions();
+  // 关掉下一步卡片后收起的线程重新判断要不要展开（threadOpen）。
+  useDismissedWrapUps();
   const pinned = usePinnedSessions();
   const pinnedProjects = usePinnedWorkspaces();
   const projectOrder = useProjectOrder();
@@ -886,6 +891,8 @@ const SessionRow = memo(function SessionRow({
   thread,
   branch,
 }: SessionRowProps) {
+  // 行按内容比较（sameRow）：关掉这个会话的下一步卡片时自己订阅着重渲染，“等决定”的点跟着消失。
+  useWrapUpDismissed(session.wrapUp?.turnId);
   const marker = sessionMarker(session);
   const markerInfo = marker && { tone: MARKERS[marker].tone, label: t(MARKERS[marker].label) };
   const badge = marker === 'awaiting_approval' || marker === 'awaiting_input';

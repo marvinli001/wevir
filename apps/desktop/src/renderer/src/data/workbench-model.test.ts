@@ -1,5 +1,6 @@
 import type { Session, Workspace } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
+import { dismissWrapUpCard } from './dismissed-wrap-ups';
 import {
   chatsOf,
   groupByStatus,
@@ -183,6 +184,27 @@ describe('等决定（0.128.0）', () => {
     );
     expect(groups.needsYou.map((row) => row.session.id)).toEqual(['ses_blocked']);
     expect(groups.completed.map((row) => row.session.id)).toEqual(['ses_done']);
+  });
+
+  it('本机关掉了那个回合的下一步卡片后不再算等决定，归回已完成', () => {
+    const blocked = session('ses_dismissed', 'ws_a', {
+      wrapUp: { ...wrapUp, turnId: 'trn_dismissed', blocked: true },
+      updatedAt: NOW,
+    });
+    expect(sessionMarker(blocked)).toBe('awaiting_decision');
+    dismissWrapUpCard('trn_dismissed');
+    expect(sessionMarker(blocked)).toBeUndefined();
+    const groups = groupByStatus(groupSessions([workspace('ws_a')], [blocked]), Date.parse(NOW));
+    expect(groups.needsYou).toEqual([]);
+    expect(groups.completed.map((row) => row.session.id)).toEqual(['ses_dismissed']);
+    // 别的回合又卡住时照样标。
+    expect(
+      sessionMarker(
+        session('ses_dismissed', 'ws_a', {
+          wrapUp: { ...wrapUp, turnId: 'trn_next', blocked: true },
+        }),
+      ),
+    ).toBe('awaiting_decision');
   });
 });
 
