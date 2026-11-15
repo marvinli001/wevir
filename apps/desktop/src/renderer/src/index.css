@@ -149,18 +149,14 @@
 }
 
 /* 半透明窗口（设置 → 外观，默认开；macOS 的 vibrancy、Windows 11 的 Mica）：主进程把窗口底色设成透明、加上系统材质
- * （theme/appearance.ts），页面底色透明，壳只盖一层半透明的侧栏色，露出材质；浅色的卡片仍是不透明的画布色，深色的卡片
+ * （theme/appearance.ts），页面底色透明，壳由 --shell-tint 控制，浅色盖 90% 的侧栏色、深色盖 46%，其余露出材质；浅色的卡片仍是不透明的画布色，深色的卡片
  * 留一点透明。只在挂着壳的页面（工作台、设置页）生效，欢迎页等照常不透明。 */
 :root[data-translucent-window]:has([data-translucent-root]) body {
   background-color: transparent;
 }
 
 :root[data-translucent-window] .app-shell {
-  background-color: color-mix(in oklab, var(--sidebar) 58%, transparent);
-}
-
-:root[data-translucent-window][data-theme="dark"] .app-shell {
-  background-color: color-mix(in oklab, var(--sidebar) 46%, transparent);
+  background-color: color-mix(in oklab, var(--sidebar) var(--shell-tint), transparent);
 }
 
 :root[data-translucent-window][data-theme="dark"] .app-shell .surface-card {
