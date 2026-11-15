@@ -1,5 +1,5 @@
 // 侧栏左下角的更新入口（ADR-0007 补记 4，照 Codex 桌面端）：发现新版本时出现，点击开始下载，下载时整行是一条进度条，
-// 下载完填满变成墨色底的“重启以更新”，等用户点。没有新版本时不占位置。Linux 的 deb 不在应用里下载，点了打开官网的下载页。
+// 下载完填充走满后淡出，正文色的“重启以更新”配运行色图标，等用户点。没有新版本时不占位置。Linux 的 deb 点了打开官网下载页。
 
 import { cn } from 'cn';
 import { ArrowDownToLine, LoaderCircle, RotateCw } from 'lucide-react';
@@ -24,18 +24,18 @@ export function UpdateEntryButton({ className }: { className?: string }) {
       className={cn(
         'group relative flex h-9 w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-lg px-2 text-base outline-none',
         'transition-colors duration-300 ease-smooth focus-visible:focus-ring disabled:cursor-default',
-        filled && 'text-primary-foreground',
-        (entry.kind === 'available' || entry.kind === 'failed') && 'hover:bg-sidebar-accent/70',
+        (entry.kind === 'available' || entry.kind === 'restart' || entry.kind === 'failed') &&
+          'hover:bg-sidebar-accent/70',
         entry.kind === 'downloading' && 'bg-sidebar-foreground/[0.06]',
         className,
       )}
     >
-      {/* 进度填充：下载时按百分比变宽（淡墨色加流光），下载完填满并转成墨色，成为“重启以更新”的底。 */}
+      {/* 进度填充：下载时按百分比变宽（淡墨色加流光），下载完走满后淡出为透明。 */}
       <span
         aria-hidden
         className={cn(
           'absolute inset-y-0 left-0 overflow-hidden transition-[width,background-color] duration-500 ease-smooth',
-          filled ? 'bg-primary group-enabled:group-hover:bg-primary/90' : 'bg-primary/15',
+          filled ? 'bg-transparent' : 'bg-primary/15',
         )}
         style={{
           width: entry.kind === 'downloading' ? `${entry.percent}%` : filled ? '100%' : '0%',
@@ -104,8 +104,9 @@ function label(entry: UpdateEntry): string {
 function EntryIcon({ entry }: { entry: UpdateEntry }) {
   const icon = 'size-4 shrink-0';
   if (entry.kind === 'installing')
-    return <LoaderCircle className={cn(icon, 'animate-spin')} aria-hidden />;
-  if (entry.kind === 'restart' || entry.kind === 'failed')
-    return <RotateCw className={icon} aria-hidden />;
+    return <LoaderCircle className={cn(icon, 'animate-spin text-muted-foreground')} aria-hidden />;
+  if (entry.kind === 'restart')
+    return <RotateCw className={cn(icon, 'text-running')} aria-hidden />;
+  if (entry.kind === 'failed') return <RotateCw className={icon} aria-hidden />;
   return <ArrowDownToLine className={cn(icon, 'text-primary')} aria-hidden />;
 }
