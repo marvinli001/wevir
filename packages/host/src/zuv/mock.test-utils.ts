@@ -159,8 +159,18 @@ export async function startMockZuv() {
       res.end(JSON.stringify(response));
     } catch (error) {
       if (error instanceof MockSyncError) {
+        if (error.retryAfterMs)
+          res.setHeader('retry-after', String(Math.ceil(error.retryAfterMs / 1000)));
         res.writeHead(error.status);
-        res.end(JSON.stringify({ error: { code: error.code, message: error.code } }));
+        res.end(
+          JSON.stringify({
+            error: {
+              code: error.code,
+              message: error.code,
+              ...(error.retryAfterMs && { retryAfterMs: error.retryAfterMs }),
+            },
+          }),
+        );
         return;
       }
       errors.push(error instanceof Error ? error.message : 'mock failure');

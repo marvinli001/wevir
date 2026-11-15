@@ -1,6 +1,6 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { MethodResult } from '@wevir/protocol';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import {
@@ -39,31 +39,48 @@ export function ZuvVersionRestore({
     [error, setError] = useState<string>(),
     [done, setDone] = useState(false),
     [confirming, setConfirming] = useState(false);
+  const generation = useRef(0);
+  useEffect(
+    () => () => {
+      generation.current++;
+    },
+    [],
+  );
+  const changeOpen = (value: boolean) => {
+    if (busy) return;
+    generation.current++;
+    setOpen(value);
+  };
   const run = async (fn: () => Promise<void>) => {
+    const own = generation.current;
     setBusy(true);
     setError(undefined);
     try {
       await fn();
     } catch (error) {
-      setError(describe(error));
+      if (own === generation.current) setError(describe(error));
     } finally {
-      setBusy(false);
+      if (own === generation.current) setBusy(false);
     }
   };
-  const load = async (targetId?: string) =>
-    setPreview(
-      await client.request('sync.importRestorePreview', {
-        importId,
-        entryId,
-        ...(targetId && { targetId }),
-      }),
-    );
+  const load = async (targetId?: string, own = generation.current) => {
+    const value = await client.request('sync.importRestorePreview', {
+      importId,
+      entryId,
+      ...(targetId && { targetId }),
+    });
+    if (own === generation.current) setPreview(value);
+  };
   const restore = async () => {
     if (!preview) return;
+    const own = generation.current;
     await client.request('sync.importRestore', preview);
+    if (own !== generation.current) return;
     setDone(true);
     setConfirming(false);
-    void load(preview.targetId).catch((reason: unknown) => setError(describe(reason)));
+    void load(preview.targetId, own).catch((reason: unknown) => {
+      if (own === generation.current) setError(describe(reason));
+    });
   };
   const consequence = preview && CONSEQUENCES[preview.kind];
   if (!client.supports('sync_version_restore')) return null;
@@ -74,6 +91,7 @@ export function ZuvVersionRestore({
         variant="outline"
         disabled={disabled}
         onClick={() => {
+          generation.current++;
           setOpen(true);
           setPreview(undefined);
           setDone(false);
@@ -82,12 +100,7 @@ export function ZuvVersionRestore({
       >
         {t('portable.restoreVersion')}
       </Button>
-      <Dialog
-        open={open}
-        onOpenChange={(value) => {
-          if (!busy) setOpen(value);
-        }}
-      >
+      <Dialog open={open} onOpenChange={changeOpen}>
         <DialogContent
           showCloseButton={false}
           aria-describedby={undefined}
@@ -170,7 +183,7 @@ export function ZuvVersionRestore({
             )}
           </div>
           <DialogFooter className="shrink-0">
-            <Button variant="outline" disabled={busy} onClick={() => setOpen(false)}>
+            <Button variant="outline" disabled={busy} onClick={() => changeOpen(false)}>
               {t('common.close')}
             </Button>
             <Button

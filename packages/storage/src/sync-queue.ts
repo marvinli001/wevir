@@ -62,15 +62,7 @@ export interface SyncCaptureRecord {
 }
 
 const blockedDraftsCte = `WITH RECURSIVE edges(op_id, dependency) AS (
-  SELECT d.op_id, p.value FROM sync_drafts d, json_each(d.parents) p WHERE d.vault_id=:vaultId
-  UNION ALL
-  SELECT d.op_id, json_extract(p.value,'$.opId') FROM sync_drafts d,
-    json_each(d.content,'$.body.files') f, json_each(f.value,'$.parts') p
-    WHERE d.vault_id=:vaultId AND json_extract(d.content,'$.body.schema')='wevir-bundle/1'
-  UNION ALL
-  SELECT d.op_id, json_extract(r.value,'$.opId') FROM sync_drafts d,
-    json_each(d.content,'$.body.metadata.ruleVersions') r
-    WHERE d.vault_id=:vaultId AND json_extract(d.content,'$.body.schema')='wevir-bundle/1'
+  SELECT op_id, dependency FROM sync_draft_dependencies WHERE vault_id=:vaultId
   UNION ALL
   SELECT d.op_id, p.revision FROM sync_drafts d JOIN sync_entities e USING(vault_id,entity_id)
     JOIN sync_entities p ON p.vault_id=e.vault_id AND p.entity_id=e.project_id AND p.entity_type='project'

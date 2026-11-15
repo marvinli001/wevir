@@ -107,11 +107,10 @@ export const messages: Messages = {
   'portable.state.approved': 'Aprobado',
   'portable.state.completed': 'Completado',
   'portable.state.cancelled': 'Cancelado',
-  'portable.completeConsequence':
-    'La recuperación renueva las claves y revoca los demás dispositivos',
+  'portable.completeConsequence': 'Rotación de claves; revocación de otros dispositivos',
   'portable.deleteConsequence':
-    'Los datos de la nube siguen la política de retención; las copias locales permanecen',
-  'portable.detachConsequence': 'La sincronización se detiene y los datos locales se conservan',
+    'Datos en la nube eliminados según la política de retención; copias locales conservadas',
+  'portable.detachConsequence': 'Sincronización detenida; datos locales conservados',
   'portable.more': 'Más',
   'portable.confirm': 'Confirmar',
   'portable.workspace': 'Datos del espacio de trabajo',

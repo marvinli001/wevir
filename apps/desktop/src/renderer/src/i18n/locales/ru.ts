@@ -106,10 +106,10 @@ export const messages: Messages = {
   'portable.state.approved': 'Одобрено',
   'portable.state.completed': 'Завершено',
   'portable.state.cancelled': 'Отменено',
-  'portable.completeConsequence': 'Восстановление обновит ключи и отзовёт доступ других устройств',
+  'portable.completeConsequence': 'Ротация ключей; отзыв доступа других устройств',
   'portable.deleteConsequence':
-    'Облачные данные удаляются по правилам хранения; локальные копии остаются',
-  'portable.detachConsequence': 'Синхронизация остановится; локальные данные сохранятся',
+    'Удаление облачных данных по политике хранения; локальные копии сохранены',
+  'portable.detachConsequence': 'Синхронизация остановлена; локальные данные сохранены',
   'portable.more': 'Ещё',
   'portable.confirm': 'Подтвердить',
   'portable.workspace': 'Данные рабочей области',

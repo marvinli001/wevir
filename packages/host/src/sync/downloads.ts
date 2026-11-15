@@ -91,31 +91,40 @@ export class SyncDownloads {
       retryAt: Date.now() + TRANSFER_RETRY_MS,
     } satisfies SyncBlobRecord;
     storage.sync.putBlob(blob);
-    guard(vault, signal);
-    const response = await client.transfer({
-      method: 'GET',
-      path: `/api/wevir/sync/v1/downloads/${ticket.downloadId}`,
-      maxBytes: ticket.cipherBytes,
-      signal,
-      transfer,
-    });
-    if (
-      response.bytes.length !== ticket.cipherBytes ||
-      sha256(response.bytes) !== ticket.cipherSha256
-    )
-      throw new ZuvRequestError('INTEGRITY_FAILED');
-    const path = await cache.put(vault.vaultId, blobId, response.bytes, ticket.cipherSha256);
-    const header = parseEnvelope(response.bytes).header;
-    if (header.vaultId !== vault.vaultId || header.blobId !== blobId)
-      throw new ZuvRequestError('INTEGRITY_FAILED');
-    storage.sync.putBlob({
-      ...blob,
-      state: 'ready',
-      cachePath: path,
-      keyEpoch: header.keyEpoch,
-      downloadAttempts: 0,
-      retryAt: 0,
-    });
-    return response.bytes;
+    try {
+      guard(vault, signal);
+      const response = await client.transfer({
+        method: 'GET',
+        path: `/api/wevir/sync/v1/downloads/${ticket.downloadId}`,
+        maxBytes: ticket.cipherBytes,
+        signal,
+        transfer,
+      });
+      if (
+        response.bytes.length !== ticket.cipherBytes ||
+        sha256(response.bytes) !== ticket.cipherSha256
+      )
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      const path = await cache.put(vault.vaultId, blobId, response.bytes, ticket.cipherSha256);
+      const header = parseEnvelope(response.bytes).header;
+      if (header.vaultId !== vault.vaultId || header.blobId !== blobId)
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      storage.sync.putBlob({
+        ...blob,
+        state: 'ready',
+        cachePath: path,
+        keyEpoch: header.keyEpoch,
+        downloadAttempts: 0,
+        retryAt: 0,
+      });
+      return response.bytes;
+    } catch (error) {
+      if (signal.aborted) {
+        const current = storage.sync.blob(vault.vaultId, blobId);
+        if (current?.downloadAttempts === blob.downloadAttempts)
+          storage.sync.putBlob({ ...current, retryAt: 0 });
+      }
+      throw error;
+    }
   }
 }

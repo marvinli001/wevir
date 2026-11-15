@@ -1,15 +1,35 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openStorage, type SyncVaultRecord } from '@wevir/storage';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryStore } from '../memory.js';
 import { useTempDir } from '../test-utils.js';
 import { SyncFilesCapture } from './files-capture.js';
 import type { SyncDraftPayload } from './queue.js';
 
+const race = vi.hoisted(() => ({ path: '', reads: 0 }));
+vi.mock('node:fs/promises', async (original) => {
+  const fs = await original<typeof import('node:fs/promises')>();
+  return {
+    ...fs,
+    lstat: async (...args: Parameters<typeof fs.lstat>) => {
+      const info = await fs.lstat(...args);
+      if (String(args[0]) === race.path && ++race.reads === 2)
+        return new Proxy(info, {
+          get(target, key) {
+            return key === 'mtimeMs' ? Number(target.mtimeMs) + 1 : Reflect.get(target, key);
+          },
+        });
+      return info;
+    },
+  };
+});
+
 const tempDir = useTempDir();
 const cleanups: Array<() => void> = [];
 afterEach(() => {
+  race.path = '';
+  race.reads = 0;
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 });
 function fixture() {
@@ -58,6 +78,63 @@ function fixture() {
 }
 
 describe('durable local file capture', () => {
+  it('never queues a temporarily truncated memory file as a remote revision', async () => {
+    const h = fixture();
+    await h.memory.save('global', undefined, {
+      name: 'rewrite-note',
+      type: 'project',
+      description: 'Synthetic rewrite',
+      content: 'Original body',
+    });
+    const path = join(h.memoryDir, 'global/rewrite-note.md');
+    const markdown = await readFile(path, 'utf8');
+    const before = h.storage.sync.drafts(h.vault().vaultId);
+    await writeFile(path, '');
+    await expect(h.capture.memory(h.vault(), false, false)).rejects.toMatchObject({
+      code: 'INTEGRITY_FAILED',
+    });
+    expect(h.storage.sync.drafts(h.vault().vaultId)).toEqual(before);
+    await writeFile(path, markdown.replace('Original body', 'Completed rewrite'));
+    await h.capture.memory(h.vault(), false, false);
+    expect(
+      h.storage.sync
+        .drafts(h.vault().vaultId)
+        .some((draft) =>
+          ((draft.content as SyncDraftPayload).body as { markdown: string }).markdown.includes(
+            'Completed rewrite',
+          ),
+        ),
+    ).toBe(true);
+  });
+  it('requests another scan when a memory file changes during reading', async () => {
+    const h = fixture();
+    await h.memory.save('global', undefined, {
+      name: 'unstable-note',
+      type: 'project',
+      description: 'Synthetic',
+      content: 'Original body',
+    });
+    const path = join(h.memoryDir, 'global/unstable-note.md');
+    await writeFile(
+      path,
+      (await readFile(path, 'utf8')).replace('Original body', 'Changed while scanning'),
+    );
+    race.path = path;
+    await expect(h.capture.memory(h.vault(), false, false)).rejects.toMatchObject({
+      code: 'REVISION_CONFLICT',
+    });
+    race.path = '';
+    await h.capture.memory(h.vault(), false, false);
+    expect(
+      h.storage.sync
+        .drafts(h.vault().vaultId)
+        .some((draft) =>
+          ((draft.content as SyncDraftPayload).body as { markdown: string }).markdown.includes(
+            'Changed while scanning',
+          ),
+        ),
+    ).toBe(true);
+  });
   it('rejects a package before queuing a dependency closure larger than the preparation limit', async () => {
     const h = fixture();
     h.storage.sync.setScopes(h.vault().vaultId, {

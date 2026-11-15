@@ -1,4 +1,9 @@
-import type { RequestArgs, RequestMethod, WevirClient } from '@wevir/client-sdk';
+import {
+  isRpcError,
+  type RequestArgs,
+  type RequestMethod,
+  type WevirClient,
+} from '@wevir/client-sdk';
 import type { MethodResult } from '@wevir/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -647,6 +652,7 @@ export function ZuvBundles({
             const action = confirm;
             const own = generation.current;
             setBusy(true);
+            setError(undefined);
             setApplying(action === 'apply');
             if (action === 'apply') setConfirm(undefined);
             try {
@@ -701,13 +707,17 @@ export function ZuvBundles({
               setLocal(undefined);
               setCreating(false);
               setContents([]);
+            } catch (reason) {
+              if (action !== 'apply') throw reason;
+              if (
+                own === generation.current &&
+                !(isRpcError(reason, 'SYNC_FAILED') && reason.data?.code === 'APPLICATION_PAUSED')
+              )
+                setError(describe(reason));
+            } finally {
               await refresh().catch((reason: unknown) => {
                 if (own === generation.current) setError(describe(reason));
               });
-            } catch (reason) {
-              if (action !== 'apply') throw reason;
-              if (own === generation.current) setError(describe(reason));
-            } finally {
               if (own === generation.current) {
                 setBusy(false);
                 setApplying(false);

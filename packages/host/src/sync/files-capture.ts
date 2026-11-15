@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 import type { EntityType } from '@wevir/protocol/sync';
 import type { Storage, SyncLocalWriteRecord, SyncVaultRecord } from '@wevir/storage';
 import { newId } from '../ids.js';
-import { MEMORY_NAME_PATTERN } from '../memory.js';
+import { MEMORY_NAME_PATTERN, validMemoryMarkdown } from '../memory.js';
 import { ZuvRequestError } from '../zuv/transport.js';
 import { BundleReadCache, bundleFingerprint, snapshotBundle } from './bundle-snapshot.js';
 import { sha256 } from './crypto.js';
@@ -229,7 +229,7 @@ export class SyncFilesCapture {
         const bytes = await readFile(path);
         const after = await lstat(path);
         if (info.ino !== after.ino || info.mtimeMs !== after.mtimeMs || info.size !== after.size)
-          continue;
+          throw new ZuvRequestError('REVISION_CONFLICT');
         const fingerprint = sha256(bytes);
         let entity = this.#storage.sync.localEntity(vault.vaultId, key);
         const baseline = entity && this.#storage.sync.fileBaseline(vault.vaultId, entity.entityId);
@@ -246,6 +246,8 @@ export class SyncFilesCapture {
         )
           continue;
         const markdown = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        if (!validMemoryMarkdown(scope.scope, name, markdown))
+          throw new ZuvRequestError('INTEGRITY_FAILED');
         this.#storage.transaction(() => {
           if (!entity) {
             entity = {

@@ -61,6 +61,50 @@ function fixture(name: string) {
 }
 
 describe('portable local data', () => {
+  it.each(['inbox', 'outbox'] as const)(
+    'exports verified local facts while %s content is unavailable',
+    async (direction) => {
+      const h = fixture(`pending-${direction}`);
+      const operation: SyncOperation = {
+        protocol: 'wevir-sync/1',
+        vaultId: 'vault_synthetic',
+        opId: 'pending_operation',
+        entityId: 'pending_entity',
+        entityType: 'memory',
+        kind: 'put',
+        parents: [],
+        deviceId: 'device_remote',
+        deviceSeq: '1',
+        clientTime: '2026-11-15T00:00:00.000Z',
+        payload: { blobId: 'pending_blob', recordIndex: 0 },
+      };
+      h.storage.transaction(() =>
+        h.storage.sync.putOperation({
+          ...operation,
+          envelope: operation,
+          manifest: { opId: operation.opId, ...operation.payload },
+          digest: 'fixture',
+          direction,
+          state: direction === 'inbox' ? 'received' : 'queued',
+        }),
+      );
+      if (direction === 'outbox') {
+        await expect(h.portable.exportLocal()).rejects.toMatchObject({ code: 'BLOB_INCOMPLETE' });
+        return;
+      }
+      const exported = await h.portable.exportLocal();
+      const manifest = PortableManifestSchema.parse(
+        JSON.parse(await readFile(join(exported.path, 'manifest.json'), 'utf8')),
+      );
+      expect(manifest.entries.some((entry) => entry.opId === operation.opId)).toBe(false);
+      expect(manifest.omissions).toContain(
+        'vault_synthetic/pending_operation: incoming content not verified locally',
+      );
+      expect(h.storage.sync.getOperation(operation.vaultId, operation.opId)?.state).toBe(
+        'received',
+      );
+    },
+  );
   it('rejects a tampered fixed-snapshot proof against a locally pinned signing key', async () => {
     const source = fixture('proof-source'),
       target = fixture('proof-target');

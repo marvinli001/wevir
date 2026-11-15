@@ -107,11 +107,10 @@ export const messages: Messages = {
   'portable.state.approved': 'Genehmigt',
   'portable.state.completed': 'Abgeschlossen',
   'portable.state.cancelled': 'Abgebrochen',
-  'portable.completeConsequence':
-    'Die Wiederherstellung erneuert Schlüssel und widerruft andere Geräte',
+  'portable.completeConsequence': 'Schlüsselrotation; Widerruf anderer Geräte',
   'portable.deleteConsequence':
-    'Cloud-Daten werden gemäß Aufbewahrungsregeln gelöscht; lokale Kopien bleiben',
-  'portable.detachConsequence': 'Die Synchronisierung endet; lokale Daten bleiben erhalten',
+    'Cloud-Löschung nach Aufbewahrungsrichtlinie; lokale Kopien bleiben',
+  'portable.detachConsequence': 'Sync beendet; lokale Daten bleiben',
   'portable.more': 'Mehr',
   'portable.confirm': 'Bestätigen',
   'portable.workspace': 'Arbeitsbereichsdaten',

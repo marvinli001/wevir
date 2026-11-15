@@ -163,6 +163,117 @@ async function setup(fetcher?: typeof fetch) {
 }
 
 describe('durable encrypted synchronization over HTTP', () => {
+  it.each(['upload', 'download'] as const)(
+    'resumes an intentionally cancelled %s without corruption or failure backoff',
+    async (direction) => {
+      const { first, second } = await setup();
+      await first.enable();
+      await second.enable();
+      const opId = first.enqueue('Preserved across local cancellation') as string;
+      if (direction === 'download') await first.engine.run();
+      const peer = direction === 'upload' ? first : second;
+      const failedTransfer = vi
+        .spyOn(peer.client, 'transfer')
+        .mockRejectedValueOnce(new ZuvRequestError('NETWORK_ERROR'));
+      await expect(peer.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+      const blob = peer.storage.db.prepare('SELECT blob_id,retry_at FROM sync_blobs LIMIT 1').get();
+      expect(Number(blob?.retry_at)).toBeGreaterThan(Date.now());
+      peer.storage.db.prepare('UPDATE sync_blobs SET retry_at=0').run();
+      let entered = false;
+      failedTransfer.mockImplementationOnce(async (input) => {
+        const signal = input.signal;
+        if (!signal) throw new Error('missing transfer cancellation signal');
+        entered = true;
+        return new Promise((_, reject) =>
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+        );
+      });
+      const pending = peer.engine.run();
+      await vi.waitFor(() => expect(entered).toBe(true));
+      peer.engine.stop();
+      await expect(pending).resolves.toBe(false);
+      expect(peer.storage.sync.counts(peer.opened.vaultId).quarantined).toBe(0);
+      expect(peer.storage.sync.blob(peer.opened.vaultId, String(blob?.blob_id))?.retryAt).toBe(0);
+      failedTransfer.mockRestore();
+      peer.engine.restart();
+      await expect(peer.engine.run()).resolves.toBe(true);
+      expect(peer.storage.sync.getOperation(peer.opened.vaultId, opId)?.state).toBe(
+        direction === 'upload' ? 'committed' : 'applied',
+      );
+    },
+  );
+  it('retries request-body integrity failures with the original commit only after NOT_FOUND', async () => {
+    const bodies: string[] = [];
+    const { first, server } = await setup(async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith('/commits') && init?.method === 'POST') {
+        bodies.push(Buffer.from(init.body as Uint8Array).toString());
+        if (bodies.length === 1)
+          return Response.json(
+            {
+              error: {
+                code: 'INTEGRITY_FAILED',
+                message: 'INTEGRITY_FAILED',
+                details: { stage: 'request_body' },
+              },
+            },
+            { status: 400 },
+          );
+      }
+      return fetch(input, init);
+    });
+    await first.enable();
+    const opId = first.enqueue('Synthetic intact local commit');
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'INTEGRITY_FAILED' });
+    expect(first.storage.sync.commits(first.opened.vaultId)[0]?.outcome).toBe('uncertain');
+    await expect(first.engine.run()).resolves.toBe(true);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toBe(bodies[0]);
+    expect(server.requests.some((path) => path.includes('/commits/'))).toBe(true);
+    expect(first.storage.sync.getOperation(first.opened.vaultId, opId as string)?.state).toBe(
+      'committed',
+    );
+  });
+  it('rejects an aborted commit discovered by GET and lets unrelated outbound work continue', async () => {
+    let aborted = '';
+    const { first, server } = await setup(async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/commits') && init?.method === 'POST' && !aborted) {
+        aborted = JSON.parse(Buffer.from(init.body as Uint8Array).toString()).commitId;
+        throw new TypeError('Synthetic connection lost after dispatch');
+      }
+      if (path.endsWith(`/commits/${aborted}`) && init?.method === 'GET')
+        return Response.json(
+          { error: { code: 'REVISION_CONFLICT', message: 'Aborted commit' } },
+          { status: 409 },
+        );
+      return fetch(input, init);
+    });
+    await first.enable();
+    first.enqueue('Aborted revision');
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    first.storage.db.prepare('UPDATE sync_commits SET retry_at=0').run();
+    await expect(first.engine.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    expect(first.storage.sync.commits(first.opened.vaultId)[0]).toMatchObject({
+      outcome: 'rejected',
+      errorCode: 'REVISION_CONFLICT',
+    });
+    first.enqueue('Unrelated revision', 'global/unrelated.md');
+    await expect(first.engine.run()).resolves.toBe(true);
+    expect(server.sync.attempts.commits).toBe(1);
+  });
+  it('preserves the server pending-commit retry interval in the HTTP fixture', async () => {
+    const { server, first, second } = await setup();
+    await first.enable();
+    await second.enable();
+    server.sync.pendingCommits = true;
+    first.enqueue('First pending revision');
+    await first.engine.run();
+    second.enqueue('Concurrent revision');
+    await expect(second.engine.run()).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      retryAfterMs: 1000,
+    });
+  });
   it('skips definite rejected commits during RESET reconciliation', async () => {
     const { first } = await setup(async (input, init) => {
       if (new URL(String(input)).pathname.endsWith('/commits') && init?.method === 'POST')

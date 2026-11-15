@@ -1,5 +1,5 @@
 import type { Session } from '@wevir/protocol';
-import type { ReactNode } from 'react';
+import type { EffectCallback, ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { findElement, hooks } from '../test-hooks.test-utils';
 import { FromHistoryDialog } from './from-history-dialog';
@@ -8,7 +8,7 @@ const h = vi.hoisted(() => ({ request: vi.fn(), change: vi.fn() }));
 vi.mock('react', async (original) => ({
   ...(await original<typeof import('react')>()),
   ...(await import('../test-hooks.test-utils')),
-  useEffect: () => {},
+  useEffect: (effect: EffectCallback) => hooks.effects.push(effect),
   useId: () => 'trust_fixture',
 }));
 vi.mock('@/host/host-connection', () => ({
@@ -36,6 +36,18 @@ afterEach(() => {
 });
 
 describe('history continuation dismissal', () => {
+  it('clears the previous error when the dialog closes', () => {
+    hooks.reset([undefined, false, 'Previous failure']);
+    hooks.render(() =>
+      FromHistoryDialog({
+        session: { id: 'ses_fixture', workspaceId: 'ws_fixture' } as unknown as Session,
+        open: false,
+        onOpenChange: h.change,
+      }),
+    );
+    hooks.effects[0]?.();
+    expect(hooks.values[2]).toBeUndefined();
+  });
   it('keeps trusted paths outside the checkbox label and describes them by ID', () => {
     hooks.reset([
       undefined,

@@ -582,6 +582,7 @@ export function ZuvRecoverySection({
             }
             setConfirm(undefined);
             if (confirm === 'delete' || confirm === 'detach' || confirm === 'complete') {
+              setInfo(undefined);
               setSnapshot(undefined);
               void Promise.all([
                 client.request('sync.recoveryInfo', {}).then(setInfo),

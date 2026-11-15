@@ -30,7 +30,7 @@ export class SyncExecutions {
   readonly #pending = new Set<Promise<void>>();
   readonly #preparing = new Map<
     string,
-    { turnId: TurnId; abort: AbortController; finished: boolean }
+    { turnId: TurnId; abort: AbortController; finished: boolean; task?: Promise<void> }
   >();
   #abort = new AbortController();
 
@@ -63,13 +63,23 @@ export class SyncExecutions {
   }
 
   prepare(sessionId: SessionId, turnId: TurnId): Promise<void> {
-    const claim = { turnId, abort: new AbortController(), finished: false };
-    this.#preparing.get(sessionId)?.abort.abort();
+    const previous = this.#preparing.get(sessionId);
+    const claim = {
+      turnId,
+      abort: new AbortController(),
+      finished: false,
+      task: undefined as Promise<void> | undefined,
+    };
+    if (previous && !previous.finished) previous.abort.abort();
     this.#preparing.set(sessionId, claim);
-    const task = this.#prepare(sessionId, turnId, claim).finally(() => {
+    const task = (async () => {
+      if (previous?.finished) await previous.task;
+      await this.#prepare(sessionId, turnId, claim);
+    })().finally(() => {
       if (this.#preparing.get(sessionId) === claim) this.#preparing.delete(sessionId);
       this.#pending.delete(task);
     });
+    claim.task = task;
     this.#pending.add(task);
     return task;
   }
@@ -158,7 +168,8 @@ export class SyncExecutions {
       branchRequired ||= result.branchRequired;
       if (result.branchRequired) value.streamId = newId('sst');
       if (claim.finished) {
-        await this.#release(value);
+        this.#save(value, branchRequired);
+        await this.#trackRelease(value);
         return;
       }
     } catch (error) {
@@ -186,12 +197,7 @@ export class SyncExecutions {
     clearTimeout(active.timer);
     this.#active.delete(sessionId);
     if (active.value.state === 'claimed') {
-      const task = this.#release(active.value).finally(() => {
-        this.#releasing.delete(sessionId);
-        this.#pending.delete(task);
-      });
-      this.#releasing.set(sessionId, task);
-      this.#pending.add(task);
+      void this.#trackRelease(active.value);
     }
   }
 
@@ -284,6 +290,17 @@ export class SyncExecutions {
       this.#save(lost, true);
       this.#active.set(sessionId, { value: lost });
     }
+  }
+
+  #trackRelease(value: SyncExecutionRecord): Promise<void> {
+    const sessionId = value.localSessionId;
+    const task = this.#release(value).finally(() => {
+      if (this.#releasing.get(sessionId) === task) this.#releasing.delete(sessionId);
+      this.#pending.delete(task);
+    });
+    this.#releasing.set(sessionId, task);
+    this.#pending.add(task);
+    return task;
   }
 
   async #release(value: SyncExecutionRecord): Promise<void> {

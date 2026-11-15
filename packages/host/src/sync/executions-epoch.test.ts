@@ -131,6 +131,57 @@ function fixture() {
 }
 
 describe('authoritative execution epoch recovery', () => {
+  it.each([false, true])(
+    'waits for a finished claim and its release before the next turn (legacy=%s)',
+    async (legacy) => {
+      const f = fixture();
+      if (legacy) f.read.mockResolvedValue(undefined as never);
+      let grant!: () => void, release!: () => void;
+      const claimGate = new Promise<void>((resolve) => {
+        grant = resolve;
+      });
+      const releaseGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let epoch = 1;
+      f.request.mockImplementation(async (_name, _method, path, body) => {
+        const input = body as { expectedEpoch: string };
+        expect(input.expectedEpoch).toBe(String(epoch));
+        if (path.endsWith('/claim')) {
+          epoch++;
+          if (epoch === 2) await claimGate;
+        } else await releaseGate;
+        return {
+          runId: f.native.id,
+          epoch: String(epoch),
+          fencingToken: 'fence_synthetic',
+          expiresAt: new Date(Date.now() + 30000).toISOString(),
+          branchRequired: false,
+        };
+      });
+      const first = f.prepare();
+      await vi.waitFor(() => expect(f.request).toHaveBeenCalledOnce());
+      f.executions.finish(f.native.id as SessionId, 'trn_synthetic');
+      const second = f.executions.prepare(f.native.id as SessionId, 'trn_next');
+      try {
+        expect(f.request.mock.calls[0]?.[4]?.signal?.aborted).toBe(false);
+        grant();
+        await vi.waitFor(() =>
+          expect(f.request.mock.calls.some((call) => call[2].endsWith('/release'))).toBe(true),
+        );
+        expect(f.request.mock.calls.filter((call) => call[2].endsWith('/claim'))).toHaveLength(1);
+        expect(f.current()).toMatchObject({ epoch: '2', turnId: 'trn_synthetic' });
+        release();
+        await Promise.all([first, second]);
+        expect(f.current()).toMatchObject({ epoch: '3', state: 'claimed', turnId: 'trn_next' });
+        expect(f.read).not.toHaveBeenCalled();
+      } finally {
+        grant();
+        release();
+        await Promise.allSettled([first, second]);
+      }
+    },
+  );
   it('recovers a stale released epoch with one query and one CAS retry', async () => {
     const f = fixture();
     await f.prepare();

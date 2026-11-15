@@ -25,6 +25,7 @@ export class ZuvRequestError extends Error {
     readonly code: ErrorCode | 'NETWORK_ERROR' | 'INVALID_RESPONSE',
     readonly status = 0,
     readonly retryAfterMs?: number,
+    readonly details?: Record<string, string | string[]>,
   ) {
     super(code);
     this.name = 'ZuvRequestError';
@@ -257,6 +258,7 @@ export class ZuvTransport {
         error.success ? error.data.error.code : 'INVALID_RESPONSE',
         response.status,
         retryAfterMs,
+        error.success ? error.data.error.details : undefined,
       );
     }
     return { bytes, status: response.status, headers: response.headers };

@@ -63,6 +63,7 @@ export class SyncEngine {
   readonly #options: SyncEngineOptions;
   #running: Promise<boolean> | undefined;
   #missingAt = 0;
+  #retention: { vaultId: string; rowId: number; nextAt: number } | undefined;
   #abort = new AbortController();
   constructor(options: SyncEngineOptions) {
     this.#options = options;
@@ -249,7 +250,19 @@ export class SyncEngine {
       await this.#prepare(vault, signal);
       await this.#push(vault, signal);
       this.#guard(vault, signal);
-      await collectSyncRecords(this.#options.storage, this.#options.cache, vault.vaultId);
+      const rowId = Number(
+        this.#options.storage.db
+          .prepare('SELECT MAX(rowid) AS revision FROM sync_operations WHERE vault_id=?')
+          .get(vault.vaultId)?.revision ?? 0,
+      );
+      if (
+        this.#retention?.vaultId !== vault.vaultId ||
+        this.#retention.rowId !== rowId ||
+        this.#retention.nextAt <= Date.now()
+      ) {
+        await collectSyncRecords(this.#options.storage, this.#options.cache, vault.vaultId);
+        this.#retention = { vaultId: vault.vaultId, rowId, nextAt: Date.now() + 10 * 60 * 1000 };
+      }
       this.#guard(vault, signal);
       this.#state(
         vault.vaultId,
@@ -683,7 +696,10 @@ export class SyncEngine {
         this.#commitResult(vault, queried, result, batch.operations);
         return;
       } catch (error) {
-        if (!(error instanceof ZuvRequestError) || error.code !== 'NOT_FOUND') throw error;
+        if (!(error instanceof ZuvRequestError) || error.code !== 'NOT_FOUND') {
+          this.#rejectCommit(vault, queried, batch.operations, error);
+          throw error;
+        }
       }
     }
 
@@ -724,46 +740,57 @@ export class SyncEngine {
         ].includes(error.code)
       )
         storage.transaction(() => storage.sync.putCommit({ ...commit, attempts: 0, queries: 0 }));
-      if (
-        error instanceof ZuvRequestError &&
-        error.status >= 400 &&
-        error.status < 500 &&
-        COMMIT_REJECTIONS.has(error.code)
-      ) {
-        storage.transaction(() => {
-          storage.sync.putCommit({
-            ...attempted,
-            outcome: 'rejected',
-            errorCode: error.code,
-            retryAt: 0,
-          });
-          for (const op of batch.operations) {
-            const entity = storage.sync.entity(vault.vaultId, op.entityId);
-            if (op.kind === 'resolve' && entity?.revision === op.opId) {
-              storage.sync.putEntity({ ...entity, revision: undefined });
-              storage.db
-                .prepare('DELETE FROM sync_heads WHERE vault_id=? AND entity_id=? AND op_id=?')
-                .run(vault.vaultId, op.entityId, op.opId);
-              for (const parent of op.parents) {
-                const descendant = storage.db
-                  .prepare(`SELECT 1 FROM sync_operations o LEFT JOIN sync_commits c
-                  ON c.vault_id=o.vault_id AND c.commit_id=o.commit_id
-                  WHERE o.vault_id=? AND o.entity_id=? AND o.state IN ('queued','pending','committed','applied')
-                  AND coalesce(c.outcome,'ready')!='rejected'
-                  AND ? IN (SELECT value FROM json_each(o.envelope,'$.parents')) LIMIT 1`)
-                  .get(vault.vaultId, op.entityId, parent);
-                if (!descendant)
-                  storage.db
-                    .prepare(
-                      'INSERT OR IGNORE INTO sync_heads (vault_id,entity_id,op_id) VALUES (?,?,?)',
-                    )
-                    .run(vault.vaultId, op.entityId, parent);
-              }
+      this.#rejectCommit(vault, attempted, batch.operations, error);
+      throw error;
+    }
+  }
+
+  #rejectCommit(
+    vault: SyncVaultRecord,
+    commit: SyncCommitRecord,
+    operations: SyncOperation[],
+    error: unknown,
+  ): void {
+    const { storage } = this.#options;
+    if (
+      error instanceof ZuvRequestError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      COMMIT_REJECTIONS.has(error.code) &&
+      !(error.code === 'INTEGRITY_FAILED' && error.details?.stage === 'request_body')
+    ) {
+      storage.transaction(() => {
+        storage.sync.putCommit({
+          ...commit,
+          outcome: 'rejected',
+          errorCode: error.code,
+          retryAt: 0,
+        });
+        for (const op of operations) {
+          const entity = storage.sync.entity(vault.vaultId, op.entityId);
+          if (op.kind === 'resolve' && entity?.revision === op.opId) {
+            storage.sync.putEntity({ ...entity, revision: undefined });
+            storage.db
+              .prepare('DELETE FROM sync_heads WHERE vault_id=? AND entity_id=? AND op_id=?')
+              .run(vault.vaultId, op.entityId, op.opId);
+            for (const parent of op.parents) {
+              const descendant = storage.db
+                .prepare(`SELECT 1 FROM sync_operations o LEFT JOIN sync_commits c
+                ON c.vault_id=o.vault_id AND c.commit_id=o.commit_id
+                WHERE o.vault_id=? AND o.entity_id=? AND o.state IN ('queued','pending','committed','applied')
+                AND coalesce(c.outcome,'ready')!='rejected'
+                AND ? IN (SELECT value FROM json_each(o.envelope,'$.parents')) LIMIT 1`)
+                .get(vault.vaultId, op.entityId, parent);
+              if (!descendant)
+                storage.db
+                  .prepare(
+                    'INSERT OR IGNORE INTO sync_heads (vault_id,entity_id,op_id) VALUES (?,?,?)',
+                  )
+                  .run(vault.vaultId, op.entityId, parent);
             }
           }
-        });
-      }
-      throw error;
+        }
+      });
     }
   }
 
@@ -837,42 +864,51 @@ export class SyncEngine {
       uploadAttempts: blob.uploadAttempts + 1,
       retryAt: Date.now() + TRANSFER_RETRY_MS,
     });
-    const reserved = await client.json(
-      'blobReserved',
-      'POST',
-      '/api/wevir/sync/v1/blobs/reserve',
-      {
-        blobId,
-        cipherBytes: bytes.length,
-        cipherSha256: blob.cipherSha256,
-        purpose,
-      },
-      { signal },
-    );
-    if (Date.parse(reserved.expiresAt) <= Date.now()) throw new ZuvRequestError('RATE_LIMITED');
-    this.#guard(vault, signal);
-    storage.sync.putBlob({
-      ...blob,
-      state: 'reserved',
-      retryAt: Date.now() + TRANSFER_RETRY_MS,
-      uploadAttempts: blob.uploadAttempts + 1,
-      uploadId: reserved.uploadId,
-      uploadExpiresAt: reserved.expiresAt,
-    });
-    const uploaded = await client.transfer({
-      method: 'PUT',
-      path: `/api/wevir/sync/v1/uploads/${reserved.uploadId}`,
-      body: bytes,
-      contentType: 'application/octet-stream',
-      maxBytes: 8192,
-      signal,
-      transfer: this.#transferLimits(),
-    });
-    const result = schemas.uploaded.safeParse(JSON.parse(uploaded.bytes.toString('utf8')));
-    if (!result.success || result.data.blobId !== blobId)
-      throw new ZuvRequestError('INTEGRITY_FAILED');
-    this.#guard(vault, signal);
-    storage.sync.putBlob({ ...blob, state: 'ready', uploadAttempts: 0, retryAt: 0 });
+    try {
+      const reserved = await client.json(
+        'blobReserved',
+        'POST',
+        '/api/wevir/sync/v1/blobs/reserve',
+        {
+          blobId,
+          cipherBytes: bytes.length,
+          cipherSha256: blob.cipherSha256,
+          purpose,
+        },
+        { signal },
+      );
+      if (Date.parse(reserved.expiresAt) <= Date.now()) throw new ZuvRequestError('RATE_LIMITED');
+      this.#guard(vault, signal);
+      storage.sync.putBlob({
+        ...blob,
+        state: 'reserved',
+        retryAt: Date.now() + TRANSFER_RETRY_MS,
+        uploadAttempts: blob.uploadAttempts + 1,
+        uploadId: reserved.uploadId,
+        uploadExpiresAt: reserved.expiresAt,
+      });
+      const uploaded = await client.transfer({
+        method: 'PUT',
+        path: `/api/wevir/sync/v1/uploads/${reserved.uploadId}`,
+        body: bytes,
+        contentType: 'application/octet-stream',
+        maxBytes: 8192,
+        signal,
+        transfer: this.#transferLimits(),
+      });
+      const result = schemas.uploaded.safeParse(JSON.parse(uploaded.bytes.toString('utf8')));
+      if (!result.success || result.data.blobId !== blobId)
+        throw new ZuvRequestError('INTEGRITY_FAILED');
+      this.#guard(vault, signal);
+      storage.sync.putBlob({ ...blob, state: 'ready', uploadAttempts: 0, retryAt: 0 });
+    } catch (error) {
+      if (signal.aborted) {
+        const current = storage.sync.blob(vault.vaultId, blobId);
+        if (current?.uploadAttempts === blob.uploadAttempts + 1)
+          storage.sync.putBlob({ ...current, retryAt: 0 });
+      }
+      throw error;
+    }
   }
 
   #commitResult(
@@ -1085,6 +1121,7 @@ export class SyncEngine {
           records = (await decryptPack(bytes, key, operations, manifests)).records;
         }
       } catch (error) {
+        if (signal.aborted) throw error;
         if (error instanceof ZuvRequestError && error.code !== 'INTEGRITY_FAILED') throw error;
         if (
           ['ENOSPC', 'EACCES', 'EPERM', 'EROFS', 'EIO', 'EMFILE', 'ENFILE'].includes(

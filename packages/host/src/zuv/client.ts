@@ -65,6 +65,7 @@ export class ZuvClient {
   readonly #writes = new Set<Promise<unknown>>();
   #persistence: Promise<unknown> = Promise.resolve();
   #executionStateUnavailable: { generation: number; until: number } | undefined;
+  readonly #inferenceTokens = new Set<string>();
 
   constructor(options: ZuvClientOptions) {
     this.#options = options;
@@ -79,6 +80,7 @@ export class ZuvClient {
 
   async close(): Promise<void> {
     this.#closed = true;
+    this.#inferenceTokens.clear();
     const generation = ++this.#generation;
     this.#abort.abort();
     await this.#identityWrites;
@@ -154,6 +156,7 @@ export class ZuvClient {
     name: string,
     deviceType: 'desktop' | 'cli' | 'mobile' | 'browser' = 'desktop',
   ): Promise<Enrollment> {
+    this.#inferenceTokens.clear();
     const generation = ++this.#generation;
     this.#refreshFailure = undefined;
     this.#identityTransitions++;
@@ -249,12 +252,14 @@ export class ZuvClient {
   async cancelEnrollment(enrollmentId?: string): Promise<void> {
     if (enrollmentId !== undefined && enrollmentId !== this.#pending?.started.enrollmentId) return;
     this.#generation++;
+    this.#inferenceTokens.clear();
     await this.#persist(() => this.#options.secrets.delete(ENROLLMENT_SECRET));
     this.#pending = undefined;
   }
 
   async logout(): Promise<void> {
     this.#generation++;
+    this.#inferenceTokens.clear();
     this.#identityTransitions++;
     try {
       await this.#options.onIdentityChanging?.();
@@ -411,6 +416,7 @@ export class ZuvClient {
     this.#inferenceScope();
     const proof = await this.#proof();
     this.#inferenceScope();
+    this.#inferenceTokens.add(`DPoP ${proof.secret}`);
     return {
       headers: {
         authorization: `DPoP ${proof.secret}`,
@@ -424,13 +430,9 @@ export class ZuvClient {
   async inferenceDenied(authorization: string, status: 401 | 403): Promise<boolean> {
     const identity = this.#identity;
     const generation = this.#generation;
-    if (
-      !identity ||
-      authorization !== `DPoP ${identity.tokens.accessToken}` ||
-      this.#closed ||
-      this.changingIdentity
-    )
-      return false;
+    if (!identity || this.#closed || this.changingIdentity) return false;
+    if (authorization !== `DPoP ${identity.tokens.accessToken}`)
+      return status === 401 && this.#inferenceTokens.has(authorization);
     if (status === 401) {
       if (this.#refreshing) await this.#refreshing;
       else if (authorization === `DPoP ${identity.tokens.accessToken}`) await this.#refreshAccess();

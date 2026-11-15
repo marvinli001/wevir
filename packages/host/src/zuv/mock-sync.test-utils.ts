@@ -13,6 +13,7 @@ export class MockSyncError extends Error {
   constructor(
     readonly code: string,
     readonly status = 400,
+    readonly retryAfterMs?: number,
   ) {
     super(code);
   }
@@ -517,7 +518,7 @@ export class MockSyncGateway {
         if (jcs(previous.batch) !== jcs(batch)) throw new MockSyncError('OP_ID_REUSED', 409);
       } else {
         if ([...vault.commits.values()].some((commit) => commit.state === 'pending'))
-          throw new MockSyncError('RATE_LIMITED', 429);
+          throw new MockSyncError('RATE_LIMITED', 429, 1000);
         for (const operation of batch.operations) {
           const manifest = batch.recordManifest.find(
             (entry) => entry.opId === operation.opId,

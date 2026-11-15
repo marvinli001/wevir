@@ -143,8 +143,19 @@ describe('execution claim lifecycle fencing', () => {
         expect(storage.sync.execution('vault_synthetic', native.id)?.state).toBe('claimed');
         return;
       }
-      expect(storage.sync.execution('vault_synthetic', native.id)).toBeUndefined();
-      expect(events.state(native.id as SessionId)?.syncExecution).toBeUndefined();
+      if (change === 'finish') {
+        expect(storage.sync.execution('vault_synthetic', native.id)).toMatchObject({
+          epoch: '1',
+          state: 'released',
+        });
+        expect(events.state(native.id as SessionId)?.syncExecution).toMatchObject({
+          epoch: '1',
+          state: 'released',
+        });
+      } else {
+        expect(storage.sync.execution('vault_synthetic', native.id)).toBeUndefined();
+        expect(events.state(native.id as SessionId)?.syncExecution).toBeUndefined();
+      }
       expect(request).toHaveBeenCalledTimes(change === 'finish' ? 2 : 1);
     },
     20000,

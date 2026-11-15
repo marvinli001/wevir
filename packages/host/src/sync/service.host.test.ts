@@ -15,26 +15,40 @@ import { TestRpcClient, useTempDir } from '../test-utils.js';
 import { ZuvClient } from '../zuv/client.js';
 import { startMockZuv } from '../zuv/mock.test-utils.js';
 import { ZuvRequestError } from '../zuv/transport.js';
+import { SyncFilesCapture } from './files-capture.js';
 import { SyncPortable } from './portable.js';
+import { SyncService } from './service.js';
 import { SyncSnapshots } from './snapshots.js';
 
 const watches = vi.hoisted(() => ({
   failure: '',
   paths: [] as Array<{ path: string; recursive: boolean | undefined }>,
+  manual: false,
+  listeners: new Map<string, import('node:fs').WatchListener<string | Buffer>>(),
+  handles: new Map<string, import('node:fs').FSWatcher>(),
 }));
 vi.mock('node:fs', async (importOriginal) => {
   const fs = await importOriginal<typeof import('node:fs')>();
   return {
     ...fs,
-    watch: (...args: Parameters<typeof fs.watch>) => {
-      const path = String(args[0]);
+    watch: (
+      filename: import('node:fs').PathLike,
+      options: import('node:fs').WatchOptions,
+      listener: import('node:fs').WatchListener<string | Buffer>,
+    ) => {
+      const path = String(filename);
       watches.paths.push({
         path,
-        recursive: (args[1] as unknown as { recursive?: boolean })?.recursive,
+        recursive: options.recursive,
       });
       if (watches.failure && path.includes('/memory'))
         throw Object.assign(new Error(watches.failure), { code: watches.failure });
-      return fs.watch(...args);
+      const watcher = fs.watch(filename, options, (event, name) => {
+        if (!watches.manual) listener(event, name);
+      });
+      watches.listeners.set(path, listener);
+      watches.handles.set(path, watcher);
+      return watcher;
     },
   };
 });
@@ -63,6 +77,9 @@ class SummaryEcho extends EchoAdapter {
 afterEach(async () => {
   watches.failure = '';
   watches.paths = [];
+  watches.manual = false;
+  watches.listeners.clear();
+  watches.handles.clear();
   vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -136,7 +153,10 @@ async function fixture(withTools = false) {
 
 type Peer = Awaited<ReturnType<typeof fixture>>['first'];
 async function confirmNative(peer: Peer, vaultId: string, entityId: string, name: string) {
+  // A visible head can still be applying to the managed target; drain it before taking the CAS preview.
+  await peer.rpc.request('sync.retry');
   const preview = await peer.rpc.request('sync.bundlePreview', { vaultId, entityId });
+  expect(preview.binding?.pending).toBeUndefined();
   const target = (await peer.rpc.request('sync.bundleTargets', { vaultId, entityId })).targets.find(
     (item: { managed: boolean; name: string }) => !item.managed && item.name === name,
   );
@@ -208,6 +228,144 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it('waits for filesystem bytes to settle after an early directory event', async () => {
+    const { first, second } = await fixture();
+    await first.memory.save('global', undefined, {
+      name: 'early-write',
+      type: 'project',
+      description: 'Synthetic early event',
+      content: 'Before the write',
+    });
+    const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
+    const configured = await first.rpc.request('sync.configure', scope);
+    await second.rpc.call('sync.configure', scope);
+    await first.rpc.request('sync.approveDevice', {
+      deviceId: (await second.rpc.request('sync.status')).binding.deviceId,
+    });
+    await second.rpc.request('sync.configure', scope);
+    await expect
+      .poll(
+        () =>
+          second.memory.read('global', undefined, 'early-write').then(
+            (note) => note.content,
+            () => '',
+          ),
+        { timeout: 8000 },
+      )
+      .toBe('Before the write');
+    let service!: SyncService;
+    const flush = SyncService.prototype.flush;
+    vi.spyOn(SyncService.prototype, 'flush').mockImplementation(function (this: SyncService) {
+      if (this.status().binding?.deviceId === configured.binding.deviceId) service = this;
+      return flush.call(this);
+    });
+    await first.rpc.request('sync.retry');
+    const capture = vi.spyOn(SyncFilesCapture.prototype, 'memory');
+    watches.manual = true;
+    const watcher = watches.handles.get(join(first.home, 'memory'));
+    if (!watcher) throw new Error('missing memory watcher');
+    watches.manual = false;
+    watcher.emit('change', 'change', 'global/early-write.md');
+    watches.manual = true;
+    await service.flush();
+    expect(
+      capture.mock.calls.filter(([vault]) => vault.deviceId === configured.binding.deviceId),
+    ).toHaveLength(0);
+    const path = join(first.home, 'memory/global/early-write.md');
+    const before = await readFile(path, 'utf8');
+    await writeFile(path, before.replace('Before the write', 'After the settled write'));
+    await expect
+      .poll(
+        () =>
+          second.memory.read('global', undefined, 'early-write').then(
+            (note) => note.content,
+            () => '',
+          ),
+        { timeout: 8000 },
+      )
+      .toBe('After the settled write');
+  }, 15000);
+  it.each([null, undefined])(
+    'rescans after a directory notification without a filename (%s)',
+    async (filename) => {
+      const { first, second } = await fixture();
+      const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
+      await first.rpc.request('sync.configure', scope);
+      await second.rpc.call('sync.configure', scope);
+      await first.rpc.request('sync.approveDevice', {
+        deviceId: (await second.rpc.request('sync.status')).binding.deviceId,
+      });
+      await second.rpc.request('sync.configure', scope);
+      await first.rpc.request('sync.retry');
+      await second.rpc.request('sync.retry');
+      watches.manual = true;
+      await first.memory.save('global', undefined, {
+        name: 'unnamed-event',
+        type: 'project',
+        description: 'Synthetic notification',
+        content: 'Captured without a filename',
+      });
+      const watcher = watches.handles.get(first.home);
+      if (!watcher) throw new Error('missing directory watcher');
+      watches.manual = false;
+      watcher.emit('change', 'rename', filename);
+      watches.manual = true;
+      await expect
+        .poll(
+          () =>
+            second.memory.read('global', undefined, 'unnamed-event').then(
+              (note) => note.content,
+              () => '',
+            ),
+          { timeout: 8000 },
+        )
+        .toBe('Captured without a filename');
+    },
+    15000,
+  );
+  it('captures a memory created between a scan and new-directory watcher registration', async () => {
+    const { first, second } = await fixture();
+    const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
+    const configured = await first.rpc.request('sync.configure', scope);
+    await second.rpc.call('sync.configure', scope);
+    await first.rpc.request('sync.approveDevice', {
+      deviceId: (await second.rpc.request('sync.status')).binding.deviceId,
+    });
+    await second.rpc.request('sync.configure', scope);
+    await first.rpc.request('sync.retry');
+    await second.rpc.request('sync.retry');
+    watches.manual = true;
+    const scan = SyncFilesCapture.prototype.memory;
+    let injected = false;
+    vi.spyOn(SyncFilesCapture.prototype, 'memory').mockImplementation(async function (
+      this: SyncFilesCapture,
+      vault,
+      ...args
+    ) {
+      await scan.call(this, vault, ...args);
+      if (vault.deviceId !== configured.binding.deviceId || injected) return;
+      injected = true;
+      await first.memory.save('global', undefined, {
+        name: 'watch-gap',
+        type: 'project',
+        description: 'Synthetic watch gap',
+        content: 'Captured across registration',
+      });
+      watches.listeners.get(join(first.home, 'memory'))?.('rename', 'global/watch-gap.md');
+    });
+    await mkdir(join(first.home, 'memory/global'), { recursive: true });
+    watches.listeners.get(first.home)?.('rename', 'memory');
+    await expect
+      .poll(
+        () =>
+          second.memory.read('global', undefined, 'watch-gap').then(
+            (note) => note.content,
+            () => '',
+          ),
+        { timeout: 8000 },
+      )
+      .toBe('Captured across registration');
+  }, 15000);
   it.each(['reset', 'snapshot'] as const)(
     'serializes recovery I/O when %s owns the snapshot job',
     async (owner) => {
@@ -257,7 +415,13 @@ describe('full Host material synchronization with synthetic identities', () => {
       const { first } = await fixture();
       const root = join(first.home, 'memory', 'global');
       await mkdir(root, { recursive: true });
-      for (let i = 0; i < 10; i++) await writeFile(join(root, `note-${i}.md`), `Synthetic ${i}`);
+      for (let i = 0; i < 10; i++)
+        await first.memory.save('global', undefined, {
+          name: `note-${i}`,
+          type: 'project',
+          description: 'Synthetic watcher fixture',
+          content: `Synthetic ${i}`,
+        });
       watches.failure = failure;
       watches.paths = [];
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -276,7 +440,9 @@ describe('full Host material synchronization with synthetic identities', () => {
       ).toEqual([]);
       if (failure) expect(warn).toHaveBeenCalledTimes(1);
       else
-        expect(watches.paths.find((value) => value.path === first.project)?.recursive).toBe(false);
+        expect(watches.paths.find((value) => value.path === first.project)?.recursive).toBe(
+          process.platform !== 'linux',
+        );
     },
     15000,
   );
@@ -902,32 +1068,42 @@ describe('full Host material synchronization with synthetic identities', () => {
       )
       .toBe(true);
     for (const peer of [first, second]) {
-      const preview = await peer.rpc.request('sync.bundlePreview', {
+      await confirmNative(peer, vaultId, source.entityId, 'synthetic-package');
+    }
+    await expect
+      .poll(
+        async () => {
+          const states = await Promise.all(
+            [first, second].map((peer) => peer.rpc.request('sync.status')),
+          );
+          const views = await Promise.all(
+            [first, second].map((peer) =>
+              peer.rpc.request('sync.bundlePreview', { vaultId, entityId: source.entityId }),
+            ),
+          );
+          return (
+            states.every((value) => value.pending === 0 && value.state === 'idle') &&
+            views[0].heads.length === 1 &&
+            views[1].heads.length === 1 &&
+            views[0].heads[0] === views[1].heads[0]
+          );
+        },
+        { timeout: 8000 },
+      )
+      .toBe(true);
+    for (const peer of [first, second]) {
+      const view = await peer.rpc.request('sync.bundlePreview', {
         vaultId,
         entityId: source.entityId,
       });
-      const native = (
-        await peer.rpc.request('sync.bundleTargets', { vaultId, entityId: source.entityId })
-      ).targets.find(
-        (target: { managed: boolean; name: string }) =>
-          !target.managed && target.name === 'synthetic-package',
-      );
-      if (!native) throw new Error('missing external skill target');
-      await peer.rpc.request('sync.applyBundle', {
-        vaultId,
-        entityId: source.entityId,
-        expectedHeads: preview.heads,
-        selectedOpId: preview.heads[0],
-        targetId: native.targetId,
-        fingerprint: native.fingerprint,
-      });
+      if (view.binding?.revision !== view.heads[0])
+        await confirmNative(peer, vaultId, source.entityId, 'synthetic-package');
     }
     const baseline = mock.sync
       .acceptedOperations(source.entityId)
       .map((operation) => operation.opId);
     mock.sync.pendingEntities.add(source.entityId);
     const changed = randomBytes(256 * 1024);
-    await writeFile(join(packagePath(first), 'binary.bin'), changed);
     const local = await second.rpc.request('sync.bundleFile', {
       vaultId,
       entityId: source.entityId,
@@ -941,6 +1117,9 @@ describe('full Host material synchronization with synthetic identities', () => {
       fingerprint: local.fingerprint,
       localRevision: local.localRevision,
     });
+    await writeFile(join(packagePath(first), 'binary.bin'), changed);
+    const captured = await first.rpc.call('sync.retry');
+    if (captured.error) expect(captured.error).toMatchObject({ data: { code: 'RATE_LIMITED' } });
     await expect
       .poll(
         () =>
@@ -1365,6 +1544,12 @@ describe('full Host material synchronization with synthetic identities', () => {
     'rebuilds a reset device explicitly while preserving offline edits against remote deletion=%s using %s',
     async (deleted, recovery) => {
       const { mock, first, second } = await fixture();
+      await first.memory.save('global', undefined, {
+        name: 'reset-synthetic',
+        type: 'project',
+        description: 'Synthetic reset',
+        content: 'Original shared body',
+      });
       const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
       await first.rpc.request('sync.configure', scope);
       expect((await second.rpc.call('sync.configure', scope)).error).toMatchObject({
@@ -1373,12 +1558,7 @@ describe('full Host material synchronization with synthetic identities', () => {
       const before = await second.rpc.request('sync.status');
       await first.rpc.request('sync.approveDevice', { deviceId: before.binding.deviceId });
       await second.rpc.request('sync.configure', scope);
-      await first.memory.save('global', undefined, {
-        name: 'reset-synthetic',
-        type: 'project',
-        description: 'Synthetic reset',
-        content: 'Original shared body',
-      });
+
       await expect
         .poll(
           () =>
@@ -1511,6 +1691,12 @@ describe('full Host material synchronization with synthetic identities', () => {
 
   it('previews and explicitly merges concurrent memory edits through the Host while retaining both revisions', async () => {
     const { mock, first, second } = await fixture();
+    await first.memory.save('global', undefined, {
+      name: 'synthetic-merge',
+      type: 'project',
+      description: 'Synthetic merge',
+      content: 'Alpha\n\nMiddle\n\nOmega',
+    });
     const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
     await first.rpc.request('sync.configure', scope);
     expect((await second.rpc.call('sync.configure', scope)).error).toMatchObject({
@@ -1519,12 +1705,7 @@ describe('full Host material synchronization with synthetic identities', () => {
     const status = await second.rpc.request('sync.status');
     await first.rpc.request('sync.approveDevice', { deviceId: status.binding.deviceId });
     await second.rpc.request('sync.configure', scope);
-    await first.memory.save('global', undefined, {
-      name: 'synthetic-merge',
-      type: 'project',
-      description: 'Synthetic merge',
-      content: 'Alpha\n\nMiddle\n\nOmega',
-    });
+
     await expect
       .poll(
         async () =>
@@ -1551,7 +1732,14 @@ describe('full Host material synchronization with synthetic identities', () => {
       [second, 'Alpha\n\nMiddle\n\nRemote omega'],
     ] as const) {
       const note = await peer.memory.read('global', undefined, 'synthetic-merge');
-      await peer.memory.update('global', undefined, 'synthetic-merge', note.revision, { content });
+      const updated = await peer.rpc.request('memory.update', {
+        scope: 'global',
+        name: 'synthetic-merge',
+        revision: note.revision,
+        content,
+      });
+      expect(updated.conflict).not.toBe(true);
+      expect(updated.note.content).toBe(content);
     }
     await expect
       .poll(() => mock.sync.attempts.commits, { timeout: 8000 })
@@ -2681,9 +2869,11 @@ describe('full Host material synchronization with synthetic identities', () => {
         { timeout: 8000 },
       )
       .toBe('Before consent');
+    watches.manual = true;
     const path = join(first.home, 'memory/global/synthetic-note.md');
     const before = await readFile(path, 'utf8');
     await writeFile(path, before.replace('Before consent', 'After direct filesystem edit'));
+    await first.rpc.request('sync.retry');
     await expect
       .poll(
         async () =>

@@ -183,8 +183,10 @@ export async function invalidateBrowserLibrary() {
 export async function bindBrowserLibrary(hostId: string, clientId: string) {
   try {
     await bind(hostId, clientId);
+    return !blocked && activeScope === `${hostId}/${clientId}`;
   } catch (error) {
     console.warn('Offline library unavailable', error);
+    return false;
   }
 }
 async function bind(hostId: string, clientId: string) {
@@ -214,10 +216,10 @@ async function bind(hostId: string, clientId: string) {
 }
 export const browserDrafts = new PersistentDrafts({
   get: async (key) => {
-    if (blocked) return undefined;
+    if (blocked) throw new Error('browser cache is unavailable');
     const generation = cacheGeneration;
     const row = await transaction<unknown>('readonly', (store) => store.get(`draft/${key}`));
-    if (generation !== cacheGeneration || blocked) return undefined;
+    if (generation !== cacheGeneration || blocked) throw new Error('browser cache is unavailable');
     return typeof row === 'string'
       ? row
       : (row as { kind?: string; value?: string } | null)?.kind === 'draft'

@@ -22,7 +22,7 @@ import { t } from '@/i18n';
 import { capabilities } from '@/platform/platform';
 
 export function OfflineLibrary() {
-  const { client, view, identity } = useHostConnection();
+  const { client, view, identity, libraryStatus } = useHostConnection();
   const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState<OfflineConversation[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -42,6 +42,7 @@ export function OfflineLibrary() {
     : undefined;
   const scope = useRef(draftKey);
   scope.current = draftKey;
+  const readKey = useRef<string | undefined>(undefined);
   const browser = !capabilities().localHost;
   const reset = useCallback(() => {
     setSaved([]);
@@ -57,7 +58,7 @@ export function OfflineLibrary() {
   }, []);
   useEffect(() => (browser ? watchBrowserLibrary(reset) : undefined), [browser, reset]);
   useEffect(() => {
-    if (!browser || !open) return;
+    if (!browser || !open || libraryStatus === 'loading') return;
     let active = true;
     void browserConversations().then(
       (value) => {
@@ -79,14 +80,15 @@ export function OfflineLibrary() {
     return () => {
       active = false;
     };
-  }, [open, browser, client, online]);
+  }, [open, browser, client, online, libraryStatus]);
   useEffect(() => {
     setError(undefined);
     setReady(false);
     setLoadedDraftKey(undefined);
     setSendUncertain(false);
-    edited.current = false;
-    if (!draftKey) return;
+    if (readKey.current !== draftKey) edited.current = false;
+    readKey.current = draftKey;
+    if (!draftKey || libraryStatus === 'loading') return;
     let live = true;
     void browserDrafts.readState(draftKey).then(
       (value) => {
@@ -100,21 +102,25 @@ export function OfflineLibrary() {
       () => {
         if (live) {
           setError(t('portable.storageError'));
-          setReady(true);
-          setLoadedDraftKey(draftKey);
         }
       },
     );
     return () => {
       live = false;
     };
-  }, [draftKey]);
+  }, [draftKey, libraryStatus]);
   useEffect(() => {
-    if (draftKey && ready && loadedDraftKey === draftKey)
+    if (
+      draftKey &&
+      ready &&
+      loadedDraftKey === draftKey &&
+      libraryStatus !== 'loading' &&
+      libraryStatus !== 'failed'
+    )
       void browserDrafts
         .writeState(draftKey, { text: draft, uncertain: sendUncertain })
         .catch(() => setError(t('portable.storageError')));
-  }, [draftKey, draft, ready, loadedDraftKey, sendUncertain]);
+  }, [draftKey, draft, ready, loadedDraftKey, sendUncertain, libraryStatus]);
   const selectedSessionId = current?.session.id;
   const selectedHostId = current?.hostId;
   const selectedClientId = current?.clientId;
@@ -122,6 +128,8 @@ export function OfflineLibrary() {
     if (
       !open ||
       !online ||
+      libraryStatus === 'loading' ||
+      libraryStatus === 'failed' ||
       !client ||
       !selectedSessionId ||
       selectedHostId !== client.hello.hostId ||
@@ -189,6 +197,7 @@ export function OfflineLibrary() {
     selectedClientId,
     selectedSessionId,
     identity?.clientId,
+    libraryStatus,
   ]);
   const transcript = useMemo(() => {
     try {
@@ -232,9 +241,11 @@ export function OfflineLibrary() {
           <DialogHeader>
             <DialogTitle>{t('portable.library')}</DialogTitle>
           </DialogHeader>
-          {(error || transcript.failed) && (
+          {libraryStatus === 'loading' && <p role="status">{t('common.loading')}</p>}
+          {(error || transcript.failed || libraryStatus === 'failed') && (
             <p role="alert" className="break-words text-destructive">
-              {error ?? t('portable.readError')}
+              {error ??
+                t(libraryStatus === 'failed' ? 'portable.storageError' : 'portable.readError')}
             </p>
           )}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
@@ -291,9 +302,12 @@ export function OfflineLibrary() {
               <Textarea
                 aria-label={t(sendUncertain ? 'portable.sendUnknown' : 'portable.draft')}
                 value={draft}
+                disabled={libraryStatus === 'loading'}
                 onChange={(e) => {
                   edited.current = true;
                   setDraft(e.target.value);
+                  setReady(true);
+                  setLoadedDraftKey(draftKey);
                 }}
               />
               <Button

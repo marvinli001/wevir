@@ -1,5 +1,5 @@
-import type { WevirClient } from '@wevir/client-sdk';
-import type { AccountState } from '@wevir/protocol';
+import { type WevirClient, WevirRpcError } from '@wevir/client-sdk';
+import { type AccountState, ErrorCode } from '@wevir/protocol';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../components/confirm-dialog';
@@ -73,6 +73,136 @@ function bundle(confirm: string) {
 }
 
 describe('completed sync actions', () => {
+  it.each(['detach', 'complete'] as const)(
+    'removes stale vault actions while %s refresh is pending',
+    async (action) => {
+      hooks.reset([
+        true,
+        { vaultId: 'vault_fixture' },
+        { request: { requestId: 'request_fixture' } },
+        undefined,
+        [],
+        [],
+        undefined,
+        [],
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        [],
+        '',
+        false,
+        undefined,
+        action,
+      ]);
+      let refresh!: (value: unknown) => void;
+      request.mockImplementation(async (method: string) =>
+        method === 'sync.recoveryInfo'
+          ? new Promise((resolve) => {
+              refresh = resolve;
+            })
+          : {},
+      );
+      const render = () =>
+        hooks.render(() =>
+          ZuvRecoverySection({
+            client,
+            account: { status: 'signed_in' } as AccountState,
+            onChanged: async () => {},
+          }),
+        );
+      await confirmation(render())();
+      try {
+        expect(hooks.values[1]).toBeUndefined();
+        expect(() =>
+          findElement(render(), (element) => element.props.children === 'portable.detach'),
+        ).toThrow('missing test element');
+      } finally {
+        refresh({});
+        await Promise.resolve();
+      }
+    },
+  );
+  it('ignores an old restore preview after the dialog closes and reopens', async () => {
+    hooks.reset([true, false, { kind: 'memory', canRestore: true }, undefined, false, true]);
+    let old!: (value: unknown) => void,
+      reads = 0;
+    request.mockImplementation(async (method: string) => {
+      if (method === 'sync.importRestore') return {};
+      if (!reads++)
+        return new Promise((resolve) => {
+          old = resolve;
+        });
+      return { kind: 'memory', canRestore: true, fingerprint: 'new-preview' };
+    });
+    const render = () =>
+      hooks.render(() =>
+        ZuvVersionRestore({ client, importId: 'import_fixture', entryId: 'entry_fixture' }),
+      );
+    await confirmation(render())();
+    const dialog = findElement(
+      render(),
+      (element) => typeof element.props.onOpenChange === 'function',
+    );
+    (dialog.props.onOpenChange as (value: boolean) => void)(false);
+    const trigger = findElement(
+      render(),
+      (element) =>
+        typeof element.props.onClick === 'function' &&
+        element.props.children === 'portable.restoreVersion',
+    );
+    (trigger.props.onClick as () => void)();
+    await vi.waitFor(() => expect(hooks.values[2]).toMatchObject({ fingerprint: 'new-preview' }));
+    old({ kind: 'memory', canRestore: false, fingerprint: 'old-preview' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(hooks.values[2]).toMatchObject({ fingerprint: 'new-preview' });
+  });
+  it('refreshes an explicitly paused application and exposes resume without an error', async () => {
+    const render = bundle('apply');
+    let pause!: () => void;
+    request.mockImplementation(async (method: string) => {
+      if (method === 'sync.applyBundle')
+        await new Promise((_, reject) => {
+          pause = () =>
+            reject(
+              new WevirRpcError(method, {
+                code: ErrorCode.SYNC_FAILED,
+                message: 'APPLICATION_PAUSED',
+                data: { code: 'APPLICATION_PAUSED' },
+              }),
+            );
+        });
+      if (method === 'sync.cancelBundle') pause();
+      if (method === 'sync.bundlePreview')
+        return {
+          heads: ['op_fixture'],
+          versions: [],
+          binding: {
+            targetId: 'target_fixture',
+            revision: 'op_local',
+            pending: { opId: 'op_fixture', state: 'applying', paused: true },
+          },
+        };
+      if (method === 'sync.bundleVersions') return { versions: [] };
+      if (method === 'sync.bundleTargets')
+        return { targets: [{ targetId: 'target_fixture', fingerprint: 'fixture' }] };
+      if (method === 'sync.bundles') return { bundles: [] };
+      return {};
+    });
+    const applying = confirmation(render())();
+    const button = findElement(render(), (element) => element.props.children === 'sync.pauseApply');
+    (button.props.onClick as () => void)();
+    await applying;
+    expect(hooks.values[2]).toBeUndefined();
+    expect(
+      findElement(render(), (element) => element.props.children === 'sync.applyPaused'),
+    ).toBeDefined();
+    expect(
+      findElement(render(), (element) => element.props.children === 'sync.resumeApply').props
+        .disabled,
+    ).toBe(false);
+  });
   it.each([
     ['memory', ZuvMemoryConflicts],
     ['session', ZuvSessionConflicts],

@@ -51,6 +51,7 @@ export function FromHistoryDialog({
   const restores = useRef(new Map<string, MethodResult<'sync.workspaceRestore'>>());
   useEffect(() => {
     if (!open) {
+      setError(undefined);
       setRestored(undefined);
       setSnapshotId('');
       setReport(undefined);

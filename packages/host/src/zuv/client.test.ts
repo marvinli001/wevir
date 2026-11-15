@@ -135,6 +135,44 @@ function mock() {
 }
 
 describe('Host-owned ZUV identity', () => {
+  it('retries a late inference 401 after another request has already rotated its token', async () => {
+    const h = mock();
+    await h.login();
+    const old = await h.client.authorizeInference(
+      'https://zuv.test/api/wevir/v1/responses',
+      Buffer.from('{}'),
+    );
+    h.advance(901000);
+    await h.client.models();
+    const count = h.request.mock.calls.length;
+    expect(await h.client.inferenceDenied(old.headers.authorization as string, 401)).toBe(true);
+    const current = await h.client.authorizeInference(
+      'https://zuv.test/api/wevir/v1/responses',
+      Buffer.from('{}'),
+    );
+    expect(current.headers.authorization).toBe('DPoP synthetic-access-1-token');
+    expect(h.request).toHaveBeenCalledTimes(count);
+  });
+  it('never replays a refresh with an uncertain server transaction outcome', async () => {
+    const h = mock();
+    await h.login();
+    h.advance(901000);
+    h.request.mockResolvedValueOnce(
+      Response.json(
+        { error: { code: 'RECOVERY_REQUIRED', message: 'RECOVERY_REQUIRED' } },
+        { status: 500 },
+      ),
+    );
+    await expect(h.client.models()).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
+    expect(JSON.parse(h.values.get('zuv.identity') as string).refreshPending).toBe(true);
+    const count = h.request.mock.calls.length;
+    await expect(h.client.models()).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    const restarted = new ZuvClient(h.options);
+    await restarted.load();
+    await expect(restarted.models()).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
+    expect(h.request).toHaveBeenCalledTimes(count);
+    await restarted.close();
+  });
   it('does not retry inference signed by credentials outside the current identity', async () => {
     const h = mock();
     await h.login();

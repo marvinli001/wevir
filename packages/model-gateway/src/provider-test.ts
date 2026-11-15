@@ -66,7 +66,7 @@ export async function testProvider(
 ): Promise<ProviderTestResult> {
   if (provider.kind === 'zuv') {
     const baseURL = options.auth?.baseURL(provider.id);
-    if (!baseURL) return zuvFailure('AUTH_REQUIRED', 401);
+    if (!baseURL) return zuvFailure('AUTH_REQUIRED', 401, 'AUTH_REQUIRED');
     provider = { ...provider, api: 'openai-responses', baseURL, apiKey: undefined };
   }
   const issues = validateProvider(provider);
@@ -182,7 +182,11 @@ export async function testProvider(
     if (!response.ok) {
       const body = await readText(response, controller.signal).catch(() => '');
       const normalized = normalizeErrorBody(redact(body), status, credential, provider.baseURL);
-      if (provider.kind === 'zuv') return zuvFailure(String(normalized.error.code), status);
+      if (
+        provider.kind === 'zuv' &&
+        (status === 401 || status === 403 || ZUV_CODES.has(normalized.error.code ?? ''))
+      )
+        return zuvFailure(normalized.error.code, status, normalized.error.message);
       const routingError = phalaRoutingError(normalized, status, provider.baseURL ?? '');
       if (routingError !== undefined) {
         return {
@@ -420,19 +424,16 @@ function networkFailure(
   return failure('network', `请求 ${url} 失败：${text}`);
 }
 
-function zuvFailure(code: string, status: number): ProviderTestResult {
-  const cause =
-    code === 'subscription_expired'
-      ? 'SUBSCRIPTION_REQUIRED'
-      : code === 'wevir_inference_disabled'
-        ? 'SCOPE_DISABLED'
-        : code;
-  const known = [
-    'AUTH_REQUIRED',
-    'SUBSCRIPTION_REQUIRED',
-    'SCOPE_DISABLED',
-    'DEVICE_REVOKED',
-  ].includes(cause);
+const ZUV_CODES = new Map([
+  ['AUTH_REQUIRED', 'AUTH_REQUIRED'],
+  ['SUBSCRIPTION_REQUIRED', 'SUBSCRIPTION_REQUIRED'],
+  ['SCOPE_DISABLED', 'SCOPE_DISABLED'],
+  ['DEVICE_REVOKED', 'DEVICE_REVOKED'],
+  ['subscription_expired', 'SUBSCRIPTION_REQUIRED'],
+  ['wevir_inference_disabled', 'SCOPE_DISABLED'],
+]);
+function zuvFailure(code: string | undefined, status: number, message: string): ProviderTestResult {
+  const cause = ZUV_CODES.get(code ?? '');
   const reason = status === 429 ? 'rate_limited' : status >= 500 ? 'server' : 'auth';
   return {
     ok: false,
@@ -440,8 +441,8 @@ function zuvFailure(code: string, status: number): ProviderTestResult {
     httpStatus: status,
     error: {
       category: 'provider',
-      message: cause,
-      code: known ? `zuv_${cause.toLowerCase()}` : cause,
+      message: cause ?? message,
+      ...(code !== undefined && { code: cause ? `zuv_${cause.toLowerCase()}` : code }),
     },
   };
 }

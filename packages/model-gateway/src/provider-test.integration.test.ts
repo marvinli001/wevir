@@ -70,6 +70,52 @@ async function raw(status: number, contentType: string, body: string, hang = fal
 }
 
 describe('testProvider：与正式请求同一条路', () => {
+  it.each([
+    [
+      404,
+      { error: { code: 'model_not_found', message: 'Model missing-model does not exist' } },
+      'model_not_found',
+      'missing-model',
+    ],
+    [
+      400,
+      { error: { code: 'invalid_request', message: 'Unsupported parameter synthetic_param' } },
+      'protocol',
+      'synthetic_param',
+    ],
+    [502, '<html>Synthetic proxy failed</html>', 'server', 'Synthetic proxy failed'],
+    [
+      401,
+      { error: { message: 'Synthetic authorization failure' } },
+      'auth',
+      'Synthetic authorization failure',
+    ],
+  ] as const)(
+    'classifies ZUV HTTP %s without replacing upstream detail',
+    async (status, body, reason, detail) => {
+      const result = await testProvider(
+        { id: 'zuv', kind: 'zuv', displayName: 'ZUV', models: [{ id: 'm' }], defaultModelId: 'm' },
+        'm',
+        {
+          auth: {
+            baseURL: () => 'https://synthetic.invalid/api/wevir/v1',
+            authorize: async () => ({
+              ok: true,
+              headers: { authorization: 'DPoP synthetic' },
+              secrets: [],
+            }),
+          },
+          fetch: async () =>
+            typeof body === 'string'
+              ? new Response(body, { status })
+              : Response.json(body, { status }),
+        },
+      );
+      expect(result).toMatchObject({ ok: false, httpStatus: status, reason });
+      expect(result.error?.message).toContain(detail);
+      expect(result.error?.message).not.toContain('undefined');
+    },
+  );
   it('redacts temporary subscription credentials from probe failures', async () => {
     const secret = 'synthetic-subscription-access-token';
     const result = await testProvider(

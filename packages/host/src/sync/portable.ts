@@ -302,6 +302,18 @@ export class SyncPortable {
             : [],
         });
         for (const opId of storage.sync.portableVersionIds(vault.vaultId)) {
+          const incoming = storage.sync.getOperation(vault.vaultId, opId);
+          if (
+            incoming?.direction === 'inbox' &&
+            incoming.state === 'received' &&
+            incoming.record === undefined &&
+            schemas.operation.parse(incoming.envelope).payload
+          ) {
+            manifest.omissions.push(
+              `${vault.vaultId}/${opId}: incoming content not verified locally`,
+            );
+            continue;
+          }
           const version = await this.#version(vault.vaultId, opId, storage);
           await add('version', versionKey(vault.vaultId, opId), version, {
             vaultId: vault.vaultId,

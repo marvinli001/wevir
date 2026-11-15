@@ -48,6 +48,7 @@ export interface HostConnection {
   identity: ClientIdentity | undefined;
   /** 主进程看到的 Host 进程状态（T5.5）：连接断了时据此说明原因。还没读到时为 undefined。 */
   hostStatus: HostProcessStatus | undefined;
+  libraryStatus?: 'loading' | 'ready' | 'failed';
   /**
    * 手动重试：Host 起不来时让主进程重新附着或拉起；断线重连中时立即重连，不等退避；首次连接失败或连接已关闭时
    * 重新连接。
@@ -62,6 +63,7 @@ interface ConnectionFields {
   client: WevirClient | undefined;
   identity: ClientIdentity | undefined;
   hostStatus: HostProcessStatus | undefined;
+  libraryStatus?: HostConnection['libraryStatus'];
 }
 
 /**
@@ -93,8 +95,27 @@ export function HostConnectionProvider({
     let client: WevirClient | undefined;
     let connecting = false;
     let hostStatus: HostProcessStatus | undefined;
+    let libraryGeneration = 0;
     const update = (patch: Partial<ConnectionFields>) => {
       if (!disposed) setFields((current) => ({ ...current, ...patch }));
+    };
+    const bindLibrary = (hostId: string, clientId: string) => {
+      const generation = ++libraryGeneration;
+      update({ libraryStatus: 'loading' });
+      void bindBrowserLibrary(hostId, clientId).then(
+        (ready) => {
+          if (generation === libraryGeneration)
+            update({ libraryStatus: ready ? 'ready' : 'failed' });
+        },
+        () => {
+          if (generation === libraryGeneration) update({ libraryStatus: 'failed' });
+        },
+      );
+    };
+    const invalidateLibrary = () => {
+      libraryGeneration++;
+      update({ libraryStatus: 'failed' });
+      void invalidateBrowserLibrary().catch(() => {});
     };
 
     const connect = async () => {
@@ -115,15 +136,10 @@ export function HostConnectionProvider({
               state.status === 'closed' &&
               browserAuthLost(state.error)
             )
-              void invalidateBrowserLibrary().catch((error: unknown) =>
-                update({ view: { status: 'failed', error: describe(error) } }),
-              );
-            if (!capabilities().localHost && client !== undefined && state.status === 'connected') {
-              void bindBrowserLibrary(state.hello.hostId, identity.clientId).then(
-                () => update({ view: toView(state) }),
-                (error: unknown) => update({ view: { status: 'failed', error: describe(error) } }),
-              );
-            } else update({ view: toView(state) });
+              invalidateLibrary();
+            update({ view: toView(state) });
+            if (!capabilities().localHost && client !== undefined && state.status === 'connected')
+              bindLibrary(state.hello.hostId, identity.clientId);
           },
         });
         if (disposed) {
@@ -131,16 +147,15 @@ export function HostConnectionProvider({
           return;
         }
         client = connected;
-        if (!capabilities().localHost)
-          await bindBrowserLibrary(connected.hello.hostId, identity.clientId);
         update({
           view: { status: 'connected', hello: connected.hello },
           client: connected,
           identity,
         });
+        if (!capabilities().localHost) bindLibrary(connected.hello.hostId, identity.clientId);
       } catch (error) {
-        if (!capabilities().localHost && browserAuthLost(error)) await invalidateBrowserLibrary();
         update({ view: { status: 'failed', error: describe(error) } });
+        if (!capabilities().localHost && browserAuthLost(error)) invalidateLibrary();
       } finally {
         connecting = false;
       }

@@ -99,6 +99,7 @@ export class SyncService {
   #lastRefresh = 0;
   #lastFullScan = 0;
   #dirty = true;
+  #scanAfter = 0;
   readonly #watchers = new Map<string, FSWatcher>();
   #watchUnavailable = false;
   #errorCode: string | undefined;
@@ -280,6 +281,8 @@ export class SyncService {
           watcher.close();
           this.#watchers.delete(path);
         }
+        // Directory notifications can arrive before the write finishes.
+        this.#scanAfter = Date.now() + 100;
         this.changed();
       });
       watcher.on('error', (error) => {
@@ -788,6 +791,7 @@ export class SyncService {
       return this.status();
     this.#errorCode = undefined;
     this.#dirty = true;
+    this.#scanAfter = 0;
     if (vault) {
       const { storage } = this.#options;
       storage.transaction(() => {
@@ -1166,7 +1170,7 @@ export class SyncService {
   async cancelBundle(vaultId: string, entityId: string) {
     if (this.#bundleEntity !== entityId || this.#bundleVault !== vaultId)
       throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
-    this.#bundleAbort?.abort();
+    this.#bundleAbort?.abort('APPLICATION_PAUSED');
     await this.#configurationDone;
     return { cancelled: true as const };
   }
@@ -1193,6 +1197,8 @@ export class SyncService {
       await this.#catalog.drain();
       return await operation(abort.signal);
     } catch (error) {
+      if (abort.signal.reason === 'APPLICATION_PAUSED')
+        throw new HostError('SYNC_FAILED', 'APPLICATION_PAUSED', { code: 'APPLICATION_PAUSED' });
       throw this.#failure(abort.signal.aborted ? new ZuvRequestError('SCOPE_DISABLED') : error);
     } finally {
       if (abort.signal.aborted) {
@@ -1453,7 +1459,6 @@ export class SyncService {
   async #scan(vault: SyncVaultRecord, initialize: boolean, includeHistory: boolean): Promise<void> {
     this.#capture.projects();
     await this.#files.recoverWrites(vault);
-    await this.#files.memory(vault, initialize, includeHistory);
     if (vault.categories.includes('memory')) this.#watch(this.#options.memoryDir);
     if (vault.categories.includes('memory'))
       this.#watch(join(this.#options.memoryDir, 'global'), false);
@@ -1466,10 +1471,12 @@ export class SyncService {
     for (const project of this.#options.storage.sync.projects(vault.vaultId)) {
       if (!project.workspaceId || !vault.projectIds.includes(project.projectId)) continue;
       const workspace = this.#options.storage.workspaces.get(project.workspaceId);
-      if (workspace) this.#watch(workspace.rootPath, false, workspaceRequiresTrust);
+      if (workspace)
+        this.#watch(workspace.rootPath, process.platform !== 'linux', workspaceRequiresTrust);
       if (vault.categories.includes('memory'))
         this.#watch(join(this.#options.memoryDir, 'projects', project.workspaceId), false);
     }
+    await this.#files.memory(vault, initialize, includeHistory);
     await this.#artifacts.scan(vault, initialize, includeHistory);
     this.#settings.capture(vault, initialize, includeHistory);
     this.#materials.sessions.scan(initialize, includeHistory);
@@ -1514,9 +1521,17 @@ export class SyncService {
         this.#initialized = true;
       }
       await this.#files.recoverWrites(vault);
-      if (this.#dirty || Date.now() - this.#lastFullScan >= 10 * 60 * 1000) {
+      if (
+        Date.now() >= this.#scanAfter &&
+        (this.#dirty || Date.now() - this.#lastFullScan >= 10 * 60 * 1000)
+      ) {
         this.#dirty = false;
-        await this.#scan(vault, false, false);
+        try {
+          await this.#scan(vault, false, false);
+        } catch (error) {
+          this.#dirty = true;
+          throw error;
+        }
         this.#lastFullScan = Date.now();
       }
       this.#capture.prepare();

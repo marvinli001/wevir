@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { messages as ja } from './locales/ja';
 import { zhCN } from './zh-CN';
 
 // 界面文案的写法检查，规则见 zh-CN.ts 文件头与 AGENTS.md 的“界面文案”。名单只收确有必要的条目；新增前先确认这段文字
@@ -135,6 +136,11 @@ const entries = Object.entries(zhCN) as [string, string][];
 const plain = (value: string) => value.replace(/\{[^{}]*\}/g, '');
 
 describe('界面文案的写法', () => {
+  it('日语恢复后果使用体言止め', () => {
+    for (const [key, value] of Object.entries(ja))
+      if (/^(portable|sync)\..*Consequences?$/.test(key))
+        expect(value, key).not.toMatch(/ます|ません|です|ください/);
+  });
   it('后果、安全确认与明文键也受检查，信任按钮不算说明', () => {
     for (const key of [
       'actionConsequence',
