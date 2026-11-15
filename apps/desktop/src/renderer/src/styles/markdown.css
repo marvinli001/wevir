@@ -28,15 +28,15 @@
   }
 
   .markdown h1 {
-    font-size: var(--text-xl);
+    font-size: 1.3em;
   }
 
   .markdown h2 {
-    font-size: var(--text-lg);
+    font-size: 1.15em;
   }
 
   .markdown :where(h3, h4, h5, h6) {
-    font-size: var(--text-base);
+    font-size: 1em;
   }
 
   .markdown :where(ul, ol) {

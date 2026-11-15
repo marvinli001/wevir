@@ -299,7 +299,7 @@ function PostRow({
         {post.card?.kind === 'brief' && <BriefCard card={post.card} />}
         {/* 建议的帖子文字就是建议本身，卡片里已有。 */}
         {text !== '' && !(post.card?.kind === 'suggestion' && text === post.card.text) && (
-          <MarkdownView text={text} streaming={false} quotable />
+          <MarkdownView className="text-content" text={text} streaming={false} quotable />
         )}
         {post.card?.kind === 'needs' && <NeedsCard card={post.card} />}
         {post.card?.kind === 'suggestion' && (

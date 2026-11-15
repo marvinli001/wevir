@@ -234,7 +234,7 @@ function UserBubble({ text }: { text: string }) {
       <div
         ref={ref}
         className={cn(
-          'max-w-[85%] min-w-0 rounded-xl bg-user-bubble px-3.5 py-2 text-base whitespace-pre-wrap break-words',
+          'max-w-[85%] min-w-0 rounded-xl bg-user-bubble px-3.5 py-2 text-content whitespace-pre-wrap break-words',
           foldable && 'overflow-hidden transition-[max-height] duration-300 ease-expand',
           folded && '[mask-image:linear-gradient(to_bottom,black_calc(100%-3rem),transparent)]',
         )}
@@ -600,6 +600,7 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
     case 'text':
       return (
         <MarkdownView
+          className="text-content"
           cacheKey={part}
           text={part.text}
           streaming={part.state === 'streaming'}

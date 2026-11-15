@@ -25,6 +25,10 @@
   --text-2xl: calc(1.25rem * var(--font-scale, 1));
   --text-2xl--line-height: 1.35;
 
+  /* 消息流里回答正文与用户气泡的字号（15px），比界面正文大一档。 */
+  --text-content: calc(0.9375rem * var(--font-scale, 1));
+  --text-content--line-height: 1.65;
+
   /* 中栏内容的最大宽度（max-w-content）。 */
   --container-content: 47.5rem;
 
