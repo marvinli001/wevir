@@ -4015,6 +4015,15 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [
         { protocol: 'wevir-sync/1', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },
+        {
+          protocol: 'wevir-sync/1',
+          artifactRevision: 1,
+          pending: 0,
+          quarantined: 0,
+          conflicts: 0,
+          state: 'attention',
+          fileIssues: [{ path: '/memory/global/note.md', code: 'INTEGRITY_FAILED' }],
+        },
       ],
       invalid: [
         { protocol: 'wevir-sync/2', artifactRevision: 1, pending: 0, quarantined: 0, conflicts: 0 },

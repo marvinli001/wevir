@@ -233,34 +233,138 @@ describe('durable encrypted synchronization over HTTP', () => {
       'committed',
     );
   });
-  it('rejects an aborted commit discovered by GET and lets unrelated outbound work continue', async () => {
-    let aborted = '';
-    const { first, server } = await setup(async (input, init) => {
-      const path = new URL(String(input)).pathname;
-      if (path.endsWith('/commits') && init?.method === 'POST' && !aborted) {
-        aborted = JSON.parse(Buffer.from(init.body as Uint8Array).toString()).commitId;
-        throw new TypeError('Synthetic connection lost after dispatch');
+  it('preserves query backoff and bounds repeated request-body failures across restarts', async () => {
+    const bodies: string[] = [];
+    let failing = '';
+    const { first } = await setup(async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith('/commits') && init?.method === 'POST') {
+        const body = Buffer.from(init.body as Uint8Array).toString();
+        const id = JSON.parse(body).commitId;
+        failing ||= id;
+        if (id === failing) {
+          bodies.push(body);
+          return Response.json(
+            {
+              error: {
+                code: 'INTEGRITY_FAILED',
+                message: 'INTEGRITY_FAILED',
+                details: { stage: 'request_body' },
+              },
+            },
+            { status: 400 },
+          );
+        }
       }
-      if (path.endsWith(`/commits/${aborted}`) && init?.method === 'GET')
-        return Response.json(
-          { error: { code: 'REVISION_CONFLICT', message: 'Aborted commit' } },
-          { status: 409 },
-        );
       return fetch(input, init);
     });
     await first.enable();
-    first.enqueue('Aborted revision');
-    await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
-    first.storage.db.prepare('UPDATE sync_commits SET retry_at=0').run();
-    await expect(first.engine.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
+    first.enqueue('Repeated body boundary failure');
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      first.storage.db.prepare('UPDATE sync_commits SET retry_at=0').run();
+      await expect(first.engine.run()).rejects.toMatchObject({ code: 'INTEGRITY_FAILED' });
+      if (attempt === 2) {
+        expect(first.storage.sync.commits(first.opened.vaultId)[0]?.retryAt).toBeGreaterThan(
+          Date.now() + 9000,
+        );
+        await first.engine.run();
+        expect(bodies).toHaveLength(2);
+        await first.reopen();
+      }
+    }
     expect(first.storage.sync.commits(first.opened.vaultId)[0]).toMatchObject({
       outcome: 'rejected',
-      errorCode: 'REVISION_CONFLICT',
+      errorCode: 'INTEGRITY_FAILED',
+      attempts: 3,
     });
-    first.enqueue('Unrelated revision', 'global/unrelated.md');
+    expect(new Set(bodies).size).toBe(1);
+    first.enqueue('Unrelated valid revision', 'global/unrelated-body.md');
     await expect(first.engine.run()).resolves.toBe(true);
-    expect(server.sync.attempts.commits).toBe(1);
+    expect(bodies).toHaveLength(3);
   });
+  it.each([
+    { status: 429, code: 'QUOTA_EXCEEDED' },
+    { status: 400, code: 'SCOPE_DISABLED' },
+    { status: 503, code: 'INTEGRITY_FAILED' },
+    { status: 0, code: 'NETWORK_ERROR' },
+    { status: 409, code: 'REVISION_CONFLICT' },
+  ])(
+    'keeps a lost committed response uncertain after an unmarked GET $status $code',
+    async ({ status, code }) => {
+      let lost = false;
+      let failQuery = true;
+      const { first, server } = await setup(async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (path.endsWith('/commits') && init?.method === 'POST' && !lost) {
+          const response = await fetch(input, init);
+          expect(response.ok).toBe(true);
+          lost = true;
+          throw new TypeError('Synthetic lost committed response');
+        }
+        if (failQuery && path.includes('/commits/') && init?.method === 'GET') {
+          if (!status) throw new TypeError('Synthetic query connection failure');
+          return Response.json({ error: { code, message: code } }, { status });
+        }
+        // Keep pull from independently confirming the commit while its GET is unavailable.
+        if (lost && failQuery && path.endsWith('/changes'))
+          throw new TypeError('Synthetic changes temporarily unavailable');
+        return fetch(input, init);
+      });
+      await first.enable();
+      const opId = first.enqueue('Already committed on server') as string;
+      await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+      const entity = first.storage.sync.localEntity(
+        first.opened.vaultId,
+        'global/note.md',
+      ) as SyncEntityRecord;
+      const heads = first.storage.sync.heads(first.opened.vaultId, entity.entityId);
+      first.storage.db.prepare('UPDATE sync_commits SET retry_at=0').run();
+      await expect(first.engine.run()).rejects.toBeInstanceOf(ZuvRequestError);
+      expect(first.storage.sync.commits(first.opened.vaultId)[0]?.outcome).toBe('uncertain');
+      expect(first.storage.sync.localEntity(first.opened.vaultId, 'global/note.md')).toEqual(
+        entity,
+      );
+      expect(first.storage.sync.heads(first.opened.vaultId, entity.entityId)).toEqual(heads);
+      expect(first.storage.sync.commits(first.opened.vaultId)[0]?.retryAt).toBeGreaterThan(
+        Date.now(),
+      );
+      failQuery = false;
+      first.storage.db.prepare('UPDATE sync_commits SET retry_at=0').run();
+      await expect(first.engine.run()).resolves.toBe(true);
+      expect(first.storage.sync.getOperation(first.opened.vaultId, opId)?.state).toBe('committed');
+      expect(server.sync.attempts.commits).toBe(1);
+    },
+  );
+  it.each(['REVISION_CONFLICT', 'QUOTA_EXCEEDED'])(
+    'rejects an explicitly aborted %s commit discovered by GET and continues unrelated work',
+    async (code) => {
+      let aborted = '';
+      const { first, server } = await setup(async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        if (path.endsWith('/commits') && init?.method === 'POST' && !aborted) {
+          aborted = JSON.parse(Buffer.from(init.body as Uint8Array).toString()).commitId;
+          throw new TypeError('Synthetic connection lost after dispatch');
+        }
+        if (path.endsWith(`/commits/${aborted}`) && init?.method === 'GET')
+          return Response.json(
+            { error: { code, message: 'Aborted commit', details: { stage: 'commit' } } },
+            { status: code === 'QUOTA_EXCEEDED' ? 429 : 409 },
+          );
+        return fetch(input, init);
+      });
+      await first.enable();
+      first.enqueue('Aborted revision');
+      await expect(first.engine.run()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+      first.storage.db.prepare('UPDATE sync_commits SET retry_at=0').run();
+      await expect(first.engine.run()).rejects.toMatchObject({ code });
+      expect(first.storage.sync.commits(first.opened.vaultId)[0]).toMatchObject({
+        outcome: 'rejected',
+        errorCode: code,
+      });
+      first.enqueue('Unrelated revision', 'global/unrelated.md');
+      await expect(first.engine.run()).resolves.toBe(true);
+      expect(server.sync.attempts.commits).toBe(1);
+    },
+  );
   it('preserves the server pending-commit retry interval in the HTTP fixture', async () => {
     const { server, first, second } = await setup();
     await first.enable();
@@ -1350,6 +1454,7 @@ describe('durable encrypted synchronization over HTTP', () => {
     second.enqueue('Synthetic concurrent remote edit');
     await second.engine.run();
     offline = false;
+    first.storage.db.prepare('UPDATE sync_commits SET retry_at=0').run();
     await first.engine.run();
     await second.engine.run();
     expect(second.storage.sync.heads(first.opened.vaultId, entity.entityId)).toHaveLength(2);

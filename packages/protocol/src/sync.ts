@@ -45,6 +45,12 @@ export const SyncStatusSchema = z.object({
     ])
     .optional(),
   errorCode: z.string().max(64).optional(),
+  fileIssues: z
+    .array(
+      z.object({ path: z.string(), code: z.enum(['INTEGRITY_FAILED', 'LOCAL_STORAGE_ERROR']) }),
+    )
+    .max(100)
+    .optional(),
   lastSyncAt: z.iso.datetime().optional(),
   outbox: z
     .array(

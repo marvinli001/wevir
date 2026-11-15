@@ -211,6 +211,12 @@ export function ZuvSyncSection({
       {status?.errorCode && !error && (
         <NoticeBanner notice={{ tone: 'error', text: syncErrorText(status.errorCode) }} />
       )}
+      {status?.fileIssues?.map((issue) => (
+        <NoticeBanner
+          key={issue.path}
+          notice={{ tone: 'error', text: `${issue.path} · ${syncErrorText(issue.code)}` }}
+        />
+      ))}
       {editing ? (
         <div className="space-y-3">
           <fieldset disabled={busy} className="space-y-2">

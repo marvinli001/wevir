@@ -73,7 +73,10 @@ export class SyncExecutions {
     if (previous && !previous.finished) previous.abort.abort();
     this.#preparing.set(sessionId, claim);
     const task = (async () => {
-      if (previous?.finished) await previous.task;
+      if (previous?.finished)
+        await previous.task?.catch((error) =>
+          console.warn('Previous sync execution preparation failed', error),
+        );
       await this.#prepare(sessionId, turnId, claim);
     })().finally(() => {
       if (this.#preparing.get(sessionId) === claim) this.#preparing.delete(sessionId);

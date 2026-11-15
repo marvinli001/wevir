@@ -26,6 +26,7 @@ describe('execution claim lifecycle fencing', () => {
     ['timeout', 'rejected'],
     ['finish', 'accepted'],
     ['clock', 'accepted'],
+    ['save-failure', 'accepted'],
   ] as const)(
     'ignores a late %s claim response when %s',
     async (change, outcome) => {
@@ -121,6 +122,15 @@ describe('execution claim lifecycle fencing', () => {
           ((request.mock.calls[0] as unknown[])[4] as { signal: AbortSignal }).signal.aborted,
         ).toBe(false);
       }
+      let followup: Promise<void> | undefined;
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      if (change === 'save-failure')
+        vi.spyOn(events, 'appendMany').mockImplementationOnce(() => {
+          executions.finish(native.id as SessionId, 'trn_synthetic');
+          followup = executions.prepare(native.id as SessionId, 'trn_next');
+          void followup.catch(() => {});
+          throw new Error('Synthetic execution save failure');
+        });
       if (change === 'timeout') {
         await prepared;
         const elapsed = performance.now() - started;
@@ -138,6 +148,13 @@ describe('execution claim lifecycle fencing', () => {
           branchRequired: false,
         });
       else reject(new ZuvRequestError('NETWORK_ERROR'));
+      if (change === 'save-failure') {
+        await expect(prepared).rejects.toThrow('Synthetic execution save failure');
+        await expect(followup).resolves.toBeUndefined();
+        expect(storage.sync.execution('vault_synthetic', native.id)?.turnId).toBe('trn_next');
+        expect(warn).toHaveBeenCalledOnce();
+        return;
+      }
       await prepared;
       if (change === 'clock') {
         expect(storage.sync.execution('vault_synthetic', native.id)?.state).toBe('claimed');

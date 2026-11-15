@@ -1,6 +1,6 @@
 import type { Dirent } from 'node:fs';
 import { lstat, readdir, readFile } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import type { EntityType } from '@wevir/protocol/sync';
 import type { Storage, SyncLocalWriteRecord, SyncVaultRecord } from '@wevir/storage';
 import { newId } from '../ids.js';
@@ -34,6 +34,10 @@ export class SyncFilesCapture {
   readonly #activeWrites = new Set<string>();
   readonly #eligible: (() => SyncVaultRecord | undefined) | undefined;
   readonly #readCache = new BundleReadCache();
+  readonly #memoryRetries = new Map<
+    string,
+    Map<string, { code: string; initialize: boolean; includeHistory: boolean }>
+  >();
   constructor(options: {
     storage: Storage;
     memoryDir: string;
@@ -108,11 +112,52 @@ export class SyncFilesCapture {
           throw new ZuvRequestError('INTEGRITY_FAILED');
         actual = sha256(await readFile(pending.path));
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          this.#retryMemory(vault, pending.path, error, false, false);
+          continue;
+        }
       }
       if (actual === pending.nextHash) this.finishWrite(pending);
       else this.#storage.sync.abandonLocalWrite(pending.id);
     }
+  }
+
+  hasPendingMemory(vault: SyncVaultRecord): boolean {
+    return (
+      vault.categories.includes('memory') &&
+      [...(this.#memoryRetries.get(vault.vaultId)?.keys() ?? [])].some((path) =>
+        this.#memoryLocation(vault, path),
+      )
+    );
+  }
+
+  memoryIssues(vault: SyncVaultRecord): Array<{ path: string; code: string }> {
+    if (!vault.categories.includes('memory')) return [];
+    return [...(this.#memoryRetries.get(vault.vaultId) ?? [])]
+      .filter(
+        ([path, value]) => value.code !== 'REVISION_CONFLICT' && this.#memoryLocation(vault, path),
+      )
+      .slice(0, 100)
+      .map(([path, value]) => ({ path, code: value.code }));
+  }
+
+  #retryMemory(
+    vault: SyncVaultRecord,
+    path: string,
+    error: unknown,
+    initialize: boolean,
+    includeHistory: boolean,
+  ): void {
+    let pending = this.#memoryRetries.get(vault.vaultId);
+    if (!pending) {
+      pending = new Map();
+      this.#memoryRetries.set(vault.vaultId, pending);
+    }
+    pending.set(path, {
+      initialize: pending.get(path)?.initialize ?? initialize,
+      includeHistory: pending.get(path)?.includeHistory ?? includeHistory,
+      code: error instanceof ZuvRequestError ? error.code : 'LOCAL_STORAGE_ERROR',
+    });
   }
 
   #memoryLocation(vault: SyncVaultRecord, path: string) {
@@ -177,6 +222,7 @@ export class SyncFilesCapture {
     vault: SyncVaultRecord,
     initialize: boolean,
     includeHistory: boolean,
+    pendingOnly = false,
   ): Promise<void> {
     if (!vault.categories.includes('memory')) return;
     const scopes = [
@@ -223,13 +269,35 @@ export class SyncFilesCapture {
         const owner = this.#storage.sync.owner(key);
         if (owner && owner !== vault.vaultId) continue;
         const path = join(scope.root, file.name);
-        const info = await lstat(path);
-        if (!info.isFile() || info.isSymbolicLink() || info.size > 128 * 1024)
-          throw new ZuvRequestError('INTEGRITY_FAILED');
-        const bytes = await readFile(path);
-        const after = await lstat(path);
-        if (info.ino !== after.ino || info.mtimeMs !== after.mtimeMs || info.size !== after.size)
-          throw new ZuvRequestError('REVISION_CONFLICT');
+        const pending = this.#memoryRetries.get(vault.vaultId)?.get(path);
+        if (pendingOnly && !pending) continue;
+        const initial = pending?.initialize ?? initialize;
+        const history = pending?.includeHistory ?? includeHistory;
+        let bytes: Buffer;
+        let markdown: string;
+        try {
+          const info = await lstat(path);
+          if (!info.isFile() || info.isSymbolicLink() || info.size > 128 * 1024)
+            throw new ZuvRequestError('INTEGRITY_FAILED');
+          bytes = await readFile(path);
+          const after = await lstat(path);
+          if (info.ino !== after.ino || info.mtimeMs !== after.mtimeMs || info.size !== after.size)
+            throw new ZuvRequestError('REVISION_CONFLICT');
+          try {
+            markdown = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+          } catch {
+            throw new ZuvRequestError('INTEGRITY_FAILED');
+          }
+          if (!validMemoryMarkdown(scope.scope, name, markdown))
+            throw new ZuvRequestError('INTEGRITY_FAILED');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            found.delete(key);
+            this.#memoryRetries.get(vault.vaultId)?.delete(path);
+          } else this.#retryMemory(vault, path, error, initial, history);
+          continue;
+        }
+        this.#memoryRetries.get(vault.vaultId)?.delete(path);
         const fingerprint = sha256(bytes);
         let entity = this.#storage.sync.localEntity(vault.vaultId, key);
         const baseline = entity && this.#storage.sync.fileBaseline(vault.vaultId, entity.entityId);
@@ -241,13 +309,9 @@ export class SyncFilesCapture {
           );
         if (
           interrupted ||
-          (baseline?.fingerprint === fingerprint &&
-            !(initialize && includeHistory && !entity?.revision))
+          (baseline?.fingerprint === fingerprint && !(initial && history && !entity?.revision))
         )
           continue;
-        const markdown = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-        if (!validMemoryMarkdown(scope.scope, name, markdown))
-          throw new ZuvRequestError('INTEGRITY_FAILED');
         this.#storage.transaction(() => {
           if (!entity) {
             entity = {
@@ -262,7 +326,7 @@ export class SyncFilesCapture {
           }
           if (!this.#storage.sync.claimResource(key, vault.vaultId)) return;
           const opId =
-            initialize && !includeHistory
+            initial && !history
               ? undefined
               : this.#queue.enqueue({
                   vaultId: vault.vaultId,
@@ -282,6 +346,11 @@ export class SyncFilesCapture {
             ...(opId && { opId }),
           });
         });
+      }
+      for (const path of this.#memoryRetries.get(vault.vaultId)?.keys() ?? []) {
+        const location = this.#memoryLocation(vault, path);
+        if (!location || (dirname(path) === scope.root && !found.has(location.localKey)))
+          this.#memoryRetries.get(vault.vaultId)?.delete(path);
       }
       for (const entity of this.#storage.sync
         .entities(vault.vaultId)

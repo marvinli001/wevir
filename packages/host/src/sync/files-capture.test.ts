@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openStorage, type SyncVaultRecord } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -78,6 +78,24 @@ function fixture() {
 }
 
 describe('durable local file capture', () => {
+  it.each(['utf8', 'oversize', 'symlink'] as const)(
+    'isolates %s memory and clears the issue after deletion',
+    async (kind) => {
+      const h = fixture();
+      await mkdir(join(h.memoryDir, 'global'), { recursive: true });
+      const path = join(h.memoryDir, 'global/invalid.md');
+      if (kind === 'symlink') await symlink(join(h.home, 'missing.md'), path);
+      else
+        await writeFile(path, kind === 'utf8' ? Buffer.from([0xff]) : Buffer.alloc(128 * 1024 + 1));
+      await h.capture.memory(h.vault(), false, false);
+      expect(h.capture.memoryIssues(h.vault())).toEqual([{ path, code: 'INTEGRITY_FAILED' }]);
+      expect(h.storage.sync.drafts(h.vault().vaultId)).toEqual([]);
+      await unlink(path);
+      await h.capture.memory(h.vault(), false, false, true);
+      expect(h.capture.memoryIssues(h.vault())).toEqual([]);
+      expect(h.capture.hasPendingMemory(h.vault())).toBe(false);
+    },
+  );
   it('never queues a temporarily truncated memory file as a remote revision', async () => {
     const h = fixture();
     await h.memory.save('global', undefined, {
@@ -90,12 +108,14 @@ describe('durable local file capture', () => {
     const markdown = await readFile(path, 'utf8');
     const before = h.storage.sync.drafts(h.vault().vaultId);
     await writeFile(path, '');
-    await expect(h.capture.memory(h.vault(), false, false)).rejects.toMatchObject({
-      code: 'INTEGRITY_FAILED',
-    });
+    await h.capture.memory(h.vault(), false, false);
+    expect(h.capture.memoryIssues(h.vault())).toEqual([{ path, code: 'INTEGRITY_FAILED' }]);
+    expect(h.capture.hasPendingMemory(h.vault())).toBe(true);
     expect(h.storage.sync.drafts(h.vault().vaultId)).toEqual(before);
     await writeFile(path, markdown.replace('Original body', 'Completed rewrite'));
     await h.capture.memory(h.vault(), false, false);
+    expect(h.capture.memoryIssues(h.vault())).toEqual([]);
+    expect(h.capture.hasPendingMemory(h.vault())).toBe(false);
     expect(
       h.storage.sync
         .drafts(h.vault().vaultId)
@@ -120,9 +140,9 @@ describe('durable local file capture', () => {
       (await readFile(path, 'utf8')).replace('Original body', 'Changed while scanning'),
     );
     race.path = path;
-    await expect(h.capture.memory(h.vault(), false, false)).rejects.toMatchObject({
-      code: 'REVISION_CONFLICT',
-    });
+    await h.capture.memory(h.vault(), false, false);
+    expect(h.capture.hasPendingMemory(h.vault())).toBe(true);
+    expect(h.capture.memoryIssues(h.vault())).toEqual([]);
     race.path = '';
     await h.capture.memory(h.vault(), false, false);
     expect(

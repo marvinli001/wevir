@@ -40,6 +40,7 @@ type PreparedDraft = {
 };
 
 const PACK_TARGET_BYTES = 256 * 1024;
+const MAX_COMMIT_BODY_ATTEMPTS = 3;
 const COMMIT_REJECTIONS = new Set([
   'MISSING_PARENT',
   'REVISION_CONFLICT',
@@ -657,7 +658,7 @@ export class SyncEngine {
 
   async #push(vault: SyncVaultRecord, signal: AbortSignal): Promise<void> {
     const { storage, client } = this.#options;
-    const commit = storage.sync
+    let commit = storage.sync
       .commits(vault.vaultId)
       .find(
         (value) =>
@@ -684,6 +685,7 @@ export class SyncEngine {
         retryAt: Date.now() + 10000,
       };
       storage.transaction(() => storage.sync.putCommit(queried));
+      commit = queried;
       try {
         const result = await client.json(
           'commitResult',
@@ -697,7 +699,8 @@ export class SyncEngine {
         return;
       } catch (error) {
         if (!(error instanceof ZuvRequestError) || error.code !== 'NOT_FOUND') {
-          this.#rejectCommit(vault, queried, batch.operations, error);
+          if (error instanceof ZuvRequestError && error.details?.stage === 'commit')
+            this.#rejectCommit(vault, queried, batch.operations, error);
           throw error;
         }
       }
@@ -757,7 +760,11 @@ export class SyncEngine {
       error.status >= 400 &&
       error.status < 500 &&
       COMMIT_REJECTIONS.has(error.code) &&
-      !(error.code === 'INTEGRITY_FAILED' && error.details?.stage === 'request_body')
+      !(
+        error.code === 'INTEGRITY_FAILED' &&
+        error.details?.stage === 'request_body' &&
+        commit.attempts < MAX_COMMIT_BODY_ATTEMPTS
+      )
     ) {
       storage.transaction(() => {
         storage.sync.putCommit({

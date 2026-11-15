@@ -444,6 +444,7 @@ export class SyncService {
     const { storage, client } = this.#options;
     const vault = storage.sync.activeVault();
     const transport = vault && storage.sync.vaultTransport(vault.vaultId);
+    const fileIssues = vault ? this.#files.memoryIssues(vault) : [];
     const keys = client.entitlements?.vault;
     const counts = vault
       ? storage.sync.counts(vault.vaultId)
@@ -463,7 +464,12 @@ export class SyncService {
         ['paused', 'disabled'].includes(client.entitlements.syncState)
       )
         state = 'paused';
-      if (counts.quarantined || counts.conflicts || this.#errorCode === 'LOCAL_STORAGE_ERROR')
+      if (
+        counts.quarantined ||
+        counts.conflicts ||
+        fileIssues.length ||
+        this.#errorCode === 'LOCAL_STORAGE_ERROR'
+      )
         state = 'attention';
       if (resetJob) state = this.#resetTask ? 'syncing' : 'reset_required';
       else if (this.#resetTask) state = 'configuring';
@@ -490,6 +496,7 @@ export class SyncService {
         })),
       }),
       ...counts,
+      ...(fileIssues.length && { fileIssues }),
       ...(vault && {
         currentDeviceId: client.entitlements?.identity.deviceId,
         outbox: storage.sync
@@ -1533,7 +1540,8 @@ export class SyncService {
           throw error;
         }
         this.#lastFullScan = Date.now();
-      }
+      } else if (this.#files.hasPendingMemory(vault))
+        await this.#files.memory(vault, false, false, true);
       this.#capture.prepare();
       await this.#engine.run();
       this.#errorCode = undefined;

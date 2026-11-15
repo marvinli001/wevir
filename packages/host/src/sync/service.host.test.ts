@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ErrorCode, type SessionId, type WorkspaceId } from '@wevir/protocol';
 import { schemas } from '@wevir/protocol/sync';
@@ -228,6 +228,80 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it('isolates invalid memory files while syncing valid memory, settings and inbound changes', async () => {
+    watches.manual = true;
+    const { first, second } = await fixture();
+    for (const name of ['invalid-note', 'valid-note'])
+      await first.memory.save('global', undefined, {
+        name,
+        type: 'project',
+        description: 'Synthetic memory',
+        content: name,
+      });
+    const path = join(first.home, 'memory/global/invalid-note.md');
+    const markdown = await readFile(path, 'utf8');
+    await writeFile(path, markdown.replace(/^description:.*\n/m, ''));
+    const scope = {
+      enabled: true,
+      categories: ['memory', 'settings'],
+      projects: [],
+      includeHistory: true,
+    };
+    await first.rpc.request('sync.configure', scope);
+    await second.rpc.call('sync.configure', scope);
+    await first.rpc.request('sync.approveDevice', {
+      deviceId: (await second.rpc.request('sync.status')).binding.deviceId,
+    });
+    await second.rpc.request('sync.configure', scope);
+    await first.rpc.request('settings.update', {
+      settings: { agentInstructions: 'Valid settings' },
+    });
+    await second.memory.save('global', undefined, {
+      name: 'inbound-note',
+      type: 'project',
+      description: 'Synthetic inbound',
+      content: 'Inbound body',
+    });
+    await second.rpc.request('sync.retry');
+    await first.rpc.request('sync.retry');
+    await expect
+      .poll(
+        async () => {
+          await second.rpc.request('sync.retry');
+          return (await second.memory.read('global', undefined, 'valid-note')).content;
+        },
+        { timeout: 8000 },
+      )
+      .toBe('valid-note');
+    expect((await second.rpc.request('settings.get')).settings.agentInstructions).toBe(
+      'Valid settings',
+    );
+    await expect
+      .poll(async () => (await first.memory.read('global', undefined, 'inbound-note')).content, {
+        timeout: 8000,
+      })
+      .toBe('Inbound body');
+    expect(await first.rpc.request('sync.status')).toMatchObject({
+      state: 'attention',
+      fileIssues: [{ path, code: 'INTEGRITY_FAILED' }],
+    });
+    await expect(second.memory.read('global', undefined, 'invalid-note')).rejects.toThrow();
+    await writeFile(path, markdown.replace(/\ninvalid-note(\n|$)/, '\nRepaired body$1'));
+    // With filesystem notifications suppressed, the retained per-file retry must find the repair.
+    await expect
+      .poll(async () => (await second.memory.read('global', undefined, 'invalid-note')).content, {
+        timeout: 8000,
+      })
+      .toBe('Repaired body');
+    expect((await first.rpc.request('sync.status')).fileIssues).toBeUndefined();
+    await writeFile(path, 'invalid');
+    await first.rpc.request('sync.retry');
+    expect((await first.rpc.request('sync.status')).fileIssues).toHaveLength(1);
+    await unlink(path);
+    await expect
+      .poll(async () => (await first.rpc.request('sync.status')).fileIssues, { timeout: 8000 })
+      .toBeUndefined();
+  });
   it('waits for filesystem bytes to settle after an early directory event', async () => {
     const { first, second } = await fixture();
     await first.memory.save('global', undefined, {

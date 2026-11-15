@@ -1,0 +1,25 @@
+{
+  "protocolVersion": "0.190.0",
+  "methods": {
+    "sync.status": {
+      "params": [{}],
+      "result": [
+        {
+          "protocol": "wevir-sync/1",
+          "artifactRevision": 1,
+          "pending": 0,
+          "quarantined": 0,
+          "conflicts": 0,
+          "state": "attention",
+          "fileIssues": [
+            { "path": "/memory/global/unreadable.md", "code": "INTEGRITY_FAILED" },
+            { "path": "/memory/global/locked.md", "code": "LOCAL_STORAGE_ERROR" }
+          ]
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}
