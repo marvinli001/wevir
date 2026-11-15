@@ -119,6 +119,7 @@ describe('ZUV device transport', () => {
         iat: 1234,
       });
       claims.push(value);
+      res.setHeader('date', new Date(1234000).toUTCString());
       res.setHeader('content-type', 'application/json');
       res.end('{"ok":true}');
     });

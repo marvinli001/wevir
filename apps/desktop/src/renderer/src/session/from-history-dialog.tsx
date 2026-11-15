@@ -7,7 +7,7 @@ import type {
   Session,
 } from '@wevir/protocol';
 import { compareProtocolVersions } from '@wevir/protocol';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -32,6 +32,7 @@ export function FromHistoryDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { client, view } = useHostConnection();
+  const trustPathsId = useId();
   const store = useWorkbenchStore();
   const navigate = useNavigate();
   const { providers, choose } = useModelChoice();
@@ -83,16 +84,9 @@ export function FromHistoryDialog({
     for (const [key, value] of pending)
       if (restores.current.get(key) === value) restores.current.delete(key);
   };
-  const close = async () => {
-    setBusy(true);
-    try {
-      await release();
-      onOpenChange(false);
-    } catch (reason) {
-      setError(describe(reason));
-    } finally {
-      setBusy(false);
-    }
+  const close = () => {
+    onOpenChange(false);
+    void release().catch((reason: unknown) => console.warn('workspace cleanup failed', reason));
   };
   useEffect(() => {
     if (!client || !open || !workspaceSupported) return;
@@ -230,17 +224,24 @@ export function FromHistoryDialog({
           />
         )}
         {restored && restored.requiresTrust.length > 0 && (
-          <label className="flex items-start gap-2 text-sm">
-            <Checkbox checked={trust} disabled={busy} onCheckedChange={setTrust} />
-            <span>{t('sync.workspaceTrust')}</span>
-            <ul className="max-h-40 overflow-y-auto break-all font-mono text-xs">
+          <div className="space-y-2">
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox
+                checked={trust}
+                disabled={busy}
+                onCheckedChange={setTrust}
+                aria-describedby={trustPathsId}
+              />
+              <span>{t('sync.workspaceTrust')}</span>
+            </label>
+            <ul id={trustPathsId} className="max-h-40 overflow-y-auto break-all font-mono text-xs">
               {restored.requiresTrust.map((path) => (
                 <li key={path}>
                   <code>{path}</code>
                 </li>
               ))}
             </ul>
-          </label>
+          </div>
         )}
         {report && report.status === 'not_ready' && (
           <div className="space-y-2 text-sm">

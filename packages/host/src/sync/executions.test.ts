@@ -115,7 +115,12 @@ describe('execution claim lifecycle fencing', () => {
       await expect.poll(() => request.mock.calls.length).toBe(1);
       if (change === 'stop') executions.stop();
       else if (change === 'identity') permitted = false;
-      else if (change === 'finish') executions.finish(native.id as SessionId, 'trn_synthetic');
+      else if (change === 'finish') {
+        executions.finish(native.id as SessionId, 'trn_synthetic');
+        expect(
+          ((request.mock.calls[0] as unknown[])[4] as { signal: AbortSignal }).signal.aborted,
+        ).toBe(false);
+      }
       if (change === 'timeout') {
         await prepared;
         const elapsed = performance.now() - started;

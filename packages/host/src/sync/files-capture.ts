@@ -33,19 +33,16 @@ export class SyncFilesCapture {
   readonly #queue: SyncQueue;
   readonly #activeWrites = new Set<string>();
   readonly #eligible: (() => SyncVaultRecord | undefined) | undefined;
-  readonly #watch: ((path: string) => void) | undefined;
   readonly #readCache = new BundleReadCache();
   constructor(options: {
     storage: Storage;
     memoryDir: string;
     eligible?: () => SyncVaultRecord | undefined;
-    watch?: (path: string) => void;
   }) {
     this.#storage = options.storage;
     this.#memoryDir = options.memoryDir;
     this.#queue = new SyncQueue(options.storage);
     this.#eligible = options.eligible;
-    this.#watch = options.watch;
   }
 
   beforeMemoryWrite(
@@ -226,7 +223,6 @@ export class SyncFilesCapture {
         const owner = this.#storage.sync.owner(key);
         if (owner && owner !== vault.vaultId) continue;
         const path = join(scope.root, file.name);
-        this.#watch?.(path);
         const info = await lstat(path);
         if (!info.isFile() || info.isSymbolicLink() || info.size > 128 * 1024)
           throw new ZuvRequestError('INTEGRITY_FAILED');
@@ -382,10 +378,7 @@ export class SyncFilesCapture {
       this.#readCache,
     );
     const { files, exclusions } = snapshot;
-    if (this.#watch && !snapshot.deleted) {
-      const directory = (await lstat(root.path)).isDirectory();
-      for (const file of files) this.#watch(directory ? join(root.path, file.path) : root.path);
-    }
+
     if (
       files.reduce(
         (sum, file) => sum + Math.ceil(file.bytes.length / (64 * 1024)),

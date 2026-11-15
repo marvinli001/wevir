@@ -146,18 +146,20 @@ export function ZuvMemoryConflicts({
             <DialogTitle>{t('sync.memoryConflicts')}</DialogTitle>
           </DialogHeader>
           {error && (
-            <p role="alert" className="break-words text-destructive">
-              {error}
+            <div className="flex items-start gap-2">
+              <p role="alert" className="min-w-0 flex-1 break-words text-destructive">
+                {error}
+              </p>
               <Button
                 variant="outline"
                 size="sm"
-                className="ml-2"
+                className="shrink-0"
                 disabled={busy || disabled}
                 onClick={() => void run(() => load())}
               >
                 {t('connection.retry')}
               </Button>
-            </p>
+            </div>
           )}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-1">
             {entries === undefined ? (

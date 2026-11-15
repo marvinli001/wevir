@@ -130,9 +130,9 @@ export class SyncExecutions {
         result = await request();
       } catch (error) {
         if (!(error instanceof ZuvRequestError) || error.code !== 'EXECUTION_CONFLICT') throw error;
-        if (!this.#sameVault(vault) || signal.aborted) return;
+        if (claim.finished || !this.#sameVault(vault) || signal.aborted) return;
         const current = await client.executionState(value.runId, requestSignal);
-        if (!this.#sameVault(vault) || signal.aborted) return;
+        if (claim.finished || !this.#sameVault(vault) || signal.aborted) return;
         requestSignal.throwIfAborted();
         if (!current) throw error;
         if (current.runId !== value.runId || BigInt(current.epoch) < BigInt(value.epoch))
@@ -162,7 +162,7 @@ export class SyncExecutions {
         return;
       }
     } catch (error) {
-      if (!this.#sameVault(vault) || signal.aborted) return;
+      if (claim.finished || !this.#sameVault(vault) || signal.aborted) return;
       value.state =
         error instanceof ZuvRequestError && error.code === 'EXECUTION_CONFLICT'
           ? 'conflict'
@@ -180,7 +180,6 @@ export class SyncExecutions {
     const claim = this.#preparing.get(sessionId);
     if (claim?.turnId === turnId) {
       claim.finished = true;
-      claim.abort.abort();
     }
     const active = this.#active.get(sessionId);
     if (!active || active.value.turnId !== turnId) return;

@@ -64,11 +64,11 @@ export class ZuvAccounts implements EngineAccounts {
     this.#failures = 0;
     try {
       const started = await this.client.beginEnrollment(this.#deviceName);
-      if (this.#login !== attempt || this.#closed) return this.#state();
+      if (attempt.signal.aborted || this.#login !== attempt || this.#closed) return this.#state();
       this.#connection = 'online';
       this.#schedule(started.intervalMs, started.enrollmentId, attempt);
     } catch (error) {
-      if (this.#login !== attempt || this.#closed) return this.#state();
+      if (attempt.signal.aborted || this.#login !== attempt || this.#closed) return this.#state();
       this.#error(error);
     }
     return this.#emit();
@@ -79,6 +79,7 @@ export class ZuvAccounts implements EngineAccounts {
       return this.#state();
     clearTimeout(this.#timer);
     this.#login.abort();
+    this.#login = new AbortController();
     this.#lastError = undefined;
     this.#connection = 'online';
     await this.client.cancelEnrollment(loginId);
@@ -88,6 +89,7 @@ export class ZuvAccounts implements EngineAccounts {
   async logout(_kind: AccountKind): Promise<AccountState> {
     clearTimeout(this.#timer);
     this.#login.abort();
+    this.#login = new AbortController();
     await this.client.logout();
     this.#lastError = undefined;
     this.#connection = 'online';

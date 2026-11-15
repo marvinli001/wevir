@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { useTempDir } from '../test-utils.js';
-import { mergeMemoryText, mergeSyncText } from './text-merge.js';
+import { markMemoryResolution, mergeMemoryText, mergeSyncText } from './text-merge.js';
 
 const temp = useTempDir();
 describe('merge line endings', () => {
   const base = 'Alpha\n\nMiddle\n\nOmega\n';
+  it('marks a direct CRLF memory resolution as user-edited', () => {
+    const value = markMemoryResolution(
+      '---\r\nname: synthetic\r\nupdated-by: agent\r\n---\r\nSynthetic body\r\n',
+    );
+    expect(value).toContain('updated-by: user\r\n');
+    expect(value).not.toContain('updated-by: agent');
+    expect(value).not.toMatch(/(?<!\r)\n/);
+  });
   it('merges independent LF and CRLF edits without treating line endings as edits', async () => {
     expect(
       await mergeSyncText(

@@ -580,12 +580,13 @@ export function ZuvRecoverySection({
               await client.request('sync.deleteCloud', { vaultId, stepUpId });
               setStepUpId('');
             }
+            setConfirm(undefined);
             if (confirm === 'delete' || confirm === 'detach' || confirm === 'complete') {
-              await Promise.all([
+              setSnapshot(undefined);
+              void Promise.all([
                 client.request('sync.recoveryInfo', {}).then(setInfo),
                 onChanged(),
-              ]);
-              setSnapshot(undefined);
+              ]).catch((reason: unknown) => setError(describe(reason)));
             }
           }}
         >

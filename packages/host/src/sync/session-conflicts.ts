@@ -13,6 +13,7 @@ import type {
 } from '@wevir/storage';
 import { newId } from '../ids.js';
 import { ZuvRequestError } from '../zuv/transport.js';
+import { syncAncestors, syncParents } from './ancestry.js';
 import { sha256 } from './crypto.js';
 import { type SyncDraftPayload, SyncQueue } from './queue.js';
 import type { SyncSessionMaterials } from './session-materials.js';
@@ -57,9 +58,7 @@ export class SyncSessionConflicts {
     const vault = this.#vault();
     const snapshot = this.#snapshot(vault, entityId, historical);
     const baseId =
-      snapshot.heads.length === 2
-        ? this.#base(vault, snapshot.entity, snapshot.ref, snapshot.heads)
-        : undefined;
+      snapshot.heads.length === 2 ? this.#base(vault, snapshot.entity, snapshot.heads) : undefined;
     const base = baseId ? this.#version(vault, snapshot.entity, snapshot.ref, baseId) : undefined;
     let merged: typeof SyncSessionStateContentSchema._output | undefined;
     if (snapshot.ref.kind === 'session' && base) {
@@ -305,49 +304,34 @@ export class SyncSessionConflicts {
         this.options.storage.sync.draft(vault.vaultId, entity.revision) ||
         (operation?.direction === 'outbox' && ['queued', 'pending'].includes(operation.state))
       ) {
-        const ancestors = this.#ancestors(vault, entity, this.#ref(vault, entity), entity.revision);
+        const ancestors = this.#ancestors(vault, entity, entity.revision);
         return [...heads.filter((head) => !ancestors?.has(head)), entity.revision].sort();
       }
     }
     return heads;
   }
-  #ancestors(
-    vault: SyncVaultRecord,
-    entity: SyncEntityRecord,
-    ref: SyncContentRefRecord,
-    start: string,
-  ) {
-    const found = new Set<string>(),
-      pending = [start];
-    while (pending.length) {
-      const opId = pending.pop() as string;
-      if (found.has(opId)) continue;
-      if (found.size >= 1024) return;
-      found.add(opId);
-      try {
-        pending.push(...this.#version(vault, entity, ref, opId).parents);
-      } catch (error) {
-        if (error instanceof ZuvRequestError && error.code === 'RECOVERY_REQUIRED') return;
-        throw error;
-      }
-    }
-    return found;
+  #ancestors(vault: SyncVaultRecord, entity: SyncEntityRecord, start: string) {
+    return syncAncestors(this.options.storage, vault.vaultId, entity.entityId, start);
   }
-  #base(
-    vault: SyncVaultRecord,
-    entity: SyncEntityRecord,
-    ref: SyncContentRefRecord,
-    heads: string[],
-  ) {
-    const left = this.#ancestors(vault, entity, ref, heads[0] as string);
-    const right = this.#ancestors(vault, entity, ref, heads[1] as string);
+
+  #base(vault: SyncVaultRecord, entity: SyncEntityRecord, heads: string[]) {
+    const left = this.#ancestors(vault, entity, heads[0] as string);
+    const right = this.#ancestors(vault, entity, heads[1] as string);
     if (!left || !right) return;
     const common = [...left].filter((opId) => right.has(opId));
     const parents = new Set(
-      common.flatMap((opId) => this.#version(vault, entity, ref, opId).parents),
+      common.flatMap(
+        (opId) =>
+          syncParents(this.options.storage, vault.vaultId, entity.entityId, opId) as string[],
+      ),
     );
     const candidates = common.filter((opId) => !parents.has(opId));
-    return candidates.length === 1 ? candidates[0] : undefined;
+    const base = candidates.length === 1 ? candidates[0] : undefined;
+    return base &&
+      (this.options.storage.sync.getOperation(vault.vaultId, base)?.record !== undefined ||
+        this.options.storage.sync.draft(vault.vaultId, base))
+      ? base
+      : undefined;
   }
   #state(content: Content) {
     if (content.schema !== 'wevir-session/1' && content.schema !== 'wevir-session-state/1') return;

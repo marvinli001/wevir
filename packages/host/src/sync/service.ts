@@ -100,6 +100,7 @@ export class SyncService {
   #lastFullScan = 0;
   #dirty = true;
   readonly #watchers = new Map<string, FSWatcher>();
+  #watchUnavailable = false;
   #errorCode: string | undefined;
   #configuring = false;
   #configurationDone: Promise<void> | undefined;
@@ -140,7 +141,6 @@ export class SyncService {
     this.#files = new SyncFilesCapture({
       ...options,
       eligible: () => (this.#closed ? undefined : this.#localConsent()),
-      watch: (path) => this.#watch(path, false),
     });
     this.#bundles = new SyncBundles({
       ...options,
@@ -272,7 +272,7 @@ export class SyncService {
     this.#dirty = true;
   };
   #watch(path: string, recursive = true, filter?: (name: string) => boolean) {
-    if (this.#watchers.has(path)) return;
+    if (this.#watchUnavailable || this.#watchers.has(path)) return;
     try {
       const watcher = watch(path, { recursive, persistent: false }, (_event, name) => {
         if (name && filter && !filter(String(name).split('\\').join('/'))) return;
@@ -282,19 +282,28 @@ export class SyncService {
         }
         this.changed();
       });
-      watcher.on('error', () => {
+      watcher.on('error', (error) => {
+        this.#watchFailure(error);
         watcher.close();
         this.#watchers.delete(path);
       });
       this.#watchers.set(path, watcher);
     } catch (error) {
+      this.#watchFailure(error as NodeJS.ErrnoException);
       if (
-        !['ENOENT', 'ENOSYS', 'ENOTSUP', 'ENOSPC', 'EPERM'].includes(
+        !['ENOENT', 'ENOSYS', 'ENOTSUP', 'ENOSPC', 'EPERM', 'EMFILE', 'ENFILE'].includes(
           (error as NodeJS.ErrnoException).code ?? '',
         )
       )
         throw error;
     }
+  }
+  #watchFailure(error: NodeJS.ErrnoException): void {
+    if (!['EMFILE', 'ENFILE'].includes(error.code ?? '') || this.#watchUnavailable) return;
+    this.#watchUnavailable = true;
+    for (const watcher of this.#watchers.values()) watcher.close();
+    this.#watchers.clear();
+    console.warn('Sync file watching unavailable; using periodic scans', error.code);
   }
   record = (events: Parameters<SyncEventCapture['record']>[0]): void => {
     if (
@@ -580,6 +589,7 @@ export class SyncService {
       try {
         if (!params.enabled) {
           if (vault) {
+            this.#capture.suspend(vault, vault.projectIds);
             storage.sync.setScopes(vault.vaultId, { ...vault, enabled: false });
             storage.sync.setVaultTransport(vault.vaultId, {
               ...storage.sync.vaultTransport(vault.vaultId),
@@ -681,6 +691,14 @@ export class SyncService {
             newId('spr'),
           workspaceId: project.workspaceId,
         }));
+        this.#capture.suspend(
+          vault,
+          vault.projectIds.filter(
+            (id) =>
+              !params.categories.includes('event-segment') ||
+              !projects.some((project) => project.projectId === id),
+          ),
+        );
         for (const project of projects)
           storage.sync.bindProject(vault.vaultId, project.projectId, project.workspaceId);
         await client.getEntitlements();
@@ -880,6 +898,8 @@ export class SyncService {
     return this.status();
   }
   #launchReset(jobId: string | undefined, restart: boolean): SyncStatus {
+    if (this.#recoveryIoAbort)
+      throw new HostError('RESOURCE_IN_USE', 'Recovery operation in progress', { sessionIds: [] });
     if (this.#closed || this.#configuring)
       throw this.#failure(new ZuvRequestError('REVISION_CONFLICT'));
     const vault = this.#consented();
@@ -1284,7 +1304,7 @@ export class SyncService {
     operation: (signal: AbortSignal) => Promise<T>,
     parent?: AbortSignal,
   ): Promise<T> {
-    if (this.#closed || this.#recoveryIoAbort)
+    if (this.#closed || this.#configuring || this.#recoveryIoAbort)
       throw new HostError('RESOURCE_IN_USE', 'Recovery operation in progress', { sessionIds: [] });
     const controller = new AbortController();
     this.#recoveryIoAbort = controller;
@@ -1446,7 +1466,7 @@ export class SyncService {
     for (const project of this.#options.storage.sync.projects(vault.vaultId)) {
       if (!project.workspaceId || !vault.projectIds.includes(project.projectId)) continue;
       const workspace = this.#options.storage.workspaces.get(project.workspaceId);
-      if (workspace) this.#watch(workspace.rootPath, true, workspaceRequiresTrust);
+      if (workspace) this.#watch(workspace.rootPath, false, workspaceRequiresTrust);
       if (vault.categories.includes('memory'))
         this.#watch(join(this.#options.memoryDir, 'projects', project.workspaceId), false);
     }

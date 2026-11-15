@@ -55,7 +55,7 @@ export function createSyncBundleRepository(db: SqliteDatabase) {
           AND state!='quarantined' AND record IS NOT NULL
           AND (direction='outbox' OR state IN ('applied','committed'))
         UNION SELECT op_id FROM sync_drafts WHERE vault_id=:vaultId AND entity_id=:entityId
-        UNION SELECT op_id FROM sync_bundle_applications WHERE vault_id=:vaultId AND entity_id=:entityId
+        UNION SELECT op_id FROM sync_bundle_applications WHERE vault_id=:vaultId AND entity_id=:entityId AND state IN ('prepared','applying','conflict')
       ) WHERE op_id > :after ORDER BY op_id LIMIT 101`)
         .all({ vaultId, entityId, after })
         .map((row) => text(row, 'op_id'));

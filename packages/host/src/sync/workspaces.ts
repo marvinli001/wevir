@@ -723,6 +723,7 @@ export class SyncWorkspaces {
     return { discarded: true };
   }
   async collect() {
+    const collectedBefore = Date.now();
     const jobs = await this.#jobs(),
       retained = new Set<string>();
     for (const job of jobs) {
@@ -745,6 +746,7 @@ export class SyncWorkspaces {
     for (const name of await readdir(trees)) {
       if (!id.safeParse(name).success || retained.has(name)) continue;
       const path = join(trees, name);
+      if ((await lstat(path)).mtimeMs >= collectedBefore) continue;
       if (
         sessions.some((session) => session.cwd === path || session.cwd.startsWith(`${path}${sep}`))
       )

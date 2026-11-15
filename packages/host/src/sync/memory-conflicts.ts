@@ -12,6 +12,7 @@ import type {
 import { newId } from '../ids.js';
 import { validMemoryMarkdown } from '../memory.js';
 import { ZuvRequestError } from '../zuv/transport.js';
+import { syncAncestors, syncParents } from './ancestry.js';
 import { sha256 } from './crypto.js';
 import type { SyncFilesCapture } from './files-capture.js';
 import type { SyncMaterials } from './materials.js';
@@ -307,25 +308,9 @@ export class SyncMemoryConflicts {
     };
   }
   #ancestors(vaultId: string, entityId: string, start: string): Set<string> | undefined {
-    const found = new Set<string>();
-    const pending = [start];
-    while (pending.length) {
-      const id = pending.pop() as string;
-      if (found.has(id)) continue;
-      if (found.size >= 1024) return undefined;
-      found.add(id);
-      let revision: { opId: string; parents: string[]; content: Body };
-      try {
-        revision = this.#revision(vaultId, entityId, id);
-      } catch (error) {
-        if (error instanceof ZuvRequestError && error.code === 'RECOVERY_REQUIRED')
-          return undefined;
-        throw error;
-      }
-      pending.push(...revision.parents);
-    }
-    return found;
+    return syncAncestors(this.#options.storage, vaultId, entityId, start);
   }
+
   #base(vault: SyncVaultRecord, entityId: string, heads: string[]): string | undefined {
     const left = this.#ancestors(vault.vaultId, entityId, heads[0] as string);
     const right = this.#ancestors(vault.vaultId, entityId, heads[1] as string);
@@ -334,10 +319,20 @@ export class SyncMemoryConflicts {
     const descendants = new Set<string>();
     // The complete intersection is ancestor-closed; direct parents identify every non-maximal base.
     for (const id of common)
-      for (const ancestor of this.#revision(vault.vaultId, entityId, id).parents)
+      for (const ancestor of syncParents(
+        this.#options.storage,
+        vault.vaultId,
+        entityId,
+        id,
+      ) as string[])
         descendants.add(ancestor);
     const candidates = common.filter((id) => !descendants.has(id));
-    return candidates.length === 1 ? candidates[0] : undefined;
+    const base = candidates.length === 1 ? candidates[0] : undefined;
+    return base &&
+      (this.#options.storage.sync.getOperation(vault.vaultId, base)?.record !== undefined ||
+        this.#options.storage.sync.draft(vault.vaultId, base))
+      ? base
+      : undefined;
   }
   #path(vault: SyncVaultRecord, entity: SyncEntityRecord, body: Body): string {
     const workspace = entity.projectId

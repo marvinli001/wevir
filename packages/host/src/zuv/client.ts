@@ -55,6 +55,7 @@ export class ZuvClient {
   #pending: PendingEnrollment | undefined;
   #refreshing: Promise<string> | undefined;
   #refreshSent = false;
+  #refreshFailure: { error: ZuvRequestError; retryAt: number } | undefined;
   #identityWrites: Promise<void> = Promise.resolve();
   readonly #listeners = new Set<() => void>();
   #generation = 0;
@@ -154,6 +155,7 @@ export class ZuvClient {
     deviceType: 'desktop' | 'cli' | 'mobile' | 'browser' = 'desktop',
   ): Promise<Enrollment> {
     const generation = ++this.#generation;
+    this.#refreshFailure = undefined;
     this.#identityTransitions++;
     try {
       await this.#options.onIdentityChanging?.();
@@ -283,16 +285,19 @@ export class ZuvClient {
           error instanceof ZuvRequestError &&
           (error.code === 'AUTH_REQUIRED' || error.code === 'DEVICE_REVOKED')
         ) {
-          if (proof.secret !== this.#identity.tokens.accessToken) {
-            if (attempt === 0) continue;
-          } else
-            await this.#save(
-              (current) => ({
-                ...current,
-                blocked: error.code as 'AUTH_REQUIRED' | 'DEVICE_REVOKED',
-              }),
-              generation,
-            );
+          if (
+            attempt === 0 &&
+            (this.#refreshing || proof.secret !== this.#identity.tokens.accessToken)
+          ) {
+            if (this.#refreshing) await this.#refreshing;
+            continue;
+          }
+          if (attempt === 0 && error.code === 'AUTH_REQUIRED') {
+            await this.#refreshAccess();
+            continue;
+          }
+          if (error.code === 'DEVICE_REVOKED')
+            await this.#save((current) => ({ ...current, blocked: 'DEVICE_REVOKED' }), generation);
         }
         throw error;
       }
@@ -409,24 +414,49 @@ export class ZuvClient {
     return {
       headers: {
         authorization: `DPoP ${proof.secret}`,
-        dpop: deviceProof({ ...proof, method: 'POST', url, body, now: this.#now() }),
+        dpop: deviceProof({ ...proof, method: 'POST', url, body, now: this.transport.serverNow() }),
         'content-length': String(body.byteLength),
       },
       secrets: [proof.secret],
     };
   }
 
-  async inferenceDenied(authorization: string, status: 401 | 403): Promise<void> {
+  async inferenceDenied(authorization: string, status: 401 | 403): Promise<boolean> {
     const identity = this.#identity;
-    if (!identity || authorization !== `DPoP ${identity.tokens.accessToken}` || this.#closed)
-      return;
-    if (status === 401)
-      await this.#save((current) =>
-        current.tokens.accessToken === identity.tokens.accessToken
-          ? { ...current, blocked: 'AUTH_REQUIRED' }
-          : current,
-      );
-    else await this.getEntitlements();
+    const generation = this.#generation;
+    if (
+      !identity ||
+      authorization !== `DPoP ${identity.tokens.accessToken}` ||
+      this.#closed ||
+      this.changingIdentity
+    )
+      return false;
+    if (status === 401) {
+      if (this.#refreshing) await this.#refreshing;
+      else if (authorization === `DPoP ${identity.tokens.accessToken}`) await this.#refreshAccess();
+      return generation === this.#generation && !this.#closed && !this.changingIdentity;
+    }
+    await this.getEntitlements();
+    return false;
+  }
+
+  #refreshAccess(): Promise<string> {
+    if (this.#refreshFailure && this.#refreshFailure.retryAt > this.#now())
+      throw this.#refreshFailure.error;
+    const identity = this.#identity;
+    if (
+      !identity ||
+      this.#closed ||
+      this.changingIdentity ||
+      (identity.refreshPending && !this.#refreshing) ||
+      identity.blocked
+    )
+      return Promise.reject(new ZuvRequestError(identity?.blocked ?? 'AUTH_REQUIRED', 401));
+    this.#refreshing ??= this.#refresh(identity).finally(() => {
+      this.#refreshing = undefined;
+      this.#notify();
+    });
+    return this.#refreshing;
   }
 
   #inferenceScope(): void {
@@ -463,11 +493,7 @@ export class ZuvClient {
       throw new ZuvRequestError(identity?.blocked ?? 'AUTH_REQUIRED', 401);
     if (identity.tokens.expiresAt - this.#now() > 30000)
       return { key: identity.key, secret: identity.tokens.accessToken };
-    this.#refreshing ??= this.#refresh(identity).finally(() => {
-      this.#refreshing = undefined;
-      this.#notify();
-    });
-    const secret = await this.#refreshing;
+    const secret = await this.#refreshAccess();
     if (!this.#identity) throw new ZuvRequestError('AUTH_REQUIRED', 401);
     return { key: this.#identity.key, secret };
   }
@@ -493,7 +519,13 @@ export class ZuvClient {
         !this.#closed &&
         this.#identity &&
         error instanceof ZuvRequestError &&
-        ['AUTH_REQUIRED', 'DEVICE_REVOKED', 'SCOPE_DISABLED', 'RATE_LIMITED'].includes(error.code)
+        [
+          'AUTH_REQUIRED',
+          'DEVICE_REVOKED',
+          'SCOPE_DISABLED',
+          'RATE_LIMITED',
+          'SERVICE_UNAVAILABLE',
+        ].includes(error.code)
       )
         await this.#save(
           (current) => ({
@@ -505,10 +537,23 @@ export class ZuvClient {
           }),
           generation,
         );
+      if (
+        generation === this.#generation &&
+        error instanceof ZuvRequestError &&
+        ['SERVICE_UNAVAILABLE', 'RATE_LIMITED'].includes(error.code)
+      )
+        this.#refreshFailure = {
+          error,
+          retryAt: this.#now() + Math.max(1000, error.retryAfterMs ?? 5000),
+        };
       throw error;
     }
+    this.#refreshFailure = undefined;
     if (generation !== this.#generation) throw new ZuvRequestError('AUTH_REQUIRED', 401);
-    await this.#save((current) => ({ ...current, tokens, refreshPending: false }), generation);
+    await this.#save(
+      (current) => ({ ...current, tokens, refreshPending: false, blocked: undefined }),
+      generation,
+    );
     return tokens.accessToken;
   }
 

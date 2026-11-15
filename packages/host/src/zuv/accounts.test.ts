@@ -1,10 +1,47 @@
 import type { SecretStore } from '@wevir/storage';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ZuvAccounts } from './accounts.js';
 import { ZuvClient } from './client.js';
 import { startMockZuv } from './mock.test-utils.js';
+import { ZuvRequestError } from './transport.js';
 
 describe('ZUV enrollment ownership', () => {
+  it('does not report an enrollment failure after cancelling an unfinished start', async () => {
+    let reject!: (error: Error) => void;
+    const client = {
+      onChange: () => () => {},
+      beginEnrollment: () =>
+        new Promise((_, fail) => {
+          reject = fail;
+        }),
+      cancelEnrollment: async () => {},
+      close: async () => {},
+    } as unknown as ZuvClient;
+    const accounts = new ZuvAccounts(client);
+    const login = accounts.login('zuv', 'browser');
+    await accounts.cancelLogin('zuv');
+    reject(new ZuvRequestError('ENROLLMENT_EXPIRED'));
+    expect(await login).toMatchObject({ zuv: { connection: 'online' } });
+    expect((await accounts.read('zuv')).lastError).toBeUndefined();
+    await accounts.close();
+  });
+  it('keeps entitlement refresh results observable after cancelling enrollment', async () => {
+    const client = {
+      signedIn: true,
+      onChange: () => () => {},
+      cancelEnrollment: async () => {},
+      getEntitlements: vi.fn().mockRejectedValue(new ZuvRequestError('NETWORK_ERROR')),
+      close: async () => {},
+    } as unknown as ZuvClient;
+    const accounts = new ZuvAccounts(client);
+    await accounts.cancelLogin('zuv');
+    expect(await accounts.read('zuv', { refresh: true })).toMatchObject({
+      lastError: 'NETWORK_ERROR',
+      zuv: { connection: 'offline' },
+    });
+    await accounts.close();
+  });
+
   it.each(['restart', 'cancel'] as const)('ignores an old poll after %s', async (action) => {
     const server = await startMockZuv();
     const values = new Map<string, string>();

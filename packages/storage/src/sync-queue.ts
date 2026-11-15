@@ -61,6 +61,29 @@ export interface SyncCaptureRecord {
   preparedSeq: number;
 }
 
+const blockedDraftsCte = `WITH RECURSIVE edges(op_id, dependency) AS (
+  SELECT d.op_id, p.value FROM sync_drafts d, json_each(d.parents) p WHERE d.vault_id=:vaultId
+  UNION ALL
+  SELECT d.op_id, json_extract(p.value,'$.opId') FROM sync_drafts d,
+    json_each(d.content,'$.body.files') f, json_each(f.value,'$.parts') p
+    WHERE d.vault_id=:vaultId AND json_extract(d.content,'$.body.schema')='wevir-bundle/1'
+  UNION ALL
+  SELECT d.op_id, json_extract(r.value,'$.opId') FROM sync_drafts d,
+    json_each(d.content,'$.body.metadata.ruleVersions') r
+    WHERE d.vault_id=:vaultId AND json_extract(d.content,'$.body.schema')='wevir-bundle/1'
+  UNION ALL
+  SELECT d.op_id, p.revision FROM sync_drafts d JOIN sync_entities e USING(vault_id,entity_id)
+    JOIN sync_entities p ON p.vault_id=e.vault_id AND p.entity_id=e.project_id AND p.entity_type='project'
+    WHERE d.vault_id=:vaultId AND e.entity_type!='project' AND p.revision IS NOT NULL
+    AND NOT EXISTS(SELECT 1 FROM sync_operations o WHERE o.vault_id=e.vault_id
+      AND o.entity_id=e.project_id AND o.entity_type='project' AND o.state IN ('applied','committed'))
+    AND NOT EXISTS(SELECT 1 FROM sync_snapshot_roots r WHERE r.vault_id=e.vault_id AND r.entity_id=e.project_id)
+), blocked(op_id) AS (
+  SELECT o.op_id FROM sync_operations o JOIN sync_commits c USING(vault_id,commit_id)
+    WHERE o.vault_id=:vaultId AND c.outcome='rejected'
+  UNION SELECT e.op_id FROM edges e JOIN blocked b ON b.op_id=e.dependency
+)`;
+
 export function createSyncQueueRepository(db: SqliteDatabase) {
   const transactionRequired = () => {
     if (!db.isTransaction) throw new Error('sync queue mutation requires a storage transaction');
@@ -217,14 +240,11 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
       prioritizeChunks = false,
     ): SyncDraftRecord[] {
       return db
-        .prepare(`SELECT d.* FROM sync_drafts d JOIN sync_entities e USING (vault_id, entity_id)
+        .prepare(`${blockedDraftsCte} SELECT d.* FROM sync_drafts d JOIN sync_entities e USING (vault_id, entity_id)
           WHERE d.vault_id = :vaultId
           AND (:categories IS NULL OR e.entity_type IN (SELECT value FROM json_each(:categories)))
           AND (:projects IS NULL OR e.project_id IS NULL OR e.project_id IN (SELECT value FROM json_each(:projects)))
-          AND NOT EXISTS (SELECT 1 FROM sync_operations o JOIN sync_commits c
-            ON c.vault_id=o.vault_id AND c.commit_id=o.commit_id
-            WHERE o.vault_id=d.vault_id AND c.outcome='rejected'
-            AND o.op_id IN (SELECT value FROM json_each(d.parents)))
+          AND (:categories IS NULL OR d.op_id NOT IN (SELECT op_id FROM blocked))
           ORDER BY CASE WHEN :prioritizeChunks AND json_extract(d.content,'$.body.schema')='wevir-chunk/1' THEN 0 ELSE 1 END, d.rowid LIMIT :limit`)
         .all({
           vaultId,
@@ -303,10 +323,29 @@ export function createSyncQueueRepository(db: SqliteDatabase) {
         capture.preparedSeq,
       );
     },
+    suspendEventProject(vaultId: string, projectId: string, suspended: boolean): void {
+      transactionRequired();
+      db.prepare(
+        'UPDATE sync_projects SET events_suspended=? WHERE vault_id=? AND project_id=?',
+      ).run(Number(suspended), vaultId, projectId);
+    },
+    eventProjectSuspended(vaultId: string, projectId: string): boolean {
+      return Boolean(
+        db
+          .prepare('SELECT events_suspended FROM sync_projects WHERE vault_id=? AND project_id=?')
+          .get(vaultId, projectId)?.events_suspended,
+      );
+    },
+    skipCapture(vaultId: string, localSessionId: string, streamId: string, seq: number): void {
+      transactionRequired();
+      db.prepare(
+        'UPDATE sync_event_captures SET through_seq=MAX(through_seq,?), prepared_seq=MAX(prepared_seq,?), history_floor_seq=MAX(history_floor_seq,?) WHERE vault_id=? AND local_session_id=? AND stream_id=?',
+      ).run(seq, seq, seq, vaultId, localSessionId, streamId);
+    },
     rewindCapture(vaultId: string, localSessionId: string, streamId: string): void {
       transactionRequired();
       db.prepare(
-        'UPDATE sync_event_captures SET prepared_seq = 0 WHERE vault_id = ? AND local_session_id = ? AND stream_id = ?',
+        'UPDATE sync_event_captures SET prepared_seq = history_floor_seq WHERE vault_id = ? AND local_session_id = ? AND stream_id = ?',
       ).run(vaultId, localSessionId, streamId);
     },
     captures(vaultId: string): SyncCaptureRecord[] {

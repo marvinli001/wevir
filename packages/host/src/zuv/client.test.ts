@@ -135,6 +135,138 @@ function mock() {
 }
 
 describe('Host-owned ZUV identity', () => {
+  it('does not retry inference signed by credentials outside the current identity', async () => {
+    const h = mock();
+    await h.login();
+    expect(await h.client.inferenceDenied('DPoP synthetic-previous-identity-token', 401)).toBe(
+      false,
+    );
+    expect(h.request.mock.calls.filter(([url]) => String(url).endsWith('/refresh'))).toHaveLength(
+      0,
+    );
+  });
+
+  it('refreshes a rejected access token without requiring another enrollment', async () => {
+    const h = mock();
+    await h.login();
+    const auth = await h.client.authorizeInference(
+      'https://zuv.test/api/wevir/v1/responses',
+      Buffer.from('{}'),
+    );
+    await h.client.inferenceDenied(auth.headers.authorization as string, 401);
+    expect(h.client.requiresLogin).toBe(false);
+    const next = await h.client.authorizeInference(
+      'https://zuv.test/api/wevir/v1/responses',
+      Buffer.from('{}'),
+    );
+    expect(next.headers.authorization).toBe('DPoP synthetic-access-1-token');
+    expect(h.request.mock.calls.filter(([url]) => String(url).endsWith('/refresh'))).toHaveLength(
+      1,
+    );
+  });
+
+  it('waits for an in-flight refresh when the old entitlement request returns 401', async () => {
+    const h = mock();
+    await h.login();
+    const send = h.request.getMockImplementation() as typeof fetch;
+    let rejectOld!: () => void, finishRefresh!: () => void;
+    const oldGate = new Promise<void>((resolve) => {
+      rejectOld = resolve;
+    });
+    const refreshGate = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    h.request.mockImplementation(async (...args) => {
+      const path = new URL(String(args[0])).pathname;
+      if (
+        path.endsWith('/entitlements') &&
+        new Headers(args[1]?.headers).get('authorization') === 'DPoP synthetic-access-0-token'
+      ) {
+        await oldGate;
+        return Response.json(
+          { error: { code: 'AUTH_REQUIRED', message: 'AUTH_REQUIRED' } },
+          { status: 401 },
+        );
+      }
+      if (path.endsWith('/refresh')) await refreshGate;
+      return send(...args);
+    });
+    const old = h.client.getEntitlements();
+    const settled = expect(old).resolves.toMatchObject({ subscriptionState: 'active' });
+    await vi.waitFor(() =>
+      expect(h.request.mock.calls.at(-1)?.[0].toString()).toContain('/entitlements'),
+    );
+    h.advance(901000);
+    const refreshing = h.client.models();
+    await vi.waitFor(() =>
+      expect(h.request.mock.calls.at(-1)?.[0].toString()).toContain('/refresh'),
+    );
+    rejectOld();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(h.client.blockedReason).toBeUndefined();
+    finishRefresh();
+    await Promise.all([settled, refreshing]);
+    expect(h.client.requiresLogin).toBe(false);
+  });
+
+  it('uses learned server time for transport and inference proofs after local clock skew', async () => {
+    const h = mock();
+    const send = h.request.getMockImplementation() as typeof fetch;
+    const serverTime = Date.parse('2026-11-13T00:00:00.000Z');
+    h.request.mockImplementation(async (...args) => {
+      const response = await send(...args);
+      response.headers.set('date', new Date(serverTime).toUTCString());
+      return response;
+    });
+    await h.login();
+    h.advance(120000);
+    await h.client.models();
+    const headers = new Headers(h.request.mock.calls.at(-1)?.[1]?.headers);
+    const auth = await h.client.authorizeInference(
+      'https://zuv.test/api/wevir/v1/responses',
+      Buffer.from('{}'),
+    );
+    for (const dpop of [headers.get('dpop'), auth.headers.dpop]) {
+      const claims = JSON.parse(
+        Buffer.from((dpop as string).split('.')[1] as string, 'base64url').toString(),
+      );
+      expect(Math.abs(claims.iat - serverTime / 1000)).toBeLessThan(5);
+    }
+  });
+
+  it.each(['SERVICE_UNAVAILABLE', 'RATE_LIMITED'] as const)(
+    'retries a rolled-back %s refresh after backoff without re-enrollment',
+    async (code) => {
+      const h = mock();
+      await h.login();
+      h.advance(901000);
+      const send = h.request.getMockImplementation() as typeof fetch;
+      h.request.mockImplementationOnce(async () =>
+        Response.json(
+          { error: { code, message: code, retryAfterMs: 1000 } },
+          { status: code === 'RATE_LIMITED' ? 429 : 503 },
+        ),
+      );
+      await expect(h.client.models()).rejects.toMatchObject({ code });
+      expect(h.client.requiresLogin).toBe(false);
+      expect(JSON.parse(h.values.get('zuv.identity') as string).refreshPending).toBe(false);
+      const before = h.request.mock.calls.length;
+      h.request.mockImplementation(send);
+      await expect(h.client.models()).rejects.toMatchObject({ code });
+      expect(h.request.mock.calls).toHaveLength(before);
+      h.advance(1001);
+      expect(await h.client.models()).toEqual(['synthetic-model']);
+      const refreshes = h.request.mock.calls.filter(([url]) => String(url).endsWith('/refresh'));
+      expect(refreshes).toHaveLength(2);
+      expect(
+        refreshes.map(
+          ([, init]) =>
+            JSON.parse(Buffer.from((init as RequestInit).body as Uint8Array).toString()).token,
+        ),
+      ).toEqual(['synthetic-refresh-0-token', 'synthetic-refresh-0-token']);
+    },
+  );
+
   it('signs execution-state reads and rejects extra fields instead of accepting a lease grant', async () => {
     const h = mock();
     await h.login();
@@ -441,6 +573,7 @@ describe('Host-owned ZUV identity', () => {
     expect(await auth.authorize(request)).toMatchObject({ ok: false, status, code });
     if (status === 429) {
       h.request.mockImplementation(send);
+      h.advance(1001);
       expect(await auth.authorize(request)).toMatchObject({ ok: true });
     }
   });

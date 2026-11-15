@@ -7,6 +7,7 @@ import { jcs, packRecord } from '@wevir/protocol/sync';
 import type { Storage, SyncEntityRecord, SyncVaultRecord } from '@wevir/storage';
 import type { HostSettingsStore } from '../settings.js';
 import { ZuvRequestError } from '../zuv/transport.js';
+import { syncAncestors, syncParents } from './ancestry.js';
 import { sha256 } from './crypto.js';
 import type { SyncDraftPayload } from './queue.js';
 import type { SyncSettings } from './settings.js';
@@ -217,22 +218,9 @@ export class SyncSettingsConflicts {
     return heads;
   }
   #ancestors(vaultId: string, entityId: string, start: string): Set<string> | undefined {
-    const found = new Set<string>(),
-      pending = [start];
-    while (pending.length) {
-      const id = pending.pop() as string;
-      if (found.has(id)) continue;
-      if (found.size >= 1024) return;
-      found.add(id);
-      try {
-        pending.push(...this.#revision(vaultId, entityId, id).parents);
-      } catch (error) {
-        if (error instanceof ZuvRequestError && error.code === 'RECOVERY_REQUIRED') return;
-        throw error;
-      }
-    }
-    return found;
+    return syncAncestors(this.options.storage, vaultId, entityId, start);
   }
+
   #base(vault: SyncVaultRecord, entityId: string, heads: string[]): string | undefined {
     const left = this.#ancestors(vault.vaultId, entityId, heads[0] as string),
       right = this.#ancestors(vault.vaultId, entityId, heads[1] as string);
@@ -240,8 +228,19 @@ export class SyncSettingsConflicts {
     const common = [...left].filter((id) => right.has(id)),
       parents = new Set<string>();
     for (const id of common)
-      for (const parent of this.#revision(vault.vaultId, entityId, id).parents) parents.add(parent);
+      for (const parent of syncParents(
+        this.options.storage,
+        vault.vaultId,
+        entityId,
+        id,
+      ) as string[])
+        parents.add(parent);
     const candidates = common.filter((id) => !parents.has(id));
-    return candidates.length === 1 ? candidates[0] : undefined;
+    const base = candidates.length === 1 ? candidates[0] : undefined;
+    return base &&
+      (this.options.storage.sync.getOperation(vault.vaultId, base)?.record !== undefined ||
+        this.options.storage.sync.draft(vault.vaultId, base))
+      ? base
+      : undefined;
   }
 }

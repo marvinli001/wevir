@@ -1,4 +1,4 @@
-import { stat, utimes, writeFile } from 'node:fs/promises';
+import { readdir, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RecordManifest, SyncOperation } from '@wevir/protocol/sync';
 import {
@@ -205,6 +205,39 @@ describe('durable encrypted synchronization over HTTP', () => {
     ).resolves.toBeUndefined();
     expect(first.storage.sync.commits(vault.vaultId)[0]?.outcome).toBe('rejected');
   });
+  it('bounds cached ciphertext and plaintext records across repeated memory revisions', async () => {
+    const { first } = await setup();
+    await first.enable();
+    const sizes: number[] = [];
+    for (let i = 0; i < 70; i++) {
+      first.enqueue(`Revision ${i}: ${'x'.repeat(2048)}`);
+      await first.engine.run();
+      if (i === 34 || i === 69)
+        sizes.push(
+          Number(
+            first.storage.db
+              .prepare('SELECT SUM(length(record)) AS bytes FROM sync_operations')
+              .get()?.bytes,
+          ),
+        );
+    }
+    const cached = await readdir(join(first.home, 'sync/blobs', first.opened.vaultId));
+    const files = cached.filter((name) => name.endsWith('.bin'));
+    expect(files.length).toBeLessThanOrEqual(32);
+    const cipherBytes = await Promise.all(
+      files.map(
+        async (name) =>
+          (await stat(join(first.home, 'sync/blobs', first.opened.vaultId, name))).size,
+      ),
+    );
+    expect(cipherBytes.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(32 * 4096);
+    expect(sizes[1]).toBeLessThanOrEqual(32 * 3072);
+    expect(sizes[1]).toBeLessThanOrEqual((sizes[0] as number) * 1.05);
+    expect(first.storage.sync.operations(first.opened.vaultId, 'outbox', 'committed')).toHaveLength(
+      70,
+    );
+  }, 30000);
+
   it('refreshes stale entitlements before decrypting a newer key epoch', async () => {
     const { first, second } = await setup();
     await first.enable();
@@ -452,6 +485,157 @@ describe('durable encrypted synchronization over HTTP', () => {
         .map((op) => op.opId);
     return { ...peers, vaultId, projectId, queue, bundle, accepted };
   }
+
+  it.each(['part', 'rule', 'project'] as const)(
+    'suspends a rejected %s dependency chain while sending other entities',
+    async (kind) => {
+      const f = await referenceFixture();
+      const projectId = kind === 'project' ? 'project_rejected' : f.projectId;
+      if (kind === 'project') {
+        const scopes = await f.first.client.json(
+          'scopesUpdated',
+          'PUT',
+          '/api/wevir/sync/v1/scopes',
+          {
+            expectedRevision: '2',
+            enabled: true,
+            categories: ['project', 'artifact', 'rule', 'workspace-snapshot'],
+            projectIds: [f.projectId, projectId],
+          },
+        );
+        f.first.storage.sync.setScopes(f.vaultId, scopes);
+      }
+      f.first.storage.transaction(() => {
+        f.queue.enqueue({
+          vaultId: f.vaultId,
+          projectId,
+          entityId: kind === 'project' ? projectId : 'rejected_entity',
+          entityType: kind === 'part' ? 'artifact' : kind,
+          opId: 'rejected_operation',
+          localKey: 'rejected',
+          content: { schema: 'synthetic/1' },
+        });
+      });
+      const post = f.first.client.transfer.bind(f.first.client);
+      vi.spyOn(f.first.client, 'transfer').mockImplementation((input) =>
+        input.path.endsWith('/commits')
+          ? Promise.reject(new ZuvRequestError('QUOTA_EXCEEDED', 409))
+          : post(input),
+      );
+      await expect(f.first.engine.run()).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
+      vi.restoreAllMocks();
+      f.first.storage.transaction(() => {
+        f.queue.enqueue({
+          vaultId: f.vaultId,
+          projectId,
+          entityId: 'blocked_bundle',
+          entityType: 'workspace-snapshot',
+          localKey: 'blocked',
+          opId: 'blocked_operation',
+          content: {
+            schema: 'wevir-bundle/1',
+            category: 'workspace-snapshot',
+            name: 'Blocked',
+            exclusions: [],
+            metadata: {
+              ruleVersions:
+                kind === 'rule'
+                  ? [{ entityId: 'rejected_entity', opId: 'rejected_operation' }]
+                  : [],
+            },
+            files:
+              kind === 'part'
+                ? [
+                    {
+                      path: 'file.md',
+                      bytes: 0,
+                      sha256: sha256(''),
+                      parts: [{ entityId: 'rejected_entity', opId: 'rejected_operation' }],
+                    },
+                  ]
+                : [],
+          },
+        });
+        f.queue.enqueue({
+          vaultId: f.vaultId,
+          projectId,
+          entityId: 'blocked_bundle',
+          entityType: 'workspace-snapshot',
+          localKey: 'blocked',
+          opId: 'blocked_descendant_op',
+          parents: ['blocked_operation'],
+          content: {
+            schema: 'wevir-bundle/1',
+            category: 'workspace-snapshot',
+            name: 'Descendant',
+            files: [],
+            exclusions: [],
+          },
+        });
+        f.bundle('unrelated_fixture', 'unrelated_operation', 'workspace-snapshot');
+      });
+      await expect(f.first.engine.run()).resolves.toBe(true);
+      expect(f.accepted()).toContain('unrelated_operation');
+      expect(
+        f.first.storage.sync.drafts(f.vaultId, 256, f.first.storage.sync.activeVault()),
+      ).toEqual([]);
+      expect(f.first.storage.sync.drafts(f.vaultId).map((row) => row.opId)).toEqual([
+        'blocked_operation',
+        'blocked_descendant_op',
+      ]);
+    },
+  );
+
+  it('splits accumulated snapshot references across preparation batches', async () => {
+    const f = await referenceFixture();
+    f.first.storage.transaction(() => {
+      for (let version = 0; version < 2; version++) {
+        const parts = Array.from({ length: 2500 }, (_, index) => ({
+          entityId: `chunk_${version}_${index}`,
+          opId: `op_chunk_${version}_${index}`,
+        }));
+        for (const part of parts)
+          f.first.storage.sync.putOperation({
+            vaultId: f.vaultId,
+            ...part,
+            deviceId: f.first.opened.deviceId,
+            deviceSeq: String(version * 2500 + parts.indexOf(part) + 10),
+            entityType: 'artifact',
+            projectId: f.projectId,
+            envelope: {},
+            manifest: {},
+            digest: sha256(part.opId),
+            direction: 'outbox',
+            state: 'committed',
+          });
+        f.queue.enqueue({
+          vaultId: f.vaultId,
+          projectId: f.projectId,
+          entityId: `snapshot_${version}`,
+          entityType: 'workspace-snapshot',
+          localKey: `snapshot:${version}`,
+          opId: `op_snapshot_${version}`,
+          content: {
+            schema: 'wevir-bundle/1',
+            category: 'workspace-snapshot',
+            name: 'Snapshot',
+            files: parts.map((part, index) => ({
+              path: `file-${index}.txt`,
+              bytes: 0,
+              sha256: sha256(''),
+              parts: [part],
+            })),
+            exclusions: [],
+          },
+        });
+      }
+    });
+    await expect(f.first.engine.run()).resolves.toBe(true);
+    expect(f.accepted()).toContain('op_snapshot_0');
+    expect(f.first.storage.sync.draft(f.vaultId, 'op_snapshot_1')).toBeDefined();
+    await expect(f.first.engine.run()).resolves.toBe(true);
+    expect(f.accepted()).toContain('op_snapshot_1');
+  });
 
   it('orders a later workspace revision after its rule even when an older workspace draft comes first', async () => {
     const f = await referenceFixture();
@@ -907,61 +1091,69 @@ describe('durable encrypted synchronization over HTTP', () => {
     ).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
     expect(server.sync.attempts.commits).toBe(attempts);
   });
-  it('keeps pulling after a definite rejection and recovers with fresh IDs without rewriting the old commit', async () => {
-    let rejected = 0;
-    const { first, second } = await setup(async (input, init) => {
-      if (
-        new URL(String(input)).pathname.endsWith('/commits') &&
-        init?.method === 'POST' &&
-        !rejected++
-      )
-        return new Response(
-          JSON.stringify({ error: { code: 'REVISION_CONFLICT', message: 'synthetic rejection' } }),
-          { status: 409, headers: { 'content-type': 'application/json' } },
+  it.each(['REVISION_CONFLICT', 'INTEGRITY_FAILED'] as const)(
+    'keeps pulling after a definite rejection and recovers with fresh IDs without rewriting the old commit',
+    async (code) => {
+      let rejected = 0;
+      const { first, second } = await setup(async (input, init) => {
+        if (
+          new URL(String(input)).pathname.endsWith('/commits') &&
+          init?.method === 'POST' &&
+          !rejected++
+        )
+          return new Response(JSON.stringify({ error: { code, message: 'synthetic rejection' } }), {
+            status: code === 'INTEGRITY_FAILED' ? 400 : 409,
+            headers: { 'content-type': 'application/json' },
+          });
+        return fetch(input, init);
+      });
+      await first.enable();
+      await second.enable();
+      const originalOp = first.enqueue('Synthetic local offline work') as string;
+      await expect(first.engine.run()).rejects.toMatchObject({ code });
+      const original = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
+      expect(original).toMatchObject({ outcome: 'rejected', attempts: 1 });
+      expect(first.storage.sync.vaultTransport(first.opened.vaultId).state).toBe('paused');
+      first.enqueue('Synthetic independent local work', 'global/independent.md');
+      second.enqueue('Synthetic remote work', 'global/remote.md');
+      await second.engine.run();
+      await first.engine.run();
+      expect(
+        first.storage.sync.localEntity(first.opened.vaultId, 'global/independent.md')?.revision,
+      ).toBeDefined();
+      expect(
+        first.storage.sync.localEntity(first.opened.vaultId, 'global/remote.md'),
+      ).toBeDefined();
+      expect(rejected).toBe(2);
+      await new SyncOutboxRecovery({
+        storage: first.storage,
+        client: first.client,
+        engine: first.engine,
+      }).recover(
+        { expectedDeviceId: first.opened.deviceId, commitIds: [original.commitId] },
+        new AbortController().signal,
+      );
+      const replacement = first.storage.sync
+        .drafts(first.opened.vaultId)
+        .find(
+          (value) => (value.content as { body: { recoveredFrom?: unknown } }).body.recoveredFrom,
         );
-      return fetch(input, init);
-    });
-    await first.enable();
-    await second.enable();
-    const originalOp = first.enqueue('Synthetic local offline work') as string;
-    await expect(first.engine.run()).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
-    const original = first.storage.sync.commits(first.opened.vaultId)[0] as SyncCommitRecord;
-    expect(original).toMatchObject({ outcome: 'rejected', attempts: 1 });
-    first.enqueue('Synthetic independent local work', 'global/independent.md');
-    second.enqueue('Synthetic remote work', 'global/remote.md');
-    await second.engine.run();
-    await first.engine.run();
-    expect(
-      first.storage.sync.localEntity(first.opened.vaultId, 'global/independent.md')?.revision,
-    ).toBeDefined();
-    expect(first.storage.sync.localEntity(first.opened.vaultId, 'global/remote.md')).toBeDefined();
-    expect(rejected).toBe(2);
-    await new SyncOutboxRecovery({
-      storage: first.storage,
-      client: first.client,
-      engine: first.engine,
-    }).recover(
-      { expectedDeviceId: first.opened.deviceId, commitIds: [original.commitId] },
-      new AbortController().signal,
-    );
-    const replacement = first.storage.sync
-      .drafts(first.opened.vaultId)
-      .find((value) => (value.content as { body: { recoveredFrom?: unknown } }).body.recoveredFrom);
-    expect(replacement?.opId).not.toBe(originalOp);
-    expect(replacement?.content).toMatchObject({
-      body: {
-        text: 'Synthetic local offline work',
-        recoveredFrom: { opId: originalOp, commitId: original.commitId },
-      },
-    });
-    expect(
-      first.storage.sync
-        .commits(first.opened.vaultId, false)
-        .find((value) => value.commitId === original.commitId),
-    ).toMatchObject({ body: original.body, outcome: 'recovered' });
-    await first.engine.run();
-    expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([]);
-  });
+      expect(replacement?.opId).not.toBe(originalOp);
+      expect(replacement?.content).toMatchObject({
+        body: {
+          text: 'Synthetic local offline work',
+          recoveredFrom: { opId: originalOp, commitId: original.commitId },
+        },
+      });
+      expect(
+        first.storage.sync
+          .commits(first.opened.vaultId, false)
+          .find((value) => value.commitId === original.commitId),
+      ).toMatchObject({ body: original.body, outcome: 'recovered' });
+      await first.engine.run();
+      expect(first.storage.sync.commits(first.opened.vaultId)).toEqual([]);
+    },
+  );
 
   it('continues polling a pending commit beyond the worker cycle without another POST or upload', async () => {
     let loseResponse = true;

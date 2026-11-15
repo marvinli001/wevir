@@ -61,8 +61,9 @@ export function ZuvVersionRestore({
   const restore = async () => {
     if (!preview) return;
     await client.request('sync.importRestore', preview);
-    await load(preview.targetId);
     setDone(true);
+    setConfirming(false);
+    void load(preview.targetId).catch((reason: unknown) => setError(describe(reason)));
   };
   const consequence = preview && CONSEQUENCES[preview.kind];
   if (!client.supports('sync_version_restore')) return null;

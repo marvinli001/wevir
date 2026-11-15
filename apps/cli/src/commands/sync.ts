@@ -18,7 +18,7 @@ export async function syncCall(
       typeof params === 'object' &&
       Object.values(params).some((value) => value !== undefined && value !== false)
     )
-      throw new UsageError(t('sync.invalidParams'));
+      throw new UsageError(t('sync.stdinConflict'));
     const raw = await readStdin(ctx.io);
     try {
       value = JSON.parse(raw);
@@ -28,11 +28,15 @@ export async function syncCall(
   }
   const parsed = MethodSchemas[method].params.safeParse(value);
   if (!parsed.success) throw new UsageError(t('sync.invalidParams'));
-  if (method === 'sync.exportLocal' && (parsed.data as { directory?: string }).directory) {
+  if (
+    ctx.remote === undefined &&
+    method === 'sync.exportLocal' &&
+    (parsed.data as { directory?: string }).directory
+  ) {
     const data = parsed.data as { directory: string };
     data.directory = resolve(ctx.io.cwd, data.directory);
   }
-  if (method === 'sync.importPrepare') {
+  if (ctx.remote === undefined && method === 'sync.importPrepare') {
     const data = parsed.data as { path: string };
     data.path = resolve(ctx.io.cwd, data.path);
   }

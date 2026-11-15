@@ -10,6 +10,14 @@ const epoch = '1970-01-01T00:00:00.000Z';
 function database() {
   opened ??= new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('wevir-derived-library', 2);
+    let failed = false;
+    const unavailable = () => {
+      failed = true;
+      clearTimeout(timeout);
+      reject(new Error('browser storage unavailable'));
+    };
+    const timeout = setTimeout(unavailable, 5000);
+    request.onblocked = unavailable;
     request.onupgradeneeded = () => {
       const store = request.result.objectStoreNames.contains('records')
         ? (request.transaction as IDBTransaction).objectStore('records')
@@ -29,10 +37,21 @@ function database() {
       };
     };
     request.onsuccess = () => {
-      request.result.onversionchange = () => request.result.close();
+      clearTimeout(timeout);
+      if (failed) {
+        request.result.close();
+        return;
+      }
+      request.result.onversionchange = () => {
+        request.result.close();
+        opened = undefined;
+      };
       resolve(request.result);
     };
-    request.onerror = () => reject(new Error('browser storage unavailable'));
+    request.onerror = unavailable;
+  }).catch((error: unknown) => {
+    opened = undefined;
+    throw error;
   });
   return opened;
 }
@@ -162,6 +181,13 @@ export async function invalidateBrowserLibrary() {
   await clearBrowserLibrary();
 }
 export async function bindBrowserLibrary(hostId: string, clientId: string) {
+  try {
+    await bind(hostId, clientId);
+  } catch (error) {
+    console.warn('Offline library unavailable', error);
+  }
+}
+async function bind(hostId: string, clientId: string) {
   const next = `${hostId}/${clientId}`;
   if (!blocked && activeScope === next) return;
   const generation = ++authorizationGeneration;

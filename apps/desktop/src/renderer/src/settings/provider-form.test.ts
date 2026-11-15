@@ -1276,6 +1276,20 @@ describe('测试连接的结果', () => {
       }),
     ).toEqual({ ok: false, title: '测试失败', detail: 'other payment required' });
   });
+  it.each([
+    ['auth_required', 'ZUV 需要重新登录'],
+    ['subscription_required', 'ZUV 订阅未生效'],
+    ['scope_disabled', 'ZUV 推理权限已关闭'],
+    ['device_revoked', 'ZUV 设备已撤销'],
+  ])('localizes the ZUV %s connection failure', (code, title) => {
+    expect(
+      presentTestResult({
+        ok: false,
+        reason: 'auth',
+        error: { category: 'provider', code: `zuv_${code}`, message: code },
+      }),
+    ).toEqual({ ok: false, title });
+  });
   it('成功：带用时，不到 1 秒用毫秒', () => {
     expect(presentTestResult({ ok: true, latencyMs: 812 }).title).toBe('连接成功，用时 812 毫秒');
     expect(presentTestResult({ ok: true, latencyMs: 2345 }).title).toBe('连接成功，用时 2.3 秒');

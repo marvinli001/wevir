@@ -30,6 +30,7 @@ import { decryptPack, encryptPack, parseEnvelope, sha256 } from './crypto.js';
 import { SyncDownloads, TRANSFER_RETRY_MS } from './downloads.js';
 import { MAX_PREPARATION_REFERENCES, type SyncDraftPayload } from './queue.js';
 import { rebaseResetCommits } from './reset-queue.js';
+import { collectSyncRecords } from './retention.js';
 
 type Record = typeof packRecord._output;
 type PreparedDraft = {
@@ -45,6 +46,7 @@ const COMMIT_REJECTIONS = new Set([
   'BLOB_INCOMPLETE',
   'OP_ID_REUSED',
   'INVALID_REQUEST',
+  'INTEGRITY_FAILED',
   'SCOPE_DISABLED',
   'QUOTA_EXCEEDED',
 ]);
@@ -236,6 +238,7 @@ export class SyncEngine {
             'RATE_LIMITED',
             'QUOTA_EXCEEDED',
             'SCOPE_DISABLED',
+            ...(error.status === 400 ? ['INTEGRITY_FAILED'] : []),
           ].includes(error.code)
         )
           throw error;
@@ -245,6 +248,8 @@ export class SyncEngine {
       if (pushFailure) throw pushFailure;
       await this.#prepare(vault, signal);
       await this.#push(vault, signal);
+      this.#guard(vault, signal);
+      await collectSyncRecords(this.#options.storage, this.#options.cache, vault.vaultId);
       this.#guard(vault, signal);
       this.#state(
         vault.vaultId,
@@ -267,7 +272,12 @@ export class SyncEngine {
           ? 'reset_required'
           : code === 'DEVICE_REVOKED'
             ? 'revoked'
-            : ['INTEGRITY_FAILED', 'UPGRADE_REQUIRED'].includes(code)
+            : ['INTEGRITY_FAILED', 'UPGRADE_REQUIRED'].includes(code) &&
+                !(
+                  error instanceof ZuvRequestError &&
+                  error.code === 'INTEGRITY_FAILED' &&
+                  error.status === 400
+                )
               ? 'attention'
               : 'paused';
       this.#state(
@@ -413,32 +423,44 @@ export class SyncEngine {
       return result;
     };
     for (const draft of initial) {
-      const stack: Array<{ value: PreparedDraft; next: number }> = [
-        { value: node(draft), next: 0 },
-      ];
-      while (stack.length) {
-        const frame = stack[stack.length - 1] as (typeof stack)[number];
-        const id = frame.value.draft.opId;
-        if (state.get(id) === 'ready') {
-          stack.pop();
-          continue;
+      const prepared = ordered.length;
+      try {
+        const stack: Array<{ value: PreparedDraft; next: number }> = [
+          { value: node(draft), next: 0 },
+        ];
+        while (stack.length) {
+          const frame = stack[stack.length - 1] as (typeof stack)[number];
+          const id = frame.value.draft.opId;
+          if (state.get(id) === 'ready') {
+            stack.pop();
+            continue;
+          }
+          if (!dependencies.has(id)) {
+            state.set(id, 'visiting');
+            dependencies.set(id, referencesOf(frame.value));
+          }
+          const refs = dependencies.get(id) as PreparedDraft[];
+          const dependency = refs[frame.next++];
+          if (dependency) {
+            if (state.get(dependency.draft.opId) === 'visiting')
+              throw new ZuvRequestError('INTEGRITY_FAILED');
+            if (state.get(dependency.draft.opId) !== 'ready')
+              stack.push({ value: dependency, next: 0 });
+          } else {
+            state.set(id, 'ready');
+            ordered.push(frame.value);
+            stack.pop();
+          }
         }
-        if (!dependencies.has(id)) {
-          state.set(id, 'visiting');
-          dependencies.set(id, referencesOf(frame.value));
-        }
-        const refs = dependencies.get(id) as PreparedDraft[];
-        const dependency = refs[frame.next++];
-        if (dependency) {
-          if (state.get(dependency.draft.opId) === 'visiting')
-            throw new ZuvRequestError('INTEGRITY_FAILED');
-          if (state.get(dependency.draft.opId) !== 'ready')
-            stack.push({ value: dependency, next: 0 });
-        } else {
-          state.set(id, 'ready');
-          ordered.push(frame.value);
-          stack.pop();
-        }
+      } catch (error) {
+        if (
+          !(error instanceof ZuvRequestError) ||
+          error.code !== 'QUOTA_EXCEEDED' ||
+          prepared === 0
+        )
+          throw error;
+        ordered.length = prepared;
+        break;
       }
     }
     const groups = new Map<string, PreparedDraft[]>();
@@ -631,13 +653,6 @@ export class SyncEngine {
           this.#commitInScope(vault, value),
       );
     if (!commit || commit.retryAt > Date.now()) return;
-    if (commit.outcome === 'rejected')
-      throw new ZuvRequestError(
-        (commit.errorCode ?? 'RECOVERY_REQUIRED') as ConstructorParameters<
-          typeof ZuvRequestError
-        >[0],
-      );
-    if (commit.outcome === 'recovered') return;
     const batch = validateSyncBatch(JSON.parse(commit.body));
     for (const op of batch.operations) {
       const manifest = batch.recordManifest.find(
@@ -758,7 +773,7 @@ export class SyncEngine {
     const { storage, client, cache } = this.#options;
     const referenced = storage.db
       .prepare(`SELECT json_extract(envelope,'$.payload.blobId') AS blob_id
-      FROM sync_operations WHERE vault_id=? UNION SELECT json_extract(envelope,'$.payload.blobId') AS blob_id
+      FROM sync_operations WHERE vault_id=? AND (record IS NOT NULL OR state NOT IN ('committed','applied')) UNION SELECT json_extract(envelope,'$.payload.blobId') AS blob_id
       FROM sync_bootstrap_entries WHERE vault_id=?`)
       .all(vault.vaultId, vault.vaultId);
     const removed = await cache.collect(

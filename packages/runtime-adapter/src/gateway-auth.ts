@@ -4,7 +4,7 @@ export interface GatewayAuthSource {
     providerId: string;
     authorization: string;
     status: 401 | 403;
-  }): Promise<void>;
+  }): Promise<boolean>;
   authorize(request: {
     providerId: string;
     url: string;

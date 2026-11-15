@@ -134,7 +134,7 @@ export class ZuvTransport {
         method: input.method,
         url: url.href,
         body: bodyBytes,
-        now: this.#options.now?.(),
+        now: this.serverNow(),
       });
       if (input.proof.authorization !== false) headers.authorization = `DPoP ${input.proof.secret}`;
     }

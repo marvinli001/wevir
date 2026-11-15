@@ -1,9 +1,9 @@
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, symlink, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SyncBundleContentSchema } from '@wevir/protocol';
 import { jcs, type SyncOperation } from '@wevir/protocol/sync';
 import type { SyncVaultRecord } from '@wevir/storage';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { session, workspace } from '../../../storage/src/test-utils.js';
 import { useStorages, useTempDir } from '../test-utils.js';
 import type { BundleFile } from './bundle-snapshot.js';
@@ -11,6 +11,22 @@ import { sha256 } from './crypto.js';
 import { type SyncDraftPayload, SyncQueue } from './queue.js';
 import { workspaceGit, workspaceTreeFingerprint } from './workspace-git.js';
 import { SyncWorkspaces } from './workspaces.js';
+
+const race = vi.hoisted(() => ({ beforeTrees: undefined as (() => Promise<void>) | undefined }));
+vi.mock('node:fs/promises', async (original) => {
+  const fs = await original<typeof import('node:fs/promises')>();
+  return {
+    ...fs,
+    readdir: async (...args: Parameters<typeof fs.readdir>) => {
+      if (String(args[0]).endsWith('/sync/workspaces/trees') && race.beforeTrees) {
+        const build = race.beforeTrees;
+        race.beforeTrees = undefined;
+        await build();
+      }
+      return fs.readdir(...args);
+    },
+  };
+});
 
 const temp = useTempDir(),
   stores = useStorages();
@@ -117,6 +133,20 @@ describe('workspace identity fences', () => {
       else await expect(restoring).rejects.toMatchObject({ code: 'RECOVERY_REQUIRED' });
     },
   );
+  it('keeps a tree created after collecting the restore job list', async () => {
+    const h = await fixture();
+    const trees = join(h.home, 'sync/workspaces/trees');
+    await mkdir(trees, { recursive: true });
+    const tree = join(trees, 'restore_concurrent');
+    race.beforeTrees = async () => {
+      await mkdir(tree);
+      const future = new Date(Date.now() + 1000);
+      await utimes(tree, future, future);
+    };
+    await new SyncWorkspaces({ ...h, eligible: () => h.storage.sync.activeVault() }).collect();
+    expect((await lstat(tree)).isDirectory()).toBe(true);
+  });
+
   it('retains a restore while an installation is using it', async () => {
     const data = await fixture();
     let installing = true;

@@ -1,0 +1,59 @@
+{
+  "protocolVersion": "0.189.1",
+  "methods": {
+    "sync.importRestorePreview": {
+      "params": [
+        {
+          "importId": "import_fixture",
+          "entryId": "entry_fixture"
+        }
+      ],
+      "result": [
+        {
+          "importId": "import_fixture",
+          "entryId": "entry_fixture",
+          "vaultId": "vault_fixture",
+          "entityId": "memory_fixture",
+          "entityType": "memory",
+          "versionFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "canRestore": true,
+          "kind": "memory",
+          "selectedText": "Synthetic archived memory",
+          "currentText": "Synthetic local memory",
+          "expectedHeads": []
+        },
+        {
+          "importId": "import_fixture",
+          "entryId": "entry_fixture",
+          "vaultId": "vault_fixture",
+          "entityId": "memory_fixture",
+          "entityType": "memory",
+          "versionFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "canRestore": true,
+          "kind": "memory",
+          "selectedText": "Synthetic archived memory",
+          "currentText": "Synthetic local memory",
+          "expectedHeads": [],
+          "sourceVerified": true
+        },
+        {
+          "importId": "import_fixture",
+          "entryId": "entry_fixture",
+          "vaultId": "vault_fixture",
+          "entityId": "memory_fixture",
+          "entityType": "memory",
+          "versionFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "canRestore": true,
+          "kind": "memory",
+          "selectedText": "Synthetic archived memory",
+          "currentText": "Synthetic local memory",
+          "expectedHeads": [],
+          "sourceVerified": false
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

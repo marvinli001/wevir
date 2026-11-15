@@ -155,7 +155,7 @@ export class GatewayHome {
           auth: {
             baseURL: (id) => this.authSource?.baseURL(id),
             onDenied: async (request) => {
-              await this.authSource?.onDenied?.(request);
+              return (await this.authSource?.onDenied?.(request)) ?? false;
             },
             authorize: (request) =>
               this.authSource?.authorize(request) ??

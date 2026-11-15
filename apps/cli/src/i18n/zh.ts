@@ -12,6 +12,8 @@ export const zh = {
   'cmd.sync.conversation.summary': '读取镜像会话',
   'cmd.sync.conversation.usage': 'wevir sync conversation <importId> <sessionId>',
   'group.sync': '同步与恢复',
+  'sync.stdinUnsupported': '不支持 --stdin；使用 wevir sync call <方法> --stdin',
+  'sync.stdinConflict': '--stdin 不能与命令参数同时使用',
   'sync.invalidParams': '参数无效；使用 --stdin 输入 JSON 对象',
   'cmd.sync.status.summary': '查看同步状态',
   'cmd.sync.status.usage': 'wevir sync status',

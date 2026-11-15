@@ -29,6 +29,11 @@ export class SyncEventCapture {
     this.#storage.transaction(() => {
       for (const project of projects) {
         if (!project.workspaceId || !vault.projectIds.includes(project.projectId)) continue;
+        const suspended = this.#storage.sync.eventProjectSuspended(
+          vault.vaultId,
+          project.projectId,
+        );
+        const history = includeHistory && !suspended;
         for (const session of this.#storage.sessions.list({
           workspaceId: project.workspaceId,
           includeChildren: true,
@@ -41,11 +46,11 @@ export class SyncEventCapture {
             vault,
             session,
             project.projectId,
-            includeHistory
+            history
               ? (this.#storage.sync.captureRange(vault.vaultId, session.id, source.streamId)
                   ?.preparedSeq ?? 0)
               : session.lastSeq,
-            { baselineOnly: !includeHistory, force: backfill },
+            { baselineOnly: !history, force: backfill },
           );
           this.#storage.sync.capture({
             vaultId: vault.vaultId,
@@ -53,9 +58,16 @@ export class SyncEventCapture {
             streamId: source.streamId,
             projectId: project.projectId,
             throughSeq: session.lastSeq,
-            preparedSeq: includeHistory ? 0 : session.lastSeq,
+            preparedSeq: history ? 0 : session.lastSeq,
           });
-          if (!includeHistory) {
+          if (suspended)
+            this.#storage.sync.skipCapture(
+              vault.vaultId,
+              session.id,
+              source.streamId,
+              session.lastSeq,
+            );
+          if (!history) {
             const range = this.#storage.sync.captureRange(
               vault.vaultId,
               session.id,
@@ -66,6 +78,40 @@ export class SyncEventCapture {
           }
           if (backfill)
             this.#storage.sync.rewindCapture(vault.vaultId, session.id, source.streamId);
+        }
+        this.#storage.sync.suspendEventProject(vault.vaultId, project.projectId, false);
+      }
+    });
+  }
+
+  suspend(vault: SyncVaultRecord, projectIds: readonly string[]): void {
+    if (!vault.categories.includes('event-segment')) return;
+    this.#storage.transaction(() => {
+      for (const project of this.#storage.sync.projects(vault.vaultId)) {
+        if (!project.workspaceId || !projectIds.includes(project.projectId)) continue;
+        this.#storage.sync.suspendEventProject(vault.vaultId, project.projectId, true);
+        for (const session of this.#storage.sessions.list({
+          workspaceId: project.workspaceId,
+          includeChildren: true,
+          includeSide: true,
+          archived: 'include',
+        })) {
+          if (this.#storage.sync.foreignSource(vault.vaultId, session.id)) continue;
+          const source = this.#source(vault, session);
+          this.#storage.sync.capture({
+            vaultId: vault.vaultId,
+            localSessionId: session.id,
+            streamId: source.streamId,
+            projectId: project.projectId,
+            throughSeq: session.lastSeq,
+            preparedSeq: session.lastSeq,
+          });
+          this.#storage.sync.skipCapture(
+            vault.vaultId,
+            session.id,
+            source.streamId,
+            session.lastSeq,
+          );
         }
       }
     });

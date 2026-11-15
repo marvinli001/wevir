@@ -314,6 +314,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       };
       let upstream: Response;
       let encoding: Record<string, unknown> = {};
+      let denialHandled = false;
       try {
         if (!compress) upstream = await request(serialized, false);
         else {
@@ -334,6 +335,16 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
             if (upstream.ok) compression.set(compressionKey, 'rejected');
           }
         }
+        if (provider.kind === 'zuv' && upstream.status === 401 && upstreamAuthorization) {
+          denialHandled = true;
+          const retry = await options.auth
+            ?.onDenied?.({ providerId, authorization: upstreamAuthorization, status: 401 })
+            .catch(() => false);
+          if (retry) {
+            await upstream.body?.cancel();
+            upstream = await request(serialized, false);
+          }
+        }
       } catch (error) {
         if (abort.signal.aborted) return log('client_closed', {});
         // 连不上上游：5xx 让 Codex 按自己的策略重试。
@@ -349,6 +360,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       upstreamStatus = upstream.status;
       if (!upstream.ok) {
         if (
+          !denialHandled &&
           provider.kind === 'zuv' &&
           upstreamAuthorization &&
           (upstream.status === 401 || upstream.status === 403)

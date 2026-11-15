@@ -308,7 +308,7 @@ export function createSyncRepository(db: SqliteDatabase) {
     getOperation,
     portableVersionIds(vaultId: string): string[] {
       return db
-        .prepare(`SELECT op_id FROM sync_operations WHERE vault_id = ?
+        .prepare(`SELECT op_id FROM sync_operations WHERE vault_id = ? AND (record IS NOT NULL OR state NOT IN ('applied','committed') OR json_extract(envelope,'$.payload') IS NULL)
         UNION SELECT op_id FROM sync_drafts WHERE vault_id = ? ORDER BY op_id`)
         .all(vaultId, vaultId)
         .map((row) => text(row, 'op_id'));

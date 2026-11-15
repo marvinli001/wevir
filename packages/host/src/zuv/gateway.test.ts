@@ -32,6 +32,11 @@ describe('ZUV through the existing model gateway', () => {
         authorization: req.headers.authorization,
         dpop: req.headers.dpop as string | undefined,
       });
+      if (req.url === '/api/wevir/refresh') {
+        res.writeHead(401, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: 'AUTH_REQUIRED' } }));
+        return;
+      }
       if (req.url === '/api/wevir/v1/responses') {
         expect(req.headers.authorization).toBe(`DPoP ${token}`);
         expect(req.headers['content-encoding']).toBeUndefined();
@@ -205,6 +210,6 @@ describe('ZUV through the existing model gateway', () => {
     const unauthorized = await send('zuv');
     expect(unauthorized.status).toBe(401);
     await unauthorized.text();
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
   });
 });

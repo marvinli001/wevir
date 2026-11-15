@@ -36,6 +36,13 @@ const REASON_HINT: Partial<Record<ProviderTestFailure, PlainMessageKey>> = {
   rate_limited: 'provider.test.hint.rate_limited',
 };
 
+const ZUV_CAUSES = new Map<string, PlainMessageKey>([
+  ['zuv_auth_required', 'provider.test.zuv.authRequired'],
+  ['zuv_subscription_required', 'provider.test.zuv.subscriptionRequired'],
+  ['zuv_scope_disabled', 'provider.test.zuv.scopeDisabled'],
+  ['zuv_device_revoked', 'provider.test.zuv.deviceRevoked'],
+]);
+
 export function presentTestResult(result: MethodResult<'provider.test'>): TestPresentation {
   if (result.ok) {
     return {
@@ -48,6 +55,9 @@ export function presentTestResult(result: MethodResult<'provider.test'>): TestPr
   }
   const phala = result.error && phalaErrorPresentation(result.error);
   if (phala) return { ok: false, ...phala, detail: result.error?.message };
+  const zuvCause =
+    typeof result.error?.code === 'string' ? ZUV_CAUSES.get(result.error.code) : undefined;
+  if (zuvCause) return { ok: false, title: t(zuvCause) };
   const reason = result.reason ?? 'unknown';
   if (result.error?.code === 'tokenhub_model_not_enabled') {
     return {

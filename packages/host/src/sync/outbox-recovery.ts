@@ -337,7 +337,10 @@ export class SyncOutboxRecovery {
           opId,
           entityId,
           kind: draft.kind === 'resolve' ? 'put' : draft.kind,
-          parents: draft.parents.map((id) => ids.get(id) ?? id),
+          parents: draft.parents.flatMap((id) => {
+            const mapped = ids.get(id);
+            return mapped ? [mapped] : entityId === draft.entityId ? [id] : [];
+          }),
           content,
         };
         if (!operation) storage.sync.removeDraft(vault.vaultId, draft.opId);

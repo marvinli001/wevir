@@ -7,7 +7,8 @@ export function zuvGatewayAuth(client: ZuvClient): GatewayAuthSource {
     baseURL: (id) => (id === 'zuv' ? `${client.transport.origin}/api/wevir/v1` : undefined),
     async onDenied(request) {
       if (request.providerId === 'zuv')
-        await client.inferenceDenied(request.authorization, request.status);
+        return client.inferenceDenied(request.authorization, request.status);
+      return false;
     },
     async authorize(request) {
       if (request.providerId !== 'zuv') return { ok: false, status: 403, code: 'SCOPE_DISABLED' };

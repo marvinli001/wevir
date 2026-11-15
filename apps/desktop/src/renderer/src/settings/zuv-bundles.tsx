@@ -648,6 +648,7 @@ export function ZuvBundles({
             const own = generation.current;
             setBusy(true);
             setApplying(action === 'apply');
+            if (action === 'apply') setConfirm(undefined);
             try {
               if (action === 'apply') {
                 const selected = targets.find((item) => item.targetId === target);
@@ -696,10 +697,16 @@ export function ZuvBundles({
                   },
                   { timeoutMs: 180000 },
                 );
+              setConfirm(undefined);
               setLocal(undefined);
               setCreating(false);
               setContents([]);
-              await refresh();
+              await refresh().catch((reason: unknown) => {
+                if (own === generation.current) setError(describe(reason));
+              });
+            } catch (reason) {
+              if (action !== 'apply') throw reason;
+              if (own === generation.current) setError(describe(reason));
             } finally {
               if (own === generation.current) {
                 setBusy(false);

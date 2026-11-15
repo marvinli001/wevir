@@ -66,7 +66,7 @@ export async function testProvider(
 ): Promise<ProviderTestResult> {
   if (provider.kind === 'zuv') {
     const baseURL = options.auth?.baseURL(provider.id);
-    if (!baseURL) return failure('auth', 'AUTH_REQUIRED');
+    if (!baseURL) return zuvFailure('AUTH_REQUIRED', 401);
     provider = { ...provider, api: 'openai-responses', baseURL, apiKey: undefined };
   }
   const issues = validateProvider(provider);
@@ -116,47 +116,73 @@ export async function testProvider(
       }
     }
     let response: Response;
+    let denialHandled = false;
     try {
       const body = prepared.serialized ?? Buffer.from(JSON.stringify(prepared.payload));
-      let headers = prepared.headers;
-      if (provider.kind === 'zuv') {
-        const authorization = await options.auth?.authorize({
-          providerId: provider.id,
-          url: prepared.url,
+      const request = async () => {
+        let headers = prepared.headers;
+        if (provider.kind === 'zuv') {
+          const authorization = await options.auth?.authorize({
+            providerId: provider.id,
+            url: prepared.url,
+            body,
+            signal: controller.signal,
+          });
+          if (!authorization?.ok)
+            return Response.json(
+              {
+                error: {
+                  code: authorization?.code ?? 'AUTH_REQUIRED',
+                  message: authorization?.code ?? 'AUTH_REQUIRED',
+                },
+              },
+              { status: authorization?.status ?? 401 },
+            );
+          headers = { ...headers, ...authorization.headers };
+          upstreamAuthorization = headers.authorization;
+          authSecrets.push(...authorization.secrets);
+        }
+        return doFetch(prepared.url, {
+          method: 'POST',
+          headers,
           body,
           signal: controller.signal,
+          redirect: 'error',
+          credentials: 'omit',
         });
-        if (!authorization?.ok)
-          return {
-            ...failure(
-              authorization?.status === 429 ? 'rate_limited' : 'auth',
-              authorization?.code ?? 'AUTH_REQUIRED',
-            ),
-            httpStatus: authorization?.status ?? 401,
-          };
-        headers = { ...headers, ...authorization.headers };
-        upstreamAuthorization = headers.authorization;
-        authSecrets.push(...authorization.secrets);
+      };
+      response = await request();
+      if (provider.kind === 'zuv' && response.status === 401 && upstreamAuthorization) {
+        denialHandled = true;
+        const retry = await options.auth
+          ?.onDenied?.({
+            providerId: provider.id,
+            authorization: upstreamAuthorization,
+            status: 401,
+          })
+          .catch(() => false);
+        if (retry) {
+          await response.body?.cancel();
+          response = await request();
+        }
       }
-      response = await doFetch(prepared.url, {
-        method: 'POST',
-        headers,
-        body,
-        signal: controller.signal,
-        redirect: 'error',
-        credentials: 'omit',
-      });
     } catch (error) {
       return networkFailure(error, prepared.url, controller.signal, timeoutMs, redact);
     }
     const status = response.status;
-    if (provider.kind === 'zuv' && upstreamAuthorization && (status === 401 || status === 403))
+    if (
+      !denialHandled &&
+      provider.kind === 'zuv' &&
+      upstreamAuthorization &&
+      (status === 401 || status === 403)
+    )
       await options.auth
         ?.onDenied?.({ providerId: provider.id, authorization: upstreamAuthorization, status })
         .catch(() => {});
     if (!response.ok) {
       const body = await readText(response, controller.signal).catch(() => '');
       const normalized = normalizeErrorBody(redact(body), status, credential, provider.baseURL);
+      if (provider.kind === 'zuv') return zuvFailure(String(normalized.error.code), status);
       const routingError = phalaRoutingError(normalized, status, provider.baseURL ?? '');
       if (routingError !== undefined) {
         return {
@@ -392,6 +418,32 @@ function networkFailure(
   }
   if (code !== '') return failure('network', `连不上 ${host}（${code}）：${text}`);
   return failure('network', `请求 ${url} 失败：${text}`);
+}
+
+function zuvFailure(code: string, status: number): ProviderTestResult {
+  const cause =
+    code === 'subscription_expired'
+      ? 'SUBSCRIPTION_REQUIRED'
+      : code === 'wevir_inference_disabled'
+        ? 'SCOPE_DISABLED'
+        : code;
+  const known = [
+    'AUTH_REQUIRED',
+    'SUBSCRIPTION_REQUIRED',
+    'SCOPE_DISABLED',
+    'DEVICE_REVOKED',
+  ].includes(cause);
+  const reason = status === 429 ? 'rate_limited' : status >= 500 ? 'server' : 'auth';
+  return {
+    ok: false,
+    reason,
+    httpStatus: status,
+    error: {
+      category: 'provider',
+      message: cause,
+      code: known ? `zuv_${cause.toLowerCase()}` : cause,
+    },
+  };
 }
 
 function failure(reason: ProviderTestFailure, message: string): ProviderTestResult {

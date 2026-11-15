@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { SessionId, WorkspaceId } from '@wevir/protocol';
+import { ErrorCode, type SessionId, type WorkspaceId } from '@wevir/protocol';
 import { schemas } from '@wevir/protocol/sync';
 import type { AppToolsEndpoint, SessionConfig, TitleRequest } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -14,7 +14,30 @@ import { MemoryStore } from '../memory.js';
 import { TestRpcClient, useTempDir } from '../test-utils.js';
 import { ZuvClient } from '../zuv/client.js';
 import { startMockZuv } from '../zuv/mock.test-utils.js';
+import { ZuvRequestError } from '../zuv/transport.js';
 import { SyncPortable } from './portable.js';
+import { SyncSnapshots } from './snapshots.js';
+
+const watches = vi.hoisted(() => ({
+  failure: '',
+  paths: [] as Array<{ path: string; recursive: boolean | undefined }>,
+}));
+vi.mock('node:fs', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...fs,
+    watch: (...args: Parameters<typeof fs.watch>) => {
+      const path = String(args[0]);
+      watches.paths.push({
+        path,
+        recursive: (args[1] as unknown as { recursive?: boolean })?.recursive,
+      });
+      if (watches.failure && path.includes('/memory'))
+        throw Object.assign(new Error(watches.failure), { code: watches.failure });
+      return fs.watch(...args);
+    },
+  };
+});
 
 const tempDir = useTempDir();
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -38,6 +61,9 @@ class SummaryEcho extends EchoAdapter {
   }
 }
 afterEach(async () => {
+  watches.failure = '';
+  watches.paths = [];
+  vi.restoreAllMocks();
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
@@ -182,6 +208,139 @@ async function linkSessions(first: Peer, second: Peer, includeHistory = true, ar
 }
 
 describe('full Host material synchronization with synthetic identities', () => {
+  it.each(['reset', 'snapshot'] as const)(
+    'serializes recovery I/O when %s owns the snapshot job',
+    async (owner) => {
+      const { first } = await fixture();
+      const status = await first.rpc.request('sync.configure', {
+        enabled: true,
+        categories: ['memory'],
+        projects: [],
+        includeHistory: true,
+      });
+      let release!: () => void;
+      const waiting = new Promise<never>((_resolve, reject) => {
+        release = () => reject(new ZuvRequestError('NETWORK_ERROR'));
+      });
+      const prepare = vi
+        .spyOn(SyncSnapshots.prototype, 'prepare')
+        .mockImplementationOnce(() => waiting);
+      const resume = vi
+        .spyOn(SyncSnapshots.prototype, 'resume')
+        .mockRejectedValue(new ZuvRequestError('INTEGRITY_FAILED'));
+      let pending: Promise<unknown> | undefined;
+      try {
+        if (owner === 'reset') await first.rpc.request('sync.resetPrepare');
+        else pending = first.rpc.call('sync.recoverySnapshot', { vaultId: status.binding.vaultId });
+        await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+        const active = await first.rpc.request('sync.status');
+        const conflict =
+          owner === 'reset'
+            ? await first.rpc.call('sync.recoverySnapshot', {
+                vaultId: status.binding.vaultId,
+                jobId: active.reset.jobId,
+              })
+            : await first.rpc.call('sync.resetPrepare');
+        expect(conflict.error).toMatchObject({ code: ErrorCode.RESOURCE_IN_USE });
+        expect(resume).not.toHaveBeenCalled();
+      } finally {
+        release();
+        await pending;
+      }
+    },
+    15000,
+  );
+
+  it.each(['', 'EMFILE', 'ENFILE'])(
+    'bounds sync watchers and falls back to scanning for %s',
+    async (failure) => {
+      const { first } = await fixture();
+      const root = join(first.home, 'memory', 'global');
+      await mkdir(root, { recursive: true });
+      for (let i = 0; i < 10; i++) await writeFile(join(root, `note-${i}.md`), `Synthetic ${i}`);
+      watches.failure = failure;
+      watches.paths = [];
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const status = await first.rpc.request('sync.configure', {
+        enabled: true,
+        categories: ['memory', 'project'],
+        projects: [{ workspaceId: first.workspaceId }],
+        includeHistory: true,
+      });
+      expect(status.binding.enabled).toBe(true);
+      expect(
+        watches.paths.filter(
+          (value) =>
+            value.path.startsWith(join(first.home, 'memory')) && value.path.endsWith('.md'),
+        ),
+      ).toEqual([]);
+      if (failure) expect(warn).toHaveBeenCalledTimes(1);
+      else
+        expect(watches.paths.find((value) => value.path === first.project)?.recursive).toBe(false);
+    },
+    15000,
+  );
+
+  it.each(['disabled', 'project-removed'] as const)(
+    'excludes events from the %s interval when history stays enabled',
+    async (reason) => {
+      const { first, second } = await fixture();
+      await linkSessions(first, second, true);
+      const session = (
+        await first.rpc.request('session.create', {
+          workspaceId: first.workspaceId,
+          providerId: 'synthetic-api',
+          modelId: 'synthetic-model',
+        })
+      ).session;
+      const send = async (text: string) => {
+        await first.rpc.request('session.send', {
+          sessionId: session.id,
+          clientMessageId: text,
+          content: [{ type: 'text', text }],
+        });
+        await expect
+          .poll(
+            async () =>
+              (await first.rpc.request('session.get', { sessionId: session.id })).session.state,
+            { timeout: 8000 },
+          )
+          .toBe('idle');
+      };
+      await send('Synthetic allowed before');
+      await expect
+        .poll(async () => (await first.rpc.request('sync.status')).pending, { timeout: 8000 })
+        .toBe(0);
+      const status = await first.rpc.request('sync.status');
+      const scope = {
+        enabled: true,
+        categories: ['project', 'session', 'event-segment'],
+        projects: [{ workspaceId: first.workspaceId, projectId: status.binding.projectIds[0] }],
+        includeHistory: true,
+      };
+      await first.rpc.request(
+        'sync.configure',
+        reason === 'disabled' ? { ...scope, enabled: false } : { ...scope, projects: [] },
+      );
+      await send('Synthetic withheld event');
+      await first.rpc.request('sync.configure', scope);
+      await send('Synthetic allowed after');
+      await expect
+        .poll(async () => (await first.rpc.request('sync.status')).pending, { timeout: 8000 })
+        .toBe(0);
+      const storage = openStorage({ dataDir: first.home });
+      cleanups.push(() => storage.close());
+      const records = JSON.stringify(
+        storage.db
+          .prepare("SELECT record FROM sync_operations WHERE entity_type='event-segment'")
+          .all(),
+      );
+      expect(records).toContain('Synthetic allowed after');
+      expect(records).not.toContain('Synthetic withheld event');
+    },
+    20000,
+  );
+
   it('restores an imported rule through its explicit native target with new chunks and retained newer files', async () => {
     const { mock, first, second } = await fixture();
     await writeFile(join(first.project, 'AGENTS.md'), 'Archived rule body');

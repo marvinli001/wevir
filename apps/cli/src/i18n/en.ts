@@ -8,6 +8,8 @@ export const en: Messages = {
   'cmd.sync.conversation.summary': 'Read a mirrored conversation',
   'cmd.sync.conversation.usage': 'wevir sync conversation <importId> <sessionId>',
   'group.sync': 'Synchronization and recovery',
+  'sync.stdinUnsupported': '--stdin is unsupported; use wevir sync call <method> --stdin',
+  'sync.stdinConflict': '--stdin cannot be combined with command parameters',
   'sync.invalidParams': 'Invalid parameters; pass a JSON object with --stdin',
   'cmd.sync.status.summary': 'Show synchronization state',
   'cmd.sync.status.usage': 'wevir sync status',

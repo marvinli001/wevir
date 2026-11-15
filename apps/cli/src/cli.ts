@@ -1566,6 +1566,8 @@ export async function runCli(io: CliIO): Promise<number> {
       io.stdout.write(`${commandHelp(def)}\n`);
       return EXIT.ok;
     }
+    if (group === 'sync' && name !== 'call' && values.stdin && def.positionals.min > 0)
+      throw new UsageError(t('sync.stdinUnsupported'));
     if (positionals.length < def.positionals.min) {
       throw new UsageError(
         t('usage.missingArgs'),

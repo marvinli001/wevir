@@ -12,7 +12,7 @@ import { sha256 } from '../sync/crypto.js';
 export class MockSyncError extends Error {
   constructor(
     readonly code: string,
-    readonly status = 409,
+    readonly status = 400,
   ) {
     super(code);
   }
@@ -318,7 +318,7 @@ export class MockSyncGateway {
         input.snapshotCursor === undefined
           ? vault.operations.length
           : vault.cursors.get(input.snapshotCursor);
-      if (offset === undefined) throw new MockSyncError('RESET_REQUIRED');
+      if (offset === undefined) throw new MockSyncError('RESET_REQUIRED', 409);
       const entries = structuredClone(
         vault.operations
           .slice(0, offset)
@@ -331,7 +331,7 @@ export class MockSyncGateway {
       );
       const manifest = [...blobs].map((blobId) => {
         const blob = vault.blobs.get(blobId);
-        if (!blob?.bytes) throw new MockSyncError('BLOB_INCOMPLETE');
+        if (!blob?.bytes) throw new MockSyncError('BLOB_INCOMPLETE', 409);
         return { blobId, cipherBytes: blob.cipherBytes, cipherSha256: blob.cipherSha256 };
       });
       const restoreId = newId('restore');
@@ -423,9 +423,10 @@ export class MockSyncGateway {
       return { value: { approved: true } };
     }
     if (path === '/sync/v1/scopes' && method === 'PUT') {
-      if (this.resettingDevices.has(deviceId)) throw new MockSyncError('RESET_REQUIRED');
+      if (this.resettingDevices.has(deviceId)) throw new MockSyncError('RESET_REQUIRED', 409);
       const input = schemas.scopes.parse(value);
-      if (input.expectedRevision !== scopes.revision) throw new MockSyncError('REVISION_CONFLICT');
+      if (input.expectedRevision !== scopes.revision)
+        throw new MockSyncError('REVISION_CONFLICT', 409);
       if (input.enabled && !vault.trusted.has(deviceId))
         throw new MockSyncError('RECOVERY_REQUIRED', 403);
       const { expectedRevision, ...selected } = input;
@@ -437,21 +438,21 @@ export class MockSyncGateway {
       if (this.refusedResetAcks.has(deviceId)) throw new MockSyncError('SERVICE_UNAVAILABLE', 503);
       const input = schemas.ack.parse(value);
       if (input.cursor !== restore.response.snapshotCursor)
-        throw new MockSyncError('RESET_REQUIRED');
+        throw new MockSyncError('RESET_REQUIRED', 409);
       this.resettingDevices.delete(deviceId);
       this.acknowledgements.push({ deviceId, cursor: input.cursor, restoreId: input.restoreId });
       return { value: { applied: true } };
     }
     if (this.resettingDevices.has(deviceId) && !restoring)
-      throw new MockSyncError('RESET_REQUIRED');
+      throw new MockSyncError('RESET_REQUIRED', 409);
     if (!scopes.enabled && !restoring) throw new MockSyncError('SCOPE_DISABLED', 403);
     if (this.budgetPaused && !restoring) throw new MockSyncError('BUDGET_PAUSED', 503);
-    const allowed = (entityType: string, projectId?: string) => {
+    const allowed = (entityType: string, projectId?: string, status = 400) => {
       if (
         !scopes.categories.includes(entityType as (typeof scopes.categories)[number]) ||
         (projectId !== undefined && !scopes.projectIds.includes(projectId))
       )
-        throw new MockSyncError('SCOPE_DISABLED', 403);
+        throw new MockSyncError('SCOPE_DISABLED', status);
     };
     if (path === '/sync/v1/blobs/reserve' && method === 'POST') {
       const input = schemas.reserveBlob.parse(value);
@@ -462,7 +463,7 @@ export class MockSyncGateway {
         previous &&
         (previous.cipherSha256 !== input.cipherSha256 || previous.cipherBytes !== input.cipherBytes)
       )
-        throw new MockSyncError('INTEGRITY_FAILED');
+        throw new MockSyncError('INTEGRITY_FAILED', 409);
       if (!previous) vault.blobs.set(input.blobId, { ...input });
       const uploadId = newId('upload');
       vault.uploads.set(uploadId, input.blobId);
@@ -499,7 +500,7 @@ export class MockSyncGateway {
       const uploadId = path.split('/').at(-1) as string;
       const blobId = vault.uploads.get(uploadId);
       const blob = blobId ? vault.blobs.get(blobId) : undefined;
-      if (!blob || !blobId) throw new MockSyncError('BLOB_INCOMPLETE');
+      if (!blob || !blobId) throw new MockSyncError('NOT_FOUND', 404);
       vault.uploads.delete(uploadId);
       this.attempts.uploads++;
       if (raw.length !== blob.cipherBytes || sha256(raw) !== blob.cipherSha256)
@@ -513,7 +514,7 @@ export class MockSyncGateway {
       this.attempts.commits++;
       const previous = vault.commits.get(batch.commitId);
       if (previous) {
-        if (jcs(previous.batch) !== jcs(batch)) throw new MockSyncError('OP_ID_REUSED');
+        if (jcs(previous.batch) !== jcs(batch)) throw new MockSyncError('OP_ID_REUSED', 409);
       } else {
         if ([...vault.commits.values()].some((commit) => commit.state === 'pending'))
           throw new MockSyncError('RATE_LIMITED', 429);
@@ -528,13 +529,11 @@ export class MockSyncGateway {
             ) &&
             !manifest.projectId
           )
-            throw new MockSyncError('SCOPE_DISABLED', 403);
-          if (
-            operation.vaultId !== vault.id ||
-            operation.deviceId !== deviceId ||
-            (operation.origin && operation.origin.hostId !== deviceId)
-          )
-            throw new MockSyncError('SCOPE_DISABLED', 403);
+            throw new MockSyncError('SCOPE_DISABLED', 400);
+          if (operation.vaultId !== vault.id || operation.deviceId !== deviceId)
+            throw new MockSyncError('SCOPE_DISABLED', 400);
+          if (operation.origin && operation.origin.hostId !== deviceId)
+            throw new MockSyncError('INTEGRITY_FAILED', 403);
           const duplicate = vault.operations.find(
             (entry) => entry.operation.opId === operation.opId,
           );
@@ -550,10 +549,10 @@ export class MockSyncGateway {
               heads.add(entry.operation.opId);
             }
             if ([...heads].some((head) => !operation.parents.includes(head)))
-              throw new MockSyncError('MISSING_PARENT');
+              throw new MockSyncError('MISSING_PARENT', 409);
           }
           if (duplicate && jcs(duplicate) !== jcs({ operation, manifest }))
-            throw new MockSyncError('OP_ID_REUSED');
+            throw new MockSyncError('OP_ID_REUSED', 409);
           if (
             vault.operations.some(
               (entry) =>
@@ -561,7 +560,7 @@ export class MockSyncGateway {
                 entry.manifest.projectId !== manifest.projectId,
             )
           )
-            throw new MockSyncError('SCOPE_DISABLED', 403);
+            throw new MockSyncError('INTEGRITY_FAILED', 400);
           if (operation.payload) {
             const blob = vault.blobs.get(operation.payload.blobId);
             if (
@@ -569,17 +568,22 @@ export class MockSyncGateway {
               this.missingBlobs.has(operation.payload.blobId) ||
               blob.purpose !== operation.entityType
             )
-              throw new MockSyncError('BLOB_INCOMPLETE');
+              throw new MockSyncError('BLOB_INCOMPLETE', 409);
             if (blob.projectId !== undefined && blob.projectId !== manifest.projectId)
               throw new MockSyncError('SCOPE_DISABLED', 403);
           }
-          for (const parent of operation.parents)
+          for (const parent of operation.parents) {
+            const ancestor = [
+              ...vault.operations.map((entry) => entry.operation),
+              ...batch.operations.slice(0, batch.operations.indexOf(operation)),
+            ].find((entry) => entry.opId === parent);
+            if (!ancestor) throw new MockSyncError('MISSING_PARENT', 409);
             if (
-              ![...vault.operations.map((entry) => entry.operation), ...batch.operations].some(
-                (entry) => entry.opId === parent && entry.entityId === operation.entityId,
-              )
+              ancestor.entityId !== operation.entityId ||
+              ancestor.entityType !== operation.entityType
             )
-              throw new MockSyncError('MISSING_PARENT');
+              throw new MockSyncError('INTEGRITY_FAILED', 400);
+          }
         }
         vault.commits.set(batch.commitId, { batch, state: 'pending' });
         if (!this.pendingCommits) this.finalize();
@@ -609,7 +613,7 @@ export class MockSyncGateway {
       const operations = restore?.entries ?? vault.operations;
       const cursor = url.searchParams.get('cursor');
       let offset = cursor ? vault.cursors.get(cursor) : 0;
-      if (offset === undefined) throw new MockSyncError('RESET_REQUIRED');
+      if (offset === undefined) throw new MockSyncError('RESET_REQUIRED', 409);
       const limit = Number(url.searchParams.get('limit') ?? 256);
       const selected: typeof vault.operations = [];
       while (offset < operations.length && selected.length < limit) {
@@ -641,11 +645,11 @@ export class MockSyncGateway {
       );
       if (!blob || !reference) throw new MockSyncError('NOT_FOUND', 404);
       if (!blob.bytes || this.missingBlobs.has(input.blobId))
-        throw new MockSyncError('BLOB_INCOMPLETE');
+        throw new MockSyncError('BLOB_INCOMPLETE', 409);
       if (restore) {
         if (!restore.entries.some((entry) => entry.operation.payload?.blobId === input.blobId))
           throw new MockSyncError('SCOPE_DISABLED', 403);
-      } else allowed(reference.operation.entityType, reference.manifest.projectId);
+      } else allowed(reference.operation.entityType, reference.manifest.projectId, 403);
       const downloadId = newId('download');
       vault.downloads.set(downloadId, {
         blobId: input.blobId,

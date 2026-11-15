@@ -81,6 +81,7 @@ export function OfflineLibrary() {
     };
   }, [open, browser, client, online]);
   useEffect(() => {
+    setError(undefined);
     setReady(false);
     setLoadedDraftKey(undefined);
     setSendUncertain(false);
@@ -97,7 +98,11 @@ export function OfflineLibrary() {
         }
       },
       () => {
-        if (live) setError(t('portable.storageError'));
+        if (live) {
+          setError(t('portable.storageError'));
+          setReady(true);
+          setLoadedDraftKey(draftKey);
+        }
       },
     );
     return () => {

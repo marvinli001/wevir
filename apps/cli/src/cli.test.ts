@@ -70,6 +70,22 @@ describe('命令行解析', () => {
     }
   });
 
+  it.each([
+    'approve',
+    'conversation',
+    'recovery-request',
+    'recovery-status',
+    'recovery-complete',
+    'unlock',
+    'snapshot',
+    'import',
+    'import-apply',
+  ])('reports unsupported stdin for sync %s', async (command) => {
+    const result = await run(['sync', command, '--stdin'], { home: tempDir(), input: '{}' });
+    expect(result.code).toBe(2);
+    expect(result.err).toContain('不支持 --stdin；使用 wevir sync call');
+  });
+
   it('Host 没有运行时提示 wevir host start', async () => {
     const home = tempDir();
     for (const argv of [
