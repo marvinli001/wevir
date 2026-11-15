@@ -2086,7 +2086,7 @@ export const messages: Messages = {
   'update.confirm.processesTitle': 'バックグラウンドコマンドが実行中',
   'update.confirm.sessions': '{count} 件のセッションが実行中です。再起動すると中断されます。',
   'update.confirm.processes':
-    '{count} 件のセッションでバックグラウンドコマンドが実行中です。待機しても再起動時に停止します。',
+    '{count} 件のセッションのバックグラウンドコマンドは再起動時に終了します。',
   'update.confirm.restart': 'このまま再起動',
   'update.confirm.wait': '完了後に再起動',
   'update.confirm.keepWaiting': '待機を続ける',

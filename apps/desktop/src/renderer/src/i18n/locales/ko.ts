@@ -2075,8 +2075,7 @@ export const messages: Messages = {
   'update.confirm.sessionsTitle': '세션이 진행 중',
   'update.confirm.processesTitle': '백그라운드 명령 실행 중',
   'update.confirm.sessions': '세션 {count}개가 진행 중입니다. 지금 다시 시작하면 중단됩니다.',
-  'update.confirm.processes':
-    '세션 {count}개에서 백그라운드 명령이 실행 중입니다. 기다려도 다시 시작할 때 중지됩니다.',
+  'update.confirm.processes': '세션 {count}개의 백그라운드 명령은 다시 시작할 때 종료됩니다.',
   'update.confirm.restart': '그래도 다시 시작',
   'update.confirm.wait': '완료 후 다시 시작',
   'update.confirm.keepWaiting': '계속 기다리기',

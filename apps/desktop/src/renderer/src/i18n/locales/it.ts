@@ -2121,7 +2121,7 @@ export const messages: Messages = {
   'update.confirm.sessions':
     '{count, plural, one {# sessione è} other {# sessioni sono}} in corso. Riavviare ora le interromperà.',
   'update.confirm.processes':
-    'Ci sono comandi in background in {count, plural, one {# sessione} other {# sessioni}}. Il riavvio li fermerà, anche dopo l’attesa.',
+    'I comandi in background di {count, plural, one {# sessione} other {# sessioni}} verranno terminati al riavvio.',
   'update.confirm.restart': 'Riavvia comunque',
   'update.confirm.wait': 'Riavvia al termine',
   'update.confirm.keepWaiting': 'Continua ad attendere',

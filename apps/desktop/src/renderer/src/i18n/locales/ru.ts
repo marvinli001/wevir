@@ -2126,7 +2126,7 @@ export const messages: Messages = {
   'update.confirm.sessions':
     'Выполняется {count, plural, one {# сеанс} few {# сеанса} other {# сеансов}}. Перезапуск прервёт работу.',
   'update.confirm.processes':
-    'Фоновые команды выполняются в {count, plural, one {# сеансе} other {# сеансах}}. Перезапуск остановит их, даже после ожидания.',
+    'Фоновые команды в {count, plural, one {# сеансе} other {# сеансах}} будут остановлены при перезапуске.',
   'update.confirm.restart': 'Всё равно перезапустить',
   'update.confirm.wait': 'Перезапустить после завершения',
   'update.confirm.keepWaiting': 'Продолжить ожидание',
