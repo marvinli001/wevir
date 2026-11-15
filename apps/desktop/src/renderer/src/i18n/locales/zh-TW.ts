@@ -2244,10 +2244,9 @@ export const messages: Messages = {
   'update.action.downloadPage': '下載頁面',
   'update.entry.waiting': '完成後重新啟動',
   'update.confirm.sessionsTitle': '工作階段仍在進行',
-  'update.confirm.processesTitle': '背景指令仍在執行',
-  'update.confirm.sessions': '{count} 個工作階段正在進行，重新啟動會中斷',
-  'update.confirm.processes':
-    '{count} 個工作階段有背景指令在執行，重新啟動時一併停止，等待也不例外',
+  'update.confirm.processesTitle': '背景指令正在執行',
+  'update.confirm.sessions': '{count} 個工作階段正在進行，重新啟動將中斷',
+  'update.confirm.processes': '{count} 個工作階段的背景指令將在重新啟動時終止',
   'update.confirm.restart': '仍然重新啟動',
   'update.confirm.wait': '等待完成後重新啟動',
   'update.confirm.keepWaiting': '繼續等待',

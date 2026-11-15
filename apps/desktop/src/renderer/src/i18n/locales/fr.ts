@@ -2318,7 +2318,7 @@ export const messages: Messages = {
   'update.confirm.sessions':
     '{count, plural, one {# session est} other {# sessions sont}} en cours. Redémarrer maintenant les interrompra.',
   'update.confirm.processes':
-    'Des commandes en arrière-plan tournent dans {count, plural, one {# session} other {# sessions}}. Le redémarrage les arrêtera, même après attente.',
+    'Les commandes en arrière-plan de {count, plural, one {# session} other {# sessions}} seront arrêtées au redémarrage.',
   'update.confirm.restart': 'Redémarrer quand même',
   'update.confirm.wait': 'Redémarrer à la fin',
   'update.confirm.keepWaiting': 'Continuer d’attendre',

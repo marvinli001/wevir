@@ -2316,7 +2316,7 @@ export const messages: Messages = {
   'update.confirm.sessions':
     '{count, plural, one {# sesión está} other {# sesiones están}} en curso. Reiniciar ahora las interrumpirá.',
   'update.confirm.processes':
-    'Hay comandos en segundo plano en {count, plural, one {# sesión} other {# sesiones}}. El reinicio los detendrá, aunque esperes.',
+    'Los comandos en segundo plano de {count, plural, one {# sesión} other {# sesiones}} se detendrán al reiniciar.',
   'update.confirm.restart': 'Reiniciar de todos modos',
   'update.confirm.wait': 'Reiniciar al terminar',
   'update.confirm.keepWaiting': 'Seguir esperando',

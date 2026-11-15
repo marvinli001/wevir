@@ -2308,7 +2308,7 @@ export const messages: Messages = {
   'update.confirm.sessions':
     '{count, plural, one {# Sitzung läuft} other {# Sitzungen laufen}} noch. Ein Neustart unterbricht sie.',
   'update.confirm.processes':
-    'In {count, plural, one {# Sitzung laufen} other {# Sitzungen laufen}} Hintergrundbefehle. Der Neustart beendet sie, auch nach dem Warten.',
+    'Hintergrundbefehle in {count, plural, one {# Sitzung} other {# Sitzungen}} werden beim Neustart beendet.',
   'update.confirm.restart': 'Trotzdem neu starten',
   'update.confirm.wait': 'Nach Abschluss neu starten',
   'update.confirm.keepWaiting': 'Weiter warten',

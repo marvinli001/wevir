@@ -2285,7 +2285,7 @@ export const messages: Messages = {
   'update.confirm.sessions':
     '{count, plural, one {# session is} other {# sessions are}} working. Restarting now will interrupt that work.',
   'update.confirm.processes':
-    'Background commands are running in {count, plural, one {# session} other {# sessions}}. Restarting will stop them, even if you wait.',
+    'Background commands in {count, plural, one {# session} other {# sessions}} will be terminated on restart.',
   'update.confirm.restart': 'Restart anyway',
   'update.confirm.wait': 'Restart when done',
   'update.confirm.keepWaiting': 'Keep waiting',
