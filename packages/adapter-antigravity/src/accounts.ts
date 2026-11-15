@@ -79,6 +79,7 @@ interface LoginFlow {
   authUrl?: string;
   sessionId?: string;
   timer?: ReturnType<typeof setTimeout>;
+  run?: Promise<AccountModels | undefined>;
   gotUrl: () => void;
 }
 
@@ -100,6 +101,7 @@ export class AntigravityAccounts implements EngineAccounts {
   readonly #listeners = new Set<(state: AccountState) => void>();
   #state: AccountState = BASE;
   #flow: LoginFlow | undefined;
+  #endingFlow: Promise<void> | undefined;
   #stopping = false;
   #installing: InstallProgress | undefined;
   /** 最近一次登录、安装失败或登录失效的原因（AccountState.lastError）。 */
@@ -206,8 +208,10 @@ export class AntigravityAccounts implements EngineAccounts {
       this.#options.loginTimeoutMs ?? LOGIN_TIMEOUT_MS,
     );
     current.timer.unref?.();
-    this.#set(this.#signingIn(current, (await this.#installFields()).fields));
     const run = (async () => {
+      const { fields } = await this.#installFields();
+      if (this.#flow !== current) return undefined;
+      this.#set(this.#signingIn(current, fields));
       await process.start();
       const connection = process.connection;
       // 没登录时运行体经 BROWSER 钩子给出登录网址，等用户在浏览器里完成（回调落在本机 127.0.0.1）。
@@ -224,6 +228,7 @@ export class AntigravityAccounts implements EngineAccounts {
       current.sessionId = created.sessionId;
       return readModels(connection, created);
     })();
+    current.run = run;
     run.then(
       (models) => void this.#finish(current, models),
       (error: unknown) => void this.#fail(current, error),
@@ -543,20 +548,28 @@ export class AntigravityAccounts implements EngineAccounts {
   }
 
   /** 结束进行中的登录：停掉登录进程，删掉它的临时目录与一次性会话的文件。 */
-  async #endFlow(): Promise<void> {
+  #endFlow(): Promise<void> {
     const flow = this.#flow;
-    if (flow === undefined) return;
+    if (flow === undefined) return this.#endingFlow ?? Promise.resolve();
     this.#flow = undefined;
     if (flow.timer !== undefined) clearTimeout(flow.timer);
     flow.gotUrl();
-    await flow.process.dispose();
-    await flow.launcher.cleanup();
-    await removeAntigravitySessionFiles({
-      profileDirectory: this.#context.paths.profile,
-      sessionId: flow.sessionId,
-      cwd: flow.cwd,
+    const ending = (async () => {
+      await flow.process.dispose();
+      // AcpProcess.dispose 不等 launcher.prepare；等登录任务结束后再删它可能创建的目录。
+      await flow.run?.catch(() => {});
+      await flow.launcher.cleanup();
+      await removeAntigravitySessionFiles({
+        profileDirectory: this.#context.paths.profile,
+        sessionId: flow.sessionId,
+        cwd: flow.cwd,
+      });
+      await fsp.rm(flow.cwd, { recursive: true, force: true }).catch(() => {});
+    })().finally(() => {
+      if (this.#endingFlow === ending) this.#endingFlow = undefined;
     });
-    await fsp.rm(flow.cwd, { recursive: true, force: true }).catch(() => {});
+    this.#endingFlow = ending;
+    return ending;
   }
 
   /** 显式刷新（account.get 的 refresh，T3 的 refreshModels）：启动运行体确认登录还有效，并读模型列表。 */

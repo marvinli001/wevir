@@ -6,10 +6,12 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
+import { AcpProcess } from '@wevir/adapter-acp';
 import type { AccountState } from '@wevir/runtime-adapter';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOGIN_TIMEOUT_MS } from './accounts.js';
 import { AntigravityAdapter, type AntigravityAdapterOptions } from './antigravity-adapter.js';
+import { AntigravityLauncher } from './process.js';
 import { antigravityTokenPath } from './profile.js';
 import { ANTIGRAVITY_RELEASE_VERSION } from './release.js';
 import {
@@ -70,6 +72,14 @@ function leftovers(): string[] {
   return [...names.filter((name) => name.startsWith('.')), ...runs];
 }
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 const posix = process.platform !== 'win32';
 
 describe.skipIf(!posix)('AntigravityAccounts', () => {
@@ -97,6 +107,91 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
     }
     expect(leftovers()).toEqual([]);
   });
+  it.each(['timeout', 'cancel', 'dispose'] as const)(
+    '启动准备中结束登录（%s）：启动结束和 dispose 后不留临时目录',
+    async (action) => {
+      const preparing = deferred();
+      const release = deferred();
+      const prepare = AntigravityLauncher.prototype.prepare;
+      vi.spyOn(AntigravityLauncher.prototype, 'prepare').mockImplementation(async function (
+        this: AntigravityLauncher,
+      ) {
+        preparing.resolve();
+        await release.promise;
+        return prepare.call(this);
+      });
+      const starting = vi.spyOn(AcpProcess.prototype, 'start');
+      const disposing = vi.spyOn(AcpProcess.prototype, 'dispose');
+      const original = globalThis.setTimeout;
+      let expire!: () => void;
+      vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
+        if (ms === LOGIN_TIMEOUT_MS) expire = () => callback(...args);
+        return original(callback, ms, ...args);
+      });
+      const { accounts, states } = create({ env: { FAKE_AGY_AUTH_STALL: '1' } });
+      await accounts.setExecutablePath('antigravity', executable());
+      const login = accounts.login('antigravity', 'browser');
+      await preparing.promise;
+      const ending =
+        action === 'timeout'
+          ? expire()
+          : action === 'cancel'
+            ? accounts.cancelLogin('antigravity')
+            : accounts.dispose();
+      // 先让进程 dispose 完成，再继续真实的 prepare，固定清理早于目录创建的次序。
+      await disposing.mock.results.at(-1)?.value;
+      release.resolve();
+      await expect(starting.mock.results.at(-1)?.value).rejects.toMatchObject({
+        code: 'disposed',
+      });
+      await login;
+      await ending;
+      if (action === 'timeout') {
+        await waitFor(() => states.at(-1)?.lastError, '登录超时');
+        expect(states.at(-1)?.lastError).toContain('could not reach Google');
+      }
+      await accounts.dispose();
+      expect(leftovers()).toEqual([]);
+    },
+  );
+
+  it('超时清理尚未完成时 dispose：等待同一次清理完成', async () => {
+    const original = globalThis.setTimeout;
+    let expire!: () => void;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
+      if (ms === LOGIN_TIMEOUT_MS) expire = () => callback(...args);
+      return original(callback, ms, ...args);
+    });
+    const logger = collectingLogger();
+    const { accounts } = create({ logger });
+    await accounts.setExecutablePath('antigravity', executable());
+    await accounts.login('antigravity', 'browser');
+    const cleaning = deferred();
+    const release = deferred();
+    const cleanup = AntigravityLauncher.prototype.cleanup;
+    const cleanups = vi
+      .spyOn(AntigravityLauncher.prototype, 'cleanup')
+      .mockImplementation(async function (this: AntigravityLauncher) {
+        cleaning.resolve();
+        await release.promise;
+        await cleanup.call(this);
+      });
+    expire();
+    await cleaning.promise;
+    let disposed = false;
+    const ending = accounts.dispose().then(() => {
+      disposed = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const returnedBeforeCleanup = disposed;
+    release.resolve();
+    await ending;
+    await cleanups.mock.results[0]?.value;
+    await waitFor(() => logger.messages.includes('Antigravity 登录失败'), '登录清理完成');
+    expect(leftovers()).toEqual([]);
+    expect(returnedBeforeCleanup).toBe(false);
+  });
+
   it('没装：installed false、可下载、应用内登录；本平台没有发布时写明原因', async () => {
     const { accounts } = create();
     const state = await accounts.read('antigravity');
