@@ -101,7 +101,7 @@ it('allows theme reads and refuses writes without host.manage', async () => {
       ).error?.code,
     ).toBe(ErrorCode.DEVICE_FORBIDDEN);
   }
-  for (const method of ['themes.save', 'themes.delete', 'themes.setActive']) {
+  for (const method of ['themes.save', 'themes.create', 'themes.delete', 'themes.setActive']) {
     expect((await client.call(method)).error?.code).toBe(ErrorCode.DEVICE_FORBIDDEN);
   }
 });

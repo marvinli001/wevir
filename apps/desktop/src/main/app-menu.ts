@@ -1,5 +1,4 @@
-// macOS 的应用菜单（菜单栏最左边的 Wevir 与文件、编辑、显示、窗口）。不设时 Electron 给一份英文的默认菜单，没有设置与
-// 检查更新。这里照 macOS 应用的惯例：关于、设置…（⌘,）、检查更新…、服务、隐藏、退出；其余几个菜单保持默认菜单的内容。
+// 原生应用菜单；macOS 另有 Wevir 菜单。显示菜单保留独立于主题 DOM 的恢复入口。
 // 文字由渲染进程按界面语言送来（setAppMenuLabels），送来之前用英文。
 //
 // 只拼模板，不碰 Electron 的运行时（index.ts 用 Menu.buildFromTemplate 装上），单元测试直接检查模板。
@@ -36,6 +35,7 @@ export const DEFAULT_APP_MENU_LABELS: AppMenuLabels = {
   zoomIn: 'Zoom In',
   zoomOut: 'Zoom Out',
   toggleFullScreen: 'Toggle Full Screen',
+  restoreDefaultTheme: 'Restore Default Theme',
   window: 'Window',
   minimize: 'Minimize',
   zoom: 'Zoom',
@@ -60,36 +60,42 @@ export function parseAppMenuLabels(value: unknown): AppMenuLabels | undefined {
 export interface AppMenuActions {
   openSettings(): void;
   checkForUpdates(): void;
+  restoreDefaultTheme(): void;
 }
 
 export function appMenuTemplate(
   labels: AppMenuLabels,
   actions: AppMenuActions,
+  platform: NodeJS.Platform = process.platform,
 ): MenuItemConstructorOptions[] {
   return [
-    {
-      role: 'appMenu',
-      submenu: [
-        { role: 'about', label: labels.about },
-        { type: 'separator' },
-        // ⌘, 由渲染进程的快捷键处理（routes/router.tsx），菜单只显示它，不另外注册，免得同一次按键跳两次。
-        {
-          label: labels.settings,
-          accelerator: 'Command+,',
-          registerAccelerator: false,
-          click: actions.openSettings,
-        },
-        { label: labels.checkForUpdates, click: actions.checkForUpdates },
-        { type: 'separator' },
-        { role: 'services', label: labels.services },
-        { type: 'separator' },
-        { role: 'hide', label: labels.hide },
-        { role: 'hideOthers', label: labels.hideOthers },
-        { role: 'unhide', label: labels.showAll },
-        { type: 'separator' },
-        { role: 'quit', label: labels.quit },
-      ],
-    },
+    ...(platform === 'darwin'
+      ? [
+          {
+            role: 'appMenu',
+            submenu: [
+              { role: 'about', label: labels.about },
+              { type: 'separator' },
+              // ⌘, 由渲染进程的快捷键处理（routes/router.tsx），菜单只显示它，不另外注册，免得同一次按键跳两次。
+              {
+                label: labels.settings,
+                accelerator: 'Command+,',
+                registerAccelerator: false,
+                click: actions.openSettings,
+              },
+              { label: labels.checkForUpdates, click: actions.checkForUpdates },
+              { type: 'separator' },
+              { role: 'services', label: labels.services },
+              { type: 'separator' },
+              { role: 'hide', label: labels.hide },
+              { role: 'hideOthers', label: labels.hideOthers },
+              { role: 'unhide', label: labels.showAll },
+              { type: 'separator' },
+              { role: 'quit', label: labels.quit },
+            ],
+          } satisfies MenuItemConstructorOptions,
+        ]
+      : []),
     {
       role: 'fileMenu',
       label: labels.file,
@@ -114,6 +120,13 @@ export function appMenuTemplate(
       role: 'viewMenu',
       label: labels.view,
       submenu: [
+        {
+          id: 'restore-default-theme',
+          label: labels.restoreDefaultTheme,
+          accelerator: 'CommandOrControl+Alt+Shift+0',
+          click: actions.restoreDefaultTheme,
+        },
+        { type: 'separator' },
         { role: 'reload', label: labels.reload },
         { role: 'forceReload', label: labels.forceReload },
         { role: 'toggleDevTools', label: labels.toggleDevTools },

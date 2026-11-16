@@ -57,6 +57,7 @@ const api: DesktopApi = {
   },
   retryHost: () => ipcRenderer.invoke(IPC_CHANNELS.retryHost),
   selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.selectFolder),
+  selectThemeSource: (kind) => ipcRenderer.invoke(IPC_CHANNELS.selectThemeSource, kind),
   selectPaths: (defaultPath) => ipcRenderer.invoke(IPC_CHANNELS.selectPaths, defaultPath),
   selectInstallSource: (kind) => ipcRenderer.invoke(IPC_CHANNELS.selectInstallSource, kind),
   inspectInstallSource: (path) => ipcRenderer.invoke(IPC_CHANNELS.inspectInstallSource, path),
@@ -94,6 +95,11 @@ const api: DesktopApi = {
   setBadgeCount: (count) => ipcRenderer.invoke(IPC_CHANNELS.setBadgeCount, count),
   setTrayLabels: (labels) => ipcRenderer.invoke(IPC_CHANNELS.setTrayLabels, labels),
   setAppMenuLabels: (labels) => ipcRenderer.invoke(IPC_CHANNELS.setAppMenuLabels, labels),
+  onRestoreDefaultTheme: (listener) => {
+    const handler = () => listener();
+    ipcRenderer.on(IPC_CHANNELS.restoreDefaultTheme, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.restoreDefaultTheme, handler);
+  },
   onOpenSettings: (listener) => {
     const handler = (_event: IpcRendererEvent, tab: MenuSettingsTab) => listener(tab);
     ipcRenderer.on(IPC_CHANNELS.openSettings, handler);

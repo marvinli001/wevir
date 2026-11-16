@@ -1,24 +1,12 @@
 import { cn } from 'cn';
-import { ChevronDown, Copy, Download } from 'lucide-react';
-import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react';
-import { IconButton } from '@/components/icon-button';
+import { ChevronDown } from 'lucide-react';
+import { type KeyboardEvent, useEffect, useState } from 'react';
 import { Switch } from '@/components/switch';
-import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
-import { platformApi } from '@/platform/platform';
 import {
   appearanceStore,
   translucentWindowSupported,
@@ -29,7 +17,6 @@ import {
   ACCENTS,
   type AccentId,
   accentSwatch,
-  applyTheme,
   CODE_FONT_SIZE,
   CODE_FONTS,
   CONTENT_FONTS,
@@ -38,13 +25,8 @@ import {
   clampFontSize,
   DEFAULT_APPEARANCE,
   DEFAULT_COLORS,
-  exportTheme,
-  matchPreset,
   normalizeColors,
   parseHexColor,
-  parseTheme,
-  THEME_PRESETS,
-  type ThemeSpec,
   UI_FONT_SIZE,
   UI_FONTS,
   type UiFont,
@@ -52,9 +34,8 @@ import {
 import { customThemeStore } from '@/theme/custom-theme';
 import { setThemeMode, useTheme } from '@/theme/theme';
 import type { ResolvedTheme, ThemeMode } from '../../../shared/theme.js';
-import { LIST_CARD, type Notice, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
-
-const CUSTOM = 'custom';
+import { LIST_CARD, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
+import { ThemeLibrary } from './theme-library';
 
 const UI_FONT_LABEL: Record<UiFont, PlainMessageKey> = {
   default: 'settings.appearance.font.default',
@@ -70,26 +51,11 @@ const CODE_FONT_LABEL: Record<CodeFont, PlainMessageKey> = {
   system: 'settings.appearance.font.system',
 };
 
-/**
- * 设置 → 外观（照 Codex 桌面端的外观页，各项不带说明文字）：模式（三张缩略图）；主题（预设、导入、复制）、强调色、当前模式下的
- * 背景与前景、界面字体；“高级”里是界面字号、代码字体大小、内容字体、代码字体、半透明侧栏（macOS）与对比度，右边“重置为默认设置”。
- * 都只存在本机（theme/appearance.ts），改了立即生效。
- */
 export function AppearanceSettings() {
   const { mode, resolved, colorScheme } = useTheme();
   const customTheme = customThemeStore.use();
   const appearance = useAppearance();
   const [advancedOpen, setAdvancedOpen] = useState(true);
-  const [importing, setImporting] = useState(false);
-  const [notice, setNotice] = useState<Notice>();
-
-  useEffect(() => {
-    if (notice?.tone !== 'success') return;
-    const timer = setTimeout(() => setNotice(undefined), 3000);
-    return () => clearTimeout(timer);
-  }, [notice]);
-
-  const preset = matchPreset(appearance);
   const colors = {
     background: appearance[resolved].background ?? DEFAULT_COLORS[resolved].background,
     foreground: appearance[resolved].foreground ?? DEFAULT_COLORS[resolved].foreground,
@@ -99,15 +65,6 @@ export function AppearanceSettings() {
       [resolved]: normalizeColors(resolved, { ...appearance[resolved], [key]: value }),
     });
   const isDefault = JSON.stringify(appearance) === JSON.stringify(DEFAULT_APPEARANCE);
-
-  const copyTheme = async () => {
-    try {
-      await platformApi().copyText(exportTheme(appearance));
-      setNotice({ tone: 'success', text: t('settings.appearance.themeCopied') });
-    } catch (reason) {
-      setNotice({ tone: 'error', text: describe(reason) });
-    }
-  };
 
   return (
     <>
@@ -127,11 +84,6 @@ export function AppearanceSettings() {
           />
         </div>
       )}
-      {notice && (
-        <div className="mb-4">
-          <NoticeBanner notice={notice} />
-        </div>
-      )}
       <SettingsSection title={t('settings.section.visual')}>
         <div className="space-y-3">
           <div className={LIST_CARD}>
@@ -147,52 +99,8 @@ export function AppearanceSettings() {
               }
             />
           </div>
+          <ThemeLibrary />
           <div className={LIST_CARD}>
-            <SettingsRow
-              title={t('settings.appearance.theme')}
-              data-setting="theme-preset"
-              control={
-                <>
-                  <IconButton
-                    label={t('settings.appearance.importTheme')}
-                    onClick={() => setImporting(true)}
-                  >
-                    <Download />
-                  </IconButton>
-                  <IconButton
-                    label={t('settings.appearance.copyTheme')}
-                    onClick={() => void copyTheme()}
-                  >
-                    <Copy />
-                  </IconButton>
-                  <Select
-                    className="ml-1 w-40 rounded-full"
-                    aria-label={t('settings.appearance.theme')}
-                    value={preset?.id ?? CUSTOM}
-                    onValueChange={(id) => {
-                      const next = THEME_PRESETS.find((candidate) => candidate.id === id);
-                      if (next) appearanceStore.set((current) => applyTheme(current, next));
-                    }}
-                    options={[
-                      ...THEME_PRESETS.map((candidate) => ({
-                        value: candidate.id,
-                        label: candidate.name,
-                        icon: <ThemeBadge theme={candidate} resolved={resolved} />,
-                      })),
-                      ...(preset
-                        ? []
-                        : [
-                            {
-                              value: CUSTOM,
-                              label: t('settings.appearance.custom'),
-                              icon: <ThemeBadge theme={appearance} resolved={resolved} />,
-                            },
-                          ]),
-                    ]}
-                  />
-                </>
-              }
-            />
             <SettingsRow
               title={t('settings.appearance.accent')}
               data-setting="accent"
@@ -378,15 +286,6 @@ export function AppearanceSettings() {
           </div>
         )}
       </section>
-
-      <ImportThemeDialog
-        open={importing}
-        onOpenChange={setImporting}
-        onImport={(theme) => {
-          appearanceStore.set((current) => applyTheme(current, theme));
-          setNotice(undefined);
-        }}
-      />
     </>
   );
 }
@@ -398,24 +297,6 @@ function Swatch({ color }: { color: string }) {
       className="block size-3 rounded-full ring-1 ring-foreground/15"
       style={{ background: color }}
     />
-  );
-}
-
-/** 主题选择框里的小图标：主题在当前模式下的底色，上面用强调色写 Aa。 */
-function ThemeBadge({ theme, resolved }: { theme: ThemeSpec; resolved: ResolvedTheme }) {
-  const background = theme[resolved].background ?? DEFAULT_COLORS[resolved].background;
-  const color =
-    theme.accent === 'ink'
-      ? (theme[resolved].foreground ?? DEFAULT_COLORS[resolved].foreground)
-      : accentSwatch(theme.accent, resolved);
-  return (
-    <span
-      aria-hidden
-      className="flex size-4.5 items-center justify-center rounded-full text-[9px] leading-none font-semibold ring-1 ring-foreground/15"
-      style={{ background, color }}
-    >
-      Aa
-    </span>
   );
 }
 
@@ -615,70 +496,5 @@ function PxField({
       />
       <span className="text-sm text-muted-foreground">px</span>
     </div>
-  );
-}
-
-function ImportThemeDialog({
-  open,
-  onOpenChange,
-  onImport,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onImport: (theme: ThemeSpec) => void;
-}) {
-  const [text, setText] = useState('');
-  const [invalid, setInvalid] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    setText('');
-    setInvalid(false);
-  }, [open]);
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const theme = parseTheme(text);
-    if (!theme) {
-      setInvalid(true);
-      return;
-    }
-    onImport(theme);
-    onOpenChange(false);
-  };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
-        <form onSubmit={submit} className="contents">
-          <DialogHeader>
-            <DialogTitle>{t('settings.appearance.importTheme')}</DialogTitle>
-          </DialogHeader>
-          <Textarea
-            autoFocus
-            value={text}
-            spellCheck={false}
-            placeholder={t('settings.appearance.importHint')}
-            aria-label={t('settings.appearance.importTheme')}
-            aria-invalid={invalid || undefined}
-            onChange={(event) => {
-              setText(event.target.value);
-              setInvalid(false);
-            }}
-            className="min-h-40 font-mono text-xs"
-          />
-          {invalid && (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-              {t('settings.appearance.importInvalid')}
-            </p>
-          )}
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" disabled={text.trim() === ''}>
-              {t('settings.appearance.import')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

@@ -1,10 +1,13 @@
-import { isRpcError, type WevirClient } from '@wevir/client-sdk';
+import { ConnectionLostError, isRpcError, type WevirClient } from '@wevir/client-sdk';
 import {
   compareProtocolVersions,
+  HostIdSchema,
   type ThemeBackdropStatus,
   type ThemeProblem,
+  type ThemeSelection,
 } from '@wevir/protocol';
 import { describeError } from '@/host/error-text';
+import { t } from '@/i18n';
 import { createStore } from '@/lib/store';
 import { CUSTOM_THEME_STORAGE_KEY } from '../../../shared/theme.js';
 import {
@@ -48,7 +51,13 @@ export const customThemeStore = createStore<CustomThemeState>(
   },
 );
 
-let restoreHostDefault: (() => void) | undefined;
+interface RecoveryIntent {
+  expected: ThemeSelection;
+  generation: number;
+}
+let restoreHostDefault: ((expected?: ThemeSelection) => void) | undefined;
+let recoveryIntent: RecoveryIntent | undefined;
+let recoveryGeneration = 0;
 let reportBackdrop: ((theme: CachedCustomTheme, status: ThemeBackdropStatus) => void) | undefined;
 
 export function reportThemeBackdrop(
@@ -77,14 +86,26 @@ export function reportThemeBackdrop(
 }
 
 /** 应用失败先恢复设备外观，保留错误供设置页及恢复入口显示。 */
-export function recoverCustomTheme(reason: unknown): void {
+function requestDefaultTheme(error?: string): void {
+  const state = customThemeStore.get();
+  const hostId = HostIdSchema.safeParse(state.theme?.hostId);
+  const expected = hostId.success ? { hostId: hostId.data, activeId: state.activeId } : undefined;
   customThemeStore.set({
     theme: null,
     activeId: null,
     problems: [],
-    error: describeError(reason),
+    ...(error && { error }),
   });
-  restoreHostDefault?.();
+  if (restoreHostDefault) restoreHostDefault(expected);
+  else if (expected) recoveryIntent = { expected, generation: ++recoveryGeneration };
+}
+
+export function recoverCustomTheme(reason: unknown): void {
+  requestDefaultTheme(describeError(reason));
+}
+
+export function restoreDefaultTheme(): void {
+  requestDefaultTheme();
 }
 
 /** 每个客户端独占一组订阅；断线时保留当前主题，重连后重新取得 Host 的权威状态。 */
@@ -92,6 +113,8 @@ export function bindCustomThemes(client: WevirClient): () => void {
   let generation = 0;
   let disposed = false;
   let diagnosis = 0;
+  let recoveryAttempt = 0;
+  let observed: ThemeSelection | undefined;
   const renewedFailures = new Set<string>();
   const current = (request: number) =>
     !disposed && generation === request && client.state.status === 'connected';
@@ -104,17 +127,64 @@ export function bindCustomThemes(client: WevirClient): () => void {
       failedAssets: undefined,
     }));
   };
-  const restore = () => {
-    generation++;
-    if (
-      client.state.status === 'connected' &&
-      client.supports('themes') &&
-      client.can('host.manage')
-    )
-      void client.request('themes.setActive', { id: null }).catch((reason: unknown) => {
-        if (!disposed)
-          customThemeStore.set((state) => ({ ...state, error: describeError(reason) }));
+  const attemptRecovery = () => {
+    const intent = recoveryIntent;
+    if (!intent || disposed || client.state.status !== 'connected') return;
+    const attempt = ++recoveryAttempt;
+    if (client.hello.hostId !== intent.expected.hostId) {
+      recoveryIntent = undefined;
+      void read();
+      return;
+    }
+    if (!client.supports('themes') || !client.can('host.manage')) {
+      recoveryIntent = undefined;
+      customThemeStore.set((state) => ({ ...state, error: t('settings.appearance.themeAccess') }));
+      return;
+    }
+    if (compareProtocolVersions(client.hello.protocolVersion, '0.196.0') < 0) {
+      recoveryIntent = undefined;
+      customThemeStore.set((state) => ({
+        ...state,
+        error: t('settings.appearance.recoveryUnsupported'),
+      }));
+      return;
+    }
+    const currentIntent = () =>
+      !disposed && recoveryAttempt === attempt && recoveryIntent?.generation === intent.generation;
+    void client
+      .request('themes.list', {})
+      .then(async ({ activeId }) => {
+        if (!currentIntent() || client.state.status !== 'connected') return;
+        observed = { hostId: client.hello.hostId, activeId };
+        if (observed.hostId !== intent.expected.hostId || activeId !== intent.expected.activeId) {
+          recoveryIntent = undefined;
+          void read(activeId, true);
+          return;
+        }
+        const result = await client.request('themes.setActive', {
+          id: null,
+          expected: intent.expected,
+        });
+        if (!currentIntent()) return;
+        recoveryIntent = undefined;
+        void read(result.activeId, true);
+      })
+      .catch((reason: unknown) => {
+        if (
+          !currentIntent() ||
+          reason instanceof ConnectionLostError ||
+          client.state.status !== 'connected'
+        )
+          return;
+        recoveryIntent = undefined;
+        customThemeStore.set((state) => ({ ...state, error: describeError(reason) }));
       });
+  };
+  const restore = (expected?: ThemeSelection) => {
+    generation++;
+    const target = expected ?? observed;
+    if (target) recoveryIntent = { expected: target, generation: ++recoveryGeneration };
+    attemptRecovery();
   };
   restoreHostDefault = restore;
 
@@ -132,6 +202,14 @@ export function bindCustomThemes(client: WevirClient): () => void {
       const id =
         activeId === undefined ? (await client.request('themes.list', {})).activeId : activeId;
       if (!current(request)) return;
+      observed = { hostId, activeId: id };
+      if (recoveryIntent) {
+        if (recoveryIntent.expected.hostId === hostId && recoveryIntent.expected.activeId === id) {
+          clear();
+          return;
+        }
+        recoveryIntent = undefined;
+      }
       if (id === null) {
         clear();
         return;
@@ -197,12 +275,18 @@ export function bindCustomThemes(client: WevirClient): () => void {
   const offUpdates = client.onThemesUpdated((update) => void read(update.activeId));
   const offState = client.onStateChange((state) => {
     generation++;
-    if (state.status === 'connected') void read(undefined, true);
+    recoveryAttempt++;
+    if (state.status === 'connected') {
+      if (recoveryIntent) attemptRecovery();
+      else void read(undefined, true);
+    }
   });
-  void read();
+  if (recoveryIntent) attemptRecovery();
+  else void read();
   return () => {
     disposed = true;
     generation++;
+    recoveryAttempt++;
     offUpdates();
     offState();
     clearInterval(timer);

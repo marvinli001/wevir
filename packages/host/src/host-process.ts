@@ -1853,6 +1853,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.warn('file preview request failed', { error }),
     });
     const themes = new ThemeService({
+      hostId,
       directory: homePath(home, 'themesDir'),
       fileUrls,
       onError: (error) => logger.warn('theme refresh failed', { error }),

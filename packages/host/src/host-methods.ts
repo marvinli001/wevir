@@ -1667,8 +1667,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'themes.list': () => themes().list(),
     'themes.get': ({ id, backdropStatus }) => themes().get(id, backdropStatus),
     'themes.save': (input) => themes().save(input),
+    'themes.create': (input) => themes().create(input),
     'themes.delete': ({ id }) => themes().delete(id),
-    'themes.setActive': ({ id }) => themes().setActive(id),
+    'themes.setActive': ({ id, expected }) => themes().setActive(id, expected),
     'sync.cancelBundle': ({ vaultId, entityId }) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });

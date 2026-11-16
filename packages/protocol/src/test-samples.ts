@@ -4570,8 +4570,46 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ id: 'lagoon' }], invalid: [{}] },
     result: { valid: [{ deleted: true }], invalid: [{}] },
   },
+  'themes.create': {
+    params: {
+      valid: [
+        { id: 'copy', source: { themeId: 'lagoon' } },
+        { id: 'copy', source: { path: '/themes/lagoon' } },
+        { id: 'copy', source: { theme: { schemaVersion: 1, name: 'Lagoon', dark: {} } } },
+      ],
+      invalid: [
+        { id: 'copy', source: {} },
+        { id: 'copy', source: { path: '/themes', themeId: 'lagoon' } },
+        { id: 'copy', source: { path: '/themes', unknown: true } },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          id: 'copy',
+          revision: 'r1',
+          readOnly: false,
+          problems: [],
+          assets: {},
+          directory: '/themes/copy',
+        },
+      ],
+      invalid: [{}],
+    },
+  },
   'themes.setActive': {
-    params: { valid: [{ id: 'lagoon' }, { id: null }], invalid: [{}] },
+    params: {
+      valid: [
+        { id: 'lagoon' },
+        { id: null },
+        { id: null, expected: { hostId: 'hst_fixture', activeId: 'lagoon' } },
+      ],
+      invalid: [
+        {},
+        { id: null, expected: { activeId: 'lagoon' } },
+        { id: null, expected: { hostId: 'hst_fixture', activeId: 'lagoon', unknown: true } },
+      ],
+    },
     result: { valid: [{ activeId: null }], invalid: [{}] },
   },
   'settings.get': {

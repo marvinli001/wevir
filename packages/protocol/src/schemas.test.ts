@@ -347,6 +347,22 @@ interface Case {
 
 const standaloneCases: Case[] = [
   {
+    name: 'ThemesCreateParams',
+    schema: protocol.ThemesCreateParamsSchema,
+    valid: [
+      { id: 'lagoon-copy', source: { themeId: 'lagoon' } },
+      { id: 'imported', source: { path: '/themes/lagoon/theme.json' } },
+      { id: 'my-wevir', source: { theme: { schemaVersion: 1, name: 'Wevir', light: {} } } },
+    ],
+    invalid: [
+      { id: 'bad', source: {} },
+      { id: '../bad', source: { themeId: 'lagoon' } },
+      { id: 'bad', source: { path: '/themes', themeId: 'lagoon' } },
+      { id: 'bad', source: { themeId: 'lagoon', unknown: true } },
+      { id: 'bad', source: { theme: { schemaVersion: 1, name: 'Bad', light: {}, unknown: true } } },
+    ],
+  },
+  {
     name: 'ThemeId',
     schema: protocol.ThemeIdSchema,
     valid: ['lagoon', 'a_1-2'],

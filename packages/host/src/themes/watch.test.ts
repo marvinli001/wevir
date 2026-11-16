@@ -33,6 +33,7 @@ it('reopens a Linux directory watcher after the directory inode is replaced', as
   const urls = new FileUrls();
   urls.setPort(1234);
   const service = new ThemeService({
+    hostId: 'hst_fixture',
     directory: join(temp(), 'themes'),
     fileUrls: urls,
     onError: (error) => {

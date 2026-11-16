@@ -332,6 +332,17 @@ function run(): void {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  ipcMain.handle(IPC_CHANNELS.selectThemeSource, async (event, kind: unknown) => {
+    const window = assertSender(event);
+    if (kind !== 'folder' && kind !== 'file') throw new Error('kind must be folder or file');
+    const result = await dialog.showOpenDialog(
+      window,
+      kind === 'folder'
+        ? { properties: ['openDirectory'] }
+        : { properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] },
+    );
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
   ipcMain.handle(
     IPC_CHANNELS.selectPaths,
     async (event, defaultPath: unknown): Promise<string[]> => {
@@ -678,7 +689,6 @@ function run(): void {
   let menuLabels = DEFAULT_APP_MENU_LABELS;
   const setAppMenu = (labels = DEFAULT_APP_MENU_LABELS) => {
     menuLabels = labels;
-    if (process.platform !== 'darwin') return;
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
         appMenuTemplate(labels, {
@@ -686,6 +696,10 @@ function run(): void {
           checkForUpdates: () => {
             openSettingsFromMenu('about');
             void updates.check();
+          },
+          restoreDefaultTheme: () => {
+            showMainWindow();
+            mainWindow?.webContents.send(IPC_CHANNELS.restoreDefaultTheme);
           },
         }),
       ),
@@ -1136,8 +1150,11 @@ function createWindow(): BrowserWindow {
       spellcheck: false,
     },
   });
-  // Linux 不显示 Electron 默认菜单栏（File Edit View Window）；菜单仍在，快捷键照常可用。Windows 隐藏了系统标题栏，本来就没有菜单栏。
-  if (process.platform === 'linux') window.setMenuBarVisibility(false);
+  // Linux 隐藏原生菜单栏，Alt 可重新打开；Windows 隐藏标题栏，恢复主题仍可经原生快捷键执行。
+  if (process.platform === 'linux') {
+    window.setAutoHideMenuBar(true);
+    window.setMenuBarVisibility(false);
+  }
   window.once('ready-to-show', () => {
     mark('readyToShow');
     if (state.maximized) window.maximize();

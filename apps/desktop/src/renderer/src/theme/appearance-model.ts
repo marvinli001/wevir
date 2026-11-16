@@ -2,7 +2,9 @@ import {
   ACCENT_COLORS,
   appearanceColorVariables,
   DEFAULT_THEME_COLORS,
+  DEFAULT_THEME_TOKENS,
   THEME_ACCENTS,
+  type ThemeFile,
 } from '@wevir/protocol';
 import type { ResolvedTheme } from '../../../shared/theme.js';
 
@@ -116,6 +118,31 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
     dark: { background: '#191724', foreground: '#e0def4' },
   },
 ];
+
+export function themeFileFromPreset(preset: ThemePreset): ThemeFile {
+  const colors = (mode: ResolvedTheme) => ({
+    ...DEFAULT_COLORS[mode],
+    ...preset[mode],
+    ...(preset.id === 'wevir' && {
+      tokens: {
+        ...Object.fromEntries(
+          Object.entries(DEFAULT_THEME_TOKENS[mode])
+            .filter(([, value]) => value.startsWith('#'))
+            .map(([key, value]) => [key.slice(2), value]),
+        ),
+        highlight: DEFAULT_THEME_TOKENS[mode]['--running'],
+        'user-bubble': DEFAULT_THEME_TOKENS[mode]['--muted'],
+      },
+    }),
+  });
+  return {
+    schemaVersion: 1,
+    name: preset.name,
+    accent: preset.accent,
+    light: colors('light'),
+    dark: colors('dark'),
+  };
+}
 
 const HEX = /^#[0-9a-f]{6}$/i;
 

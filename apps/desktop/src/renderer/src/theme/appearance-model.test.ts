@@ -1,3 +1,4 @@
+import { DEFAULT_THEME_TOKENS, ThemeFileSchema, themeColorVariables } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   ACCENT_COLORS,
@@ -11,6 +12,7 @@ import {
   parseHexColor,
   parseTheme,
   THEME_PRESETS,
+  themeFileFromPreset,
 } from './appearance-model';
 
 function preset(id: string) {
@@ -33,6 +35,27 @@ function contrast(a: string, b: string): number {
 }
 
 describe('外观', () => {
+  it('copies presets with explicit anchors and keeps Wevir colors independent of device colors', () => {
+    for (const preset of THEME_PRESETS)
+      expect(ThemeFileSchema.safeParse(themeFileFromPreset(preset)).success).toBe(true);
+    const copy = themeFileFromPreset(preset('wevir'));
+    const device = applyTheme({ ...DEFAULT_APPEARANCE, contrast: 90 }, preset('solarized'));
+    for (const mode of ['light', 'dark'] as const) {
+      expect(copy[mode]).toMatchObject(DEFAULT_COLORS[mode]);
+      const applied = { ...appearanceVariables(device, mode), ...themeColorVariables(copy, mode) };
+      for (const name of [
+        '--background',
+        '--foreground',
+        '--sidebar',
+        '--card',
+        '--border',
+        '--primary',
+      ])
+        expect(applied[name]).toBe(DEFAULT_THEME_TOKENS[mode][name]);
+      expect(applied['--highlight']).toBe(DEFAULT_THEME_TOKENS[mode]['--running']);
+      expect(applied['--user-bubble']).toBe(DEFAULT_THEME_TOKENS[mode]['--muted']);
+    }
+  });
   it('默认外观不产生任何变量，界面照 tokens.css', () => {
     expect(appearanceVariables(DEFAULT_APPEARANCE, 'light')).toEqual({});
     expect(appearanceVariables(DEFAULT_APPEARANCE, 'dark')).toEqual({});

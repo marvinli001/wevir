@@ -172,6 +172,7 @@ export const APP_MENU_LABEL_KEYS = [
   'zoomIn',
   'zoomOut',
   'toggleFullScreen',
+  'restoreDefaultTheme',
   'window',
   'minimize',
   'zoom',
@@ -382,6 +383,7 @@ export interface DesktopApi {
   retryHost(): Promise<void>;
   /** 系统的文件夹选择对话框；取消时为 null。 */
   selectFolder(): Promise<string | null>;
+  selectThemeSource(kind: 'folder' | 'file'): Promise<string | null>;
   /** 选文件与文件夹（多选，U33 输入框的“文件和文件夹”），从 `defaultPath` 开始；取消时是空表。 */
   selectPaths(defaultPath?: string): Promise<string[]>;
   /** 插件页“添加”的文件夹或文件（ZIP、SKILL.md）选择对话框（0.42.0）；取消时为 null。 */
@@ -433,10 +435,11 @@ export interface DesktopApi {
    * 从这个菜单打开或退出。
    */
   setTrayLabels(labels: { open: string; quit: string }): Promise<void>;
-  /** macOS 应用菜单的文字，按界面语言（main/app-menu.ts）；其他平台不做事。 */
+  /** 原生应用菜单的文字，按界面语言（main/app-menu.ts）。 */
   setAppMenuLabels(labels: AppMenuLabels): Promise<void>;
   /** 订阅应用菜单的“设置…”与“检查更新…”：主进程已显示窗口，渲染进程跳到对应的设置页。返回取消订阅的函数。 */
   onOpenSettings(listener: (tab: MenuSettingsTab) => void): () => void;
+  onRestoreDefaultTheme(listener: () => void): () => void;
   /** 设置 → 存储：数据目录各类占了多少（shared/storage.ts）。要把整个目录走一遍，大的 worktree 会慢。 */
   getStorageUsage(): Promise<StorageUsage>;
   /** 清理所选的几类（缓存、内置浏览器的数据、日志），返回清完之后重新量的结果。 */
@@ -502,6 +505,7 @@ export const IPC_CHANNELS = {
   hostStatus: 'wevir:host-status',
   retryHost: 'wevir:retry-host',
   selectFolder: 'wevir:select-folder',
+  selectThemeSource: 'wevir:select-theme-source',
   selectPaths: 'wevir:select-paths',
   selectInstallSource: 'wevir:select-install-source',
   inspectInstallSource: 'wevir:inspect-install-source',
@@ -544,6 +548,7 @@ export const IPC_CHANNELS = {
   moveToApplications: 'wevir:move-to-applications',
   setTrayLabels: 'wevir:set-tray-labels',
   setAppMenuLabels: 'wevir:set-app-menu-labels',
+  restoreDefaultTheme: 'wevir:restore-default-theme',
   /** 主进程 → 渲染进程的推送。 */
   openSettings: 'wevir:open-settings',
   getStorageUsage: 'wevir:get-storage-usage',

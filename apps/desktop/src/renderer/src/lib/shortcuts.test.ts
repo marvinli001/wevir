@@ -35,6 +35,18 @@ describe('matchesShortcut', () => {
 });
 
 describe('formatShortcut', () => {
+  it.each([true, false])(
+    'declares the native theme recovery shortcut without an application conflict (mac=%s)',
+    (mac) => {
+      const shortcut = formatShortcut(SHORTCUTS.restoreDefaultTheme, mac);
+      expect(shortcut).toBe(mac ? '⌥⇧⌘0' : 'Ctrl+Alt+Shift+0');
+      expect(
+        Object.entries(SHORTCUTS)
+          .filter(([name]) => name !== 'restoreDefaultTheme')
+          .some(([, value]) => formatShortcut(value, mac) === shortcut),
+      ).toBe(false);
+    },
+  );
   it('macOS 用符号，其他平台用 Ctrl+…', () => {
     expect(formatShortcut(SHORTCUTS.toggleAux, true)).toBe('⌥⌘B');
     expect(formatShortcut(SHORTCUTS.toggleAux, false)).toBe('Ctrl+Alt+B');

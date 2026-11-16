@@ -7,19 +7,21 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { constants, type FSWatcher, watch } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, rename, rm } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { dirname, extname, isAbsolute, join } from 'node:path';
 import {
   RESERVED_THEME_IDS,
   THEME_MAX_BYTES,
   THEME_MAX_COUNT,
   ThemeAssetNameSchema,
   type ThemeBackdropStatus,
+  type ThemeCreate,
   type ThemeFile,
   ThemeFileSchema,
   ThemeIdSchema,
   type ThemeProblem,
   type ThemeResult,
   type ThemeSave,
+  type ThemeSelection,
   type ThemesUpdated,
   themeCssLoadsRemoteFiles,
 } from '@wevir/protocol';
@@ -107,6 +109,7 @@ async function atomicWrite(path: string, contents: string | Buffer): Promise<voi
 
 export class ThemeService {
   readonly directory: string;
+  readonly #hostId: string;
   readonly #urls: FileUrls;
   readonly #onError: (error: unknown) => void;
   readonly #entries = new Map<string, Entry>();
@@ -120,11 +123,13 @@ export class ThemeService {
   #closed = false;
 
   constructor(options: {
+    hostId: string;
     directory: string;
     fileUrls: FileUrls;
     onError: (error: unknown) => void;
   }) {
     this.directory = options.directory;
+    this.#hostId = options.hostId;
     this.#urls = options.fileUrls;
     this.#onError = options.onError;
   }
@@ -233,47 +238,58 @@ export class ThemeService {
   }
 
   save(input: ThemeSave): Promise<ThemeResult> {
+    return this.#exclusive(() => this.#save(input));
+  }
+
+  create(input: ThemeCreate): Promise<ThemeResult> {
     return this.#exclusive(async () => {
       this.#id(input.id, true);
-      const parsed = ThemeFileSchema.safeParse(input.theme);
-      if (!parsed.success) throw rejected('theme', parsed.error.message);
-      const theme = parsed.data;
-      if (theme.css && themeCssLoadsRemoteFiles(theme.css))
-        throw rejected('css', 'CSS cannot load files; only data: and #id URLs are allowed');
-      const problems = themeProblems(theme);
-      const refused = problems.find((problem) => problem.severity === 'error');
-      if (refused) throw rejected(refused.path, refused.message);
-      const text = `${JSON.stringify(theme, null, 2)}\n`;
-      if (Buffer.byteLength(text) > THEME_MAX_BYTES)
-        throw rejected('theme', `exceeds ${THEME_MAX_BYTES} bytes`);
       await this.#refresh();
-      if (!this.#entries.has(input.id) && this.#entries.size >= THEME_MAX_COUNT)
-        throw rejected('id', `maximum ${THEME_MAX_COUNT} themes`);
-      const target = join(this.directory, input.id);
-      const assets = new Map<string, Buffer>();
-      for (const asset of input.assets ?? []) {
-        if (!ThemeAssetNameSchema.safeParse(asset.name).success)
-          throw rejected('assets.name', 'invalid filename');
-        if (assets.has(asset.name)) throw rejected('assets.name', `duplicate ${asset.name}`);
-        if (!isAbsolute(asset.sourcePath))
-          throw rejected('assets.sourcePath', 'absolute path required');
+      try {
+        await lstat(join(this.directory, input.id));
+        throw rejected('id', `theme ${input.id} already exists`);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      let theme: ThemeFile;
+      let root: string | undefined;
+      const source = input.source;
+      if ('theme' in source) theme = source.theme;
+      else if ('themeId' in source) {
+        this.#id(source.themeId);
+        const entry = this.#entries.get(source.themeId);
+        if (!entry?.theme || entry.problems.some((problem) => problem.severity === 'error'))
+          throw rejected('source.themeId', 'theme is missing or invalid');
+        theme = structuredClone(entry.theme);
+        root = entry.snapshot;
+      } else {
+        if (!isAbsolute(source.path)) throw rejected('source.path', 'absolute path required');
         try {
-          const data = await readThemeFile(asset.sourcePath, assetLimit(asset.name));
-          validateAsset(asset.name, data);
-          assets.set(asset.name, data);
+          const info = await lstat(source.path);
+          if (info.isSymbolicLink()) throw new Error('symbolic links are forbidden');
+          if (!info.isDirectory() && extname(source.path).toLowerCase() !== '.json')
+            throw new Error('a theme directory or .json file is required');
+          root = info.isDirectory() ? source.path : dirname(source.path);
+          const parent = await lstat(root);
+          if (!parent.isDirectory() || parent.isSymbolicLink())
+            throw new Error('theme directory must not be a symbolic link');
+          const data = await readThemeFile(
+            info.isDirectory() ? join(root, 'theme.json') : source.path,
+            THEME_MAX_BYTES,
+          );
+          theme = ThemeFileSchema.parse(
+            JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(data)),
+          );
         } catch (error) {
-          throw rejected('assets', messageOf(error));
+          throw rejected('source.path', messageOf(error));
         }
       }
-      if (theme.backdrop) {
-        for (const [name, kind] of [
-          [theme.backdrop.file, theme.backdrop.kind],
-          [theme.backdrop.poster, 'image'],
-        ] as const) {
-          if (!name) continue;
+      const assets = new Map<string, Buffer>();
+      if (theme.backdrop && root) {
+        for (const name of [theme.backdrop.file, theme.backdrop.poster]) {
+          if (!name || assets.has(name)) continue;
           try {
-            const data = assets.get(name) ?? (await this.#asset(target, name));
-            validateAsset(name, data, kind);
+            assets.set(name, await this.#asset(root, name));
           } catch (error) {
             throw rejected(
               name === theme.backdrop.file ? 'backdrop.file' : 'backdrop.poster',
@@ -282,7 +298,73 @@ export class ThemeService {
           }
         }
       }
-      await directory(target);
+      return this.#save({ id: input.id, theme }, true, assets);
+    });
+  }
+
+  async #save(
+    input: ThemeSave,
+    create = false,
+    copiedAssets = new Map<string, Buffer>(),
+  ): Promise<ThemeResult> {
+    this.#id(input.id, true);
+    const parsed = ThemeFileSchema.safeParse(input.theme);
+    if (!parsed.success) throw rejected('theme', parsed.error.message);
+    const theme = parsed.data;
+    if (theme.css && themeCssLoadsRemoteFiles(theme.css))
+      throw rejected('css', 'CSS cannot load files; only data: and #id URLs are allowed');
+    const problems = themeProblems(theme);
+    const refused = problems.find((problem) => problem.severity === 'error');
+    if (refused) throw rejected(refused.path, refused.message);
+    const text = `${JSON.stringify(theme, null, 2)}\n`;
+    if (Buffer.byteLength(text) > THEME_MAX_BYTES)
+      throw rejected('theme', `exceeds ${THEME_MAX_BYTES} bytes`);
+    await this.#refresh();
+    if (!this.#entries.has(input.id) && this.#entries.size >= THEME_MAX_COUNT)
+      throw rejected('id', `maximum ${THEME_MAX_COUNT} themes`);
+    const target = join(this.directory, input.id);
+    const assets = copiedAssets;
+    for (const asset of input.assets ?? []) {
+      if (!ThemeAssetNameSchema.safeParse(asset.name).success)
+        throw rejected('assets.name', 'invalid filename');
+      if (assets.has(asset.name)) throw rejected('assets.name', `duplicate ${asset.name}`);
+      if (!isAbsolute(asset.sourcePath))
+        throw rejected('assets.sourcePath', 'absolute path required');
+      try {
+        const data = await readThemeFile(asset.sourcePath, assetLimit(asset.name));
+        validateAsset(asset.name, data);
+        assets.set(asset.name, data);
+      } catch (error) {
+        throw rejected('assets', messageOf(error));
+      }
+    }
+    if (theme.backdrop) {
+      for (const [name, kind] of [
+        [theme.backdrop.file, theme.backdrop.kind],
+        [theme.backdrop.poster, 'image'],
+      ] as const) {
+        if (!name) continue;
+        try {
+          const data = assets.get(name) ?? (await this.#asset(target, name));
+          validateAsset(name, data, kind);
+        } catch (error) {
+          throw rejected(
+            name === theme.backdrop.file ? 'backdrop.file' : 'backdrop.poster',
+            messageOf(error),
+          );
+        }
+      }
+    }
+    if (create) {
+      try {
+        await mkdir(target, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+          throw rejected('id', `theme ${input.id} already exists`);
+        throw error;
+      }
+    } else await directory(target);
+    try {
       for (const name of ['theme.json', ...assets.keys()]) {
         try {
           const info = await lstat(join(target, name));
@@ -298,9 +380,12 @@ export class ThemeService {
       // JSON 最后替换，读者不会看到尚未复制完的素材；运行中的界面使用上一份校验好的快照。
       for (const [name, data] of assets) await atomicWrite(join(target, name), data);
       await atomicWrite(join(target, 'theme.json'), text);
-      await this.#refresh();
-      return this.get(input.id);
-    });
+    } catch (error) {
+      if (create) await rm(target, { recursive: true, force: true });
+      throw error;
+    }
+    await this.#refresh();
+    return this.get(input.id);
   }
 
   delete(id: string): Promise<{ deleted: boolean }> {
@@ -315,16 +400,18 @@ export class ThemeService {
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { deleted: false };
         throw error;
       }
-      if (this.#activeId === id) await this.#select(null);
       await rm(target, { recursive: true });
+      if (this.#activeId === id) await this.#select(null);
       await this.#refresh();
       return { deleted: true };
     });
   }
 
-  setActive(id: string | null): Promise<{ activeId: string | null }> {
+  setActive(id: string | null, expected?: ThemeSelection): Promise<{ activeId: string | null }> {
     return this.#exclusive(async () => {
       await this.#refresh();
+      if (expected && (expected.hostId !== this.#hostId || expected.activeId !== this.#activeId))
+        return { activeId: this.#activeId };
       if (id !== null) {
         this.#id(id);
         const entry = this.#entries.get(id);

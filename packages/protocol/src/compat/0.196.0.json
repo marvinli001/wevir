@@ -1,0 +1,70 @@
+{
+  "protocolVersion": "0.196.0",
+  "methods": {
+    "themes.create": {
+      "params": [
+        {
+          "id": "copy",
+          "source": {
+            "themeId": "lagoon"
+          }
+        },
+        {
+          "id": "copy",
+          "source": {
+            "path": "/themes/lagoon"
+          }
+        },
+        {
+          "id": "copy",
+          "source": {
+            "theme": {
+              "schemaVersion": 1,
+              "name": "Lagoon",
+              "dark": {}
+            }
+          }
+        }
+      ],
+      "result": [
+        {
+          "id": "copy",
+          "revision": "r1",
+          "readOnly": false,
+          "problems": [],
+          "assets": {},
+          "directory": "/themes/copy"
+        }
+      ]
+    },
+    "themes.setActive": {
+      "params": [
+        {
+          "id": null,
+          "expected": {
+            "hostId": "hst_fixture",
+            "activeId": "lagoon"
+          }
+        },
+        {
+          "id": null,
+          "expected": {
+            "hostId": "hst_fixture",
+            "activeId": null
+          }
+        }
+      ],
+      "result": [
+        {
+          "activeId": null
+        },
+        {
+          "activeId": "lagoon"
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

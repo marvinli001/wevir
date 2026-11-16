@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import {
@@ -29,6 +29,7 @@ async function start() {
   const urls = new FileUrls();
   urls.setPort(1234);
   const service = new ThemeService({
+    hostId: 'hst_fixture',
     directory: join(temp(), 'themes'),
     fileUrls: urls,
     onError: (error) => {
@@ -55,6 +56,133 @@ function changed(service: ThemeService, predicate: (update: ThemesUpdated) => bo
 }
 
 describe('Host themes', () => {
+  it('compares the originating Host and selection inside the write queue before restoring', async () => {
+    const { service } = await start();
+    await service.save({ id: 'a', theme });
+    await service.save({ id: 'b', theme: { ...theme, name: 'B' } });
+    await service.setActive('a');
+    const expected = { hostId: 'hst_fixture' as const, activeId: 'a' };
+    expect(await service.setActive(null, { ...expected, hostId: 'hst_other' })).toEqual({
+      activeId: 'a',
+    });
+    const updates: ThemesUpdated[] = [];
+    service.watch((update) => updates.push(update));
+    const selected = service.setActive('b');
+    const restored = service.setActive(null, expected);
+    await selected;
+    expect(await restored).toEqual({ activeId: 'b' });
+    expect(updates.map((update) => update.activeId)).toEqual(['b']);
+    expect(await service.setActive(null, { ...expected, activeId: 'b' })).toEqual({
+      activeId: null,
+    });
+    expect(updates.map((update) => update.activeId)).toEqual(['b', null]);
+  });
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'retains the active theme when deleting its files fails',
+    async () => {
+      const { service } = await start();
+      const saved = await service.save({ id: 'protected', theme });
+      await service.setActive('protected');
+      await chmod(saved.directory, 0o500);
+      try {
+        await expect(service.delete('protected')).rejects.toThrow();
+        expect(service.list().activeId).toBe('protected');
+        expect(service.get('protected').theme).toEqual(theme);
+      } finally {
+        await chmod(saved.directory, 0o700);
+      }
+    },
+  );
+  it('imports only referenced files from folders and JSON files without changing the source', async () => {
+    const { service } = await start();
+    const source = join(temp(), 'source');
+    await mkdir(source, { mode: 0o755 });
+    const imported: ThemeFile = {
+      ...theme,
+      backdrop: { kind: 'image', file: 'backdrop.png', poster: 'poster.png' },
+    };
+    await writeFile(join(source, 'theme.json'), JSON.stringify(imported));
+    await writeFile(join(source, 'backdrop.png'), png);
+    await writeFile(join(source, 'poster.png'), png);
+    await writeFile(join(source, 'unused.js'), 'throw new Error("not a theme asset")');
+    await symlink(join(source, 'missing'), join(source, 'unused-link'));
+    const mode = (await lstat(source)).mode;
+    for (const [id, path] of [
+      ['folder-import', source],
+      ['json-import', join(source, 'theme.json')],
+    ]) {
+      const result = await service.create({ id: id as string, source: { path: path as string } });
+      expect(result.theme).toEqual(imported);
+      expect((await readdir(result.directory)).sort()).toEqual([
+        'backdrop.png',
+        'poster.png',
+        'theme.json',
+      ]);
+      expect(await readFile(join(result.directory, 'backdrop.png'))).toEqual(png);
+      expect(await readFile(join(result.directory, 'poster.png'))).toEqual(png);
+    }
+    expect((await lstat(source)).mode).toBe(mode);
+    expect(service.list().activeId).toBeNull();
+  });
+
+  it('clones validated snapshots and creates once under concurrent requests, preserving the active source', async () => {
+    const { service } = await start();
+    const file = join(temp(), 'backdrop.png');
+    await writeFile(file, png);
+    const saved = await service.save({
+      id: 'source',
+      theme: { ...theme, backdrop: { kind: 'image', file: 'backdrop.png' } },
+      assets: [{ name: 'backdrop.png', sourcePath: file }],
+    });
+    await service.setActive('source');
+    service.get('source', { revision: saved.revision, asset: 'file', status: 'failed' });
+    const results = await Promise.allSettled([
+      service.create({ id: 'copy', source: { themeId: 'source' } }),
+      service.create({ id: 'copy', source: { themeId: 'source' } }),
+    ]);
+    expect(results.map((result) => result.status)).toEqual(['fulfilled', 'rejected']);
+    expect(service.get('copy').theme).toEqual(saved.theme);
+    expect(await readFile(join(service.directory, 'copy', 'backdrop.png'))).toEqual(png);
+    expect(service.list().activeId).toBe('source');
+    expect(service.get('source').theme).toEqual(saved.theme);
+    for (const [id, make] of [
+      ['broken', () => mkdir(join(service.directory, 'broken'))],
+      ['file', () => writeFile(join(service.directory, 'file'), '')],
+      ['link', () => symlink(join(service.directory, 'missing'), join(service.directory, 'link'))],
+    ] as const) {
+      await make();
+      await expect(service.create({ id, source: { theme } })).rejects.toThrow('already exists');
+    }
+    expect(service.list().activeId).toBe('source');
+  });
+
+  it('rejects invalid imports and linked sources before creating a target', async () => {
+    const { service } = await start();
+    const source = join(temp(), 'source');
+    await mkdir(source);
+    await writeFile(
+      join(source, 'theme.json'),
+      JSON.stringify({ ...theme, dark: { tokens: { unknown: '#ffffff' } } }),
+    );
+    await expect(service.create({ id: 'invalid', source: { path: source } })).rejects.toThrow(
+      'unknown',
+    );
+    await writeFile(
+      join(source, 'theme.json'),
+      JSON.stringify({ ...theme, backdrop: { kind: 'image', file: 'backdrop.png' } }),
+    );
+    await writeFile(join(source, 'backdrop.png'), 'not a PNG');
+    await expect(service.create({ id: 'invalid', source: { path: source } })).rejects.toThrow(
+      'backdrop.file',
+    );
+    const linked = join(temp(), 'linked');
+    await symlink(source, linked);
+    await expect(service.create({ id: 'invalid', source: { path: linked } })).rejects.toThrow(
+      'symbolic links',
+    );
+    expect(await readdir(service.directory)).toEqual(['.cache']);
+  });
+
   it('keeps playback diagnostics separate from validation and ignores stale revisions', async () => {
     const { service } = await start();
     const source = join(temp(), 'backdrop.png');

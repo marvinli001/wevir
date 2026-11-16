@@ -1,10 +1,11 @@
-import type { WevirClient } from '@wevir/client-sdk';
+import { ConnectionLostError, type WevirClient } from '@wevir/client-sdk';
 import type { ThemeResult, ThemesUpdated } from '@wevir/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CUSTOM_THEME_STORAGE_KEY } from '../../../shared/theme.js';
 import { cacheCustomTheme, parseCachedCustomTheme } from './custom-theme-model';
 
 vi.mock('@/host/error-text', () => ({ describeError: (reason: Error) => reason.message }));
+vi.mock('@/i18n', () => ({ t: (key: string) => key }));
 
 const result = (id = 'lagoon', revision = '1'): ThemeResult => ({
   id,
@@ -25,10 +26,12 @@ const result = (id = 'lagoon', revision = '1'): ThemeResult => ({
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 beforeEach(() => {
@@ -49,11 +52,17 @@ function fakeClient() {
   const updates = new Set<(update: ThemesUpdated) => void>();
   const client = {
     state: { status: 'connected' },
-    hello: { hostId: 'host_fixture', protocolVersion: '0.195.0' },
+    hello: { hostId: 'hst_fixture', protocolVersion: '0.196.0' },
     supports: vi.fn(() => true),
     can: vi.fn(() => true),
-    request: vi.fn<(method: string) => Promise<ThemeResult | { activeId: string | null }>>(
-      async (method: string) => (method === 'themes.list' ? { activeId: 'lagoon' } : result()),
+    request: vi.fn<
+      (method: string, params?: unknown) => Promise<ThemeResult | { activeId: string | null }>
+    >(async (method: string) =>
+      method === 'themes.list'
+        ? { activeId: 'lagoon' }
+        : method === 'themes.setActive'
+          ? { activeId: null }
+          : result(),
     ),
     onStateChange: (listener: (state: { status: string }) => void) => {
       states.add(listener);
@@ -81,15 +90,149 @@ function fakeClient() {
 }
 
 describe('custom theme cache', () => {
+  it.each(['original', 'new-selection', 'new-host'] as const)(
+    'reconciles an in-flight recovery lost on disconnect: %s',
+    async (next) => {
+      const host = fakeClient();
+      const stop = await host.bind();
+      const { customThemeStore, restoreDefaultTheme } = await import('./custom-theme');
+      await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('lagoon'));
+      let activeId: string | null = 'lagoon';
+      let clears = 0;
+      const interrupted = deferred<{ activeId: string | null }>();
+      host.client.request.mockImplementation(async (method) => {
+        if (method === 'themes.list') return { activeId };
+        if (method === 'themes.setActive') {
+          clears++;
+          if (clears === 1) return interrupted.promise;
+          activeId = null;
+          return { activeId };
+        }
+        return result(activeId ?? 'lagoon');
+      });
+      restoreDefaultTheme();
+      await vi.waitFor(() => expect(clears).toBe(1));
+      host.state('reconnecting');
+      interrupted.reject(new ConnectionLostError('themes.setActive', 1006));
+      await Promise.resolve();
+      expect(customThemeStore.get().theme).toBeNull();
+      if (next !== 'original') activeId = 'new-theme';
+      if (next === 'new-host') host.client.hello.hostId = 'hst_other';
+      host.state('connected');
+      if (next === 'original') {
+        await vi.waitFor(() => expect(clears).toBe(2));
+        await vi.waitFor(() => expect(activeId).toBeNull());
+        // A later reconnect must not reuse a recovery that has already succeeded.
+        await Promise.resolve();
+        activeId = 'later';
+        host.state('reconnecting');
+        host.state('connected');
+        await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('later'));
+        expect(clears).toBe(2);
+      } else {
+        await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('new-theme'));
+        expect(customThemeStore.get().theme?.hostId).toBe(host.client.hello.hostId);
+        expect(clears).toBe(1);
+      }
+      stop();
+    },
+  );
+
+  it('ignores an old recovery response after observing a newer selection', async () => {
+    const host = fakeClient();
+    const stop = await host.bind();
+    const { customThemeStore, restoreDefaultTheme } = await import('./custom-theme');
+    await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('lagoon'));
+    const pending = deferred<{ activeId: string | null }>();
+    host.client.request.mockImplementation(async (method) =>
+      method === 'themes.list'
+        ? { activeId: 'lagoon' }
+        : method === 'themes.setActive'
+          ? pending.promise
+          : result('new-theme'),
+    );
+    restoreDefaultTheme();
+    await vi.waitFor(() =>
+      expect(host.client.request).toHaveBeenCalledWith('themes.setActive', {
+        id: null,
+        expected: { hostId: 'hst_fixture', activeId: 'lagoon' },
+      }),
+    );
+    host.update('new-theme');
+    await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('new-theme'));
+    pending.resolve({ activeId: null });
+    await Promise.resolve();
+    expect(customThemeStore.get().theme?.id).toBe('new-theme');
+    stop();
+  });
+
+  it('does not carry a cached Host recovery into a different binding', async () => {
+    window.localStorage.setItem(
+      CUSTOM_THEME_STORAGE_KEY,
+      JSON.stringify(cacheCustomTheme(result(), 'hst_original')),
+    );
+    const { customThemeStore, restoreDefaultTheme } = await import('./custom-theme');
+    restoreDefaultTheme();
+    const host = fakeClient();
+    host.client.request.mockImplementation(async (method) =>
+      method === 'themes.list' ? { activeId: 'other' } : result('other'),
+    );
+    const stop = await host.bind();
+    await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('other'));
+    expect(host.client.request.mock.calls.some(([method]) => method === 'themes.setActive')).toBe(
+      false,
+    );
+    stop();
+  });
+
+  it('gates conditional recovery on older Hosts instead of sending ignored conditions', async () => {
+    const host = fakeClient();
+    host.client.hello.protocolVersion = '0.195.0';
+    const stop = await host.bind();
+    const { customThemeStore, restoreDefaultTheme } = await import('./custom-theme');
+    await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('lagoon'));
+    restoreDefaultTheme();
+    expect(customThemeStore.get().theme).toBeNull();
+    expect(customThemeStore.get().error).toBe('settings.appearance.recoveryUnsupported');
+    expect(host.client.request.mock.calls.some(([method]) => method === 'themes.setActive')).toBe(
+      false,
+    );
+    stop();
+  });
+  it('recovers without a DOM action, invalidates pending reads, and retains device storage', async () => {
+    const host = fakeClient();
+    const stop = await host.bind();
+    const { customThemeStore, restoreDefaultTheme } = await import('./custom-theme');
+    await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('lagoon'));
+    window.localStorage.setItem('wevir.appearance.v1', 'device-fonts');
+    window.localStorage.setItem('wevir.theme-mode', 'light');
+    const pending = deferred<ThemeResult>();
+    host.client.request.mockReturnValueOnce(pending.promise);
+    host.update('late');
+    restoreDefaultTheme();
+    pending.resolve(result('late'));
+    await Promise.resolve();
+    expect(customThemeStore.get().theme).toBeNull();
+    expect(window.localStorage.getItem(CUSTOM_THEME_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem('wevir.appearance.v1')).toBe('device-fonts');
+    expect(window.localStorage.getItem('wevir.theme-mode')).toBe('light');
+    await vi.waitFor(() =>
+      expect(host.client.request).toHaveBeenCalledWith('themes.setActive', {
+        id: null,
+        expected: { hostId: 'hst_fixture', activeId: 'lagoon' },
+      }),
+    );
+    stop();
+  });
   it('keeps cached colors but waits for a live Host read before exposing media addresses', async () => {
     window.localStorage.setItem(
       CUSTOM_THEME_STORAGE_KEY,
-      JSON.stringify(cacheCustomTheme(result(), 'host_fixture')),
+      JSON.stringify(cacheCustomTheme(result(), 'hst_fixture')),
     );
     const { customThemeStore } = await import('./custom-theme');
     expect(customThemeStore.get().theme?.variables.dark['--background']).toBe('#002b36');
     expect(customThemeStore.get().theme?.assets).toEqual({});
-    const cached = cacheCustomTheme(result(), 'host_fixture');
+    const cached = cacheCustomTheme(result(), 'hst_fixture');
     expect(
       parseCachedCustomTheme({
         ...cached,
@@ -98,7 +241,7 @@ describe('custom theme cache', () => {
     ).toBeUndefined();
   });
   it('keeps parsed mode variables and descriptions without asset bytes, rejecting unsafe cached values', () => {
-    const cached = cacheCustomTheme(result(), 'host_fixture');
+    const cached = cacheCustomTheme(result(), 'hst_fixture');
     expect(parseCachedCustomTheme(JSON.parse(JSON.stringify(cached)))).toEqual(cached);
     expect(cached?.variables.light).toEqual({});
     expect(cached?.variables.dark['--background']).toBe('#002b36');
@@ -281,7 +424,7 @@ describe('Host custom themes', () => {
   it('clears cached colors and scheme for an old Host, without requesting unsupported methods', async () => {
     window.localStorage.setItem(
       CUSTOM_THEME_STORAGE_KEY,
-      JSON.stringify(cacheCustomTheme(result(), 'host_fixture')),
+      JSON.stringify(cacheCustomTheme(result(), 'hst_fixture')),
     );
     const host = fakeClient();
     host.client.supports.mockReturnValue(false);
@@ -311,9 +454,21 @@ describe('Host custom themes', () => {
     host.update('lagoon');
     await vi.waitFor(() => expect(customThemeStore.get().theme).toBeNull());
     expect(customThemeStore.get().problems).toEqual(bad.problems);
+    host.client.request.mockImplementation(async (method) =>
+      method === 'themes.list'
+        ? { activeId: 'lagoon' }
+        : method === 'themes.setActive'
+          ? { activeId: null }
+          : bad,
+    );
     recoverCustomTheme(new Error('CSS application failed'));
     expect(customThemeStore.get().error).toBe('CSS application failed');
-    expect(host.client.request).toHaveBeenLastCalledWith('themes.setActive', { id: null });
+    await vi.waitFor(() =>
+      expect(host.client.request).toHaveBeenCalledWith('themes.setActive', {
+        id: null,
+        expected: { hostId: 'hst_fixture', activeId: 'lagoon' },
+      }),
+    );
     host.update(null);
     expect(customThemeStore.get().error).toBe('CSS application failed');
     stop();

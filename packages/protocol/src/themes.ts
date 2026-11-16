@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { HostIdSchema } from './common.js';
 
 export const THEME_MAX_BYTES = 512 * 1024;
 export const THEME_CSS_MAX_LENGTH = 50_000;
@@ -211,8 +212,21 @@ export const ThemesSaveParamsSchema = z.object({
     .optional(),
 });
 export type ThemeSave = z.infer<typeof ThemesSaveParamsSchema>;
+export const ThemesCreateParamsSchema = z.object({
+  id: ThemeIdSchema,
+  source: z.union([
+    z.strictObject({ path: z.string().min(1) }),
+    z.strictObject({ themeId: ThemeIdSchema }),
+    z.strictObject({ theme: ThemeFileSchema }),
+  ]),
+});
+export type ThemeCreate = z.infer<typeof ThemesCreateParamsSchema>;
 export const ThemesDeleteResultSchema = z.object({ deleted: z.boolean() });
-export const ThemesSetActiveParamsSchema = z.object({ id: ThemeIdSchema.nullable() });
+export const ThemesSetActiveParamsSchema = z.object({
+  id: ThemeIdSchema.nullable(),
+  expected: z.strictObject({ hostId: HostIdSchema, activeId: ThemeIdSchema.nullable() }).optional(),
+});
+export type ThemeSelection = NonNullable<z.infer<typeof ThemesSetActiveParamsSchema>['expected']>;
 export const ThemesSetActiveResultSchema = z.object({ activeId: ThemeIdSchema.nullable() });
 
 export const ThemeMethodSchemas = {
@@ -228,6 +242,11 @@ export const ThemeMethodSchemas = {
   },
   'themes.save': {
     params: ThemesSaveParamsSchema,
+    result: ThemesGetResultSchema,
+    permission: 'host.manage',
+  },
+  'themes.create': {
+    params: ThemesCreateParamsSchema,
     result: ThemesGetResultSchema,
     permission: 'host.manage',
   },
