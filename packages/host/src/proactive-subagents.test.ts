@@ -3,6 +3,7 @@
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
+import { FileSecretStore } from '@wevir/storage';
 import { describe, expect, it, vi } from 'vitest';
 import { EventStore } from './event-store.js';
 import { createHostMethods } from './host-methods.js';
@@ -33,7 +34,12 @@ describe('proactive subagents', () => {
       worktreesDir: join(dataDir, 'worktrees'),
       proactiveSubagents: () => enabled,
     });
-    const methods = createHostMethods({ storage, events, sessions });
+    const methods = createHostMethods({
+      storage,
+      events,
+      sessions,
+      secrets: new FileSecretStore(dataDir),
+    });
     storage.providers.insert({
       id: 'mock',
       kind: 'openai-compatible',
