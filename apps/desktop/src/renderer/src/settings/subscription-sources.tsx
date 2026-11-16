@@ -49,6 +49,7 @@ import {
   useWorkbenchStore,
 } from '@/data/workbench-data';
 import { useReducedMotion } from '@/fx/motion';
+import { syncErrorText } from '@/host/error-text';
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { useElementSize } from '@/lib/use-element-size';
@@ -892,7 +893,12 @@ export function SubscriptionBody({
   }
   // 缺 Git 时上面的一步已经说明白，不再重复 Host 给的英文原文。
   const notice =
-    error ?? (phase.kind === 'missing' && phase.requires === 'git' ? undefined : account.lastError);
+    error ??
+    (phase.kind === 'missing' && phase.requires === 'git'
+      ? undefined
+      : kind === 'zuv' && account.lastError
+        ? syncErrorText(account.lastError)
+        : account.lastError);
 
   return (
     <div className="space-y-4" data-phase={phase.kind}>

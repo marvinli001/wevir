@@ -199,6 +199,11 @@ function run(): void {
     mainWindow.show();
     mainWindow.focus();
   };
+  app.on('open-url', (event, url) => {
+    if (url !== 'wevir://auth/zuv') return;
+    event.preventDefault();
+    showMainWindow();
+  });
 
   // 启动各阶段的时间点：窗口显示且 Host 就绪（或失败）后记一行日志；刚装完更新时连同旧版本记下的时间点追加到
   // logs/update-timing.log（install-timing.ts）。
@@ -873,6 +878,7 @@ function run(): void {
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => app.quit());
 
   void app.whenReady().then(() => {
+    if (app.isPackaged) app.setAsDefaultProtocolClient(APP_SCHEME);
     mark('appReady');
     startup.readyAt = Date.now();
     session.defaultSession.setSpellCheckerEnabled(false);

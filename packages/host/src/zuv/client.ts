@@ -39,6 +39,7 @@ interface PendingEnrollment {
   verifier: string;
   started: Enrollment;
   startedAt: string;
+  grant?: Extract<typeof schemas.enrollmentPolled._output, { state: 'approved' }>;
 }
 
 export interface ZuvClientOptions extends Omit<ZuvTransportOptions, 'origin'> {
@@ -119,7 +120,10 @@ export class ZuvClient {
     return this.#identity?.blocked;
   }
   get enrollment(): Enrollment | undefined {
-    return this.#pending?.started;
+    const pending = this.#pending;
+    return pending?.grant
+      ? { ...pending.started, expiresAt: pending.grant.expiresAt }
+      : pending?.started;
   }
   get enrollmentStartedAt(): string | undefined {
     return this.#pending?.startedAt;
@@ -144,7 +148,10 @@ export class ZuvClient {
         );
         if (identity.entitlements) schemas.entitlements.parse(identity.entitlements);
       }
-      if (enrollment) this.#remember(enrollment.key.privateKey, enrollment.verifier);
+      if (enrollment) {
+        this.#remember(enrollment.key.privateKey, enrollment.verifier);
+        if (enrollment.grant) this.#remember(enrollment.grant.grant);
+      }
       this.#identity = identity;
       this.#pending = enrollment;
     } catch {
@@ -212,35 +219,51 @@ export class ZuvClient {
   async pollEnrollment(
     signal?: AbortSignal,
   ): Promise<{ state: 'pending'; retryAfterMs: number } | { state: 'approved' }> {
-    const pending = this.#pending;
+    let pending = this.#pending;
     const generation = this.#generation;
-    if (!pending || Date.parse(pending.started.expiresAt) <= this.#now())
+    if (
+      !pending ||
+      Date.parse(pending.grant?.expiresAt ?? pending.started.expiresAt) <= this.#now()
+    )
       throw new ZuvRequestError('ENROLLMENT_EXPIRED');
-    const body = Buffer.from(
-      jcs({ enrollmentId: pending.started.enrollmentId, codeVerifier: pending.verifier }),
-    );
-    const polled = await this.transport.json(
-      {
-        method: 'POST',
-        path: '/api/wevir/enrollment/poll',
-        body,
-        proof: { key: pending.key, secret: pending.started.enrollmentId, authorization: false },
-        maxBytes: 8192,
-        signal,
-      },
-      schemas.enrollmentPolled,
-    );
-    if (generation !== this.#generation || this.#pending !== pending)
-      throw new ZuvRequestError('ENROLLMENT_EXPIRED');
-    if (polled.state === 'pending') return polled;
-    const tokens = await this.#exchange('/api/wevir/token', pending.key, polled.grant, signal);
+    let grant = pending.grant;
+    if (!grant) {
+      const body = Buffer.from(
+        jcs({ enrollmentId: pending.started.enrollmentId, codeVerifier: pending.verifier }),
+      );
+      const polled = await this.transport.json(
+        {
+          method: 'POST',
+          path: '/api/wevir/enrollment/poll',
+          body,
+          proof: { key: pending.key, secret: pending.started.enrollmentId, authorization: false },
+          maxBytes: 8192,
+          signal,
+        },
+        schemas.enrollmentPolled,
+      );
+      if (generation !== this.#generation || this.#pending !== pending)
+        throw new ZuvRequestError('ENROLLMENT_EXPIRED');
+      if (polled.state === 'pending') return polled;
+      this.#remember(polled.grant);
+      const approved = { ...pending, grant: polled };
+      // Poll consumes the enrollment; persist its grant before the separate token exchange.
+      await this.#persist(() =>
+        this.#options.secrets.set(ENROLLMENT_SECRET, JSON.stringify(approved)),
+      );
+      if (generation !== this.#generation || this.#pending !== pending)
+        throw new ZuvRequestError('ENROLLMENT_EXPIRED');
+      this.#pending = pending = approved;
+      grant = polled;
+    }
+    const tokens = await this.#exchange('/api/wevir/token', pending.key, grant.grant, signal);
     if (generation !== this.#generation || this.#pending !== pending)
       throw new ZuvRequestError('ENROLLMENT_EXPIRED');
     const identity: Identity = {
       v: 1,
       origin: this.transport.origin,
       key: pending.key,
-      deviceId: polled.deviceId,
+      deviceId: grant.deviceId,
       tokens,
     };
     await this.#save(identity);

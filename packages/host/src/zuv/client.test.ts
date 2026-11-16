@@ -135,6 +135,41 @@ function mock() {
 }
 
 describe('Host-owned ZUV identity', () => {
+  it.each([false, true])(
+    'resumes a consumed enrollment after a transient token failure (restart: %s)',
+    async (restart) => {
+      const h = mock();
+      const request = h.options.fetch;
+      let tokenAttempts = 0;
+      h.options.fetch = vi.fn(async (...args: Parameters<typeof fetch>) => {
+        if (String(args[0]).endsWith('/token') && ++tokenAttempts === 1)
+          return Response.json(
+            { error: { code: 'SERVICE_UNAVAILABLE', message: 'SERVICE_UNAVAILABLE' } },
+            { status: 503 },
+          );
+        return request(...args);
+      });
+      const client = new ZuvClient(h.options);
+      await client.beginEnrollment('Synthetic device');
+      h.advance(9 * 60000);
+      await expect(client.pollEnrollment()).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+      h.advance(2 * 60000);
+      const polls = () =>
+        request.mock.calls.filter(([url]) => String(url).endsWith('/enrollment/poll'));
+      expect(polls()).toHaveLength(1);
+      const resumed = restart ? new ZuvClient(h.options) : client;
+      if (restart) {
+        await client.close();
+        await resumed.load();
+      }
+      await expect(resumed.pollEnrollment()).resolves.toEqual({ state: 'approved' });
+      expect(polls()).toHaveLength(1);
+      expect(resumed.deviceId).toBe('device_fixture');
+      expect(h.values.has('zuv.enrollment')).toBe(false);
+      await resumed.close();
+    },
+  );
+
   it('retries a late inference 401 after another request has already rotated its token', async () => {
     const h = mock();
     await h.login();

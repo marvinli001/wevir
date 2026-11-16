@@ -6,6 +6,10 @@
 appId: si.wevir.desktop
 productName: Wevir
 copyright: Copyright © 2026 Wevir contributors
+protocols:
+  - name: Wevir
+    schemes:
+      - wevir
 
 directories:
   output: release

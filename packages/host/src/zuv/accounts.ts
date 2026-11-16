@@ -190,7 +190,10 @@ export class ZuvAccounts implements EngineAccounts {
         ? 'revoked'
         : this.client.requiresLogin
           ? 'reauthorization_required'
-          : 'offline';
+          : error instanceof ZuvRequestError &&
+              ['NETWORK_ERROR', 'SERVICE_UNAVAILABLE'].includes(error.code)
+            ? 'offline'
+            : 'online';
   }
 
   #state(): AccountState {

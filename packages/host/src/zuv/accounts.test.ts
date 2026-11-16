@@ -6,6 +6,23 @@ import { startMockZuv } from './mock.test-utils.js';
 import { ZuvRequestError } from './transport.js';
 
 describe('ZUV enrollment ownership', () => {
+  it('reports expired authorization without labelling the connection offline', async () => {
+    const client = {
+      onChange: () => () => {},
+      beginEnrollment: async () => {
+        throw new ZuvRequestError('ENROLLMENT_EXPIRED');
+      },
+      close: async () => {},
+    } as unknown as ZuvClient;
+    const accounts = new ZuvAccounts(client);
+    expect(await accounts.login('zuv', 'browser')).toMatchObject({
+      status: 'signed_out',
+      lastError: 'ENROLLMENT_EXPIRED',
+      zuv: { connection: 'online' },
+    });
+    await accounts.close();
+  });
+
   it('does not report an enrollment failure after cancelling an unfinished start', async () => {
     let reject!: (error: Error) => void;
     const client = {
