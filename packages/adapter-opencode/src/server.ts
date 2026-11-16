@@ -2,7 +2,8 @@
 // 移植自 pingdotgg/t3code packages/provider-opencode/src/server/OpenCodeRuntime.ts（`startOpenCodeServerProcess`、
 // `parseServerUrlFromOutput`、`resolveOpenCodeConfigContent`、`verifyOpenCodeServerVersion`）、OpenCodeServerLedger.ts
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 b058babb1694da9fa4b46b489dec2b76523dc218（共用的
-// opencode.db 被锁时重试启动）
+// opencode.db 被锁时重试启动）、5fa95d99af98f2f9928186acc409b583742d3df5（只认完整的就绪行）、
+// d0957bc4b0495789e28769bad62834f5f912d94e（台账记下 serve 的参数，认出启动器 fork 出来、还没 exec 的子进程）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 的 Scope 换成显式的 stop()；服务器的密码由 Wevir 每次随机生成（T3 只在用户设了 OPENCODE_SERVER_PASSWORD 时带
 // 密码）；台账记在 Wevir 数据目录的 engines/opencode/servers 下，Host 第一次起服务器时清理上一个 Host 崩溃留下的。
@@ -10,8 +11,8 @@
 // opencode 的本机服务器（opencode-event-mapping.md §3）：`opencode serve --hostname=127.0.0.1 --port=<随机>`，只听本机，带 HTTP
 // Basic 密码；stdout 打出 `opencode server listening on http://…` 即就绪，再用 `/global/health` 核对版本。服务器自成进程组
 // （npm 装的 `opencode` 是个启动器，真正的服务器是它的子进程），停的时候整组先 SIGTERM、1 秒后 SIGKILL。Host 被强杀时进程组
-// 会留下：台账记下每个服务器的进程身份，下一个 Host 起服务器前把主人已经不在的那些停掉（只停 pid、启动时间、进程组与命令行
-// 都对得上的，不会误杀复用了 pid 的进程）。
+// 会留下：台账记下每个服务器的进程身份，下一个 Host 起服务器前把主人已经不在的那些停掉（只停 pid、启动时间、进程组都对得上，
+// 命令行也对得上或仍以 serve 参数结尾的，不会误杀复用了 pid 的进程）。
 
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -38,9 +39,9 @@ export const SERVER_HOSTNAME = '127.0.0.1';
 /** 台账的目录名（`<数据目录>/engines/opencode/servers`）。 */
 export const LEDGER_DIRECTORY = 'servers';
 
-/** T3 的 `parseServerUrlFromOutput`。 */
+/** T3 的 `parseServerUrlFromOutput`：只看换行结尾的行，最后一段还没写完（一块输出可能断在端口中间，`\S+` 会读出半个端口）。 */
 export function parseServerUrl(output: string): string | undefined {
-  for (const line of output.split('\n')) {
+  for (const line of output.split('\n').slice(0, -1)) {
     const match = /server listening on\s+(https?:\/\/\S+)/i.exec(line);
     if (match?.[1] !== undefined) return match[1];
   }
@@ -268,6 +269,11 @@ interface LedgerEntry {
   pid: number;
   startTime: string;
   command: string;
+  /**
+   * 起服务器时的 serve 参数（旧版本的条目没有）。启动器 fork 出来的子进程 exec 之前还顶着启动器的命令行，记下的可能是那一行；
+   * exec 之后命令行变了，参数还在，靠它认出是同一个服务器。
+   */
+  args?: string[];
   port: number;
   /** 跟着数据目录一起拷走的条目只删、不动进程。 */
   stateDir: string;
@@ -374,6 +380,11 @@ function groupExists(pgid: number): boolean {
   }
 }
 
+/** 命令行以这些 serve 参数结尾（T3 的 `runsServe`）。 */
+function runsServe(observed: ObservedProcess, args: readonly string[]): boolean {
+  return observed.command.endsWith(` ${args.join(' ')}`);
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** 记下起过的服务器，Host 崩溃后由下一个 Host 停掉（T3 的 OpenCodeServerLedger；Windows 上的服务器不分离，不记）。 */
@@ -414,9 +425,7 @@ export class ServerLedger {
         leader !== undefined && !leader.zombie && leader.pgid === pgid
           ? [leader]
           : (await observeGroup(pgid)).filter((candidate) => !candidate.zombie);
-      const member =
-        members.find((candidate) => candidate.command.endsWith(` ${server.args.join(' ')}`)) ??
-        members[0];
+      const member = members.find((candidate) => runsServe(candidate, server.args)) ?? members[0];
       const owner = await this.#ownerIdentity();
       if (owner === undefined || member === undefined) {
         this.#warn('could not record an OpenCode server; it will outlive a crashed host', {
@@ -431,6 +440,7 @@ export class ServerLedger {
         pid: member.pid,
         startTime: member.startTime,
         command: member.command,
+        args: server.args,
         port: server.port,
         stateDir: this.#stateDir,
         owner,
@@ -484,7 +494,8 @@ export class ServerLedger {
           !observed.zombie &&
           observed.startTime === entry.startTime &&
           observed.pgid === entry.pgid &&
-          observed.command === entry.command
+          (observed.command === entry.command ||
+            (Array.isArray(entry.args) && runsServe(observed, entry.args)))
         ) {
           this.#warn('stopping an OpenCode server left by a previous host', {
             pid: entry.pgid,

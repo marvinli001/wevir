@@ -350,6 +350,104 @@ describe('辅助函数', () => {
     });
   });
 
+  it('bash 的 metadata.exit 非零：opencode 记成 completed，这里报 failed 并带退出码；零也带上', () => {
+    const mapper = new OpenCodeTurnMapper('ses_1');
+    const bash = (callID: string, tool: string, metadata: Record<string, unknown>) =>
+      mapper
+        .part({
+          id: `prt_${callID}`,
+          sessionID: 'ses_1',
+          messageID: 'msg_1',
+          type: 'tool',
+          callID,
+          tool,
+          state: {
+            status: 'completed',
+            input: { command: 'pnpm test' },
+            output: '1 failed\n',
+            title: 'Run tests',
+            metadata,
+            time: { start: 1, end: 2 },
+          },
+        } as unknown as Parameters<OpenCodeTurnMapper['part']>[0])
+        .find((event) => event.type === 'tool.finished');
+    expect(bash('c1', 'bash', { output: '1 failed\n', exit: 1 })).toEqual({
+      type: 'tool.finished',
+      engineSessionId: 'ses_1',
+      toolCallId: 'c1',
+      status: 'failed',
+      exitCode: 1,
+      output: '1 failed\n',
+    });
+    expect(bash('c2', 'bash', { exit: 0 })).toMatchObject({ status: 'completed', exitCode: 0 });
+    expect(bash('c3', 'bash', {})).not.toHaveProperty('exitCode');
+    // 不是命令类工具：metadata 里的 exit 不算退出码。
+    expect(bash('c4', 'custom_tool', { exit: 2 })).toMatchObject({ status: 'completed' });
+    expect(bash('c4b', 'custom_tool', { exit: 2 })).not.toHaveProperty('exitCode');
+  });
+
+  it('完成时 attachments 里的 data: 图片报成 images；别的地址与类型对不上的不要', () => {
+    const mapper = new OpenCodeTurnMapper('ses_1');
+    const attachment = (mime: string, url: string) => ({
+      id: 'prt_file',
+      sessionID: 'ses_1',
+      messageID: 'msg_1',
+      type: 'file',
+      mime,
+      url,
+    });
+    const finished = mapper
+      .part({
+        id: 'prt_c1',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        callID: 'c1',
+        tool: 'screenshot_take',
+        state: {
+          status: 'completed',
+          input: {},
+          output: 'Captured',
+          title: '',
+          metadata: {},
+          time: { start: 1, end: 2 },
+          attachments: [
+            attachment('image/png', 'https://example.com/a.png'),
+            attachment('image/png', 'file:///tmp/a.png'),
+            attachment('image/jpeg', 'data:image/png;base64,AAAA'),
+            attachment('image/png', 'data:image/png;base64,'),
+            attachment('application/pdf', 'data:application/pdf;base64,AAAA'),
+            attachment('image/png', 'data:image/png;base64,iVBORw0KGgo='),
+          ],
+        },
+      } as unknown as Parameters<OpenCodeTurnMapper['part']>[0])
+      .find((event) => event.type === 'tool.finished');
+    expect(finished).toMatchObject({
+      status: 'completed',
+      output: 'Captured',
+      images: [{ data: 'iVBORw0KGgo=' }],
+    });
+    const plain = mapper
+      .part({
+        id: 'prt_c2',
+        sessionID: 'ses_1',
+        messageID: 'msg_1',
+        type: 'tool',
+        callID: 'c2',
+        tool: 'read',
+        state: {
+          status: 'completed',
+          input: {},
+          output: 'x',
+          title: '',
+          metadata: {},
+          time: { start: 1, end: 2 },
+        },
+      } as unknown as Parameters<OpenCodeTurnMapper['part']>[0])
+      .find((event) => event.type === 'tool.finished');
+    expect(plain).not.toHaveProperty('images');
+  });
+
   it('part 只发快照不发增量（旧版本）时按快照的差补增量', () => {
     const mapper = new OpenCodeTurnMapper('ses_1');
     const base = { id: 'prt_1', sessionID: 'ses_1', messageID: 'msg_1', type: 'text' as const };

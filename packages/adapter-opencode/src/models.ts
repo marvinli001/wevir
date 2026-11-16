@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-opencode/src/server/status.ts（`flattenOpenCodeModels`、`subProviderLabelFor`、
 // `inferDefaultVariant`）与 OpenCodeRuntime.ts（`parseOpenCodeModelSlug`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 eb14ddb79924a6cbcb6c26d1b97c9816c9732c55（上下文窗口
+// 优先取 `limit.input`）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：输出 Wevir 的 `AccountModels`；子 Provider 写进显示名；没有变体的模型不再补一组假的推理档位（T3 为了界面一致补 low…xhigh，
 // 发给 opencode 的变体它不认就忽略），只列模型自己报的。
@@ -62,10 +63,11 @@ export function accountModels(list: ProviderListResponse): AccountModels {
     for (const { key, model, name } of entries) {
       const id = `${providerID}/${model.id?.trim() || key}`;
       const variants = Object.keys(model.variants ?? {});
+      const contextWindow = contextLimit(model);
       models.push({
         id,
         displayName: modelDisplayName(providerName, name),
-        ...(model.limit?.context > 0 && { contextWindow: model.limit.context }),
+        ...(contextWindow !== undefined && { contextWindow }),
         ...(model.limit?.output > 0 && { maxTokens: model.limit.output }),
         supportsImages: model.capabilities?.input?.image === true,
         reasoningEfforts: model.capabilities?.reasoning === false ? [] : variants,
@@ -86,6 +88,18 @@ export function accountModels(list: ProviderListResponse): AccountModels {
 
 type ProviderModel = ProviderListResponse['all'][number]['models'][string];
 
+/**
+ * 模型能带的上下文：有 `limit.input` 时用它，否则 `limit.context`（T3 同）。有的上游把输出也算进 `context`，`input` 才是请求里
+ * 能放下的；不是正数时 undefined。
+ */
+function contextLimit(model: ProviderModel | undefined): number | undefined {
+  const limit = model?.limit;
+  for (const value of [limit?.input, limit?.context]) {
+    if (typeof value === 'number' && value > 0) return value;
+  }
+  return undefined;
+}
+
 function findModel(
   list: ProviderListResponse | undefined,
   modelId: string,
@@ -104,8 +118,7 @@ export function contextWindowOf(
   list: ProviderListResponse | undefined,
   modelId: string,
 ): number | undefined {
-  const context = findModel(list, modelId)?.limit?.context;
-  return typeof context === 'number' && context > 0 ? context : undefined;
+  return contextLimit(findModel(list, modelId));
 }
 
 /** 模型的变体（推理档位）；不推理或不认识的模型是空数组。 */

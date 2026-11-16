@@ -21,7 +21,7 @@ import {
   probeOpenCodeVersion,
 } from './executable.js';
 import { newMessageId } from './message-id.js';
-import { accountModels, parseModelId, planLabel } from './models.js';
+import { accountModels, contextWindowOf, parseModelId, planLabel } from './models.js';
 import {
   errorCategory,
   questionId,
@@ -241,6 +241,38 @@ describe('executable', () => {
       join('/wevir/accounts/opencode-ab12/opencode', 'opencode', 'auth.json'),
     );
   });
+
+  it.skipIf(process.platform === 'win32')(
+    '检测 --version 时设 MISE_OFFLINE=1（mise 的 shim 不去下载）；没跑成功时不读版本号',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'wevir-opencode-mise-'));
+      const shim = join(dir, 'opencode');
+      try {
+        // 照 mise 的 shim：在线时先装（这里失败退出、也打出一个版本号），离线时直接跑已装的。
+        writeFileSync(
+          shim,
+          '#!/bin/sh\nif [ "$MISE_OFFLINE" = 1 ]; then echo 1.18.34; exit 0; fi\necho "mise installing opencode@2.0.18" >&2\nexit 1\n',
+          { mode: 0o755 },
+        );
+        expect(await probeOpenCodeVersion(shim, { PATH: process.env.PATH })).toEqual({
+          ok: true,
+          version: '1.18.34',
+        });
+        writeFileSync(
+          shim,
+          '#!/bin/sh\necho "mise ERROR opencode@1.18.34 is not installed" >&2\nexit 1\n',
+          {
+            mode: 0o755,
+          },
+        );
+        const failed = await probeOpenCodeVersion(shim, { PATH: process.env.PATH });
+        expect(failed).toMatchObject({ ok: false, reason: 'failed' });
+        expect(failed).not.toHaveProperty('version');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe('executable: Wevir 自己装的 opencode', () => {
@@ -491,6 +523,20 @@ describe('models', () => {
     expect(planLabel({ ...list, connected: [] })).toBeUndefined();
     expect(accountModels({ ...list, connected: [] })).toEqual({ models: [] });
   });
+
+  it('上下文窗口优先取 limit.input，没有时用 limit.context', () => {
+    const list = fakeProviderList();
+    const echo = list.all[0]?.models.echo as { limit: Record<string, number> };
+    echo.limit = { context: 400_000, input: 272_000, output: 128_000 };
+    expect(contextWindowOf(list, 'mock/echo')).toBe(272_000);
+    expect(accountModels(list).models.find((model) => model.id === 'mock/echo')).toMatchObject({
+      contextWindow: 272_000,
+      maxTokens: 128_000,
+    });
+    expect(contextWindowOf(list, 'mock/plain')).toBe(128_000);
+    echo.limit = { context: 0, input: 0, output: 0 };
+    expect(contextWindowOf(list, 'mock/echo')).toBeUndefined();
+  });
 });
 
 describe('tool display', () => {
@@ -563,6 +609,16 @@ describe('server output', () => {
       parseServerUrl('Warning: unsecured\nopencode server listening on http://127.0.0.1:4096\n'),
     ).toBe('http://127.0.0.1:4096');
     expect(parseServerUrl('starting')).toBeUndefined();
+    expect(parseServerUrl('opencode server listening on http://127.0.0.1:40961\r\n')).toBe(
+      'http://127.0.0.1:40961',
+    );
+  });
+
+  it('只认换行结尾的行：一块输出断在端口中间时等下一块', () => {
+    expect(parseServerUrl('opencode server listening on http://127.0.0.1:4096')).toBeUndefined();
+    expect(parseServerUrl('opencode server listening on http://127.0.0.1:40961\n')).toBe(
+      'http://127.0.0.1:40961',
+    );
   });
 
   it('macOS 的 ps 输出', () => {

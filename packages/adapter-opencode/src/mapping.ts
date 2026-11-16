@@ -3,7 +3,8 @@
 // `handleAssistantCompleted`、`emitTextPart`、`emitToolPart`、`emitTodo`、`accumulateOpenCodeStepUsage`、`toolStatus`、
 // `toolOutput`）
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；`nativeReadOutput` 移植自 toolItems.ts，来源提交
-// cfbfbca6e0582fb48423949b10f0663f8fed2be0
+// cfbfbca6e0582fb48423949b10f0663f8fed2be0；之后的修复取自 0992f51696834fda5fc1e880fde1f2ba2000f5ef（命令退出码非零记为失败）、
+// d51bc58f5e05123a416a3737ac4bce42d1d76b7c（工具附件里的图片）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 的节点、回合条目与计划换成 Wevir 的 AgentEvent（增量与替换它们的已提交消息、工具三段、清单、上下文用量）；清单取
 // todowrite 工具调用的输入（要带 toolCallId），不用 opencode 另发的 todo.updated；bash 运行中的输出（metadata.output）作工具的
@@ -15,12 +16,19 @@
 //   增量块（`message.part.delta` → `assistant.delta`），part 带上结束时间或消息完成时提交（`assistant.message` /
 //   `assistant.thought` 替换这个块），消息完成时报 `assistant.stream_ended`；
 // - tool part 按 `callID` 报 `tool.started` / `tool.updated` / `tool.finished`；question 工具不报（提问由 `question.asked` 报）；
+//   bash 的 `metadata.exit` 是退出码（opencode 自己把非零退出也记成 completed，这里报 failed），完成时 `attachments` 里的
+//   data: 图片报成 `images`；
 // - step-finish 与 assistant 消息带 token 用量，消息完成时报 `usage.updated` 与这次调用的 `usage.recorded`（0.62.0）。
 
-import type { AgentEvent, TodoItem, UsageRecordedEvent } from '@wevir/runtime-adapter';
+import type {
+  AgentEvent,
+  AgentToolImage,
+  TodoItem,
+  UsageRecordedEvent,
+} from '@wevir/runtime-adapter';
 import { engineToolCall } from './app-tools.js';
 import type { Message, Part } from './sdk.js';
-import { openCodeToolDisplay } from './tool-display.js';
+import { openCodeToolDisplay, toolKind } from './tool-display.js';
 
 /** engine.raw 的 `protocol`。 */
 export const ENGINE_RAW_PROTOCOL = 'opencode-sdk';
@@ -95,6 +103,36 @@ export function nativeReadOutput(output: string): string {
       ? /^<entries>\r?\n([\s\S]*?)\r?\n<\/entries>(?=\r?\n|$)/.exec(body)
       : /^<content>(?:\r?\n)?([\s\S]*?)\r?\n<\/content>(?=\r?\n|$)/.exec(body);
   return envelope === null ? output : `${envelope[1]}${body.slice(envelope[0].length)}`;
+}
+
+/**
+ * 命令的退出码（T3 的 `openCodeCommandFailed` 读的字段）：opencode 的 bash 工具把它写在 `metadata.exit`（也认 `exitCode`）；
+ * 不是命令类工具或没有时 undefined。
+ */
+export function commandExitCode(toolName: string, metadata: unknown): number | undefined {
+  if (toolKind(toolName) !== 'shell' || typeof metadata !== 'object' || metadata === null) {
+    return undefined;
+  }
+  for (const key of ['exit', 'exitCode']) {
+    const value = (metadata as Record<string, unknown>)[key];
+    if (typeof value === 'number' && Number.isInteger(value)) return value;
+  }
+  return undefined;
+}
+
+/**
+ * 工具结果的附件里的图片（T3 的 `openCodeToolOutput`）：只要 `data:image/…;base64,` 的内联数据，而且类型与附件的 `mime` 一致；
+ * 别的地址（`file://`、网址）不读。格式、大小与张数由 Host 把关（`tool.finished.images`）。
+ */
+export function attachmentImages(
+  attachments: ReadonlyArray<{ mime: string; url: string }> | undefined,
+): AgentToolImage[] | undefined {
+  const images = (attachments ?? []).flatMap((file): AgentToolImage[] => {
+    const match = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(file.url);
+    if (match?.[1] === undefined || match[1].toLowerCase() !== file.mime.toLowerCase()) return [];
+    return match[2] === undefined ? [] : [{ data: match[2] }];
+  });
+  return images.length === 0 ? undefined : images;
 }
 
 export function todoItems(input: unknown): TodoItem[] | undefined {
@@ -497,12 +535,16 @@ export class OpenCodeTurnMapper {
       state.finished = true;
       const raw = status === 'completed' ? part.state.output : part.state.error;
       const output = status === 'completed' && part.tool === 'read' ? nativeReadOutput(raw) : raw;
+      const exitCode = commandExitCode(dispatched ? call.toolName : part.tool, part.state.metadata);
+      const images = status === 'completed' ? attachmentImages(part.state.attachments) : undefined;
       events.push({
         type: 'tool.finished',
         engineSessionId: this.#engineSessionId,
         toolCallId: part.callID,
-        status: status === 'completed' ? 'completed' : 'failed',
+        status: status === 'completed' && (exitCode ?? 0) === 0 ? 'completed' : 'failed',
+        ...(exitCode !== undefined && { exitCode }),
         ...(output !== '' && { output }),
+        ...(images !== undefined && { images }),
       });
     }
     return events;

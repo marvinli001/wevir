@@ -222,6 +222,55 @@ describe.skipIf(!posix)('ServerLedger', { timeout: 20_000 }, () => {
     expect(existsSync(file)).toBe(false);
   });
 
+  it('记下的是启动器 fork 出来、还没 exec 的子进程：命令行变了，serve 参数还在，照样停掉', async () => {
+    const engineDir = join(root, 'engine-wrapper');
+    const args = ['-e', 'setInterval(() => {}, 1000)', 'serve', '--port=3'];
+    const orphan = spawn(process.execPath, args, { detached: true, stdio: 'ignore' });
+    orphan.unref();
+    const pid = orphan.pid as number;
+    await new ServerLedger({ engineDir }).track({ pid, port: 3, args });
+    const file = join(engineDir, LEDGER_DIRECTORY, `${pid}.json`);
+    const entry = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    expect(entry.args).toEqual(args);
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...entry,
+        command: `node /npm/opencode-ai/bin/opencode ${args.join(' ')}`,
+        owner: { pid: 999_999, startTime: 'gone' },
+      }),
+    );
+    await new ServerLedger({ engineDir }).reapOrphans();
+    await waitUntil(() => !alive(pid));
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('旧版本的条目没有 serve 参数：命令行对不上时不发信号', async () => {
+    const engineDir = join(root, 'engine-legacy');
+    const args = ['-e', 'setInterval(() => {}, 1000)', 'serve', '--port=4'];
+    const other = spawn(process.execPath, args, { detached: true, stdio: 'ignore' });
+    other.unref();
+    const pid = other.pid as number;
+    await new ServerLedger({ engineDir }).track({ pid, port: 4, args });
+    const file = join(engineDir, LEDGER_DIRECTORY, `${pid}.json`);
+    const { args: _args, ...legacy } = JSON.parse(readFileSync(file, 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...legacy,
+        command: `node /npm/opencode-ai/bin/opencode ${args.join(' ')}`,
+        owner: { pid: 999_999, startTime: 'gone' },
+      }),
+    );
+    await new ServerLedger({ engineDir }).reapOrphans();
+    expect(existsSync(file)).toBe(false);
+    expect(alive(pid)).toBe(true);
+    process.kill(-pid, 'SIGKILL');
+  });
+
   it('pid 被别的进程复用（命令行对不上）：只删条目，不发信号', async () => {
     const engineDir = join(root, 'engine-reuse');
     const other = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {

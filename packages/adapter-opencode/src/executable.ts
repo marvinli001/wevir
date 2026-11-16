@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-opencode/src/server/versionProbe.ts（`opencode --version`、`classifyOpenCodeCliVersion`）、
 // OpenCodeRuntime.ts（`MINIMUM_OPENCODE_VERSION`）、status.ts（没装时的判断）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 5dcf69ebfa955669b8d34d0fa73d2d05d6b466d0（检测时设
+// MISE_OFFLINE，mise 的 shim 不替没装的 opencode 下载）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS；T3 的桌面端读登录 shell 的环境，Wevir 改为在 PATH 之外再找常见的安装位置（同
 // adapter-claude 的 executable.ts），并补进交给 opencode 的 PATH；2.x 不支持，按版本号认出来后提示。
@@ -344,7 +345,19 @@ export type VersionProbe =
   | { ok: true; version: string | undefined }
   | { ok: false; reason: 'missing' | 'timeout' | 'failed'; message: string };
 
-/** 跑一次 `opencode --version`（T3 的 `probeOpenCodeBinary`）。不经 shell。 */
+/**
+ * 检测用的环境（T3 的 `providerProbeEnvironment`）：加上 `MISE_OFFLINE=1`。找到的 `opencode` 可能是 mise 的 shim（mise 的
+ * shims 目录在 `commonOpenCodeDirs` 里），工具没装时 shim 会先去下载，每次检测都下一遍，超时还留下半截。会话的服务器照常用
+ * 原来的环境。
+ */
+export function openCodeProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, MISE_OFFLINE: '1' };
+}
+
+/**
+ * 跑一次 `opencode --version`（T3 的 `probeOpenCodeBinary`），环境经 `openCodeProbeEnv`。不经 shell。没跑成功时不读版本号：
+ * 输出可能是外面一层（如 mise）的，不是 opencode 的。
+ */
 export function probeOpenCodeVersion(
   executable: string,
   env: NodeJS.ProcessEnv,
@@ -356,7 +369,7 @@ export function probeOpenCodeVersion(
       executable,
       ['--version'],
       {
-        env,
+        env: openCodeProbeEnv(env),
         timeout: timeoutMs,
         windowsHide: true,
         maxBuffer: 1024 * 1024,
