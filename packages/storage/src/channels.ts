@@ -43,6 +43,7 @@ export interface ChannelPostRecord {
   author: unknown;
   content: unknown;
   replyTo?: string;
+  reactions?: unknown;
   routedTo?: string[];
   card?: unknown;
   files?: unknown;
@@ -102,6 +103,9 @@ export interface ChannelRepository {
   ): ChannelPostRecord[];
   setRoutedTo(id: string, routedTo: string[]): boolean;
   setCard(id: string, card: unknown): boolean;
+  setReactions(id: string, reactions: unknown): boolean;
+  replyCount(channelId: string, postId: string): number;
+  coordinatorPosts(channelId: string, since: string, limit: number): ChannelPostRecord[];
   insertThread(record: ChannelThreadRecord): void;
   getThread(sessionId: string): ChannelThreadRecord | undefined;
   /** 这个频道的线程，新的在前。 */
@@ -156,6 +160,8 @@ function toPost(row: SqlRow): ChannelPostRecord {
     createdAt: text(row, 'created_at'),
   };
   const replyTo = optionalText(row, 'reply_to');
+  const reactions = optionalJson(row, 'reactions_json');
+  if (reactions !== undefined) record.reactions = reactions;
   if (replyTo !== undefined) record.replyTo = replyTo;
   const routedTo = optionalJson(row, 'routed_to');
   if (routedTo !== undefined) record.routedTo = routedTo as string[];
@@ -206,9 +212,9 @@ export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
   );
   const insertPost = db.prepare(`
     INSERT INTO channel_posts (
-      channel_id, seq, id, author, content, reply_to, routed_to, card, files, client_post_id, meta, created_at
+      channel_id, seq, id, author, content, reply_to, reactions_json, routed_to, card, files, client_post_id, meta, created_at
     ) VALUES (
-      :channelId, :seq, :id, :author, :content, :replyTo, :routedTo, :card, :files, :clientPostId, :meta, :createdAt
+      :channelId, :seq, :id, :author, :content, :replyTo, :reactions, :routedTo, :card, :files, :clientPostId, :meta, :createdAt
     )`);
   const byClient = db.prepare(
     'SELECT * FROM channel_posts WHERE channel_id = ? AND client_post_id = ?',
@@ -222,6 +228,13 @@ export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
   );
   const setRoutedTo = db.prepare('UPDATE channel_posts SET routed_to = ? WHERE id = ?');
   const setCard = db.prepare('UPDATE channel_posts SET card = ? WHERE id = ?');
+  const setReactions = db.prepare('UPDATE channel_posts SET reactions_json = ? WHERE id = ?');
+  const replyCount = db.prepare(
+    'SELECT count(*) AS n FROM channel_posts WHERE channel_id = ? AND reply_to = ?',
+  );
+  const coordinatorPosts = db.prepare(`SELECT * FROM channel_posts
+    WHERE channel_id = ? AND created_at >= ? AND json_extract(author, '$.kind') = 'coordinator'
+    ORDER BY seq DESC LIMIT ?`);
   const insertThread = db.prepare(`
     INSERT INTO channel_threads (
       session_id, channel_id, root_post_id, opened_by, resolved_at, resolved_by, created_at
@@ -325,6 +338,7 @@ export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
           author: toJson(post.author),
           content: toJson(post.content),
           replyTo: orNull(post.replyTo),
+          reactions: toNullableJson(post.reactions),
           routedTo: toNullableJson(post.routedTo),
           card: toNullableJson(post.card),
           files: toNullableJson(post.files),
@@ -353,6 +367,10 @@ export function createChannelRepository(db: SqliteDatabase): ChannelRepository {
     },
     setRoutedTo: (id, routedTo) => changed(setRoutedTo.run(toJson(routedTo), id)),
     setCard: (id, card) => changed(setCard.run(toJson(card), id)),
+    setReactions: (id, reactions) => changed(setReactions.run(toJson(reactions), id)),
+    replyCount: (channelId, postId) => integer(replyCount.get(channelId, postId) ?? { n: 0 }, 'n'),
+    coordinatorPosts: (channelId, since, limit) =>
+      coordinatorPosts.all(channelId, since, limit).map(toPost),
     insertThread(record) {
       insertThread.run({
         sessionId: record.sessionId,

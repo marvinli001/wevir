@@ -12,6 +12,7 @@ import {
   type AssistantRuleCategory,
   type BoardTask,
   type Channel,
+  type ChannelActivityKind,
   type ChannelPost,
   type ChannelThread,
   type EngineFeatures,
@@ -107,6 +108,10 @@ export function groupsSupported(features: HostFeatures | undefined): boolean {
 /** 助理的输入框（0.135.0）：帖子带图片、停止。 */
 export function composerSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'channel_composer');
+}
+
+export function chatSupported(features: HostFeatures | undefined): boolean {
+  return features !== undefined && hostSupports(features, 'channel_chat');
 }
 
 /** 输入框的主按钮：协调者（群里是成员）在回、输入框空着时是停止，否则是发送（在回时发的帖子等它回完再交出去）。 */
@@ -269,6 +274,95 @@ export function postText(post: Pick<ChannelPost, 'content'>): string {
     .trim();
 }
 
+export const ACTIVITY_LABEL: Record<ChannelActivityKind, PlainMessageKey> = {
+  thinking: 'assistants.activity.thinking',
+  reading: 'assistants.activity.reading',
+  searching: 'assistants.activity.searching',
+  browsing: 'assistants.activity.browsing',
+  running: 'assistants.activity.running',
+  writing: 'assistants.activity.writing',
+  remembering: 'assistants.activity.remembering',
+  scheduling: 'assistants.activity.scheduling',
+  working: 'assistants.activity.working',
+};
+
+export function postFirstLine(post: Pick<ChannelPost, 'content'>): string {
+  return Array.from(
+    postText(post)
+      .split('\n')
+      .find((line) => line.trim() !== '') ?? '',
+  )
+    .slice(0, 200)
+    .join('');
+}
+
+function sameAuthor(a: ChannelPost, b: ChannelPost): boolean {
+  return (
+    a.author.kind === b.author.kind &&
+    a.author.kind !== 'host' &&
+    (a.author.kind !== 'assistant' ||
+      (b.author.kind === 'assistant' && a.author.channelId === b.author.channelId))
+  );
+}
+
+export function timelineRows(
+  posts: readonly ChannelPost[],
+): { post: ChannelPost; first: boolean; last: boolean; separator: boolean }[] {
+  const grouped = (a: ChannelPost | undefined, b: ChannelPost | undefined) =>
+    a !== undefined &&
+    b !== undefined &&
+    sameAuthor(a, b) &&
+    new Date(a.createdAt).toDateString() === new Date(b.createdAt).toDateString() &&
+    Date.parse(b.createdAt) - Date.parse(a.createdAt) < 5 * 60_000;
+  return posts.map((post, index) => {
+    const previous = posts[index - 1];
+    return {
+      post,
+      first: !grouped(previous, post),
+      last: !grouped(post, posts[index + 1]),
+      separator:
+        previous === undefined ||
+        new Date(post.createdAt).toDateString() !== new Date(previous.createdAt).toDateString() ||
+        Date.parse(post.createdAt) - Date.parse(previous.createdAt) >= 30 * 60_000,
+    };
+  });
+}
+
+export function timelineTimeLabel(
+  at: string,
+  now: Date,
+  locale: string,
+  labels: { today: string; yesterday: string },
+): string {
+  const date = new Date(at);
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const day =
+    date.toDateString() === now.toDateString()
+      ? labels.today
+      : date.toDateString() === yesterday.toDateString()
+        ? labels.yesterday
+        : new Intl.DateTimeFormat(locale, {
+            ...(date.getFullYear() !== now.getFullYear() && { year: 'numeric' }),
+            month: 'short',
+            day: 'numeric',
+          }).format(date);
+  const time = new Intl.DateTimeFormat(locale, {
+    hour: 'numeric',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date);
+  return `${day} ${time}`;
+}
+
+export function showsReplyQuote(post: ChannelPost, posts: readonly ChannelPost[]): boolean {
+  if (post.replyTo === undefined) return false;
+  const latestUser = posts.findLast(
+    (candidate) => candidate.seq < post.seq && candidate.author.kind === 'user',
+  );
+  return post.author.kind !== 'coordinator' || latestUser?.id !== post.replyTo;
+}
+
 /** 并进新帖或改了的帖子（同一个 `id` 换掉），按 `seq` 升序。 */
 export function mergePosts(
   current: readonly ChannelPost[],
@@ -298,7 +392,12 @@ export function applyUpdate(view: AssistantView, update: ChannelUpdate): Assista
     ...(update.threads !== undefined && { threads: update.threads }),
     ...(update.approvals !== undefined && { approvals: update.approvals }),
     ...(update.tasks !== undefined && { tasks: update.tasks }),
-    ...(update.posts !== undefined && { posts: mergePosts(view.posts, update.posts) }),
+    ...(update.posts !== undefined && {
+      posts: mergePosts(
+        view.posts,
+        update.posts.filter((post) => view.posts.some((existing) => existing.id === post.id)),
+      ),
+    }),
   };
 }
 

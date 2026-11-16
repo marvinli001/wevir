@@ -2,6 +2,22 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'assistants.timeline.reply': 'Reply',
+  'assistants.timeline.reaction': 'React',
+  'assistants.timeline.cancelReply': 'Cancel reply',
+  'assistants.timeline.original': 'Original message',
+  'assistants.timeline.replies': '{count, plural, one {# reply} other {# replies}}',
+  'assistants.timeline.today': 'Today',
+  'assistants.timeline.yesterday': 'Yesterday',
+  'assistants.activity.thinking': 'Thinking',
+  'assistants.activity.reading': 'Reading files',
+  'assistants.activity.searching': 'Searching',
+  'assistants.activity.browsing': 'Browsing',
+  'assistants.activity.running': 'Running a command',
+  'assistants.activity.writing': 'Writing',
+  'assistants.activity.remembering': 'Remembering',
+  'assistants.activity.scheduling': 'Scheduling',
+  'assistants.activity.working': 'Working',
   'provider.zuvApi.login': 'Sign in to connect',
   'provider.zuvApi.waiting': 'Waiting for authorization',
   'provider.zuvApi.open': 'Open authorization',

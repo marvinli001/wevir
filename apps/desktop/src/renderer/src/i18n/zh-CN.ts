@@ -15,6 +15,22 @@
 // 产品名（Wevir）、Host、Provider、MCP 等术语保留英文。连接状态与连接提示不提 Host，说“后台服务”（维护者 2026-10-14：Host 对用户不可见）。
 
 export const zhCN = {
+  'assistants.timeline.reply': '回复',
+  'assistants.timeline.reaction': '表情',
+  'assistants.timeline.cancelReply': '取消引用',
+  'assistants.timeline.original': '原消息',
+  'assistants.timeline.replies': '{count} 条回复',
+  'assistants.timeline.today': '今天',
+  'assistants.timeline.yesterday': '昨天',
+  'assistants.activity.thinking': '正在思考',
+  'assistants.activity.reading': '正在读文件',
+  'assistants.activity.searching': '正在搜索',
+  'assistants.activity.browsing': '正在查看网页',
+  'assistants.activity.running': '正在运行命令',
+  'assistants.activity.writing': '正在写入',
+  'assistants.activity.remembering': '正在记录',
+  'assistants.activity.scheduling': '正在安排',
+  'assistants.activity.working': '正在处理',
   'provider.zuvApi.login': '登录连接',
   'provider.zuvApi.waiting': '等待授权',
   'provider.zuvApi.open': '打开授权页',

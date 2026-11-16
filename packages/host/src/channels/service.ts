@@ -6,8 +6,8 @@
 // `notice: failed`。协调者会话第一次用到时才建，用到上下文的 60% 或累计 `ROTATE_WAKES` 次唤醒时换班：另开一个会话（`generation`
 // 加一），首条消息是交接材料加这次的信封，旧会话关闭。
 //
-// 预算按本机时区的自然日记协调者的唤醒次数与 token；用完时暂停（`pauseReason: 'budget'`），帖子照收，第二天第一次有事要唤醒时
-// 自动恢复。线程是普通的顶层会话（`Session.channel.role: 'thread'`），状态由会话推导。
+// 预算按本机时区的自然日只记自发唤醒与 token；超额保留缓冲，次日或用户发言时交出。线程是普通的顶层会话，
+// 频道转交触发的回合结束或开始等用户时，合并动态交回协调者。
 //
 // 列表行（`channels.changed`）与订阅（`channel.posted` / `channel.updated`）的变化在 `FLUSH_MS` 内合成一批，按指纹判断真变了没有。
 //
@@ -32,6 +32,7 @@ import type {
   BoardTask,
   BoardTaskStatus,
   Channel,
+  ChannelActivityKind,
   ChannelBudget,
   ChannelCard,
   ChannelCoordinator,
@@ -104,6 +105,7 @@ import {
   identityBlock,
   postText,
   relayEnvelope,
+  type ThreadUpdate,
   type WakeEvent,
   type WakeInput,
   type WakeInventory,
@@ -131,11 +133,12 @@ export function morningBriefAutomation(channelId: ChannelId): MethodParams<'auto
 }
 
 /** 用户连着发帖时等多久再唤醒（ADR-0020 §9）。 */
-export const WAKE_DELAY_MS = 3000;
+export const WAKE_DELAY_MS = 1000;
+export const THREAD_UPDATE_DELAY_MS = 5000;
 /** 列表行与订阅的变化合一批的时间窗。 */
 const FLUSH_MS = 100;
 /** 一班协调者最多唤醒多少次就换班。 */
-export const ROTATE_WAKES = 50;
+export const ROTATE_WAKES = 200;
 /** 协调者的上下文用到多少就换班。 */
 export const ROTATE_CONTEXT = 0.6;
 /** 一个回合里 `wevir_channel_post` 等额外的帖子最多几条。 */
@@ -205,6 +208,7 @@ export interface ChannelServiceOptions {
   /** 帖子里的图片在本机的文件（模型看不了图片时写进说明）。 */
   images?: { path(imageId: UserImagePart['imageId']): Promise<string | undefined> };
   wakeDelayMs?: number;
+  threadUpdateDelayMs?: number;
   now?: () => number;
   /** 预算的自然日按哪个时区；省略是本机时区。 */
   timezone?: string;
@@ -266,7 +270,7 @@ interface PreparedWake {
   /** 信封里的帖子（换班的交接材料不重复它们）。 */
   posts: readonly ChannelPost[];
   replyTo?: ChannelPostId;
-  brief?: Extract<ChannelCard, { kind: 'brief' }>;
+  budgeted: boolean;
   depth: number;
   returns: PendingWake['returns'];
   groupId?: ChannelId;
@@ -288,6 +292,8 @@ interface PendingWake {
   schedules: { title: string; prompt: string; brief?: boolean }[];
   /** 发给协调者会话的事（`reason=event`），`id` 用来撤回还没交出去的。 */
   events: (WakeEvent & { id: string })[];
+  threadUpdates: Map<SessionId, ThreadUpdate>;
+  digestDueAt?: number;
   /** 改了的设置：下次唤醒时附上新的身份与规矩。 */
   changed?: true;
   timer?: ReturnType<typeof setTimeout>;
@@ -305,8 +311,7 @@ interface ActiveWake {
   tokensBefore: number;
   recordedBefore: { requests: number; tokens: number };
   extraPosts: number;
-  /** 晨间简报：协调者这回合的回答带这张卡片（唤醒时组装）。 */
-  brief?: Extract<ChannelCard, { kind: 'brief' }>;
+  budgeted: boolean;
   /** 助理之间来回到第几层（0.133.0）：这回合发出的消息是下一层。 */
   depth: number;
   returns: PendingWake['returns'];
@@ -359,6 +364,32 @@ function fingerprint(value: unknown): string {
   return createHash('sha1').update(JSON.stringify(value)).digest('base64');
 }
 
+function freeWake(reasons: ReadonlySet<WakeReason>): boolean {
+  return ['setup', 'post', 'manual', 'digest'].some((reason) => reasons.has(reason as WakeReason));
+}
+
+export function channelActivity(tool: PolicyTool): ChannelActivityKind {
+  const name = tool.toolName.split('__').at(-1) ?? tool.toolName;
+  if (name.startsWith('wevir_memory_')) return 'remembering';
+  if (name.startsWith('wevir_automation')) return 'scheduling';
+  if (name.startsWith('browser_')) return 'browsing';
+  switch (tool.display.kind) {
+    case 'read':
+      return 'reading';
+    case 'search':
+      return 'searching';
+    case 'fetch':
+      return 'browsing';
+    case 'shell':
+      return 'running';
+    case 'edit':
+    case 'write':
+      return 'writing';
+    default:
+      return 'working';
+  }
+}
+
 /** 回合的回答：最后一行是 `NOTHING_TO_REPORT` 时去掉它，记 `quiet`。 */
 export function postOfAnswer(text: string): { text: string; quiet: boolean } {
   const lines = text.trim().split('\n');
@@ -394,6 +425,10 @@ export class ChannelService {
   readonly #postListeners = new Set<(channel: Channel, post: ChannelPost) => void>();
   /** 助理会话里正在跑的工具调用（`会话 ID\0工具调用 ID`），做完时按规矩看要不要告知。 */
   readonly #runningTools = new Map<string, PolicyTool>();
+  readonly #reactions = new Map<
+    ChannelId,
+    Map<string, { postId: string; emoji: string; firstLine: string }>
+  >();
   /** 档位为 `tell`、已经做完的动作：会话 ID → 动作；回合结束时写成 `notice: acted`。 */
   readonly #told = new Map<SessionId, { category: AssistantRuleCategory; summary: string }[]>();
   readonly #subscribers = new Map<
@@ -425,6 +460,13 @@ export class ChannelService {
   /** 认出已有频道的会话，开始收事件。 */
   start(): void {
     for (const record of this.#storage.channels.list()) {
+      if (record.pauseReason === 'budget') {
+        this.#storage.channels.update(record.id, {
+          pausedAt: null,
+          pauseReason: null,
+          updatedAt: iso(this.#now()),
+        });
+      }
       const coordinator = record.coordinator as StoredCoordinator | null;
       if (coordinator?.sessionId !== undefined) {
         this.#sessionChannel.set(coordinator.sessionId, {
@@ -862,6 +904,12 @@ export class ChannelService {
   /** 用户发帖（`channel.post`）：写进时间线，稍后唤醒协调者。 */
   post(params: MethodParams<'channel.post'>, client: ClientIdentity): ChannelPost {
     const record = this.#record(params.channelId);
+    if (
+      params.replyTo !== undefined &&
+      this.#storage.channels.getPost(params.replyTo)?.channelId !== record.id
+    ) {
+      throw invalid('replyTo', 'the referenced post is not in this channel');
+    }
     const author: ChannelPostAuthor =
       client.clientKind === 'mobile'
         ? { kind: 'user', deviceId: client.deviceId }
@@ -870,6 +918,7 @@ export class ChannelService {
     const { post, created } = this.#append(record, {
       author,
       content: params.content,
+      ...(params.replyTo !== undefined && { replyTo: params.replyTo }),
       ...(params.clientPostId !== undefined && { clientPostId: params.clientPostId }),
     });
     if (created) {
@@ -897,6 +946,7 @@ export class ChannelService {
     const { post, created } = this.#append(record, {
       author,
       content: params.content,
+      ...(params.replyTo !== undefined && { replyTo: params.replyTo }),
       ...(params.clientPostId !== undefined && { clientPostId: params.clientPostId }),
       ...(mentions.length > 0 && { meta: { mentions } }),
     });
@@ -996,6 +1046,61 @@ export class ChannelService {
     this.#touch(record.id as ChannelId);
   }
 
+  react(params: MethodParams<'channel.react'>, by: 'user' | 'assistant'): ChannelPost {
+    const record = this.#record(params.channelId);
+    const row = this.#storage.channels.getPost(params.postId);
+    if (
+      row === undefined ||
+      row.channelId !== record.id ||
+      (row.author as ChannelPostAuthor).kind === 'host'
+    ) {
+      throw invalid('postId', 'the post is not a message in this channel');
+    }
+    if (by === 'assistant' && (row.author as ChannelPostAuthor).kind !== 'user') {
+      throw invalid('postId', 'assistants can only react to user posts');
+    }
+    const { emoji } = params;
+    if (
+      emoji !== null &&
+      (emoji.length > 16 ||
+        emoji.trim() === '' ||
+        [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(emoji)].length !== 1)
+    ) {
+      throw invalid('emoji', 'emoji must be one grapheme of at most 16 UTF-16 code units');
+    }
+    const reactions = ((row.reactions ?? []) as NonNullable<ChannelPost['reactions']>).filter(
+      (reaction) => reaction.by !== by,
+    );
+    if (emoji !== null) reactions.push({ emoji, by });
+    reactions.sort((a, b) => Number(a.by === 'assistant') - Number(b.by === 'assistant'));
+    this.#storage.channels.setReactions(row.id, reactions);
+    const post = this.#post({ ...row, reactions });
+    this.#emitPostUpdate(record.id as ChannelId, post);
+    if (by === 'user') {
+      const pending = this.#reactions.get(params.channelId) ?? new Map();
+      if (emoji === null) pending.delete(row.id);
+      else pending.set(row.id, { postId: row.id, emoji, firstLine: postText(post) });
+      this.#reactions.set(params.channelId, pending);
+    }
+    return post;
+  }
+
+  reactFromCoordinator(
+    sessionId: SessionId,
+    input: { postId: ChannelPostId; emoji: string | null },
+  ): ChannelPost {
+    const entry = this.#coordinatorEntry(sessionId);
+    const active = this.#active.get(entry.channelId);
+    return this.react(
+      {
+        channelId:
+          active?.sessionId === sessionId ? (active.groupId ?? entry.channelId) : entry.channelId,
+        ...input,
+      },
+      'assistant',
+    );
+  }
+
   /** 手动唤醒（`channel.wake`）。 */
   wake(channelId: string): void {
     const record = this.#assistantRecord(channelId);
@@ -1005,7 +1110,7 @@ export class ChannelService {
     this.#queueWake(record.id as ChannelId, 'manual', { immediate: true });
   }
 
-  /** 定时唤醒（自动化的 `channelId` 目标）：`brief` 时协调者的回答成为晨间简报卡片。 */
+  /** 定时唤醒；`brief` 时附上简报清单作为数据。 */
   wakeForSchedule(
     channelId: string,
     schedule: { title: string; prompt: string; brief?: boolean },
@@ -1360,7 +1465,10 @@ export class ChannelService {
       const group =
         active.groupId === undefined ? undefined : this.#storage.channels.get(active.groupId);
       if (group !== undefined && group.deletedAt === undefined && input.card === undefined) {
-        return this.#groupPostAs(record, group, input.text, { depth: active.depth });
+        return this.#groupPostAs(record, group, input.text, {
+          depth: active.depth,
+          ...(input.replyTo !== undefined && { replyTo: input.replyTo as ChannelPostId }),
+        });
       }
     }
     const coordinator = record.coordinator as StoredCoordinator;
@@ -1407,7 +1515,12 @@ export class ChannelService {
     const entry = this.#entryOf(info.sessionId);
     if (entry === undefined) return;
     this.#touch(entry.channelId);
-    if (entry.role !== 'coordinator') return;
+    if (entry.role !== 'coordinator') {
+      if (info.outcome === 'completed' || info.outcome === 'failed') {
+        this.#queueThreadUpdate(info.sessionId, info.turnId, info.outcome);
+      }
+      return;
+    }
     const active = this.#active.get(entry.channelId);
     if (
       active === undefined ||
@@ -1431,6 +1544,38 @@ export class ChannelService {
 
   // ── 内部：唤醒 ────────────────────────────────────────────────────────
 
+  #queueThreadUpdate(sessionId: SessionId, turnId: TurnId, status: ThreadUpdate['status']): void {
+    const thread = this.#storage.channels.getThread(sessionId);
+    if (thread === undefined) return;
+    const events = this.#options.events.readTypes(
+      sessionId,
+      ['user.message', 'assistant.message'],
+      { turnId },
+    );
+    const input = events.find(
+      (event) => event.type === 'user.message' && event.payload.turnId === turnId,
+    );
+    if (input?.type !== 'user.message' || input.payload.from?.channel?.kind !== 'relay') return;
+    const record = this.#storage.channels.get(thread.channelId);
+    if (record === undefined || record.deletedAt !== undefined) return;
+    const answer = events.findLast(
+      (event) => event.type === 'assistant.message' && event.payload.turnId === turnId,
+    );
+    const snapshot = this.#options.events.snapshot(sessionId);
+    const pending = this.#pendingFor(record.id as ChannelId);
+    const delayMs = this.#options.threadUpdateDelayMs ?? THREAD_UPDATE_DELAY_MS;
+    pending.digestDueAt ??= this.#now() + delayMs;
+    pending.threadUpdates.set(sessionId, {
+      sessionId,
+      title: snapshot?.session.title ?? '',
+      status,
+      rootPostId: thread.rootPostId,
+      at: iso(this.#now()),
+      text: answer?.type === 'assistant.message' ? answer.payload.text : '',
+    });
+    this.#queueWake(record.id as ChannelId, 'digest', { delayMs });
+  }
+
   #pendingFor(channelId: ChannelId): PendingWake {
     let pending = this.#pending.get(channelId);
     if (pending === undefined) {
@@ -1442,6 +1587,7 @@ export class ChannelService {
         groups: new Map(),
         schedules: [],
         events: [],
+        threadUpdates: new Map(),
       };
       this.#pending.set(channelId, pending);
     }
@@ -1455,6 +1601,7 @@ export class ChannelService {
       post?: ChannelPost;
       setup?: true;
       immediate?: true;
+      delayMs?: number;
       /** 助理之间的消息与回答：来回到第几层；用户的帖子把这次唤醒归零。 */
       depth?: number;
       returnTo?: PendingWake['returns'][number];
@@ -1472,7 +1619,13 @@ export class ChannelService {
     }
     if (extra.returnTo !== undefined) pending.returns.push(extra.returnTo);
     if (extra.setup === true) pending.setup = true;
-    this.#scheduleFlush(channelId, extra.immediate === true ? 0 : this.#wakeDelayMs);
+    // 后台动态不能把已排好的用户消息再推迟五秒。
+    if (reason !== 'digest' || pending.timer === undefined) {
+      this.#scheduleFlush(
+        channelId,
+        extra.immediate === true ? 0 : (extra.delayMs ?? this.#wakeDelayMs),
+      );
+    }
     this.#touch(channelId);
   }
 
@@ -1550,37 +1703,29 @@ export class ChannelService {
     const pending = this.#pending.get(channelId);
     if (pending === undefined || (pending.reasons.size === 0 && pending.groups.size === 0)) return;
     if (this.#active.has(channelId) || this.#starting.has(channelId)) return;
+    if (
+      pending.reasons.size === 1 &&
+      pending.reasons.has('digest') &&
+      (pending.digestDueAt ?? 0) > this.#now()
+    ) {
+      this.#scheduleFlush(channelId, (pending.digestDueAt as number) - this.#now());
+      return;
+    }
     let record = this.#storage.channels.get(channelId);
     if (record === undefined || record.deletedAt !== undefined || record.kind === 'group') {
       this.#pending.delete(channelId);
       return;
     }
     const day = this.#day();
-    const budget = record.budget as ChannelBudget;
-    const usage = this.#storage.channels.usage(channelId, day);
-    const overBudget =
-      (usage?.wakes ?? 0) >= budget.dailyWakes || (usage?.tokens ?? 0) >= budget.dailyTokens;
+    const overBudget = this.#overBudget(record);
     if (record.pausedAt !== undefined) {
-      if (record.pauseReason !== 'budget' || overBudget) {
-        this.#dropGroupWakes(record, pending, record.pauseReason === 'budget');
-        return;
-      }
-      // 新的一天：预算恢复。
-      this.#storage.channels.update(channelId, {
-        pausedAt: null,
-        pauseReason: null,
-        updatedAt: iso(this.#now()),
-      });
-      record = this.#record(channelId);
-      this.#hostPost(record, { kind: 'notice', reason: 'resumed' });
-    } else if (overBudget) {
-      this.#storage.channels.update(channelId, {
-        pausedAt: iso(this.#now()),
-        pauseReason: 'budget',
-        updatedAt: iso(this.#now()),
-      });
-      this.#hostPost(this.#record(channelId), { kind: 'notice', reason: 'budget' });
-      this.#dropGroupWakes(record, pending, true);
+      this.#dropGroupWakes(record, pending);
+      return;
+    }
+    const own = pending.reasons.size > 0 && (!overBudget || freeWake(pending.reasons));
+    const groupId = [...pending.groups].find(([, group]) => !overBudget || group.depth === 1)?.[0];
+    if (!own && groupId === undefined) {
+      this.#touch(channelId);
       return;
     }
     // 协调者会话：没有、不能用了、或到了换班的阈值时另开一班。
@@ -1601,7 +1746,7 @@ export class ChannelService {
           { kind: 'notice', reason: 'failed' },
           errorMessage(error),
         );
-        this.#dropGroupWakes(record, pending, false);
+        this.#dropGroupWakes(record, pending);
         this.#pending.delete(channelId);
         return;
       } finally {
@@ -1622,10 +1767,9 @@ export class ChannelService {
     const sessionId = coordinator.sessionId as SessionId;
     const channel = this.#channel(record);
     // 自己时间线上的事优先；没有时轮一个群。
-    const wake =
-      pending.reasons.size > 0
-        ? await this.#ownWake(record, channel, pending, fresh)
-        : this.#groupWake(record, pending);
+    const wake = own
+      ? await this.#ownWake(record, channel, pending, fresh)
+      : this.#groupWake(record, pending, groupId as ChannelId);
     if (wake === undefined) {
       if (pending.reasons.size > 0 || pending.groups.size > 0) this.#scheduleFlush(channelId, 0);
       return;
@@ -1640,7 +1784,7 @@ export class ChannelService {
           .filter((post) => !wake.posts.some((p) => p.id === post.id));
         content[0] = {
           type: 'text',
-          text: `${handover(channel, recent, coordinator.generation, this.#workspacePath(record))}\n\n${first.text}`,
+          text: `${handover(channel, recent, coordinator.generation, this.#workspacePath(record), this.#threads(record))}\n\n${first.text}`,
         };
       }
     }
@@ -1662,12 +1806,12 @@ export class ChannelService {
         tokensBefore,
         recordedBefore,
         extraPosts: 0,
-        ...(wake.brief !== undefined && { brief: wake.brief }),
+        budgeted: wake.budgeted,
         depth: wake.depth,
         returns: wake.returns,
         ...(wake.groupId !== undefined && { groupId: wake.groupId }),
       });
-      this.#storage.channels.addUsage(channelId, day, { wakes: 1 });
+      if (wake.budgeted) this.#storage.channels.addUsage(channelId, day, { wakes: 1 });
       this.#storage.channels.update(channelId, {
         coordinator: { ...coordinator, wakes: (coordinator.wakes ?? 0) + 1 },
         updatedAt: iso(this.#now()),
@@ -1725,6 +1869,17 @@ export class ChannelService {
       posts: pending.posts,
       threads: this.#threads(record),
       at: iso(this.#now()),
+      ...(this.#options.timezone !== undefined && { timezone: this.#options.timezone }),
+      quotedPosts: pending.posts.flatMap((post) => {
+        const row =
+          post.replyTo === undefined ? undefined : this.#storage.channels.getPost(post.replyTo);
+        return row === undefined ? [] : [this.#post(row)];
+      }),
+      yourPosts: this.#storage.channels
+        .coordinatorPosts(channelId, iso(this.#now() - 72 * 60 * 60 * 1000), 8)
+        .map((row) => this.#post(row)),
+      reactions: [...(this.#reactions.get(channelId)?.values() ?? [])],
+      threadUpdates: [...pending.threadUpdates.values()],
       ...(pending.setup === true &&
         inventory !== undefined && {
           setup: {
@@ -1740,29 +1895,35 @@ export class ChannelService {
       }),
       ...(pending.changed === true && !fresh && { changed: identityBlock(channel, workspace) }),
     };
+    this.#reactions.delete(channelId);
     const brief = pending.schedules.some((schedule) => schedule.brief === true)
       ? await this.#briefCard(record)
       : undefined;
     if (brief !== undefined) input.brief = brief;
-    const replyTo = pending.posts.findLast(
-      (post) => post.author.kind === 'user' || post.author.kind === 'assistant',
-    )?.id;
+    const replyTo =
+      pending.posts.findLast((post) => post.author.kind === 'user')?.id ??
+      (pending.threadUpdates.size === 1
+        ? ([...pending.threadUpdates.values()][0]?.rootPostId as ChannelPostId)
+        : pending.posts.findLast((post) => post.author.kind === 'assistant')?.id);
     return {
       content: wakeEnvelope(input),
       posts: pending.posts,
       ...(replyTo !== undefined && { replyTo }),
-      ...(brief !== undefined && { brief }),
+      budgeted: !freeWake(pending.reasons),
       depth: pending.depth,
       returns: pending.returns,
     };
   }
 
   /** 轮一个群：这个成员上次看过之后群里的新帖，组成群的唤醒信封。群已不在时跳过。 */
-  #groupWake(record: ChannelRecord, pending: PendingWake): PreparedWake | undefined {
+  #groupWake(
+    record: ChannelRecord,
+    pending: PendingWake,
+    groupId: ChannelId,
+  ): PreparedWake | undefined {
     const memberId = record.id as ChannelId;
-    const first = pending.groups.entries().next().value;
-    if (first === undefined) return undefined;
-    const [groupId, entry] = first;
+    const entry = pending.groups.get(groupId);
+    if (entry === undefined) return undefined;
     pending.groups.delete(groupId);
     if (pending.groups.size === 0 && pending.reasons.size === 0) {
       clearTimeout(pending.timer);
@@ -1817,11 +1978,12 @@ export class ChannelService {
       depth: entry.depth,
       returns: [],
       groupId,
+      budgeted: entry.depth > 1,
     };
   }
 
-  /** 成员暂停或预算用完时丢掉它在群里等着的回合；预算用完时在群里说一声。 */
-  #dropGroupWakes(record: ChannelRecord, pending: PendingWake, budget: boolean): void {
+  /** 成员暂停或协调者启动失败时，清掉这个成员排在群里的回合。 */
+  #dropGroupWakes(record: ChannelRecord, pending: PendingWake): void {
     if (pending.groups.size === 0) return;
     const groups = [...pending.groups.keys()];
     pending.groups.clear();
@@ -1832,13 +1994,6 @@ export class ChannelService {
     for (const groupId of groups) {
       const group = this.#storage.channels.get(groupId);
       if (group === undefined || group.deletedAt !== undefined) continue;
-      if (budget) {
-        this.#hostPost(group, {
-          kind: 'notice',
-          reason: 'budget',
-          assistantId: record.id as ChannelId,
-        });
-      }
       this.#touch(groupId);
     }
   }
@@ -1931,7 +2086,8 @@ export class ChannelService {
       }
     }
     const spent = this.#wakeTokens(active);
-    if (spent > 0) this.#storage.channels.addUsage(record.id, this.#day(), { tokens: spent });
+    if (active.budgeted && spent > 0)
+      this.#storage.channels.addUsage(record.id, this.#day(), { tokens: spent });
     if (active.groupId !== undefined) {
       this.#finishGroupWake(record, active, outcome, answer, files);
       return;
@@ -1952,13 +2108,12 @@ export class ChannelService {
     }
     if (outcome !== 'completed') return;
     const { text, quiet } = postOfAnswer(answer ?? '');
-    if (active.brief === undefined && (quiet || (text === '' && files.length === 0))) return;
+    if (quiet || (text === '' && files.length === 0)) return;
     this.#append(record, {
       author: { kind: 'coordinator', sessionId: active.sessionId, generation: active.generation },
       content: [{ type: 'text', text: clip(text, CHANNEL_POST_TEXT_MAX_LENGTH) }],
       ...(active.replyTo !== undefined && { replyTo: active.replyTo }),
       ...(files.length > 0 && { files }),
-      ...(active.brief !== undefined && { card: active.brief }),
     });
     if (text !== '') this.#returnAnswer(record, active.returns, text);
   }
@@ -2128,6 +2283,10 @@ export class ChannelService {
     });
     const post = this.#post(row);
     if (created) {
+      if (input.replyTo !== undefined) {
+        const parent = this.#storage.channels.getPost(input.replyTo);
+        if (parent !== undefined) this.#emitPostUpdate(record.id as ChannelId, this.#post(parent));
+      }
       for (const subscriber of this.#subscribers.get(record.id as ChannelId) ?? []) {
         try {
           subscriber.listener({ kind: 'posted', post });
@@ -2172,6 +2331,8 @@ export class ChannelService {
 
   #post(row: ChannelPostRecord): ChannelPost {
     const meta = row.meta as PostMeta | undefined;
+    const replyCount = this.#storage.channels.replyCount(row.channelId, row.id);
+    const reactions = row.reactions as ChannelPost['reactions'];
     return {
       id: row.id as ChannelPostId,
       channelId: row.channelId as ChannelId,
@@ -2179,6 +2340,8 @@ export class ChannelService {
       author: row.author as ChannelPostAuthor,
       content: row.content as UserContentPart[],
       ...(row.replyTo !== undefined && { replyTo: row.replyTo as ChannelPostId }),
+      ...(replyCount > 0 && { replyCount }),
+      ...(reactions !== undefined && reactions.length > 0 && { reactions }),
       ...(row.routedTo !== undefined && { routedTo: row.routedTo as SessionId[] }),
       ...(row.card !== undefined && { card: row.card as ChannelCard }),
       ...(row.files !== undefined && { files: row.files as SharedFile[] }),
@@ -2377,9 +2540,11 @@ export class ChannelService {
     const answering =
       (active !== undefined && active.groupId === undefined) ||
       this.#starting.has(record.id as ChannelId) ||
-      (queued !== undefined && queued.reasons.size > 0 && record.pausedAt === undefined);
-    if (queued !== undefined && queued.reasons.size > 0 && record.pausedAt === undefined)
-      working = true;
+      (queued !== undefined &&
+        queued.reasons.size > 0 &&
+        record.pausedAt === undefined &&
+        (!this.#overBudget(record) || freeWake(queued.reasons)));
+    if (answering) working = true;
     const state: Channel['state'] =
       record.pausedAt !== undefined
         ? 'paused'
@@ -2410,9 +2575,23 @@ export class ChannelService {
       ...(lastPost !== undefined && { lastPost: lastPostOf(lastPost) }),
       ...(unread > 0 && { unreadCount: unread }),
       ...(answering && { answering: true }),
+      ...(answering && { activity: { kind: this.#activity(coordinator.sessionId) } }),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
+  }
+
+  #overBudget(record: ChannelRecord): boolean {
+    const budget = record.budget as ChannelBudget;
+    const usage = this.#storage.channels.usage(record.id, this.#day());
+    return (usage?.wakes ?? 0) >= budget.dailyWakes || (usage?.tokens ?? 0) >= budget.dailyTokens;
+  }
+
+  #activity(sessionId: SessionId | undefined): ChannelActivityKind {
+    const running = [...this.#runningTools]
+      .filter(([key]) => key.startsWith(`${sessionId}\0`))
+      .at(-1)?.[1];
+    return running === undefined ? 'thinking' : channelActivity(running);
   }
 
   /** 群的列表行：有成员在跑这个群的回合或等着轮到时 `working`。 */
@@ -2424,11 +2603,19 @@ export class ChannelService {
       record.id,
       this.#storage.channels.seenSeq(record.id),
     );
-    const working = members.some(
-      (id) =>
-        this.#active.get(id)?.groupId === groupId ||
-        this.#pending.get(id)?.groups.has(groupId) === true,
-    );
+    const activeMember = members.find((id) => this.#active.get(id)?.groupId === groupId);
+    const working =
+      activeMember !== undefined ||
+      members.some((id) => {
+        const queued = this.#pending.get(id)?.groups.get(groupId);
+        if (queued === undefined) return false;
+        const member = this.#storage.channels.get(id);
+        return (
+          member !== undefined &&
+          member.pausedAt === undefined &&
+          (!this.#overBudget(member) || queued.depth === 1)
+        );
+      });
     return {
       id: groupId,
       kind: 'group',
@@ -2439,6 +2626,13 @@ export class ChannelService {
       ...(last !== undefined && { lastPost: lastPostOf(this.#post(last)) }),
       ...(unread > 0 && { unreadCount: unread }),
       ...(working && { answering: true }),
+      ...(working && {
+        activity: {
+          kind: this.#activity(
+            activeMember === undefined ? undefined : this.#active.get(activeMember)?.sessionId,
+          ),
+        },
+      }),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
@@ -2637,7 +2831,22 @@ export class ChannelService {
     const entry = this.#entryOf(event.sessionId);
     if (entry === undefined) return;
     this.#trackTell(entry.channelId, event);
+    if (
+      entry.role === 'thread' &&
+      (event.type === 'approval.requested' || event.type === 'question.requested')
+    ) {
+      const turnId = this.#options.events.snapshot(event.sessionId)?.session.activeTurn?.turnId;
+      if (turnId !== undefined) this.#queueThreadUpdate(event.sessionId, turnId, 'waiting');
+    }
     switch (event.type) {
+      case 'tool.started':
+      case 'tool.updated':
+      case 'tool.finished': {
+        this.#touch(entry.channelId, 1000);
+        const groupId = this.#active.get(entry.channelId)?.groupId;
+        if (groupId !== undefined) this.#touch(groupId, 1000);
+        break;
+      }
       case 'turn.started':
       case 'turn.finished':
       case 'approval.requested':
@@ -2653,7 +2862,7 @@ export class ChannelService {
     }
   }
 
-  #touch(channelId: ChannelId): void {
+  #touch(channelId: ChannelId, delayMs = FLUSH_MS): void {
     if (this.#disposed) return;
     this.#dirty.add(channelId);
     if (this.#flushTimer !== undefined) return;
@@ -2662,7 +2871,7 @@ export class ChannelService {
       void this.#flushChanges().catch((error: unknown) =>
         this.#options.onWarning?.('channel change push failed', { error }),
       );
-    }, FLUSH_MS);
+    }, delayMs);
     this.#flushTimer.unref?.();
   }
 

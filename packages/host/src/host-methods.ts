@@ -2385,6 +2385,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const content = images === 0 ? params.content : await imageStore().keep(params.content);
       return { post: channels().post({ ...params, content }, client) };
     },
+    'channel.react': (params) => ({ post: channels().react(params, 'user') }),
     'channel.markRead': ({ channelId, seq }, { client }) => {
       channels().markRead(channelId, seq, client);
       return {};

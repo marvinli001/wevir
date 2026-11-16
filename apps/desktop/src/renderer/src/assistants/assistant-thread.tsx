@@ -3,10 +3,26 @@
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { ChannelId, ChannelThread, Session, SessionId } from '@wevir/protocol';
-import { ArrowLeft, GitBranch, Maximize2, MessagesSquare, PanelRight, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  Check,
+  Ellipsis,
+  GitBranch,
+  Maximize2,
+  MessagesSquare,
+  PanelRight,
+  RotateCcw,
+  X,
+} from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { IconButton } from '@/components/icon-button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
@@ -78,6 +94,57 @@ function ThreadHeader({
   );
 }
 
+function ThreadMenu({
+  client,
+  channelId,
+  sessionId,
+  resolved: initial,
+}: {
+  client: WevirClient;
+  channelId: ChannelId;
+  sessionId: SessionId;
+  resolved: boolean;
+}) {
+  const [resolved, setResolved] = useState(initial);
+  const [error, setError] = useState<string>();
+  useEffect(() => setResolved(initial), [initial]);
+  const toggle = async () => {
+    try {
+      const { thread } = await client.request('channel.resolveThread', {
+        channelId,
+        sessionId,
+        resolved: !resolved,
+      });
+      setResolved(thread.status === 'resolved');
+      setError(undefined);
+    } catch (reason) {
+      setError(describe(reason));
+    }
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <IconButton label={t('assistants.actions')} data-action="thread-menu">
+            <Ellipsis />
+          </IconButton>
+        }
+      />
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={toggle} data-action={resolved ? 'reopen' : 'resolve'}>
+          {resolved ? <RotateCcw /> : <Check />}
+          {t(resolved ? 'assistants.thread.reopen' : 'assistants.thread.resolve')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+      {error !== undefined && (
+        <p className="max-w-40 truncate text-xs text-destructive" title={error} role="alert">
+          {error}
+        </p>
+      )}
+    </DropdownMenu>
+  );
+}
+
 /** 时间线旁边的线程窗格：标题、“在主视图打开”、关闭。 */
 export function ThreadPane({
   client,
@@ -100,6 +167,15 @@ export function ThreadPane({
       data-thread-pane={sessionId}
     >
       <ThreadHeader title={thread?.title ?? t('assistants.thread.pane')}>
+        {thread !== undefined && (
+          <ThreadMenu
+            key={sessionId}
+            client={client}
+            channelId={channelId}
+            sessionId={sessionId}
+            resolved={thread.status === 'resolved'}
+          />
+        )}
         <IconButton
           label={t('assistants.thread.openMain')}
           onClick={() => navigate(paths.assistantThread(channelId, sessionId))}

@@ -34,12 +34,13 @@ import {
   ChannelService,
   type ChannelServiceOptions,
   type ChannelSubscriptionMessage,
+  channelActivity,
   MORNING_BRIEF_TIME,
   morningBriefAutomation,
   postOfAnswer,
   ROTATE_WAKES,
 } from './service.js';
-import { CHANNEL_TOOLS, channelToolAllowed } from './tools.js';
+import { CHANNEL_TOOLS, channelCoordinatorInstructions, channelToolAllowed } from './tools.js';
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -60,6 +61,10 @@ async function setup(
     removed?: ChannelServiceOptions['removed'];
     inventory?: ChannelServiceOptions['inventory'];
     canUseAppTools?: ChannelServiceOptions['canUseAppTools'];
+    now?: () => number;
+    timezone?: string;
+    wakeDelayMs?: number;
+    threadUpdateDelayMs?: number;
   } = {},
 ) {
   const dataDir = join(realpathSync(tempDir()), 'data');
@@ -120,7 +125,10 @@ async function setup(
       list: async (root) => boardEventTasks(await taskBoards.list(root)),
       update: (root, id, patch, by) => taskBoards.update(root, id, patch, by),
     },
-    wakeDelayMs: 0,
+    wakeDelayMs: options.wakeDelayMs ?? 0,
+    threadUpdateDelayMs: options.threadUpdateDelayMs ?? 0,
+    ...(options.now !== undefined && { now: options.now }),
+    ...(options.timezone !== undefined && { timezone: options.timezone }),
     schedules: {
       created: async (channel) => {
         await automations?.create(morningBriefAutomation(channel.id), { kind: 'user' });
@@ -507,27 +515,38 @@ describe('ChannelService', () => {
     expect(channel?.channel.coordinator?.generation).toBe(2);
   });
 
-  it('预算用完时暂停并贴一条说明，帖子照收', async () => {
-    const h = await setup({ budget: { dailyWakes: 1, dailyTokens: 200_000 } });
-    const bot = await h.create('Mail desk', 'Sort my inbox.');
-    await h.coordinatorPosts(bot.id, 1);
-    h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'One more' }] }, identity);
-    await waitFor(() => {
-      const notice = h.posts(bot.id).find((post) => post.card?.kind === 'notice');
-      expect(notice?.card).toEqual({ kind: 'notice', reason: 'budget' });
-      expect(ChannelPostSchema.parse(notice)).toEqual(notice);
-    });
-    const row = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel;
-    expect(row.state).toBe('paused');
-    expect(row.pauseReason).toBe('budget');
-    expect(h.posts(bot.id).filter((post) => post.author.kind === 'coordinator')).toHaveLength(1);
-  });
+  it(
+    '连发三十条用户消息不计预算、不暂停，统计页仍记用量',
+    async () => {
+      const h = await setup({ budget: { dailyWakes: 1, dailyTokens: 200_000 } });
+      const bot = await h.create('Mail desk', 'Sort my inbox.');
+      await h.coordinatorPosts(bot.id, 1);
+      for (let i = 0; i < 30; i++) {
+        h.service.post(
+          { channelId: bot.id, content: [{ type: 'text', text: `Message ${i}` }] },
+          identity,
+        );
+        await h.coordinatorPosts(bot.id, i + 2);
+      }
+      const row = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel;
+      expect(row.state).toBe('idle');
+      expect(row.pausedAt).toBeUndefined();
+      expect(row.usage).toBeUndefined();
+      expect(
+        h
+          .posts(bot.id)
+          .some((post) => post.card?.kind === 'notice' && post.card.reason === 'budget'),
+      ).toBe(false);
+      expect(h.storage.usage.sessionTotals(row.coordinator?.sessionId ?? '').requests).toBe(31);
+    },
+    WAIT * 6,
+  );
 
   it('预算的 token 按用量统计算，缓存读取不算', async () => {
     const h = await setup();
     const bot = await h.create('Mail desk', 'Sort my inbox.');
     await h.coordinatorPosts(bot.id, 1);
-    h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'One more' }] }, identity);
+    h.service.wakeForSchedule(bot.id, { title: 'Daily', prompt: 'Look at today.' });
     await h.coordinatorPosts(bot.id, 2);
     const sessionId = (await h.methods['channel.get']({ channelId: bot.id }, context)).channel
       .coordinator?.sessionId as SessionId;
@@ -539,8 +558,10 @@ describe('ChannelService', () => {
       day: '2-digit',
     }).format(new Date());
     await waitFor(() => {
+      const rows = h.storage.usage.range(0, Number.MAX_SAFE_INTEGER);
+      const last = rows.at(-1);
       expect(h.storage.channels.usage(bot.id, day)?.tokens).toBe(
-        h.storage.usage.sessionTotals(sessionId).tokens,
+        (last?.inputTokens ?? 0) + (last?.outputTokens ?? 0) + (last?.cacheWriteTokens ?? 0),
       );
     });
     expect(h.storage.usage.sessionTotals(sessionId).requests).toBe(2);
@@ -975,8 +996,324 @@ describe('开进用户项目的线程与会话（0.134.0）', () => {
   });
 });
 
+describe('聊天交互', () => {
+  it('自发唤醒超额留在缓冲、次日交出；用户消息与手动唤醒仍可交出缓冲', async () => {
+    let now = Date.parse('2026-11-16T01:30:00.000Z');
+    const h = await setup({
+      budget: { dailyWakes: 1, dailyTokens: 200_000 },
+      now: () => now,
+      timezone: 'Pacific/Auckland',
+    });
+    const bot = await h.create('Desk', 'Daily updates.');
+    await h.coordinatorPosts(bot.id, 1);
+    h.service.wakeForSchedule(bot.id, { title: 'First', prompt: 'Look at today.' });
+    await h.coordinatorPosts(bot.id, 2);
+    h.service.wakeForSchedule(bot.id, { title: 'Held', prompt: 'Keep this update.' });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const limited = (await h.service.get(bot.id)).channel;
+    expect(limited.pausedAt).toBeUndefined();
+    expect(limited.answering).toBeUndefined();
+    expect(limited.usage?.wakes).toBe(1);
+    expect(h.posts(bot.id)).toHaveLength(2);
+    now += 24 * 60 * 60 * 1000;
+    h.service.wakeForSchedule(bot.id, { title: 'Next day', prompt: 'New day.' });
+    const next = (await h.coordinatorPosts(bot.id, 3)).at(-1);
+    expect(JSON.stringify(next?.content)).toContain('Keep this update.');
+    expect(JSON.stringify(next?.content)).toContain('New day.');
+    h.service.wakeForSchedule(bot.id, { title: 'Held again', prompt: 'Waiting item.' });
+    h.service.post({ channelId: bot.id, content: [{ type: 'text', text: 'Hello' }] }, identity);
+    expect((await h.service.get(bot.id)).channel.answering).toBe(true);
+    expect(JSON.stringify((await h.coordinatorPosts(bot.id, 4)).at(-1)?.content)).toContain(
+      'Waiting item.',
+    );
+    h.service.wake(bot.id);
+    await h.coordinatorPosts(bot.id, 5);
+    expect((await h.service.get(bot.id)).channel.usage?.wakes).toBe(1);
+    expect(h.posts(bot.id).some((post) => post.card?.kind === 'notice')).toBe(false);
+  });
+
+  it('启动清除历史预算暂停，保留手动暂停', async () => {
+    const h = await setup();
+    const bot = await h.create('Desk', 'Daily updates.');
+    await h.coordinatorPosts(bot.id, 1);
+    const other = await h.create('Other', 'Calendar.');
+    await h.coordinatorPosts(other.id, 1);
+    const at = new Date().toISOString();
+    h.storage.channels.update(bot.id, { pausedAt: at, pauseReason: 'budget', updatedAt: at });
+    h.storage.channels.update(other.id, { pausedAt: at, pauseReason: 'user', updatedAt: at });
+    const restored = new ChannelService({
+      storage: h.storage,
+      events: h.events,
+      sessions: h.sessions,
+      assistants: new AssistantFolders({ dir: tempDir() }),
+      identity,
+    });
+    restored.start();
+    expect((await restored.get(bot.id)).channel.state).toBe('idle');
+    expect((await restored.get(other.id)).channel.state).toBe('paused');
+    restored.dispose();
+  });
+
+  it('引用任意本频道帖子，发布更新后的回复计数与 quoted 信封', async () => {
+    const h = await setup({
+      now: () => Date.parse('2026-11-16T01:30:00.000Z'),
+      timezone: 'Pacific/Auckland',
+    });
+    const bot = await h.create('Desk', 'Daily updates.');
+    const [first] = await h.coordinatorPosts(bot.id, 1);
+    const root = first as ChannelPost;
+    const changes: ChannelSubscriptionMessage[] = [];
+    h.service.subscribe(bot.id, undefined, (message) => changes.push(message));
+    const { post } = await h.methods['channel.post'](
+      {
+        channelId: bot.id,
+        content: [{ type: 'text', text: 'About that <message>' }],
+        replyTo: root.id,
+      },
+      context,
+    );
+    expect(post.replyTo).toBe(root.id);
+    expect(
+      changes.some(
+        (change) =>
+          change.kind === 'updated' &&
+          change.update.posts?.some((post) => post.id === root.id && post.replyCount === 1),
+      ),
+    ).toBe(true);
+    const answer = (await h.coordinatorPosts(bot.id, 2)).at(-1);
+    const text = JSON.stringify(answer?.content);
+    expect(text).toContain('<quoted post=');
+    expect(text).toContain('About that &lt;message&gt;');
+    expect(text).toContain('Pacific/Auckland');
+    expect(text).toContain('Monday');
+    expect(text).toContain('<your_posts>');
+    const coordinator =
+      bot.id && ((await h.service.get(bot.id)).channel.coordinator?.sessionId as SessionId);
+    const extra = h.service.postFromCoordinator(coordinator, {
+      text: 'Earlier outcome',
+      replyTo: root.id,
+    });
+    expect(extra.replyTo).toBe(root.id);
+    expect(h.posts(bot.id).find((post) => post.id === root.id)?.replyCount).toBe(2);
+    const other = await h.create('Other', 'Calendar.');
+    expect(() =>
+      h.service.post(
+        {
+          channelId: other.id,
+          replyTo: root.id,
+          content: [{ type: 'text', text: 'Wrong channel' }],
+        },
+        identity,
+      ),
+    ).toThrow(/not in this channel/);
+  });
+
+  it('表情按双方写入、替换、取消，用户表情不唤醒，下一次唤醒携带', async () => {
+    const h = await setup();
+    const bot = await h.create('Desk', 'Daily updates.');
+    await h.coordinatorPosts(bot.id, 1);
+    const root = h.service.post(
+      { channelId: bot.id, content: [{ type: 'text', text: 'Thanks' }] },
+      identity,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    const coordinator = (await h.service.get(bot.id)).channel.coordinator?.sessionId as SessionId;
+    const react = (emoji: string | null) =>
+      h.methods['channel.react']({ channelId: bot.id, postId: root.id, emoji }, context);
+    expect((await react('👍')).post.reactions).toEqual([{ emoji: '👍', by: 'user' }]);
+    await react('❤️');
+    await h.call(coordinator, 'wevir_channel_react', { postId: root.id, emoji: '✅' });
+    expect(h.posts(bot.id).find((post) => post.id === root.id)?.reactions).toEqual([
+      { emoji: '❤️', by: 'user' },
+      { emoji: '✅', by: 'assistant' },
+    ]);
+    await react(null);
+    await h.call(coordinator, 'wevir_channel_react', { postId: root.id, emoji: '👀' });
+    await h.call(coordinator, 'wevir_channel_react', { postId: root.id, emoji: null });
+    expect(h.posts(bot.id).find((post) => post.id === root.id)?.reactions).toBeUndefined();
+    expect(() => react('👍👍')).toThrow(/one grapheme/);
+    expect(() => react('a'.repeat(17))).toThrow(/16 UTF-16/);
+    await react('👨‍👩‍👧‍👦');
+    expect(h.posts(bot.id).filter((post) => post.author.kind === 'coordinator')).toHaveLength(2);
+    h.service.wake(bot.id);
+    expect(JSON.stringify((await h.coordinatorPosts(bot.id, 3)).at(-1)?.content)).toContain(
+      '<reaction post=',
+    );
+    h.service.wake(bot.id);
+    expect(JSON.stringify((await h.coordinatorPosts(bot.id, 4)).at(-1)?.content)).not.toContain(
+      '<reactions>',
+    );
+    const outsider = await h.create('Other', 'Calendar.');
+    expect(() =>
+      h.service.react({ channelId: outsider.id, postId: root.id, emoji: '👍' }, 'user'),
+    ).toThrow(/not a message/);
+  });
+
+  it('线程转交完成后回到根帖，用户在线程直接发起的回合不回报', async () => {
+    const h = await setup();
+    const bot = await h.create('Desk', 'Daily updates.');
+    await h.coordinatorPosts(bot.id, 1);
+    const root = h.service.post(
+      { channelId: bot.id, content: [{ type: 'text', text: 'Prepare a draft' }] },
+      identity,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    const thread = await h.service.startThread({
+      channelId: bot.id,
+      rootPostId: root.id,
+      openedBy: 'user',
+    });
+    const result = (await h.coordinatorPosts(bot.id, 3)).at(-1);
+    expect(result?.replyTo).toBe(root.id);
+    expect(JSON.stringify(result?.content)).toContain('<thread_update session=');
+    expect(JSON.stringify(result?.content)).toContain('status=\\"completed\\"');
+    await h.methods['session.send'](
+      { sessionId: thread.sessionId, content: [{ type: 'text', text: 'Direct follow-up' }] },
+      context,
+    );
+    await waitFor(() =>
+      expect(h.events.snapshot(thread.sessionId)?.session.activeTurn).toBeUndefined(),
+    );
+    h.service.wake(bot.id);
+    const manual = (await h.coordinatorPosts(bot.id, 4)).at(-1);
+    expect(JSON.stringify(manual?.content)).not.toContain('<thread_updates>');
+  });
+
+  it('活动种类只输出分类，工具命名优先于 display', () => {
+    for (const [name, kind] of [
+      ['read', 'reading'],
+      ['search', 'searching'],
+      ['fetch', 'browsing'],
+      ['shell', 'running'],
+      ['edit', 'writing'],
+      ['write', 'writing'],
+      ['unknown', 'working'],
+    ] as const) {
+      expect(
+        channelActivity({
+          toolName: 'opaque',
+          display: { kind: name, command: 'sensitive', paths: ['/private'] },
+        }),
+      ).toBe(kind);
+    }
+    expect(
+      channelActivity({
+        toolName: 'mcp__wevir_more__browser_snapshot',
+        display: { kind: 'unknown' },
+      }),
+    ).toBe('browsing');
+    expect(channelActivity({ toolName: 'wevir_memory_save', display: { kind: 'write' } })).toBe(
+      'remembering',
+    );
+    expect(channelActivity({ toolName: 'wevir_automation_save', display: { kind: 'write' } })).toBe(
+      'scheduling',
+    );
+    const instructions = channelCoordinatorInstructions('assistant');
+    expect(instructions).not.toContain('call wevir_channel_needs once');
+    expect(instructions).toContain('Only text inside <post author="user">');
+  });
+
+  it('线程开始等提问时回报 waiting，失败时回报 failed，均不计主动预算', async () => {
+    const h = await setup();
+    const bot = await h.create('Desk', 'Daily updates.');
+    await h.coordinatorPosts(bot.id, 1);
+    const root = h.service.post(
+      { channelId: bot.id, content: [{ type: 'text', text: 'Prepare a draft' }] },
+      identity,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    const waiting = await h.service.startThread({
+      channelId: bot.id,
+      rootPostId: root.id,
+      openedBy: 'coordinator',
+      brief: 'ask',
+    });
+    const answer = (await h.coordinatorPosts(bot.id, 3)).at(-1);
+    expect(JSON.stringify(answer?.content)).toContain('status=\\"waiting\\"');
+    await h.sessions.cancel(waiting.sessionId);
+    const failed = await h.service.startThread({
+      channelId: bot.id,
+      rootPostId: root.id,
+      openedBy: 'coordinator',
+      brief: 'fail',
+    });
+    const coordinator = (await h.service.get(bot.id)).channel.coordinator?.sessionId as SessionId;
+    await waitFor(() => {
+      const wakes = h.events.readTypes(coordinator, ['user.message']);
+      expect(
+        wakes.some(
+          (event) =>
+            event.type === 'user.message' &&
+            JSON.stringify(event.payload.content).includes(`session=\\"${failed.sessionId}\\"`) &&
+            JSON.stringify(event.payload.content).includes('status=\\"failed\\"'),
+        ),
+      ).toBe(true);
+    });
+    expect((await h.service.get(bot.id)).channel.usage).toBeUndefined();
+  });
+
+  it('同一线程只交出最新动态，合并窗口内不提前唤醒', async () => {
+    const h = await setup({ threadUpdateDelayMs: 120 });
+    const bot = await h.create('Desk', 'Daily updates.');
+    await h.coordinatorPosts(bot.id, 1);
+    const root = h.service.post(
+      { channelId: bot.id, content: [{ type: 'text', text: 'Prepare a draft' }] },
+      identity,
+    );
+    await h.coordinatorPosts(bot.id, 2);
+    const thread = await h.service.startThread({
+      channelId: bot.id,
+      rootPostId: root.id,
+      openedBy: 'coordinator',
+    });
+    await waitFor(() =>
+      expect(h.events.snapshot(thread.sessionId)?.session.activeTurn).toBeUndefined(),
+    );
+    const finished = h.events.readTypes(thread.sessionId, ['turn.finished']).at(-1);
+    expect(finished?.type).toBe('turn.finished');
+    if (finished?.type !== 'turn.finished') return;
+    h.service.onTurnFinished({
+      sessionId: thread.sessionId,
+      turnId: finished.payload.turnId,
+      outcome: 'failed',
+    });
+    const coordinator = (await h.service.get(bot.id)).channel.coordinator?.sessionId as SessionId;
+    const latestWake = () => h.events.readTypes(coordinator, ['user.message']).at(-1);
+    expect(JSON.stringify(latestWake())).not.toContain('<thread_updates>');
+    await waitFor(() => expect(JSON.stringify(latestWake())).toContain('<thread_updates>'));
+    const wake = latestWake();
+    const text = wake?.type === 'user.message' ? JSON.stringify(wake.payload.content) : '';
+    expect(text.match(/<thread_update session=/g)).toHaveLength(1);
+    expect(text).toContain('status=\\"failed\\"');
+  });
+});
+
 describe('日程与晨间简报', () => {
-  it('建助理时建好每天的晨间简报；运行时贴一条带简报卡片的回答；删助理一起删', async () => {
+  it('晨间简报回答 NOTHING_TO_REPORT 时整条不发', async () => {
+    const h = await setup();
+    const bot = await h.create('Desk', 'Daily updates.');
+    await h.coordinatorPosts(bot.id, 1);
+    const original = h.sessions.send.bind(h.sessions);
+    vi.spyOn(h.sessions, 'send').mockImplementationOnce((params, by, options) =>
+      original(
+        { ...params, content: [{ type: 'text', text: 'Quiet today.\nNOTHING_TO_REPORT' }] },
+        by,
+        options,
+      ),
+    );
+    h.service.wakeForSchedule(bot.id, {
+      title: 'Morning brief',
+      prompt: 'Look at today.',
+      brief: true,
+    });
+    const coordinator = (await h.service.get(bot.id)).channel.coordinator?.sessionId as SessionId;
+    await waitFor(() => {
+      expect(h.events.readTypes(coordinator, ['user.message'])).toHaveLength(2);
+      expect(h.events.snapshot(coordinator)?.session.activeTurn).toBeUndefined();
+    });
+    expect(h.posts(bot.id)).toHaveLength(1);
+  });
+  it('晨间简报用普通消息呈现，清单只作为数据；删助理一起删日程', async () => {
     const h = await setup();
     const bot = await h.create('Mail desk', 'Sort my inbox.');
     const [first] = await h.coordinatorPosts(bot.id, 1);
@@ -1002,18 +1339,9 @@ describe('日程与晨间简报', () => {
 
     const briefRun = await h.automations.runNow(schedules[0]?.id ?? '');
     expect(briefRun.status).toBe('completed');
-    const brief = await waitFor(() => {
-      const post = h.posts(bot.id).find((candidate) => candidate.card?.kind === 'brief');
-      expect(post).toBeDefined();
-      return post;
-    });
+    const brief = (await h.coordinatorPosts(bot.id, 3)).at(-1);
     expect(brief?.author.kind).toBe('coordinator');
-    expect(brief?.card).toMatchObject({
-      kind: 'brief',
-      todo: [{ title: 'Reply to Ana' }],
-      done: [],
-      decisions: [{ title: 'Archive last week’s newsletters' }],
-    });
+    expect(brief?.card).toBeUndefined();
     const text = brief?.content[0]?.type === 'text' ? brief.content[0].text : '';
     expect(text).toContain('<schedule title="Morning brief" brief="true">');
     expect(text).toContain('<todo>\n- Reply to Ana\n</todo>');
@@ -1235,11 +1563,21 @@ describe('助理之间与助理群', () => {
     expect(idle.state).toBe('idle');
   });
 
-  it('成员的预算用完：群里贴一条说明，带是哪个成员', async () => {
+  it('群里的用户发言绕过成员的主动预算，不贴预算说明', async () => {
     const h = await setup({ budget: { dailyWakes: 1, dailyTokens: 1_000_000 } });
     const ann = await h.create('Ann', 'Calendar.');
     const bob = await h.create('Bob', 'Travel.');
     for (const bot of [ann, bob]) await h.coordinatorPosts(bot.id, 1);
+    for (const bot of [ann, bob])
+      h.storage.channels.addUsage(
+        bot.id,
+        new Intl.DateTimeFormat('en-CA', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).format(new Date()),
+        { wakes: 1 },
+      );
     const { channel: group } = await h.methods['channel.create'](
       { kind: 'group', name: 'Weekly', members: [ann.id, bob.id] },
       context,
@@ -1248,15 +1586,8 @@ describe('助理之间与助理群', () => {
       { channelId: group.id, content: [{ type: 'text', text: 'Plan the week' }] },
       context,
     );
-    await waitFor(() => {
-      const notices = h
-        .posts(group.id)
-        .filter((post) => post.card?.kind === 'notice' && post.card.reason === 'budget');
-      expect(
-        notices.map((post) => post.card?.kind === 'notice' && post.card.assistantId).sort(),
-      ).toEqual([ann.id, bob.id].sort());
-    });
-    expect(assistantPosts(h, group.id)).toHaveLength(0);
+    await waitFor(() => expect(assistantPosts(h, group.id)).toHaveLength(2));
+    expect(h.posts(group.id).some((post) => post.card?.kind === 'notice')).toBe(false);
   });
 });
 

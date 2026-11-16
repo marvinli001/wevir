@@ -2,6 +2,22 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'assistants.timeline.reply': 'Répondre',
+  'assistants.timeline.reaction': 'Réaction',
+  'assistants.timeline.cancelReply': 'Annuler la réponse',
+  'assistants.timeline.original': 'Message original',
+  'assistants.timeline.replies': '{count, plural, one {# réponse} other {# réponses}}',
+  'assistants.timeline.today': 'Aujourd’hui',
+  'assistants.timeline.yesterday': 'Hier',
+  'assistants.activity.thinking': 'Réflexion en cours',
+  'assistants.activity.reading': 'Lecture des fichiers',
+  'assistants.activity.searching': 'Recherche en cours',
+  'assistants.activity.browsing': 'Navigation web',
+  'assistants.activity.running': 'Exécution d’une commande',
+  'assistants.activity.writing': 'Écriture en cours',
+  'assistants.activity.remembering': 'Mémorisation en cours',
+  'assistants.activity.scheduling': 'Planification en cours',
+  'assistants.activity.working': 'Traitement en cours',
   'provider.zuvApi.login': 'Se connecter',
   'provider.zuvApi.waiting': 'Autorisation en attente',
   'provider.zuvApi.open': 'Ouvrir l’autorisation',

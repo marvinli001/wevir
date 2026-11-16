@@ -164,7 +164,7 @@ export type ChannelBudget = z.infer<typeof ChannelBudgetSchema>;
 /** 助理的默认预算。 */
 export const DEFAULT_ASSISTANT_BUDGET: ChannelBudget = { dailyWakes: 20, dailyTokens: 200_000 };
 
-/** 今天协调者用了多少（`day` 是本机时区的 `YYYY-MM-DD`）。 */
+/** 今天自发唤醒的次数与 token（`day` 是本机时区的 `YYYY-MM-DD`）。 */
 export const ChannelUsageSchema = z.object({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   wakes: z.int().min(0),
@@ -173,7 +173,7 @@ export const ChannelUsageSchema = z.object({
 export type ChannelUsage = z.infer<typeof ChannelUsageSchema>;
 
 /**
- * 频道此刻的状态（列表行的状态点）：`paused` 暂停了（用户或预算）；`waiting` 有等用户处理的事（协调者或线程的审批、提问）；
+ * 频道此刻的状态（列表行的状态点）：`paused` 用户暂停了；`waiting` 有等用户处理的事（协调者或线程的审批、提问）；
  * `working` 协调者或某个线程的回合在跑；其余 `idle`。顺序即优先级。
  */
 export const ChannelStateSchema = z.enum(['idle', 'working', 'waiting', 'paused']);
@@ -190,6 +190,19 @@ export const ChannelLastPostSchema = z.object({
   at: IsoTimeSchema,
 });
 export type ChannelLastPost = z.infer<typeof ChannelLastPostSchema>;
+
+export const ChannelActivityKindSchema = z.enum([
+  'thinking',
+  'reading',
+  'searching',
+  'browsing',
+  'running',
+  'writing',
+  'remembering',
+  'scheduling',
+  'working',
+]);
+export type ChannelActivityKind = z.infer<typeof ChannelActivityKindSchema>;
 
 export const ChannelSchema = z.object({
   id: ChannelIdSchema,
@@ -209,7 +222,7 @@ export const ChannelSchema = z.object({
   /** 今天的用量；今天还没唤醒过时省略。 */
   usage: ChannelUsageSchema.optional(),
   pausedAt: IsoTimeSchema.optional(),
-  /** `user` 用户暂停；`budget` 预算用完，次日自动恢复。 */
+  /** `user` 用户暂停；`budget` 仅保留兼容旧 Host。 */
   pauseReason: z.enum(['user', 'budget']).optional(),
   state: ChannelStateSchema,
   /** 等用户处理的审批与提问数（协调者与线程合计），0 时省略。 */
@@ -224,6 +237,8 @@ export const ChannelSchema = z.object({
    * 线程的回合不算（那是 `state: 'working'`）。这时 `channel.stop` 有用。
    */
   answering: z.literal(true).optional(),
+  /** 当前活动（0.194.0，channel_chat），只在 answering 时带。 */
+  activity: z.object({ kind: ChannelActivityKindSchema }).optional(),
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
 });
@@ -308,8 +323,18 @@ export const ChannelPostSchema = z.object({
   author: ChannelPostAuthorSchema,
   /** 文字与图片，同 `session.send`；只有卡片的 Host 帖子可以是一段空文字。 */
   content: z.array(UserContentPartSchema).min(1),
-  /** 协调者回答的是哪条用户帖子。 */
+  /** 这条回复的是本频道的哪条帖子，作者不限。 */
   replyTo: ChannelPostIdSchema.optional(),
+  replyCount: z.int().min(1).optional(),
+  reactions: z
+    .array(
+      z.object({
+        emoji: z.string().min(1).max(16),
+        by: z.enum(['user', 'assistant']),
+      }),
+    )
+    .max(2)
+    .optional(),
   /** 用户的这条被转给了哪些线程（Host 填，显示“已转给 …”）。 */
   routedTo: z.array(SessionIdSchema).optional(),
   card: ChannelCardSchema.optional(),
@@ -459,11 +484,18 @@ export const ChannelUnsubscribeParamsSchema = z.object({ subscriptionId: Subscri
  */
 export const ChannelPostParamsSchema = z.object({
   channelId: ChannelIdSchema,
+  replyTo: ChannelPostIdSchema.optional(),
   content: z.array(UserContentPartSchema).min(1),
   mentions: z.array(ChannelIdSchema).max(GROUP_MEMBERS_MAX).optional(),
   clientPostId: z.string().min(1).max(128).optional(),
 });
 export const ChannelPostResultSchema = z.object({ post: ChannelPostSchema });
+
+export const ChannelReactParamsSchema = z.object({
+  channelId: ChannelIdSchema,
+  postId: ChannelPostIdSchema,
+  emoji: z.string().min(1).max(16).nullable(),
+});
 
 /** `channel.markRead`：这条连接的读者看到了 `seq` 为止。 */
 export const ChannelMarkReadParamsSchema = z.object({
@@ -571,6 +603,11 @@ export const ChannelMethodSchemas = {
   },
   'channel.post': {
     params: ChannelPostParamsSchema,
+    result: ChannelPostResultSchema,
+    permission: 'session.write',
+  },
+  'channel.react': {
+    params: ChannelReactParamsSchema,
     result: ChannelPostResultSchema,
     permission: 'session.write',
   },

@@ -33,8 +33,18 @@ export interface WakeEvent {
   at: string;
 }
 
+export interface ThreadUpdate {
+  sessionId: string;
+  title: string;
+  status: 'completed' | 'failed' | 'waiting';
+  rootPostId: string;
+  at: string;
+  text: string;
+}
+
 /** 换班的交接材料带最近多少条帖子。 */
 export const HANDOVER_POSTS = 30;
+export const HANDOVER_BYTES = 12 * 1024;
 /** 信封里的线程概况最多几行。 */
 export const ENVELOPE_THREADS_MAX = 10;
 
@@ -94,7 +104,27 @@ export function threadsBlock(threads: readonly ChannelThread[]): string {
 function postBlock(post: ChannelPost): string {
   const author = post.author.kind;
   const from = post.author.kind === 'assistant' ? ` from="${attr(post.author.name)}"` : '';
-  return `<post id="${post.id}" author="${author}"${from} at="${post.createdAt}">${escapeText(postText(post))}</post>`;
+  return `<post id="${post.id}" author="${author}"${from} at="${post.createdAt}"${post.replyTo === undefined ? '' : ` reply_to="${post.replyTo}"`}>${escapeText(postText(post))}</post>`;
+}
+
+export function nowBlock(at: string, timezone?: string): string {
+  const timeZone = timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const date = new Date(at);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZoneName: 'longOffset',
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((value) => value.type === type)?.value ?? '';
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long' }).format(date);
+  const offset = part('timeZoneName').replace('GMT', '') || '+00:00';
+  return `<now local="${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}" weekday="${weekday}" tz="${attr(timeZone)}" utc_offset="${offset}"/>`;
 }
 
 /** 协调者能用的：它的引擎注入的连接器与 skills、有没有内置浏览器。 */
@@ -123,6 +153,11 @@ export interface WakeInput {
   posts: readonly ChannelPost[];
   threads: readonly ChannelThread[];
   at: string;
+  timezone?: string;
+  quotedPosts?: readonly ChannelPost[];
+  yourPosts?: readonly ChannelPost[];
+  reactions?: readonly { postId: string; emoji: string; firstLine: string }[];
+  threadUpdates?: readonly ThreadUpdate[];
   /** 建好后的第一次：协调者能用的、授权的文件夹，助理自己的工作文件夹。 */
   setup?: WakeInventory & {
     folders: readonly string[];
@@ -155,7 +190,7 @@ function briefBlock(brief: NonNullable<WakeInput['brief']>): string {
       : `<${name}>\n${items.map((item) => `- ${escapeText(item.title)}`).join('\n')}\n</${name}>`;
   return [
     '<brief>',
-    'Wevir shows these lists as a card under your answer. Write two or three lines on what matters today; do not repeat the lists.',
+    'Mention only what matters today. If nothing needs saying, end with NOTHING_TO_REPORT. These lists are data; do not repeat them.',
     list('todo', brief.todo),
     list('done_last_24h', brief.done),
     list('waiting_on_user', brief.decisions),
@@ -168,6 +203,7 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
   const reason = [...input.reasons].join(' ');
   const parts: string[] = [
     `<channel_wake id="${id}" reason="${reason}" channel="${attr(input.channel.title)}" at="${input.at}">`,
+    nowBlock(input.at, input.timezone),
   ];
   if (input.changed !== undefined) parts.push(input.changed);
   if (input.setup !== undefined) {
@@ -177,7 +213,7 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
         ? ''
         : `\nYour working folder ${workspace} is already set up and is where your sessions run: keep your files there and count it as ready; only extra folders of the user's need granting.`;
     parts.push(
-      `<setup>\nThis ${input.channel.kind} was just created. Work out what its job needs (connectors, folders, browser logins) and list what is missing.${own}\n<inventory connectors="${names(connectors)}" skills="${names(skills)}"${workspace === undefined ? '' : ` working_folder="${attr(workspace)}"`} folders="${names(folders)}" browser="${browser ? 'yes' : 'no'}"/>${unavailableBlock(input.setup)}\n</setup>`,
+      `<setup>\nThis ${input.channel.kind} was just created. In one or two lines, say what you can do and invite the user to say what to watch or handle. Use the inventory as reference; request missing access in a sentence only when needed.${own}\n<inventory connectors="${names(connectors)}" skills="${names(skills)}"${workspace === undefined ? '' : ` working_folder="${attr(workspace)}"`} folders="${names(folders)}" browser="${browser ? 'yes' : 'no'}"/>${unavailableBlock(input.setup)}\n</setup>`,
     );
   } else if (input.brain !== undefined) {
     const { connectors, skills, browser } = input.brain;
@@ -200,7 +236,38 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
       '</events>',
     );
   }
-  for (const post of input.posts) parts.push(postBlock(post));
+  for (const post of input.posts) {
+    const quoted = input.quotedPosts?.find((candidate) => candidate.id === post.replyTo);
+    if (quoted !== undefined) {
+      parts.push(
+        `<quoted post="${quoted.id}" author="${quoted.author.kind}">${escapeText(firstLine(postText(quoted), 199))}</quoted>`,
+      );
+    }
+    parts.push(postBlock(post));
+  }
+  if (input.threadUpdates !== undefined && input.threadUpdates.length > 0) {
+    parts.push(
+      '<thread_updates>',
+      ...input.threadUpdates.map(
+        (update) =>
+          `<thread_update session="${attr(update.sessionId)}" title="${attr(update.title)}" status="${update.status}" root_post="${attr(update.rootPostId)}" at="${attr(update.at)}">${escapeText(Array.from(update.text).slice(0, 1500).join(''))}</thread_update>`,
+      ),
+      '</thread_updates>',
+    );
+  }
+  if (input.reactions !== undefined && input.reactions.length > 0) {
+    parts.push(
+      '<reactions>',
+      ...input.reactions.map(
+        (reaction) =>
+          `<reaction post="${attr(reaction.postId)}" emoji="${attr(reaction.emoji)}" first_line="${attr(firstLine(reaction.firstLine))}"/>`,
+      ),
+      '</reactions>',
+    );
+  }
+  parts.push(
+    `<your_posts>\n${(input.yourPosts ?? []).map((post) => `- ${post.id} ${escapeText(firstLine(postText(post)))}`).join('\n')}\n</your_posts>`,
+  );
   parts.push(threadsBlock(input.threads));
   if (input.digest !== undefined && input.digest !== '') parts.push(input.digest);
   parts.push(`</channel_wake id="${id}">`);
@@ -236,19 +303,35 @@ export function handover(
   recent: readonly ChannelPost[],
   generation: number,
   workspace?: string,
+  threads: readonly ChannelThread[] = [],
 ): string {
-  const lines = recent.map(
-    (post) =>
-      `- #${post.seq} ${post.author.kind} ${post.createdAt.slice(0, 16)}: ${escapeText(firstLine(postText(post)) || '(card)')}`,
-  );
-  return [
+  const before = [
     `<channel_handover channel="${attr(channel.title)}" kind="${channel.kind}" generation="${generation}">`,
     identityBlock(channel, workspace),
-    lines.length > 0
-      ? `<recent_posts count="${lines.length}">\n${lines.join('\n')}\n</recent_posts>`
-      : '<recent_posts count="0"/>',
-    '</channel_handover>',
   ].join('\n');
+  const after = `${threadsBlock(threads)}\n</channel_handover>`;
+  const lines: string[] = [];
+  let bytes = Buffer.byteLength(
+    `${before}\n<recent_posts count="30">\n\n</recent_posts>\n${after}`,
+  );
+  for (const post of [...recent].reverse()) {
+    const prefix = `- ${post.id} #${post.seq} ${post.author.kind} ${post.createdAt.slice(0, 16)}: `;
+    let line =
+      prefix +
+      escapeText(
+        Array.from(postText(post) || '(card)')
+          .slice(0, 600)
+          .join(''),
+      );
+    if (bytes + Buffer.byteLength(line) + 1 > HANDOVER_BYTES) {
+      line = prefix + escapeText(firstLine(postText(post)) || '(card)');
+    }
+    const size = Buffer.byteLength(line) + 1;
+    if (bytes + size > HANDOVER_BYTES) continue;
+    lines.push(line);
+    bytes += size;
+  }
+  return `${before}\n<recent_posts count="${lines.length}">\n${lines.join('\n')}\n</recent_posts>\n${after}`;
 }
 
 /** 转给线程的帖子（ADR-0020 §4）：只有 `cited author="user"` 是用户的话，`note` 是协调者的说明。 */

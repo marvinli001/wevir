@@ -2,6 +2,22 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'assistants.timeline.reply': '回覆',
+  'assistants.timeline.reaction': '表情',
+  'assistants.timeline.cancelReply': '取消引用',
+  'assistants.timeline.original': '原訊息',
+  'assistants.timeline.replies': '{count} 則回覆',
+  'assistants.timeline.today': '今天',
+  'assistants.timeline.yesterday': '昨天',
+  'assistants.activity.thinking': '正在思考',
+  'assistants.activity.reading': '正在讀取檔案',
+  'assistants.activity.searching': '正在搜尋',
+  'assistants.activity.browsing': '正在瀏覽網頁',
+  'assistants.activity.running': '正在執行命令',
+  'assistants.activity.writing': '正在寫入',
+  'assistants.activity.remembering': '正在記錄',
+  'assistants.activity.scheduling': '正在安排',
+  'assistants.activity.working': '正在處理',
   'provider.zuvApi.login': '登入連線',
   'provider.zuvApi.waiting': '等待授權',
   'provider.zuvApi.open': '開啟授權頁',

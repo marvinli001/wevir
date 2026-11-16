@@ -1,0 +1,323 @@
+{
+  "protocolVersion": "0.194.0",
+  "methods": {
+    "channel.post": {
+      "params": [
+        {
+          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "content": [
+            {
+              "type": "text",
+              "text": "Follow up"
+            }
+          ],
+          "replyTo": "cpo_root"
+        }
+      ],
+      "result": [
+        {
+          "post": {
+            "id": "cpo_chat",
+            "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "seq": 1,
+            "author": {
+              "kind": "user"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Noted"
+              }
+            ],
+            "createdAt": "2026-11-16T01:00:00.000Z",
+            "replyTo": "cpo_root",
+            "replyCount": 2,
+            "reactions": [
+              {
+                "emoji": "\ud83d\udc4d",
+                "by": "user"
+              },
+              {
+                "emoji": "\u2705",
+                "by": "assistant"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "channel.react": {
+      "params": [
+        {
+          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "postId": "cpo_chat",
+          "emoji": "\ud83d\udc4d"
+        },
+        {
+          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "postId": "cpo_chat",
+          "emoji": null
+        }
+      ],
+      "result": [
+        {
+          "post": {
+            "id": "cpo_chat",
+            "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "seq": 1,
+            "author": {
+              "kind": "user"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Noted"
+              }
+            ],
+            "createdAt": "2026-11-16T01:00:00.000Z",
+            "replyTo": "cpo_root",
+            "replyCount": 2,
+            "reactions": [
+              {
+                "emoji": "\ud83d\udc4d",
+                "by": "user"
+              },
+              {
+                "emoji": "\u2705",
+                "by": "assistant"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "channel.get": {
+      "params": [
+        {
+          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "channel": {
+            "id": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "kind": "assistant",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "title": "\u6536\u4ef6\u7bb1",
+            "assistant": {
+              "description": "\u6bcf\u5929\u6574\u7406\u90ae\u4ef6\uff0c\u6311\u51fa\u8981\u56de\u7684",
+              "avatar": {
+                "type": "clover",
+                "color": 2,
+                "seed": 0.42
+              },
+              "rules": {
+                "messages": "ask",
+                "local_files": "tell"
+              },
+              "folders": []
+            },
+            "coordinator": {
+              "providerId": "openai",
+              "modelId": "gpt-5.5-mini",
+              "mode": "act",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR7",
+              "generation": 1
+            },
+            "budget": {
+              "dailyWakes": 20,
+              "dailyTokens": 200000
+            },
+            "usage": {
+              "day": "2026-10-12",
+              "wakes": 3,
+              "tokens": 41200
+            },
+            "state": "waiting",
+            "pendingCount": 1,
+            "lastPostSeq": 4,
+            "lastPost": {
+              "seq": 4,
+              "author": "coordinator",
+              "preview": "\u4e24\u5c01\u8981\u56de\uff0c\u8349\u7a3f\u5df2\u5907\u597d\u3002",
+              "at": "2026-10-12T08:00:05.250Z"
+            },
+            "unreadCount": 2,
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "answering": true,
+            "activity": {
+              "kind": "reading"
+            }
+          },
+          "threads": [
+            {
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "rootPostId": "cpo_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "title": "\u56de\u590d\u623f\u4e1c",
+              "status": "working",
+              "doing": "\u8d77\u8349\u56de\u4fe1",
+              "replyCount": 1,
+              "lastReply": {
+                "at": "2026-10-12T08:00:05.250Z",
+                "firstLine": "\u8349\u7a3f\u5728\u9644\u4ef6\u91cc\u3002"
+              },
+              "openedBy": "coordinator",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "approvals": [
+            {
+              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR7",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "toolCallId": "call_mv4pwxip_1",
+              "options": [
+                {
+                  "optionId": "allow-once",
+                  "label": "Allow once",
+                  "kind": "allow_once",
+                  "category": "allow"
+                },
+                {
+                  "optionId": "reject-once",
+                  "label": "Reject",
+                  "kind": "reject_once",
+                  "category": "reject"
+                }
+              ],
+              "detail": {
+                "toolName": "write",
+                "display": {
+                  "kind": "write",
+                  "summary": "/tmp/wevir-outside.txt",
+                  "paths": ["/tmp/wevir-outside.txt"]
+                },
+                "input": {
+                  "file_path": "/tmp/wevir-outside.txt",
+                  "content": "hello",
+                  "sandbox_permissions": "danger-full-access",
+                  "justification": "write outside workspace"
+                },
+                "justification": "write outside workspace",
+                "sandboxPermissions": "danger-full-access"
+              },
+              "status": "pending",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "tasks": [
+            {
+              "id": "t1",
+              "subject": "\u8865\u9f50\u5bfc\u51fa\u63a5\u53e3\u7684\u6d4b\u8bd5",
+              "description": "\u7ed9 src/export.ts \u7684\u4e09\u4e2a\u5bfc\u51fa\u51fd\u6570\u8865\u5355\u5143\u6d4b\u8bd5\uff0c\u8dd1\u901a pnpm test\u3002",
+              "status": "in_progress",
+              "owner": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+              "blockedBy": [],
+              "notes": [
+                {
+                  "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+                  "text": "\u4e24\u4e2a\u51fd\u6570\u5df2\u8986\u76d6",
+                  "at": "2026-10-12T08:00:05.250Z"
+                }
+              ],
+              "createdBy": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:05.250Z"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "notifications": {
+    "channel.updated": [
+      {
+        "subscriptionId": "sub_chat",
+        "channel": {
+          "id": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "kind": "assistant",
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "title": "\u6536\u4ef6\u7bb1",
+          "assistant": {
+            "description": "\u6bcf\u5929\u6574\u7406\u90ae\u4ef6\uff0c\u6311\u51fa\u8981\u56de\u7684",
+            "avatar": {
+              "type": "clover",
+              "color": 2,
+              "seed": 0.42
+            },
+            "rules": {
+              "messages": "ask",
+              "local_files": "tell"
+            },
+            "folders": []
+          },
+          "coordinator": {
+            "providerId": "openai",
+            "modelId": "gpt-5.5-mini",
+            "mode": "act",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR7",
+            "generation": 1
+          },
+          "budget": {
+            "dailyWakes": 20,
+            "dailyTokens": 200000
+          },
+          "usage": {
+            "day": "2026-10-12",
+            "wakes": 3,
+            "tokens": 41200
+          },
+          "state": "waiting",
+          "pendingCount": 1,
+          "lastPostSeq": 4,
+          "lastPost": {
+            "seq": 4,
+            "author": "coordinator",
+            "preview": "\u4e24\u5c01\u8981\u56de\uff0c\u8349\u7a3f\u5df2\u5907\u597d\u3002",
+            "at": "2026-10-12T08:00:05.250Z"
+          },
+          "unreadCount": 2,
+          "createdAt": "2026-10-12T08:00:00.000Z",
+          "updatedAt": "2026-10-12T08:00:05.250Z",
+          "answering": true,
+          "activity": {
+            "kind": "reading"
+          }
+        },
+        "posts": [
+          {
+            "id": "cpo_chat",
+            "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "seq": 1,
+            "author": {
+              "kind": "user"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Noted"
+              }
+            ],
+            "createdAt": "2026-11-16T01:00:00.000Z",
+            "replyTo": "cpo_root",
+            "replyCount": 2,
+            "reactions": [
+              {
+                "emoji": "\ud83d\udc4d",
+                "by": "user"
+              },
+              {
+                "emoji": "\u2705",
+                "by": "assistant"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "events": [],
+  "errors": []
+}

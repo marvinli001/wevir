@@ -8903,6 +8903,19 @@ export const methodSamples: MethodSamples = {
     },
     result: { valid: [{ post: channelUserPost }], invalid: [{}] },
   },
+  'channel.react': {
+    params: {
+      valid: [
+        { channelId: ids.channel, postId: ids.channelPost, emoji: '👍' },
+        { channelId: ids.channel, postId: ids.channelPost, emoji: null },
+      ],
+      invalid: [
+        { channelId: ids.channel },
+        { channelId: ids.channel, postId: ids.channelPost, emoji: '' },
+      ],
+    },
+    result: { valid: [{ post: channelUserPost }], invalid: [{}] },
+  },
   'channel.markRead': {
     params: { valid: [{ channelId: ids.channel, seq: 4 }], invalid: [{ channelId: ids.channel }] },
     result: { valid: [{}], invalid: [null] },

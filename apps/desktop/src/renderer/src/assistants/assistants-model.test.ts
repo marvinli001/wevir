@@ -1,12 +1,14 @@
 import type { ApprovalRequest, BoardTask, Channel, ChannelPost } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  ACTIVITY_LABEL,
   applyListChange,
   applyUpdate,
   assistantPatch,
   assistantsAvailability,
   assistantsById,
   brainLimit,
+  chatSupported,
   composerAction,
   composerSupported,
   groupMembers,
@@ -21,8 +23,11 @@ import {
   rerollAvatar,
   rowState,
   schedulesSupported,
+  showsReplyQuote,
   sortAssistants,
   threadsByRoot,
+  timelineRows,
+  timelineTimeLabel,
 } from './assistants-model';
 
 const AT = '2026-10-24T08:00:00.000Z';
@@ -348,5 +353,96 @@ describe('输入框（0.135.0）', () => {
       'send',
     );
     expect(composerAction({ channel: channel(), supported: true, hasContent: false })).toBe('send');
+  });
+});
+
+describe('chat presentation', () => {
+  const at = (time: string) => new Date(`2026-11-16T${time}`).toISOString();
+  const message = (seq: number, time: string, author: ChannelPost['author']): ChannelPost => ({
+    id: `cpo_${seq}`,
+    channelId: 'chn_chat',
+    seq,
+    author,
+    content: [{ type: 'text', text: `Message ${seq}` }],
+    createdAt: at(time),
+  });
+  it('groups consecutive authors under five minutes, with avatars at group ends', () => {
+    const rows = timelineRows([
+      message(1, '09:00:00', { kind: 'user' }),
+      message(2, '09:04:59', { kind: 'user' }),
+      message(3, '09:09:59', { kind: 'user' }),
+      message(4, '09:10:00', { kind: 'coordinator', sessionId: 'ses_a', generation: 1 }),
+      message(5, '09:10:01', { kind: 'assistant', channelId: 'chn_peer', name: 'Peer' }),
+      message(6, '09:10:02', { kind: 'assistant', channelId: 'chn_other', name: 'Other' }),
+    ]);
+    expect(rows.map(({ first, last }) => [first, last])).toEqual([
+      [true, false],
+      [false, true],
+      [true, true],
+      [true, true],
+      [true, true],
+      [true, true],
+    ]);
+  });
+  it('separates at thirty minutes and across local midnight', () => {
+    expect(
+      timelineRows([
+        message(1, '09:00:00', { kind: 'user' }),
+        message(2, '09:29:59', { kind: 'user' }),
+        message(3, '09:59:59', { kind: 'user' }),
+      ]).map((row) => row.separator),
+    ).toEqual([true, false, true]);
+    const first = {
+      ...message(1, '23:59:00', { kind: 'user' }),
+      createdAt: new Date(2026, 10, 15, 23, 59).toISOString(),
+    };
+    const second = {
+      ...message(2, '00:01:00', { kind: 'user' }),
+      createdAt: new Date(2026, 10, 16, 0, 1).toISOString(),
+    };
+    expect(timelineRows([first, second])[1]).toMatchObject({ first: true, separator: true });
+  });
+  it('labels today, yesterday, older dates and previous years', () => {
+    const now = new Date(2026, 10, 16, 14, 30);
+    const labels = { today: 'Today', yesterday: 'Yesterday' };
+    expect(
+      timelineTimeLabel(new Date(2026, 10, 16, 13, 31).toISOString(), now, 'en-US', labels),
+    ).toBe('Today 13:31');
+    expect(
+      timelineTimeLabel(new Date(2026, 10, 15, 9, 42).toISOString(), now, 'en-US', labels),
+    ).toMatch(/^Yesterday .*9:42$/);
+    expect(
+      timelineTimeLabel(new Date(2026, 10, 14, 7, 55).toISOString(), now, 'en-US', labels),
+    ).toContain('Nov 14');
+    expect(
+      timelineTimeLabel(new Date(2025, 10, 14, 7, 55).toISOString(), now, 'en-US', labels),
+    ).toContain('2025');
+  });
+  it('hides only the default coordinator reply context', () => {
+    const user = message(1, '09:00:00', { kind: 'user' });
+    const reply = {
+      ...message(2, '09:00:01', { kind: 'coordinator', sessionId: 'ses_a', generation: 1 }),
+      replyTo: user.id,
+    };
+    expect(showsReplyQuote(reply, [user, reply])).toBe(false);
+    expect(showsReplyQuote({ ...reply, replyTo: 'cpo_older' }, [user, reply])).toBe(true);
+    expect(showsReplyQuote({ ...user, replyTo: reply.id }, [user, reply])).toBe(true);
+  });
+  it('gates chat actions and preserves the loaded window when older posts change', () => {
+    expect(chatSupported(undefined)).toBe(false);
+    expect(chatSupported({ channels: true })).toBe(false);
+    expect(chatSupported({ channel_chat: true })).toBe(true);
+    expect(Object.keys(ACTIVITY_LABEL)).toHaveLength(9);
+    const current = {
+      channel: channel(),
+      posts: [post(50, 'loaded')],
+      threads: [],
+      approvals: [],
+      tasks: [],
+      hasOlder: true,
+    };
+    expect(applyUpdate(current, { posts: [post(1, 'old', { replyCount: 1 })] }).posts).toEqual(
+      current.posts,
+    );
   });
 });

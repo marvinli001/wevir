@@ -574,6 +574,22 @@ const standaloneCases: Case[] = [
     invalid: [{ day: '12/10', wakes: 0, tokens: 0 }],
   },
   {
+    name: 'ChannelActivityKind',
+    schema: protocol.ChannelActivityKindSchema,
+    valid: [
+      'thinking',
+      'reading',
+      'searching',
+      'browsing',
+      'running',
+      'writing',
+      'remembering',
+      'scheduling',
+      'working',
+    ],
+    invalid: ['shell', '', null],
+  },
+  {
     name: 'ChannelState',
     schema: protocol.ChannelStateSchema,
     valid: ['idle', 'working', 'waiting', 'paused'],

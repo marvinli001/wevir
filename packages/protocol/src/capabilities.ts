@@ -592,6 +592,8 @@ export const HOST_FEATURES = {
    * 与 `Channel.answering`。
    */
   channel_composer: 'channel_composer',
+  /** 聊天交互（0.194.0）：引用、表情与协调者活动。 */
+  channel_chat: 'channel_chat',
   /**
    * iOS 模拟器（0.122.0，domain-model §3.15.9）：`simulator.*` 方法、`simulator.changed` / `simulator.show` / `simulator.orientation`
    * 通知与 RPC 端口上的 `/simulator/stream`；设置的 `iosSimulator` 开着（默认）且有应用级工具时还有 `simulator_control` 与
@@ -784,6 +786,7 @@ export const HostFeaturesSchema = z.looseObject({
   channel_schedules: z.boolean().optional(),
   channel_groups: z.boolean().optional(),
   channel_composer: z.boolean().optional(),
+  channel_chat: z.boolean().optional(),
   ios_simulator: z.boolean().optional(),
   turn_wrap_up: z.boolean().optional(),
   engine_prewarm: z.boolean().optional(),

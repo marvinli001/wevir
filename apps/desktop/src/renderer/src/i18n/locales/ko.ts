@@ -2,6 +2,22 @@
 import type { Messages } from '../zh-CN.js';
 
 export const messages: Messages = {
+  'assistants.timeline.reply': '답장',
+  'assistants.timeline.reaction': '반응',
+  'assistants.timeline.cancelReply': '답장 취소',
+  'assistants.timeline.original': '원본 메시지',
+  'assistants.timeline.replies': '답장 {count}개',
+  'assistants.timeline.today': '오늘',
+  'assistants.timeline.yesterday': '어제',
+  'assistants.activity.thinking': '생각 중',
+  'assistants.activity.reading': '파일 읽는 중',
+  'assistants.activity.searching': '검색 중',
+  'assistants.activity.browsing': '웹 탐색 중',
+  'assistants.activity.running': '명령 실행 중',
+  'assistants.activity.writing': '작성 중',
+  'assistants.activity.remembering': '기록 중',
+  'assistants.activity.scheduling': '일정 설정 중',
+  'assistants.activity.working': '처리 중',
   'provider.zuvApi.login': '로그인 연결',
   'provider.zuvApi.waiting': '인증 대기 중',
   'provider.zuvApi.open': '인증 페이지 열기',

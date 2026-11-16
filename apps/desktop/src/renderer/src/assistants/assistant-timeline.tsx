@@ -16,20 +16,23 @@ import type {
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
-  Check,
   Circle,
   CircleCheck,
   GitBranch,
   Lightbulb,
   LoaderCircle,
+  Reply,
   RotateCcw,
+  SmilePlus,
   Sun,
   TriangleAlert,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useWorkbenchSelector } from '@/data/workbench-data';
-import { describe } from '@/host/host-connection';
+import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { approvalLayout, optionLabel, presentApproval } from '@/session/approval-model';
 import { imagesOf } from '@/session/composer-images';
@@ -39,12 +42,18 @@ import { MarkdownView } from '@/session/markdown/markdown-view';
 import { AssistantAvatar } from './assistant-avatar';
 import { AssistantComposer } from './assistant-composer';
 import {
+  ACTIVITY_LABEL,
   type AssistantView,
   CATEGORY_LABEL,
+  chatSupported,
   groupMembers,
   outgoingText,
+  postFirstLine,
   postText,
+  showsReplyQuote,
   threadsByRoot,
+  timelineRows,
+  timelineTimeLabel,
 } from './assistants-model';
 
 /** 离底部这么近时，新帖来了跟着滚到底。 */
@@ -81,10 +90,40 @@ export function AssistantTimeline({
   onError: (text: string) => void;
 }) {
   const { channel, posts } = view;
+  const connection = useHostConnection();
+  const chat = chatSupported(
+    connection.view.status === 'connected' ? connection.view.hello.features : undefined,
+  );
+  const [reply, setReply] = useState<ChannelPost>();
+  const [jump, setJump] = useState<string>();
+  const [highlighted, setHighlighted] = useState<string>();
+  const requestedBefore = useRef<number | undefined>(undefined);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const lastSeq = posts.at(-1)?.seq ?? 0;
   const threads = useMemo(() => threadsByRoot(view.threads), [view.threads]);
+  const rows = useMemo(() => timelineRows(posts), [posts]);
+  const jumpTo = (id: string) => {
+    stick.current = false;
+    requestedBefore.current = undefined;
+    setJump(id);
+  };
+  useEffect(() => () => clearTimeout(highlightTimer.current), []);
+  useEffect(() => {
+    if (jump === undefined) return;
+    const target = document.getElementById(jump);
+    if (target !== null && scrollRef.current?.contains(target)) {
+      target.scrollIntoView({ block: 'center', behavior: 'instant' });
+      setHighlighted(jump);
+      clearTimeout(highlightTimer.current);
+      highlightTimer.current = setTimeout(() => setHighlighted(undefined), 1400);
+      setJump(undefined);
+    } else if (view.hasOlder && !loadingOlder && requestedBefore.current !== posts[0]?.seq) {
+      requestedBefore.current = posts[0]?.seq;
+      onLoadOlder();
+    } else if (!view.hasOlder) setJump(undefined);
+  }, [jump, posts, view.hasOlder, loadingOlder, onLoadOlder]);
 
   // 新帖来了：原来在底部就跟着滚到底。往前翻页时保持当前看到的位置。
   const firstSeq = posts[0]?.seq;
@@ -123,10 +162,10 @@ export function AssistantTimeline({
     );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="@container min-h-0 flex-1 overflow-y-auto"
         onScroll={(event) => {
           const element = event.currentTarget;
           stick.current =
@@ -135,7 +174,7 @@ export function AssistantTimeline({
         }}
         data-testid="assistant-timeline"
       >
-        <div className="mx-auto flex max-w-180 flex-col gap-4 px-5 py-5">
+        <div className="mx-auto flex max-w-180 flex-col px-5 py-5">
           {view.hasOlder && (
             <div className="flex justify-center">
               <Button variant="ghost" size="sm" disabled={loadingOlder} onClick={onLoadOlder}>
@@ -144,35 +183,93 @@ export function AssistantTimeline({
               </Button>
             </div>
           )}
-          {posts.map((post) => (
-            <PostRow
-              key={post.id}
-              post={post}
-              channel={channel}
-              assistants={assistants}
-              threads={threads.get(post.id) ?? []}
-              onRespond={(accept) =>
-                run(
-                  client.request('channel.respondSuggestion', {
-                    channelId: channel.id,
-                    postId: post.id,
-                    accept,
-                  }),
-                )
-              }
-              onRetry={() => run(client.request('channel.wake', { channelId: channel.id }))}
-              onOpenThread={onOpenThread}
-              onResolve={(thread, resolved) =>
-                run(
-                  client.request('channel.resolveThread', {
-                    channelId: channel.id,
-                    sessionId: thread.sessionId,
-                    resolved,
-                  }),
-                )
-              }
-            />
+          {rows.map(({ post, first, last, separator }) => (
+            <div key={post.id} className={chat && !first ? 'mt-1' : 'mt-4'}>
+              {chat && separator && (
+                <p className="mb-4 text-center text-xs text-muted-foreground" data-time-separator>
+                  {timelineTimeLabel(post.createdAt, new Date(), currentLocale(), {
+                    today: t('assistants.timeline.today'),
+                    yesterday: t('assistants.timeline.yesterday'),
+                  })}
+                </p>
+              )}
+              <PostRow
+                post={post}
+                chat={chat}
+                first={first}
+                last={last}
+                highlighted={highlighted === post.id}
+                quoted={
+                  post.replyTo === undefined
+                    ? undefined
+                    : posts.find((candidate) => candidate.id === post.replyTo)
+                }
+                showQuote={chat && showsReplyQuote(post, posts)}
+                onReply={() => setReply(post)}
+                onJump={jumpTo}
+                onReplies={() => {
+                  const firstReply = posts.find((candidate) => candidate.replyTo === post.id);
+                  if (firstReply !== undefined) jumpTo(firstReply.id);
+                }}
+                onReact={(emoji) =>
+                  run(
+                    client
+                      .request('channel.react', { channelId: channel.id, postId: post.id, emoji })
+                      .then(({ post }) => onPosted(post)),
+                  )
+                }
+                channel={channel}
+                assistants={assistants}
+                threads={threads.get(post.id) ?? []}
+                onRespond={(accept) =>
+                  run(
+                    client.request('channel.respondSuggestion', {
+                      channelId: channel.id,
+                      postId: post.id,
+                      accept,
+                    }),
+                  )
+                }
+                onRetry={() => run(client.request('channel.wake', { channelId: channel.id }))}
+                onOpenThread={onOpenThread}
+              />
+            </div>
           ))}
+          {channel.answering === true && (
+            <div className="mt-4 flex items-end gap-3" data-testid="assistant-typing">
+              {channel.assistant && (
+                <AssistantAvatar
+                  avatar={channel.assistant.avatar}
+                  size={24}
+                  className="mt-4 self-start"
+                />
+              )}
+              <div className="flex flex-col gap-1.5">
+                <div
+                  className="flex h-10 w-16 items-center justify-center gap-1 rounded-xl bg-card"
+                  role="status"
+                  aria-label={t('assistants.activity.thinking')}
+                >
+                  {[0, 1, 2].map((dot) => (
+                    <span
+                      key={dot}
+                      aria-hidden
+                      className="size-1.5 rounded-full bg-muted-foreground motion-safe:animate-pulse"
+                      style={{ animationDelay: `${dot * 160}ms` }}
+                    />
+                  ))}
+                </div>
+                {chat && (
+                  <span
+                    className="text-xs text-muted-foreground"
+                    data-channel-activity={channel.activity?.kind ?? 'thinking'}
+                  >
+                    {t(ACTIVITY_LABEL[channel.activity?.kind ?? 'thinking'])}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <div className="mx-auto flex w-full max-w-180 flex-col gap-2 px-5 pb-4">
@@ -187,6 +284,8 @@ export function AssistantTimeline({
         <AssistantComposer
           client={client}
           channel={channel}
+          reply={reply}
+          onCancelReply={() => setReply(undefined)}
           members={channel.kind === 'group' ? groupMembers(channel, assistants) : []}
           onPosted={(post) => {
             stick.current = true;
@@ -204,30 +303,53 @@ function PostRow({
   channel,
   assistants,
   threads,
+  chat,
+  first,
+  last,
+  highlighted,
+  quoted,
+  showQuote,
   onRespond,
   onRetry,
   onOpenThread,
-  onResolve,
+  onReply,
+  onJump,
+  onReplies,
+  onReact,
 }: {
   post: ChannelPost;
   channel: Channel;
   assistants: ReadonlyMap<string, Channel>;
   threads: ChannelThread[];
+  chat: boolean;
+  first: boolean;
+  last: boolean;
+  highlighted: boolean;
+  quoted: ChannelPost | undefined;
+  showQuote: boolean;
   onRespond: (accept: boolean) => void;
   onRetry: () => void;
   onOpenThread: (thread: ChannelThread) => void;
-  onResolve: (thread: ChannelThread, resolved: boolean) => void;
+  onReply: () => void;
+  onJump: (id: string) => void;
+  onReplies: () => void;
+  onReact: (emoji: string | null) => void;
 }) {
   const text = postText(post);
-  const time = formatMessageTime(post.createdAt, currentLocale());
   const author = post.author.kind;
+  const time = new Date(post.createdAt).toLocaleString(currentLocale());
   if (author === 'host') {
     const about =
       post.card?.kind === 'notice' && post.card.assistantId !== undefined
         ? assistants.get(post.card.assistantId)?.title
         : undefined;
     return (
-      <div className="flex justify-center" data-post-author="host" data-post-seq={post.seq}>
+      <div
+        id={post.id}
+        className="flex justify-center"
+        data-post-author="host"
+        data-post-seq={post.seq}
+      >
         <HostNotice
           card={post.card}
           text={text}
@@ -237,54 +359,43 @@ function PostRow({
       </div>
     );
   }
-  if (author === 'user') {
-    const images = imagesOf(post.content);
-    return (
-      <div
-        className="flex flex-col items-end gap-1.5"
-        data-post-author="user"
-        data-post-seq={post.seq}
-      >
-        {images.length > 0 && <MessageImages images={images} />}
-        {text !== '' && (
-          <div className="max-w-[85%] min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
-            {text}
-          </div>
-        )}
-        <span className="text-xs text-muted-foreground">
-          {post.routedTo !== undefined && post.routedTo.length > 0
-            ? t('assistants.timeline.routed', { count: post.routedTo.length, time })
-            : time}
-        </span>
-        {threads.map((thread) => (
-          <ThreadCard
-            key={thread.sessionId}
-            thread={thread}
-            onOpen={onOpenThread}
-            onResolve={onResolve}
-          />
-        ))}
-      </div>
-    );
-  }
-  // 别的助理写的：它的头像与名字（列表里没有了就用帖子上的名字）。
+  const user = author === 'user';
   const other = post.author.kind === 'assistant' ? post.author : undefined;
   const speaker = other === undefined ? channel : assistants.get(other.channelId);
   const avatar = speaker?.assistant?.avatar;
+  const images = imagesOf(post.content);
   return (
     <div
-      className="flex gap-3"
+      id={post.id}
+      className={cn('flex items-end gap-3', user && 'justify-end')}
       data-post-author={author}
       data-post-seq={post.seq}
       {...(other !== undefined && { 'data-post-assistant': other.channelId })}
     >
-      {avatar ? (
-        <AssistantAvatar avatar={avatar} size={24} className="mt-0.5 shrink-0" />
-      ) : (
-        <span aria-hidden className="mt-0.5 size-6 shrink-0 rounded-full bg-muted" />
+      {!user && (
+        <div className="w-6 shrink-0 self-end pb-0.5">
+          {(!chat || last) &&
+            (avatar ? (
+              <AssistantAvatar avatar={avatar} size={24} />
+            ) : (
+              <span aria-hidden className="block size-6 rounded-full bg-muted" />
+            ))}
+        </div>
       )}
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        {other !== undefined && (
+      <div
+        className={cn(
+          'flex min-w-0 flex-col gap-1.5',
+          chat
+            ? user
+              ? 'max-w-[85%] @min-[28rem]:max-w-[min(85%,calc(100%_-_4rem))]'
+              : 'max-w-[min(85%,calc(100%_-_2.25rem))] @min-[28rem]:max-w-[min(85%,calc(100%_-_6rem))]'
+            : user
+              ? 'max-w-[85%]'
+              : 'flex-1',
+          user ? 'items-end' : 'items-start',
+        )}
+      >
+        {other !== undefined && (!chat || first) && (
           <span className="text-xs font-medium text-soft-foreground" data-post-name>
             {speaker?.title ?? other.name}
           </span>
@@ -296,35 +407,181 @@ function PostRow({
             })}
           </span>
         )}
-        {post.card?.kind === 'brief' && <BriefCard card={post.card} />}
-        {/* 建议的帖子文字就是建议本身，卡片里已有。 */}
-        {text !== '' && !(post.card?.kind === 'suggestion' && text === post.card.text) && (
-          <MarkdownView className="text-content" text={text} streaming={false} quotable />
+        <div className="group/post relative min-w-0 max-w-full">
+          {showQuote && post.replyTo !== undefined && (
+            <button
+              type="button"
+              className="mb-1 flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs text-muted-foreground outline-none hover:bg-muted focus-visible:focus-ring"
+              onClick={() => onJump(post.replyTo as string)}
+              data-action="quote"
+            >
+              <Reply aria-hidden className="size-3 shrink-0" />
+              <span className="truncate">
+                {quoted === undefined
+                  ? t('assistants.timeline.original')
+                  : postFirstLine(quoted) || t('assistants.timeline.original')}
+              </span>
+            </button>
+          )}
+          <div
+            title={time}
+            className={cn(
+              'min-w-0 break-words',
+              (chat || user) && 'rounded-xl px-3.5 py-2',
+              user ? 'bg-muted whitespace-pre-wrap' : chat && 'bg-card',
+              highlighted && 'ring-2 ring-ring/40',
+            )}
+            data-post-bubble={post.id}
+            data-highlighted={highlighted || undefined}
+          >
+            {images.length > 0 && <MessageImages images={images} />}
+            {post.card?.kind === 'brief' && <BriefCard card={post.card} />}
+            {text !== '' &&
+              !(post.card?.kind === 'suggestion' && text === post.card.text) &&
+              (user ? (
+                text
+              ) : (
+                <MarkdownView className="text-content" text={text} streaming={false} quotable />
+              ))}
+            {post.card?.kind === 'needs' && <NeedsCard card={post.card} />}
+            {post.card?.kind === 'suggestion' && (
+              <SuggestionCard card={post.card} onRespond={onRespond} />
+            )}
+            {post.files !== undefined && post.files.length > 0 && (
+              <ul className="mt-1.5 flex flex-wrap gap-1.5 text-sm">
+                {post.files.map((file) => (
+                  <li key={file.path} className="rounded-md bg-muted px-2 py-0.5 text-xs">
+                    {file.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {chat && (
+            <div
+              className={cn(
+                'absolute right-0 bottom-full mb-1 flex items-center gap-0.5 rounded-lg bg-background p-0.5 opacity-0 group-hover/post:opacity-100 group-focus-within/post:opacity-100 has-[[data-popup-open]]:opacity-100 @min-[28rem]:top-0 @min-[28rem]:bottom-auto @min-[28rem]:mb-0',
+                user
+                  ? '@min-[28rem]:right-full @min-[28rem]:mr-1'
+                  : '@min-[28rem]:right-auto @min-[28rem]:left-full @min-[28rem]:ml-1',
+              )}
+            >
+              <IconButton
+                size="icon-xs"
+                label={t('assistants.timeline.reply')}
+                onClick={onReply}
+                data-action="reply"
+              >
+                <Reply />
+              </IconButton>
+              <ReactionPicker post={post} onReact={onReact} />
+            </div>
+          )}
+          {chat && post.reactions !== undefined && post.reactions.length > 0 && (
+            <div
+              className={cn('relative -mt-1.5 flex gap-0.5 px-2', user && 'justify-end')}
+              data-reactions
+            >
+              {post.reactions.map((reaction) =>
+                reaction.by === 'user' ? (
+                  <button
+                    key={reaction.by}
+                    type="button"
+                    className="rounded-full border border-border bg-card px-1.5 py-0.5 text-xs outline-none focus-visible:focus-ring"
+                    onClick={() => onReact(null)}
+                    aria-label={t('assistants.timeline.reaction')}
+                    data-reaction-by="user"
+                  >
+                    {reaction.emoji}
+                  </button>
+                ) : (
+                  <span
+                    key={reaction.by}
+                    title={channel.title}
+                    className="rounded-full border border-border bg-card px-1.5 py-0.5 text-xs"
+                    data-reaction-by="assistant"
+                  >
+                    {reaction.emoji}
+                  </span>
+                ),
+              )}
+            </div>
+          )}
+        </div>
+        {chat && post.replyCount !== undefined && (
+          <button
+            type="button"
+            className="rounded px-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
+            onClick={onReplies}
+            data-action="replies"
+          >
+            {t('assistants.timeline.replies', { count: post.replyCount })}
+          </button>
         )}
-        {post.card?.kind === 'needs' && <NeedsCard card={post.card} />}
-        {post.card?.kind === 'suggestion' && (
-          <SuggestionCard card={post.card} onRespond={onRespond} />
+        {!chat && (
+          <span className="text-xs text-muted-foreground">
+            {user && post.routedTo !== undefined && post.routedTo.length > 0
+              ? t('assistants.timeline.routed', {
+                  count: post.routedTo.length,
+                  time: formatMessageTime(post.createdAt, currentLocale()),
+                })
+              : formatMessageTime(post.createdAt, currentLocale())}
+          </span>
         )}
-        {post.files !== undefined && post.files.length > 0 && (
-          <ul className="flex flex-wrap gap-1.5 text-sm">
-            {post.files.map((file) => (
-              <li key={file.path} className="rounded-md bg-muted px-2 py-0.5 text-xs">
-                {file.name}
-              </li>
-            ))}
-          </ul>
-        )}
-        <span className="text-xs text-muted-foreground">{time}</span>
         {threads.map((thread) => (
-          <ThreadCard
-            key={thread.sessionId}
-            thread={thread}
-            onOpen={onOpenThread}
-            onResolve={onResolve}
-          />
+          <ThreadCard key={thread.sessionId} thread={thread} onOpen={onOpenThread} />
         ))}
       </div>
     </div>
+  );
+}
+
+const REACTIONS = ['\u{1f44d}', '\u2764\ufe0f', '\u{1f602}', '\u{1f389}', '\u{1f440}', '\u2705'];
+
+function ReactionPicker({
+  post,
+  onReact,
+}: {
+  post: ChannelPost;
+  onReact: (emoji: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = post.reactions?.find((reaction) => reaction.by === 'user')?.emoji;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <IconButton
+            size="icon-xs"
+            label={t('assistants.timeline.reaction')}
+            data-action="reaction"
+          >
+            <SmilePlus />
+          </IconButton>
+        }
+      />
+      <PopoverContent
+        className="w-auto flex-row gap-0.5 p-1"
+        aria-label={t('assistants.timeline.reaction')}
+      >
+        {REACTIONS.map((emoji) => (
+          <Button
+            key={emoji}
+            variant="ghost"
+            size="icon-sm"
+            aria-label={emoji}
+            aria-pressed={current === emoji}
+            onClick={() => {
+              onReact(current === emoji ? null : emoji);
+              setOpen(false);
+            }}
+            data-emoji={emoji}
+          >
+            {emoji}
+          </Button>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -495,11 +752,9 @@ function SuggestionCard({
 function ThreadCard({
   thread,
   onOpen,
-  onResolve,
 }: {
   thread: ChannelThread;
   onOpen: (thread: ChannelThread) => void;
-  onResolve: (thread: ChannelThread, resolved: boolean) => void;
 }) {
   const resolved = thread.status === 'resolved';
   const line = thread.status === 'working' ? thread.doing : thread.lastReply?.firstLine;
@@ -547,15 +802,6 @@ function ThreadCard({
           </p>
         </div>
       </button>
-      <Button
-        variant="ghost"
-        size="xs"
-        onClick={() => onResolve(thread, !resolved)}
-        data-action={resolved ? 'reopen' : 'resolve'}
-      >
-        {resolved ? <RotateCcw /> : <Check />}
-        {t(resolved ? 'assistants.thread.reopen' : 'assistants.thread.resolve')}
-      </Button>
     </section>
   );
 }

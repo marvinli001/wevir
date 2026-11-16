@@ -7,6 +7,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import { hostSupports } from '@wevir/client-sdk';
 import type { Channel, ChannelPost, UserImageMimeType } from '@wevir/protocol';
 import { cn } from 'cn';
+import { Reply, X } from 'lucide-react';
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -16,6 +17,7 @@ import {
   useState,
 } from 'react';
 import { useNavigate } from 'react-router';
+import { IconButton } from '@/components/icon-button';
 import { Textarea } from '@/components/ui/textarea';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -46,12 +48,20 @@ import {
 import { composerKeyAction } from '@/session/pending-model';
 import { useDictation } from '@/session/use-dictation';
 import { AssistantAvatar } from './assistant-avatar';
-import { composerAction, composerSupported, mentionedIn, mentionQuery } from './assistants-model';
+import {
+  composerAction,
+  composerSupported,
+  mentionedIn,
+  mentionQuery,
+  postFirstLine,
+} from './assistants-model';
 
 export function AssistantComposer({
   client,
   channel,
   members,
+  reply,
+  onCancelReply,
   onPosted,
   onError,
 }: {
@@ -59,6 +69,8 @@ export function AssistantComposer({
   channel: Channel;
   /** 群的成员（打 @ 时可选）；助理的时间线是空的。 */
   members: readonly Channel[];
+  reply: ChannelPost | undefined;
+  onCancelReply: () => void;
   onPosted: (post: ChannelPost) => void;
   onError: (text: string) => void;
 }) {
@@ -92,6 +104,9 @@ export function AssistantComposer({
   const uploading = images.some((image) => image.part === undefined);
   const hasContent = text.trim() !== '' || images.length > 0;
   const action = composerAction({ channel, supported, hasContent });
+  useEffect(() => {
+    if (reply !== undefined) inputRef.current?.focus();
+  }, [reply]);
 
   // 换了助理：草稿不带过去。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只跟着频道。
@@ -112,12 +127,14 @@ export function AssistantComposer({
         channelId: channel.id,
         content: messageContent(body, parts),
         clientPostId: crypto.randomUUID(),
+        ...(reply !== undefined && { replyTo: reply.id }),
         ...(mentions.length > 0 && { mentions }),
       });
       setText('');
       setImages([]);
       setImageError(undefined);
       onPosted(post);
+      onCancelReply();
     } catch (reason) {
       onError(t('assistants.postFailed', { error: describe(reason) }));
     } finally {
@@ -292,6 +309,23 @@ export function AssistantComposer({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [answering]);
 
+  useEffect(() => {
+    if (reply === undefined) return;
+    const cancel = (event: globalThis.KeyboardEvent) => {
+      if (
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        document.querySelector('[role="dialog"]')
+      )
+        return;
+      event.preventDefault();
+      onCancelReply();
+    };
+    window.addEventListener('keydown', cancel, true);
+    return () => window.removeEventListener('keydown', cancel, true);
+  }, [reply, onCancelReply]);
+
   // ── 按键 ────────────────────────────────────────────────────────────
 
   const mention = (member: Channel) => {
@@ -367,7 +401,12 @@ export function AssistantComposer({
   );
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: 拖放只是“+”菜单的快捷方式。
-    <div className="relative" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+    <div
+      className="@container relative"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       {choices.length > 0 && (
         <ul
           className="absolute bottom-full left-0 mb-1.5 flex w-56 flex-col rounded-xl border border-border bg-popover p-1 shadow-md"
@@ -401,6 +440,24 @@ export function AssistantComposer({
         )}
         data-testid="assistant-composer"
       >
+        {reply !== undefined && (
+          <div
+            className="flex min-w-0 items-center gap-1.5 border-b border-border px-2 pb-1.5 text-xs text-muted-foreground"
+            data-testid="assistant-reply"
+          >
+            <Reply aria-hidden className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">
+              {postFirstLine(reply) || t('assistants.timeline.original')}
+            </span>
+            <IconButton
+              size="icon-xs"
+              label={t('assistants.timeline.cancelReply')}
+              onClick={onCancelReply}
+            >
+              <X />
+            </IconButton>
+          </div>
+        )}
         {dictation.errorKey && (
           <div className="flex items-center gap-2 px-2 pt-1 text-xs" role="alert">
             <p className="min-w-0 text-destructive" data-testid="composer-dictation-error">
@@ -449,7 +506,7 @@ export function AssistantComposer({
           </div>
         )}
         {/* 单行时输入框与两边的按钮同高（32px），文字和按钮在同一条中线上。 */}
-        <div className="flex items-end gap-1">
+        <div className="flex flex-wrap items-end gap-1 @min-[15rem]:flex-nowrap">
           {dictationBar ? (
             <DictationBar dictation={dictation} />
           ) : (
@@ -487,31 +544,37 @@ export function AssistantComposer({
                 onPaste={onPaste}
                 placeholder={placeholder}
                 aria-label={placeholder}
-                className="max-h-48 min-h-8 flex-1 resize-none rounded-none border-0 bg-transparent px-2 py-1.5 text-sm leading-5 focus-visible:ring-0"
+                className="order-first max-h-48 min-h-8 min-w-0 flex-1 basis-full resize-none rounded-none border-0 bg-transparent px-2 py-1.5 text-sm leading-5 focus-visible:ring-0 @min-[15rem]:order-none @min-[15rem]:basis-0"
                 rows={1}
                 data-field="post"
               />
-              {canDictate && <DictationButton dictation={dictation} disabled={false} />}
+              {canDictate && (
+                <div className="ml-auto shrink-0 @min-[15rem]:ml-0">
+                  <DictationButton dictation={dictation} disabled={false} />
+                </div>
+              )}
             </>
           )}
-          {dictationBar ? (
-            <ComposerButton
-              action="send"
-              loading={dictation.phase === 'transcribing'}
-              disabled={false}
-              onClick={() => {
-                sendAfterDictation.current = true;
-                dictation.stop();
-              }}
-            />
-          ) : (
-            <ComposerButton
-              action={action}
-              loading={busy}
-              disabled={action === 'stop' ? stopping : !hasContent || uploading}
-              onClick={() => void (action === 'stop' ? stop() : send())}
-            />
-          )}
+          <div className={cn('shrink-0 @min-[15rem]:ml-0', !canDictate && 'ml-auto')}>
+            {dictationBar ? (
+              <ComposerButton
+                action="send"
+                loading={dictation.phase === 'transcribing'}
+                disabled={false}
+                onClick={() => {
+                  sendAfterDictation.current = true;
+                  dictation.stop();
+                }}
+              />
+            ) : (
+              <ComposerButton
+                action={action}
+                loading={busy}
+                disabled={action === 'stop' ? stopping : !hasContent || uploading}
+                onClick={() => void (action === 'stop' ? stop() : send())}
+              />
+            )}
+          </div>
         </div>
       </div>
       {imagesEnabled && (

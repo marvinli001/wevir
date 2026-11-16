@@ -67,6 +67,32 @@ describe('channels', () => {
     expect(db.channels.countUnread('chn_1', 2)).toBe(1);
   });
 
+  it('persists reactions and counts replies without changing post order', () => {
+    const db = channel();
+    for (const [id, replyTo] of [
+      ['cpo_root', undefined],
+      ['cpo_reply', 'cpo_root'],
+    ]) {
+      db.channels.appendPost({
+        channelId: 'chn_1',
+        id: id as string,
+        author: { kind: 'coordinator' },
+        content: [],
+        ...(replyTo !== undefined && { replyTo }),
+        reactions: [{ emoji: '👀', by: 'assistant' }],
+        createdAt: T0,
+      });
+    }
+    expect(db.channels.getPost('cpo_root')?.reactions).toEqual([{ emoji: '👀', by: 'assistant' }]);
+    db.channels.setReactions('cpo_root', [{ emoji: '👍', by: 'user' }]);
+    expect(db.channels.getPost('cpo_root')?.reactions).toEqual([{ emoji: '👍', by: 'user' }]);
+    expect(db.channels.replyCount('chn_1', 'cpo_root')).toBe(1);
+    expect(db.channels.coordinatorPosts('chn_1', T0, 1).map((post) => post.id)).toEqual([
+      'cpo_reply',
+    ]);
+    expect(db.channels.coordinatorPosts('chn_1', T1, 8)).toEqual([]);
+  });
+
   it('改、暂停、软删、线程与用量', () => {
     const db = channel();
     expect(
