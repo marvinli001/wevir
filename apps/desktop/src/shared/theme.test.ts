@@ -3,6 +3,7 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import {
   APPEARANCE_STORAGE_KEY,
+  CUSTOM_THEME_STORAGE_KEY,
   isThemeMode,
   supportsWindowMaterial,
   THEME_BACKGROUND,
@@ -53,6 +54,7 @@ describe('首帧前脚本 theme-init.js', () => {
   it('读的是运行时同一个存储 key', () => {
     expect(runThemeInit({ systemDark: false }).readKeys).toEqual([
       THEME_STORAGE_KEY,
+      CUSTOM_THEME_STORAGE_KEY,
       APPEARANCE_STORAGE_KEY,
     ]);
   });
@@ -105,6 +107,64 @@ describe('首帧前脚本 theme-init.js', () => {
     expect(
       runThemeInit({ stored: { [APPEARANCE_STORAGE_KEY]: '{bad' }, systemDark: true }).background,
     ).toBe(THEME_BACKGROUND.dark);
+  });
+
+  it('uses the cached theme scheme, colors, and splash on the first frame without changing device preferences', () => {
+    const cache = {
+      version: 1,
+      hostId: 'host_fixture',
+      id: 'lagoon',
+      revision: '1',
+      colorScheme: 'dark',
+      variables: { light: {}, dark: { '--background': '#002b36', '--foreground': '#eee8d5' } },
+    };
+    const stored = {
+      [THEME_STORAGE_KEY]: 'light',
+      [CUSTOM_THEME_STORAGE_KEY]: JSON.stringify(cache),
+      [APPEARANCE_STORAGE_KEY]: JSON.stringify({
+        light: { background: '#faf4ed' },
+        dark: { background: '#111111' },
+      }),
+    };
+    const frame = runThemeInit({ stored, systemDark: false });
+    expect(frame.theme).toBe('dark');
+    expect(frame.background).toBe('#002b36');
+    expect(frame.properties['--splash-custom-bg']).toBe('#002b36');
+    expect(frame.properties['--splash-custom-mark']).toContain('#eee8d5');
+    expect(stored[THEME_STORAGE_KEY]).toBe('light');
+    const missingMode = runThemeInit({
+      stored: {
+        ...stored,
+        [CUSTOM_THEME_STORAGE_KEY]: JSON.stringify({ ...cache, colorScheme: undefined }),
+      },
+      systemDark: true,
+    });
+    expect(missingMode.theme).toBe('light');
+    expect(missingMode.background).toBe('#faf4ed');
+  });
+
+  it('ignores invalid cached JSON and schemes while allowing alpha hex theme colors', () => {
+    for (const raw of ['{bad', 'null', JSON.stringify({ version: 2, colorScheme: 'dark' })]) {
+      expect(
+        runThemeInit({ stored: { [CUSTOM_THEME_STORAGE_KEY]: raw }, systemDark: false }).background,
+      ).toBe(THEME_BACKGROUND.light);
+    }
+    const cache = {
+      version: 1,
+      hostId: 'host_fixture',
+      id: 'alpha',
+      revision: '1',
+      variables: { light: { '--background': '#123456aa' }, dark: {} },
+    };
+    expect(
+      runThemeInit({
+        stored: {
+          [CUSTOM_THEME_STORAGE_KEY]: JSON.stringify(cache),
+          [APPEARANCE_STORAGE_KEY]: '{bad',
+        },
+        systemDark: false,
+      }).background,
+    ).toBe('#123456aa');
   });
 });
 

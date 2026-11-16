@@ -16,6 +16,7 @@ import {
   THEME_STORAGE_KEY,
   type ThemeMode,
 } from '../../../shared/theme.js';
+import { customThemeStore } from './custom-theme';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 const listeners = new Set<() => void>();
@@ -43,28 +44,28 @@ function resolve(mode: ThemeMode): ResolvedTheme {
   return window.matchMedia(DARK_QUERY).matches ? 'dark' : 'light';
 }
 
-function apply(mode: ThemeMode): void {
-  const next = resolve(mode);
+function apply(mode: ThemeMode, changedTheme = false): void {
+  const next = resolve(customThemeStore.get().theme?.colorScheme ?? mode);
   const root = document.documentElement;
   // 换深浅色的那一下不放过渡（index.css 的 data-theme-switching）：带 transition-colors 的按钮、列表行与输入框会各自淡 150 到
   // 260 ms，没有过渡的表面当帧就换，看上去一块一块地变。先让新主题的样式在没有过渡的状态下算完，再放开。
   const shown = root.dataset.theme;
-  const switching = shown !== undefined && shown !== next;
+  const switching = changedTheme || (shown !== undefined && shown !== next);
   if (switching) root.setAttribute('data-theme-switching', '');
   currentResolved = next;
   root.dataset.theme = next;
+  for (const listener of listeners) listener();
   if (switching) {
     // 读一次计算样式，逼浏览器现在就把新主题算完；之后立刻放开，同一次点击里别的过渡（主题按钮的选中滑块）照常。
     void window.getComputedStyle(root).colorScheme;
     root.removeAttribute('data-theme-switching');
   }
-  for (const listener of listeners) listener();
 }
 
 function syncNativeTheme(mode: ThemeMode): void {
   // 只影响窗口外观（标题栏、原生控件、窗口底色），失败不影响页面主题。
   platformApi()
-    ?.setThemeSource(mode)
+    ?.setThemeSource(customThemeStore.get().theme?.colorScheme ?? mode)
     .catch(() => undefined);
 }
 
@@ -73,7 +74,7 @@ function ensureSystemSubscription(): void {
   systemSubscribed = true;
   // nativeTheme.themeSource 不是 'system' 时，prefers-color-scheme 跟着它变；这里只在跟随系统时响应。
   window.matchMedia(DARK_QUERY).addEventListener('change', () => {
-    if (getMode() === 'system') apply('system');
+    if (getMode() === 'system' && !customThemeStore.get().theme?.colorScheme) apply('system');
   });
 }
 
@@ -87,6 +88,10 @@ export function bootstrapTheme(): void {
   apply(mode);
   syncNativeTheme(mode);
   ensureSystemSubscription();
+  customThemeStore.subscribe(() => {
+    syncNativeTheme(getMode());
+    apply(getMode(), true);
+  });
 }
 
 export function setThemeMode(mode: ThemeMode): void {
@@ -106,14 +111,20 @@ export function setThemeMode(mode: ThemeMode): void {
 export interface ThemeState {
   mode: ThemeMode;
   resolved: ResolvedTheme;
+  colorScheme?: ResolvedTheme;
 }
 
 let snapshot: ThemeState = { mode: 'system', resolved: 'light' };
 
 function getSnapshot(): ThemeState {
   const mode = getMode();
-  if (snapshot.mode !== mode || snapshot.resolved !== currentResolved) {
-    snapshot = { mode, resolved: currentResolved };
+  const colorScheme = customThemeStore.get().theme?.colorScheme;
+  if (
+    snapshot.mode !== mode ||
+    snapshot.resolved !== currentResolved ||
+    snapshot.colorScheme !== colorScheme
+  ) {
+    snapshot = { mode, resolved: currentResolved, colorScheme };
   }
   return snapshot;
 }

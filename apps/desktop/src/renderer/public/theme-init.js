@@ -20,35 +20,66 @@
 // 设置 → 外观里自定义了这个主题的背景（APPEARANCE_STORAGE_KEY，src/theme/appearance-model.ts 只存 #rrggbb）时，首帧与启动
 // 画面用它：底色换成它，启动画面的底色与主标色经 --splash-custom-bg / --splash-custom-mark 给 splash.css（主标是背景往
 // 前景色偏 14%，前景没改时取默认的前景色）。
+// Host 主题缓存的 colorScheme 与当前模式背景优先，设备模式只读不改；CSS 与背景素材留给运行时。
 (() => {
   let theme = 'light';
   let custom = {};
+  let cached;
   try {
     const mode = localStorage.getItem('wevir.theme-mode');
     const systemDark = matchMedia('(prefers-color-scheme: dark)').matches;
     theme = mode === 'dark' || (mode !== 'light' && systemDark) ? 'dark' : 'light';
+  } catch {
+    // 无法读取设备模式时用默认模式。
+  }
+  try {
+    const value = JSON.parse(localStorage.getItem('wevir.custom-theme.v1') || 'null');
+    if (
+      value?.version === 1 &&
+      typeof value.hostId === 'string' &&
+      typeof value.id === 'string' &&
+      /^[a-z0-9][a-z0-9_-]{0,63}$/.test(value.id) &&
+      typeof value.revision === 'string' &&
+      value.variables?.light &&
+      value.variables?.dark &&
+      (value.colorScheme === undefined ||
+        value.colorScheme === 'light' ||
+        value.colorScheme === 'dark')
+    ) {
+      cached = value;
+      theme = value.colorScheme || theme;
+    }
+  } catch {
+    // 损坏的主题缓存不影响设备外观。
+  }
+  try {
     const appearance = JSON.parse(localStorage.getItem('wevir.appearance.v1') || '{}');
     if (appearance && typeof appearance[theme] === 'object' && appearance[theme] !== null) {
       custom = appearance[theme];
     }
   } catch {
-    // localStorage 不可用或内容坏了时按亮色、默认底色渲染，theme.ts 与 appearance.ts 启动后会再算一次。
+    // 损坏的设备外观不影响主题缓存。
   }
-  const hex = (value) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
-  const background = hex(custom.background)
-    ? custom.background
-    : theme === 'dark'
-      ? '#101114'
-      : '#fcfbfa';
+  const hex = (value) => typeof value === 'string' && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value);
+  const variables = cached?.variables[theme] || {};
+  const background = hex(variables['--background'])
+    ? variables['--background']
+    : hex(custom.background)
+      ? custom.background
+      : theme === 'dark'
+        ? '#101114'
+        : '#fcfbfa';
   const root = document.documentElement;
   root.dataset.theme = theme;
   root.style.backgroundColor = background;
-  if (hex(custom.background)) {
-    const foreground = hex(custom.foreground)
-      ? custom.foreground
-      : theme === 'dark'
-        ? '#eeede8'
-        : '#1a1a17';
+  if (hex(variables['--background']) || hex(custom.background)) {
+    const foreground = hex(variables['--foreground'])
+      ? variables['--foreground']
+      : hex(custom.foreground)
+        ? custom.foreground
+        : theme === 'dark'
+          ? '#eeede8'
+          : '#1a1a17';
     root.style.setProperty('--splash-custom-bg', background);
     root.style.setProperty(
       '--splash-custom-mark',

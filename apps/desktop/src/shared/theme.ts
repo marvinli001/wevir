@@ -14,6 +14,9 @@ export const THEME_STORAGE_KEY = 'wevir.theme-mode';
  */
 export const APPEARANCE_STORAGE_KEY = 'wevir.appearance.v1';
 
+/** Host 主题的解析结果，只缓存描述与素材地址，不缓存素材字节。 */
+export const CUSTOM_THEME_STORAGE_KEY = 'wevir.custom-theme.v1';
+
 export function isThemeMode(value: unknown): value is ThemeMode {
   return typeof value === 'string' && (THEME_MODES as readonly string[]).includes(value);
 }

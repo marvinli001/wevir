@@ -18,7 +18,9 @@ import {
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
-import { resolvedTheme, subscribeTheme } from '@/theme/theme';
+import { subscribeAppearance } from '@/theme/appearance';
+import { DEFAULT_COLORS } from '@/theme/appearance-model';
+import { resolvedTheme } from '@/theme/theme';
 import { usePanes } from '../pane-controller';
 import { onPanesClosed } from '../pane-events';
 import type { PaneContext } from '../pane-registry';
@@ -27,6 +29,7 @@ import {
   chunkInput,
   endTarget,
   placeOutput,
+  TERMINAL_ANSI_TOKENS,
   terminalLabel,
   terminalPalette,
 } from '../terminal-model';
@@ -125,7 +128,7 @@ function TerminalView({
     term.loadAddon(fit);
     term.open(container);
     safeFit(fit);
-    const offTheme = subscribeTheme(() => {
+    const offTheme = subscribeAppearance(() => {
       term.options.theme = palette();
     });
 
@@ -460,9 +463,16 @@ function cssVar(name: string): string {
 }
 
 function palette() {
-  return terminalPalette(resolvedTheme(), {
-    background: cssVar('--background') || '#fcfbfa',
-    foreground: cssVar('--foreground') || '#1a1a17',
-    selection: cssVar('--selection') || cssVar('--accent') || 'rgba(128,128,128,0.35)',
-  });
+  const mode = resolvedTheme();
+  return terminalPalette(
+    mode,
+    {
+      background: cssVar('--background') || DEFAULT_COLORS[mode].background,
+      foreground: cssVar('--foreground') || DEFAULT_COLORS[mode].foreground,
+      selection: cssVar('--selection') || cssVar('--accent') || 'rgba(128,128,128,0.35)',
+    },
+    Object.fromEntries(
+      Object.entries(TERMINAL_ANSI_TOKENS).map(([name, token]) => [name, cssVar(`--${token}`)]),
+    ),
+  );
 }

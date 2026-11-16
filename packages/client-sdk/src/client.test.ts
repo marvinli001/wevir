@@ -1440,6 +1440,33 @@ describe('进程输出（0.69.0）', () => {
   });
 });
 
+describe('themes.updated', () => {
+  it('validates updates, releases listeners, and receives updates after reconnecting', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { themes: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onThemesUpdated((change) => changes.push(change));
+    const update = { activeId: 'lagoon', revisions: { lagoon: '1' } };
+    host.last.notify('themes.updated', update);
+    await vi.waitFor(() => expect(changes).toEqual([update]));
+    host.last.notify('themes.updated', { activeId: '../invalid' });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed themes.updated/);
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets.length).toBe(2));
+    await vi.waitFor(() => expect(client.state.status).toBe('connected'));
+    const inactive = { activeId: null, revisions: { lagoon: '2' } };
+    host.last.notify('themes.updated', inactive);
+    await vi.waitFor(() => expect(changes).toEqual([update, inactive]));
+    stop();
+    host.last.notify('themes.updated', update);
+    await tick();
+    expect(changes).toHaveLength(2);
+  });
+});
+
 describe('项目环境就绪（0.70.0）', () => {
   it('onReadinessChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

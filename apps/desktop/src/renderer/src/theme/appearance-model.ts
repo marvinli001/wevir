@@ -1,46 +1,18 @@
+import {
+  ACCENT_COLORS,
+  appearanceColorVariables,
+  DEFAULT_THEME_COLORS,
+  THEME_ACCENTS,
+} from '@wevir/protocol';
 import type { ResolvedTheme } from '../../../shared/theme.js';
 
 // 设置 → 外观的个性化（照 Codex 桌面端的外观页）：强调色、背景与前景、字体、字号、对比度、半透明侧栏。只存在本机
 // （appearance.ts 的 localStorage），这里是纯逻辑：默认值、预设主题、解析，以及按当前主题算出要盖到 <html> 上的变量。
 // 没改过的项不产生变量，界面照 tokens.css 的「静器」。
 
-export const ACCENTS = ['ink', 'blue', 'purple', 'pink', 'red', 'orange', 'green', 'teal'] as const;
+export const ACCENTS = THEME_ACCENTS;
 export type AccentId = (typeof ACCENTS)[number];
-
-/** 强调色在浅色、深色下的值与上面文字的颜色（白字对浅色主题的强调色、深字对深色主题的都在 4.5:1 以上）。 */
-export const ACCENT_COLORS: Record<
-  Exclude<AccentId, 'ink'>,
-  Record<ResolvedTheme, { color: string; text: string }>
-> = {
-  blue: {
-    light: { color: '#2563eb', text: '#ffffff' },
-    dark: { color: '#6ea8fe', text: '#0c0d10' },
-  },
-  purple: {
-    light: { color: '#7c3aed', text: '#ffffff' },
-    dark: { color: '#b39cff', text: '#0c0d10' },
-  },
-  pink: {
-    light: { color: '#c0266d', text: '#ffffff' },
-    dark: { color: '#f590c0', text: '#0c0d10' },
-  },
-  red: {
-    light: { color: '#c9302c', text: '#ffffff' },
-    dark: { color: '#f78c86', text: '#0c0d10' },
-  },
-  orange: {
-    light: { color: '#b84a0e', text: '#ffffff' },
-    dark: { color: '#f6a066', text: '#0c0d10' },
-  },
-  green: {
-    light: { color: '#1d7a3e', text: '#ffffff' },
-    dark: { color: '#6fd08c', text: '#0c0d10' },
-  },
-  teal: {
-    light: { color: '#0f766e', text: '#ffffff' },
-    dark: { color: '#5fd4c4', text: '#0c0d10' },
-  },
-};
+export { ACCENT_COLORS };
 
 /** 色板上显示的颜色（选择框里的圆点）：墨色跟着主题是前景色。 */
 export function accentSwatch(accent: AccentId, theme: ResolvedTheme): string {
@@ -48,10 +20,7 @@ export function accentSwatch(accent: AccentId, theme: ResolvedTheme): string {
 }
 
 /** tokens.css 的 --background 与 --foreground（shared/theme.ts 的 THEME_BACKGROUND 也是这两个底色）。 */
-export const DEFAULT_COLORS: Record<ResolvedTheme, { background: string; foreground: string }> = {
-  light: { background: '#fcfbfa', foreground: '#1a1a17' },
-  dark: { background: '#101114', foreground: '#eeede8' },
-};
+export const DEFAULT_COLORS = DEFAULT_THEME_COLORS;
 
 export interface ThemeColors {
   background?: string;
@@ -285,10 +254,6 @@ const SYSTEM_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono"
 const SERIF =
   'ui-serif, "New York", Georgia, "Songti SC", "Noto Serif CJK SC", "Noto Serif SC", serif';
 
-function mix(from: string, to: string, percent: number): string {
-  return `color-mix(in oklab, ${from}, ${to} ${Math.round(percent * 10) / 10}%)`;
-}
-
 /**
  * 按外观与当前的主题算出要写到 <html> 上的 CSS 变量（覆盖 tokens.css）。都是默认值时是空的。
  *
@@ -301,65 +266,7 @@ export function appearanceVariables(
   appearance: Appearance,
   theme: ResolvedTheme,
 ): Record<string, string> {
-  const vars: Record<string, string> = {};
-  const custom = appearance[theme];
-  const customColors = custom.background !== undefined || custom.foreground !== undefined;
-  const bg = custom.background ?? DEFAULT_COLORS[theme].background;
-  const fg = custom.foreground ?? DEFAULT_COLORS[theme].foreground;
-
-  if (customColors) {
-    vars['--background'] = bg;
-    vars['--foreground'] = fg;
-    if (theme === 'light') {
-      const card = mix(bg, '#ffffff', 60);
-      const muted = mix(bg, fg, 5);
-      Object.assign(vars, {
-        '--sidebar': mix(bg, fg, 2.5),
-        '--card': card,
-        '--popover': card,
-        '--switch-thumb': card,
-        '--muted': muted,
-        '--accent': muted,
-        '--secondary': muted,
-        '--code-background': muted,
-      });
-    } else {
-      const card = mix(bg, fg, 3.5);
-      const muted = mix(bg, fg, 6);
-      Object.assign(vars, {
-        '--sidebar': mix(bg, '#000000', 25),
-        '--card': card,
-        '--popover': card,
-        '--switch-thumb': mix(bg, fg, 17),
-        '--muted': muted,
-        '--accent': muted,
-        '--secondary': muted,
-        '--code-background': mix(bg, fg, 2),
-      });
-    }
-  }
-
-  if (customColors || appearance.contrast !== DEFAULT_CONTRAST) {
-    const k = (appearance.contrast - DEFAULT_CONTRAST) / 50;
-    Object.assign(vars, {
-      '--border': mix(bg, fg, 10 * (1 + 0.6 * k)),
-      '--border-strong': mix(bg, fg, 18 * (1 + 0.5 * k)),
-      '--muted-foreground': mix(bg, fg, 66 + (k < 0 ? 6 : 12) * k),
-      '--soft-foreground': mix(bg, fg, 81 + (k < 0 ? 5 : 10) * k),
-    });
-  }
-
-  if (appearance.accent !== 'ink') {
-    const { color, text } = ACCENT_COLORS[appearance.accent][theme];
-    vars['--primary'] = color;
-    vars['--primary-foreground'] = text;
-    vars['--highlight'] = color;
-    vars['--user-bubble'] =
-      `color-mix(in oklab, ${color} ${theme === 'light' ? 12 : 18}%, var(--muted))`;
-  } else if (customColors) {
-    vars['--primary'] = fg;
-    vars['--primary-foreground'] = bg;
-  }
+  const vars = appearanceColorVariables(appearance, theme);
 
   if (appearance.uiFont === 'system') vars['--font-ui'] = SYSTEM_SANS;
   if (appearance.codeFont === 'system') vars['--font-code'] = SYSTEM_MONO;

@@ -59,6 +59,8 @@ import {
   type SubscriptionId,
   TerminalChangedParamsSchema,
   TerminalOutputParamsSchema,
+  type ThemesUpdated,
+  ThemesUpdatedParamsSchema,
   TuningChangedParamsSchema,
   TuningProposalChangedParamsSchema,
   WevirEventEnvelopeSchema,
@@ -428,6 +430,7 @@ export class WevirClient {
   readonly #inboxListeners = new Set<(change: InboxChange | undefined) => void>();
   readonly #remoteDevicesListeners = new Set<(change: RemoteDevicesChange | undefined) => void>();
   readonly #notificationListeners = new Set<(intent: NotificationIntent) => void>();
+  readonly #themeListeners = new Set<(change: ThemesUpdated) => void>();
   /** 最近一次 `setPresence` 的值：重连后重报。 */
   #presence: boolean | undefined;
   readonly #tuningListeners = new Set<(change: TuningChange | undefined) => void>();
@@ -487,6 +490,12 @@ export class WevirClient {
   onStateChange(listener: (state: ConnectionState) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /** 主题变更；重连后的当前主题由调用方重新读取，以恢复 Host 的通知订阅。 */
+  onThemesUpdated(listener: (change: ThemesUpdated) => void): () => void {
+    this.#themeListeners.add(listener);
+    return () => this.#themeListeners.delete(listener);
   }
 
   /**
@@ -1904,6 +1913,21 @@ export class WevirClient {
   #onNotification(channel: RpcChannel, method: string, params: unknown): void {
     const connection = this.#connection;
     if (!connection || connection.channel !== channel) return;
+    if (method === 'themes.updated') {
+      const parsed = ThemesUpdatedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed themes.updated notification');
+        return;
+      }
+      for (const listener of [...this.#themeListeners]) {
+        try {
+          listener(parsed.data);
+        } catch (error) {
+          this.#warn('a themes listener threw', { error });
+        }
+      }
+      return;
+    }
     if (method === 'account.updated') {
       const parsed = AccountUpdatedParamsSchema.safeParse(params);
       if (!parsed.success) {

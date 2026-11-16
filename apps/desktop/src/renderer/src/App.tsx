@@ -14,6 +14,7 @@ import { NotificationCoordinator } from '@/notifications/notification-coordinato
 import { capabilities } from '@/platform/platform';
 import { router } from '@/routes/router';
 import { OfflineLibrary } from '@/session/offline-library';
+import { CustomThemeCoordinator } from '@/theme/custom-theme-coordinator';
 import { RestartConfirm } from '@/updates/restart-confirm';
 
 export function App() {
@@ -22,6 +23,7 @@ export function App() {
     // CSP 不放行内联 <style>（src/shared/csp.ts）：Base UI 不再自己插样式标签，它需要的规则在 index.css。
     <CSPProvider disableStyleElements>
       <HostConnectionProvider>
+        <CustomThemeCoordinator />
         <WorkbenchDataProvider>
           {/* 启动画面：数据就绪后撤掉（layout/splash.tsx）。 */}
           <SplashGate />

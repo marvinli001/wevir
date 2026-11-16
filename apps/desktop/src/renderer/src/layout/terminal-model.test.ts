@@ -3,6 +3,7 @@ import {
   chunkInput,
   endTarget,
   placeOutput,
+  TERMINAL_ANSI_TOKENS,
   terminalLabel,
   terminalPalette,
 } from './terminal-model';
@@ -46,5 +47,20 @@ describe('终端窗格', () => {
     expect(terminalPalette('dark', colors).yellow).not.toBe(
       terminalPalette('light', colors).yellow,
     );
+  });
+
+  it('overrides all 16 ANSI colors while retaining unspecified mode defaults', () => {
+    const colors = { background: '#002b36', foreground: '#eee8d5', selection: '#224455' };
+    const overrides = Object.fromEntries(
+      Object.keys(TERMINAL_ANSI_TOKENS).map((key) => [key, '#123456']),
+    );
+    const palette = terminalPalette('dark', colors, overrides);
+    for (const key of Object.keys(TERMINAL_ANSI_TOKENS))
+      expect(palette[key as keyof typeof palette]).toBe('#123456');
+    expect(terminalPalette('light', colors, { red: '#990000' })).toMatchObject({
+      red: '#990000',
+      blue: '#2b5fb8',
+      selectionBackground: '#224455',
+    });
   });
 });

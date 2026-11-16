@@ -1,7 +1,7 @@
 // “终端”窗格（0.69.0）的纯逻辑：大段输入分成几次发、按位置接上输出（重复的丢掉、缺了一段就重新 attach）、标签名与配色。
 
 import type { Terminal } from '@wevir/protocol';
-import { TERMINAL_INPUT_MAX_LENGTH } from '@wevir/protocol';
+import { DEFAULT_THEME_TOKENS, TERMINAL_INPUT_MAX_LENGTH } from '@wevir/protocol';
 
 /** 把输入切成每段不超过 `max` 个码元，不切在代理对中间（粘贴大段文字时）。 */
 export function chunkInput(data: string, max = TERMINAL_INPUT_MAX_LENGTH): string[] {
@@ -70,55 +70,43 @@ export interface TerminalPalette {
   brightWhite: string;
 }
 
-/** 16 色：浅色主题上黄、白要压暗才看得清；底色与前景取界面的颜色。 */
+export const TERMINAL_ANSI_TOKENS = {
+  black: 'terminal-black',
+  red: 'terminal-red',
+  green: 'terminal-green',
+  yellow: 'terminal-yellow',
+  blue: 'terminal-blue',
+  magenta: 'terminal-magenta',
+  cyan: 'terminal-cyan',
+  white: 'terminal-white',
+  brightBlack: 'terminal-bright-black',
+  brightRed: 'terminal-bright-red',
+  brightGreen: 'terminal-bright-green',
+  brightYellow: 'terminal-bright-yellow',
+  brightBlue: 'terminal-bright-blue',
+  brightMagenta: 'terminal-bright-magenta',
+  brightCyan: 'terminal-bright-cyan',
+  brightWhite: 'terminal-bright-white',
+} as const;
+type AnsiPalette = Pick<TerminalPalette, keyof typeof TERMINAL_ANSI_TOKENS>;
+
+/** 16 色取语义 token；未覆盖时保持各模式原有的 ANSI 色。 */
 export function terminalPalette(
   theme: 'light' | 'dark',
   colors: { background: string; foreground: string; selection: string },
+  ansi: Partial<AnsiPalette> = {},
 ): TerminalPalette {
-  const base = {
+  return {
     background: colors.background,
     foreground: colors.foreground,
     cursor: colors.foreground,
     cursorAccent: colors.background,
     selectionBackground: colors.selection,
+    ...(Object.fromEntries(
+      Object.entries(TERMINAL_ANSI_TOKENS).map(([name, token]) => [
+        name,
+        ansi[name as keyof AnsiPalette] || DEFAULT_THEME_TOKENS[theme][`--${token}`],
+      ]),
+    ) as AnsiPalette),
   };
-  return theme === 'light'
-    ? {
-        ...base,
-        black: '#1a1a17',
-        red: '#c4372d',
-        green: '#2f7d32',
-        yellow: '#8a6a00',
-        blue: '#2b5fb8',
-        magenta: '#9b3aa6',
-        cyan: '#1f7a86',
-        white: '#6b6a64',
-        brightBlack: '#57564f',
-        brightRed: '#d9473c',
-        brightGreen: '#3a9440',
-        brightYellow: '#a07c00',
-        brightBlue: '#3a6fd0',
-        brightMagenta: '#b04abb',
-        brightCyan: '#2a8f9c',
-        brightWhite: '#3d3c37',
-      }
-    : {
-        ...base,
-        black: '#1e1f24',
-        red: '#f2675d',
-        green: '#7ccf7f',
-        yellow: '#e6c45c',
-        blue: '#6fa3f2',
-        magenta: '#d68ae0',
-        cyan: '#63c7d1',
-        white: '#d4d3ce',
-        brightBlack: '#6e6f76',
-        brightRed: '#ff8a80',
-        brightGreen: '#9be39d',
-        brightYellow: '#f5d77e',
-        brightBlue: '#94bcff',
-        brightMagenta: '#e8a8f0',
-        brightCyan: '#8fdde5',
-        brightWhite: '#f4f3ee',
-      };
 }

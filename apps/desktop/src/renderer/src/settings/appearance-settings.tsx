@@ -49,6 +49,7 @@ import {
   UI_FONTS,
   type UiFont,
 } from '@/theme/appearance-model';
+import { customThemeStore } from '@/theme/custom-theme';
 import { setThemeMode, useTheme } from '@/theme/theme';
 import type { ResolvedTheme, ThemeMode } from '../../../shared/theme.js';
 import { LIST_CARD, type Notice, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
@@ -75,7 +76,8 @@ const CODE_FONT_LABEL: Record<CodeFont, PlainMessageKey> = {
  * 都只存在本机（theme/appearance.ts），改了立即生效。
  */
 export function AppearanceSettings() {
-  const { mode, resolved } = useTheme();
+  const { mode, resolved, colorScheme } = useTheme();
+  const customTheme = customThemeStore.use();
   const appearance = useAppearance();
   const [advancedOpen, setAdvancedOpen] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -109,6 +111,22 @@ export function AppearanceSettings() {
 
   return (
     <>
+      {(customTheme.error ||
+        customTheme.problems.some((problem) => problem.severity === 'error')) && (
+        <div className="mb-4">
+          <NoticeBanner
+            notice={{
+              tone: 'error',
+              text:
+                customTheme.error ??
+                customTheme.problems
+                  .filter((problem) => problem.severity === 'error')
+                  .map((problem) => `${problem.path}: ${problem.message}`)
+                  .join('\n'),
+            }}
+          />
+        </div>
+      )}
       {notice && (
         <div className="mb-4">
           <NoticeBanner notice={notice} />
@@ -120,7 +138,13 @@ export function AppearanceSettings() {
             <SettingsRow
               title={t('settings.appearance.mode')}
               data-setting="theme-mode"
-              control={<ModePicker value={mode} onChange={setThemeMode} />}
+              control={
+                <ModePicker
+                  value={colorScheme ?? mode}
+                  disabled={colorScheme !== undefined}
+                  onChange={setThemeMode}
+                />
+              }
             />
           </div>
           <div className={LIST_CARD}>
@@ -444,12 +468,14 @@ const MODE_LABEL: Record<ThemeMode, PlainMessageKey> = {
 function ModePicker({
   value,
   onChange,
+  disabled,
 }: {
   value: ThemeMode;
   onChange: (mode: ThemeMode) => void;
+  disabled: boolean;
 }) {
   return (
-    <fieldset className="flex gap-2.5">
+    <fieldset disabled={disabled} className="flex gap-2.5 disabled:opacity-50">
       <legend className="sr-only">{t('settings.appearance.mode')}</legend>
       {(['system', 'light', 'dark'] as const).map((mode) => {
         const checked = mode === value;
