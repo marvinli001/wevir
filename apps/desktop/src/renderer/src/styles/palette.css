@@ -34,14 +34,28 @@
   --platinum: #dfded8;
 
   /* 状态色：deep 给浅色主题，pale 给深色主题。蓝是运行中，赭是待审批与警告，绿是成功，红是失败。 */
-  --blue-deep: #2f5f8a;
-  --blue-pale: #8db4dc;
+  --blue-deep: #2a63b8;
+  --blue-pale: #8ab4f8;
   --ochre-deep: #94570a;
   --ochre-pale: #e3a857;
   --green-deep: #2f6b42;
   --green-pale: #86c597;
   --red-deep: #a23b30;
   --red-pale: #ee8f84;
+
+  /* 差异视图的增删底色，wash 给浅色主题、shade 给深色主题，1 是整行、2 是行号一侧、3 是行内改动的词。 */
+  --green-wash-1: #e6f4e9;
+  --green-wash-2: #d9efdd;
+  --green-wash-3: #cdebd3;
+  --red-wash-1: #fcecea;
+  --red-wash-2: #f9e1dd;
+  --red-wash-3: #f6d3cd;
+  --green-shade-1: #15261b;
+  --green-shade-2: #1b3324;
+  --green-shade-3: #21402b;
+  --red-shade-1: #2a1716;
+  --red-shade-2: #3a1e1c;
+  --red-shade-3: #4a2421;
 
   /* 插件市场的认证徽章（§9.3）：同 X 的蓝标，亮暗共用一档；白勾在它上面 3.6:1，它在亮暗底色上都 ≥ 3:1。 */
   --blue-verified: #1a8cd8;

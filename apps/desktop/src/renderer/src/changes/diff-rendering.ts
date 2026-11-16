@@ -3,7 +3,7 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：去掉忽略空白（Host 的 diff 不提供）；解析失败与不认识的格式由窗格显示原文，不写英文说明；表面颜色改用 Wevir
-// 的代码与状态色变量。
+// 的代码、状态与差异底色变量。
 //
 // 把 Host 的统一格式 diff 交给 @pierre/diffs：解析成每个文件一项、文件的身份与内容版本、主题名，以及把 Pierre 画的表面
 // 映射到 Wevir 设计变量的样式（desktop-tokens.md §33）。
@@ -203,7 +203,7 @@ export function getDiffCollapseIconClassName(fileDiff: FileDiffMetadata): string
 
 /**
  * Pierre 画的 diff 与文件表面都换成 Wevir 的变量：底色是 `--code-background`、字是 `--code-foreground`（窗格把两者设成画布色与
- * 正文色），增删的底色由成功色、失败色与底色混出来（T3 的做法，静器里彩色只表示状态）。
+ * 正文色），增删的底色用专用的差异变量，整行、行号一侧与行内改动的词逐档加深。
  */
 export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
 [data-diffs-header],
@@ -229,13 +229,13 @@ export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
   --diffs-bg-separator-override: color-mix(in srgb, var(--code-background) 95%, var(--code-foreground));
   --diffs-bg-buffer-override: color-mix(in srgb, var(--code-background) 90%, var(--code-foreground));
 
-  --diffs-bg-addition-override: color-mix(in srgb, var(--code-background) 88%, var(--success));
-  --diffs-bg-addition-number-override: color-mix(in srgb, var(--code-background) 80%, var(--success));
-  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--code-background) 70%, var(--success));
+  --diffs-bg-addition-override: var(--diff-added);
+  --diffs-bg-addition-number-override: var(--diff-added-gutter);
+  --diffs-bg-addition-emphasis-override: var(--diff-added-emphasis);
 
-  --diffs-bg-deletion-override: color-mix(in srgb, var(--code-background) 88%, var(--destructive));
-  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--code-background) 80%, var(--destructive));
-  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--code-background) 70%, var(--destructive));
+  --diffs-bg-deletion-override: var(--diff-removed);
+  --diffs-bg-deletion-number-override: var(--diff-removed-gutter);
+  --diffs-bg-deletion-emphasis-override: var(--diff-removed-emphasis);
 
   background-color: var(--diffs-bg) !important;
   color: var(--code-foreground) !important;
