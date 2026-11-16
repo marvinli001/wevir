@@ -130,10 +130,11 @@ export function ProviderSettings() {
     setCatalogLoading(true);
     setNotice(undefined);
     try {
-      const form = await loadProviderCatalog(
-        client,
-        newOpenAIForm(source.kind === 'preset' ? source.preset : undefined, takenIds),
-      );
+      const initial = newOpenAIForm(source.kind === 'preset' ? source.preset : undefined, takenIds);
+      const form =
+        entry.id === 'zuv' && client.supports('zuv_api_connection')
+          ? initial
+          : await loadProviderCatalog(client, initial);
       setView({ kind: 'form', form });
     } catch {
       setNotice({ tone: 'error', text: t('provider.models.loadFailed') });

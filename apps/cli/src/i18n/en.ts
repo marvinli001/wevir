@@ -3,6 +3,12 @@
 import type { Messages } from './zh.js';
 
 export const en: Messages = {
+  'zuvApi.connected': 'Connected {account} · {prefix}…',
+  'zuvApi.disconnected': 'Disconnected',
+  'zuvApi.waiting': 'Waiting for authorization',
+  'zuvApi.failed': 'Connection failed: {reason}',
+  'zuvApi.modelsFailed': 'Model loading failed: {reason}',
+  'zuvApi.cancelled': 'Authorization cancelled',
   'cmd.sync.call.summary': 'Call a synchronization method',
   'cmd.sync.call.usage': 'wevir sync call <method> [--stdin]',
   'cmd.sync.conversation.summary': 'Read a mirrored conversation',
@@ -168,18 +174,18 @@ Examples:
 
 Options:
   --model <model ID>   Model to test, defaults to the provider's default model`,
-  'cmd.provider.login.summary':
-    'Sign in to ChatGPT with a device code (personal use on this machine only)',
-  'cmd.provider.login.usage': 'wevir provider login [chatgpt]',
+  'cmd.provider.login.summary': 'Connect ChatGPT or ZUV API',
+  'cmd.provider.login.usage': 'wevir provider login [chatgpt|zuv]',
   'cmd.provider.login.help': `Credentials are stored in the local Codex directory by OpenAI's own Codex sign-in flow; Wevir neither
 reads nor forwards them
-Adds the provider chatgpt`,
-  'cmd.provider.status.summary': 'Show the ChatGPT account, plan and usage',
-  'cmd.provider.status.usage': 'wevir provider status [chatgpt]',
-  'cmd.provider.logout.summary': 'Sign out of ChatGPT (deletes local credentials)',
-  'cmd.provider.logout.usage': 'wevir provider logout [chatgpt]',
+Adds the provider chatgpt
+zuv: browser authorization for ZUV API; credentials stay on the connected Host and calls charge the API balance`,
+  'cmd.provider.status.summary': 'Show the ChatGPT or ZUV API connection',
+  'cmd.provider.status.usage': 'wevir provider status [chatgpt|zuv]',
+  'cmd.provider.logout.summary': 'Disconnect ChatGPT or ZUV API',
+  'cmd.provider.logout.usage': 'wevir provider logout [chatgpt|zuv]',
   'cmd.provider.logout.help':
-    'Deletes the local ChatGPT credentials and tries to revoke the tokens; the chatgpt provider and its sessions are kept and continue after signing in again',
+    'ChatGPT: deletes local credentials and tries to revoke tokens; the provider and sessions remain\nZUV API: clears only the connected Host credentials; the remote key remains valid',
   'cmd.session.new.summary': 'Create a session and send a prompt',
   'cmd.session.new.usage': 'wevir session new [-w <path>] [options] "<prompt>"',
   'cmd.session.new.help': `Registers the folder as a workspace if needed; attaches after sending

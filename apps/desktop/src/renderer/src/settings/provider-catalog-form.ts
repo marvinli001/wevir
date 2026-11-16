@@ -8,7 +8,12 @@ export async function loadProviderCatalog(
   form: ProviderForm,
 ): Promise<ProviderForm> {
   if (form.preset?.modelCatalog !== 'zuv') return form;
-  const result = await client.request('provider.discoverModels', { baseURL: form.baseURL });
+  const result = await client.request(
+    'provider.discoverModels',
+    form.editing && !form.apiKey.trim()
+      ? { providerId: form.id }
+      : { baseURL: form.baseURL, ...(form.apiKey.trim() && { apiKey: form.apiKey.trim() }) },
+  );
   if (!result.ok || result.models.length === 0 || result.truncated)
     throw new Error(t('provider.models.loadFailed'));
   const previous = form.models[form.defaultIndex]?.id;

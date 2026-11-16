@@ -7,6 +7,12 @@
 // Key 输入、ChatGPT 的个人使用条款、删除凭据或取消回合的后果。命令、选项、路径与产品名（Wevir、Host、Provider）照原样写。
 
 export const zh = {
+  'zuvApi.connected': '已连接 {account} · {prefix}…',
+  'zuvApi.disconnected': '未连接',
+  'zuvApi.waiting': '等待授权',
+  'zuvApi.failed': '连接失败：{reason}',
+  'zuvApi.modelsFailed': '模型加载失败：{reason}',
+  'zuvApi.cancelled': '授权已取消',
   'cmd.sync.call.summary': '调用同步接口',
   'cmd.sync.call.usage': 'wevir sync call <method> [--stdin]',
   'cmd.sync.conversation.summary': '读取镜像会话',
@@ -172,16 +178,17 @@ stdout：最后一条回答，或 --json 事件流；诊断写入 stderr
 
 选项：
   --model <模型 ID>   测试的模型，默认为 Provider 的默认模型`,
-  'cmd.provider.login.summary': '以设备码登录 ChatGPT（仅限个人本机使用）',
-  'cmd.provider.login.usage': 'wevir provider login [chatgpt]',
+  'cmd.provider.login.summary': '连接 ChatGPT 或 ZUV API',
+  'cmd.provider.login.usage': 'wevir provider login [chatgpt|zuv]',
   'cmd.provider.login.help': `凭据经 OpenAI 官方 Codex 登录流程保存在本机 Codex 目录，Wevir 不读取、不转交
-登录后新增 Provider chatgpt`,
-  'cmd.provider.status.summary': '查看 ChatGPT 账号、套餐与用量',
-  'cmd.provider.status.usage': 'wevir provider status [chatgpt]',
-  'cmd.provider.logout.summary': '登出 ChatGPT（删除本机凭据）',
-  'cmd.provider.logout.usage': 'wevir provider logout [chatgpt]',
+登录后新增 Provider chatgpt
+zuv：浏览器授权连接 ZUV API，凭据保存在当前后台服务，调用扣除 API 余额`,
+  'cmd.provider.status.summary': '查看 ChatGPT 或 ZUV API 连接',
+  'cmd.provider.status.usage': 'wevir provider status [chatgpt|zuv]',
+  'cmd.provider.logout.summary': '断开 ChatGPT 或 ZUV API',
+  'cmd.provider.logout.usage': 'wevir provider logout [chatgpt|zuv]',
   'cmd.provider.logout.help':
-    '删除本机 ChatGPT 凭据并尝试吊销令牌；Provider chatgpt 及其会话保留，重新登录后可继续',
+    'ChatGPT：删除本机凭据并尝试吊销令牌；Provider 及会话保留\nZUV API：仅清除当前后台服务的凭据，不撤销远端密钥',
   'cmd.session.new.summary': '新建会话并发送提示',
   'cmd.session.new.usage': 'wevir session new [-w <路径>] [选项] "<提示>"',
   'cmd.session.new.help': `目录未登记时自动登记为工作区；发送后进入 attach
