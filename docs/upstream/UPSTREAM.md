@@ -627,3 +627,6 @@ T3 main 更新到 `6b7027b1f43eebc4c7edf5304236a0775b2d8928`，包含 #35247 与
 | Wevir 文件 | 来源路径 | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|
 | `packages/host/src/themes/service.ts` | `apps/server/src/environmentTheme.ts` | `6b7027b1f43eebc4c7edf5304236a0775b2d8928` | MIT | 有界句柄读取、写后发布思路改写；普通 TS，增加素材快照、目录主题、严格校验与 fs.watch |
+| `packages/protocol/src/theme-css.ts`、`theme-css.test.ts` | `packages/shared/src/themeCss.ts`、`themeCss.test.ts` | `6b7027b1f43eebc4c7edf5304236a0775b2d8928` | MIT | 移植取文件文本检查；替换为 Wevir 稳定选择器，补本机地址、空白和字符串测试 |
+| `apps/desktop/src/renderer/src/theme/theme-css.ts`、`theme-css.test.ts` | `apps/web/src/themeCss.ts`、`themeCss.browser.test.ts` | `6b7027b1f43eebc4c7edf5304236a0775b2d8928` | MIT | 脱离文档剥离后安装；只允许已审查的声明/容器类型，未知规则含 @function 整条删除；保留其它表与减弱动效偏好；Node 测试默认拒绝、遍历与生命周期，生产 CDP 验解析及实际请求 |
+| `apps/desktop/src/renderer/src/theme/theme-css-hooks.test.ts` | `apps/web/src/themeCssHooks.test.ts` | `6b7027b1f43eebc4c7edf5304236a0775b2d8928` | MIT | 锁定 Wevir 属性使用；不扫描允许表、测试或 CSS，值选择器核对具体值 |

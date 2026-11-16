@@ -12,6 +12,7 @@ import {
 } from './appearance-model';
 import { customThemeStore, recoverCustomTheme } from './custom-theme';
 import { resolvedTheme, subscribeTheme } from './theme';
+import { applyThemeCss } from './theme-css';
 
 /** 设置 → 外观的个性化（appearance-model.ts），只存在本机。 */
 export const appearanceStore = createPersistedStore<Appearance>(
@@ -36,6 +37,7 @@ export function translucentWindowSupported(): boolean {
 let applied = new Set<string>();
 let sentToWindow: string | undefined;
 const listeners = new Set<() => void>();
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 /** 颜色变量已写入 DOM 后通知（终端等需要读取计算后颜色的组件）。 */
 export function subscribeAppearance(listener: () => void): () => void {
@@ -47,9 +49,17 @@ function apply(): void {
   const appearance = appearanceStore.get();
   const root = document.documentElement;
   const theme = customThemeStore.get().theme;
+  const backdrop = theme?.backdrop;
+  const backdropImage = backdrop?.kind === 'image' ? theme?.assets.file : undefined;
   const vars = {
     ...appearanceVariables(appearance, resolvedTheme()),
     ...theme?.variables[resolvedTheme()],
+    ...(backdrop && {
+      '--theme-backdrop-opacity': String(backdrop.opacity ?? 1),
+      '--theme-backdrop-blur': `${backdrop.blur ?? 0}px`,
+      '--theme-backdrop-scrim': String(backdrop.scrim ?? 0),
+    }),
+    ...(backdropImage && { '--theme-backdrop-image': `url(${JSON.stringify(backdropImage)})` }),
   };
   for (const name of applied) {
     if (!(name in vars)) root.style.removeProperty(name);
@@ -59,6 +69,7 @@ function apply(): void {
     root.style.setProperty(name, value);
   }
   applied = new Set(Object.keys(vars));
+  applyThemeCss(theme?.css, reducedMotion.matches);
 
   const translucentWindow = translucentWindowSupported() && appearance.translucentWindow;
   root.toggleAttribute('data-translucent-window', translucentWindow);
@@ -105,4 +116,5 @@ export function bootstrapAppearance(): void {
   applySafely();
   appearanceStore.subscribe(applySafely);
   subscribeTheme(applySafely);
+  reducedMotion.addEventListener('change', applySafely);
 }

@@ -240,6 +240,7 @@ function UserBubble({ text }: { text: string }) {
         )}
         style={foldable ? { maxHeight: folded ? USER_FOLD_PX : height } : undefined}
         data-user-bubble={foldable ? (folded ? 'folded' : 'expanded') : undefined}
+        data-user-message-bubble=""
         data-quotable=""
       >
         {text}

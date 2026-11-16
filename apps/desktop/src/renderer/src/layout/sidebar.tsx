@@ -121,7 +121,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
   // Host 有 `session_search` 功能才有“搜索”入口（0.77.0），在“新建会话”下面。
   const showSearch = client !== undefined && hostSupports(client.hello.features, 'session_search');
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col" data-app-sidebar="">
       <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
         {controls}
       </div>
@@ -926,6 +926,7 @@ const SessionRow = memo(function SessionRow({
         >
           <NavLink
             to={paths.session(workspaceId, session.id)}
+            data-session-row=""
             title={project && `${project.displayName} · ${project.rootPath}`}
             draggable={false}
             {...(thread && {

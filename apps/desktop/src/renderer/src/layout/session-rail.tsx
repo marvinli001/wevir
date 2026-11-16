@@ -122,6 +122,7 @@ export function SessionRail({
       aria-label={t('rail.label')}
       className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1.5 [scrollbar-width:thin]"
       data-testid="session-rail"
+      data-session-rail=""
     >
       {items.map(({ card, content }) => (
         <RailCardView

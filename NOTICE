@@ -407,6 +407,19 @@ Antigravity 1.4.5 的会话元信息与回合错误：ab8e488e10d883fa880b0ddcf0
   packages/host/src/themes/service.ts
       <- apps/server/src/environmentTheme.ts at 6b7027b1f43eebc4c7edf5304236a0775b2d8928
          Modified for folder themes, asset validation, snapshots and node:fs watching.
+  packages/protocol/src/theme-css.ts、theme-css.test.ts
+      <- packages/shared/src/themeCss.ts、themeCss.test.ts
+         at 6b7027b1f43eebc4c7edf5304236a0775b2d8928
+         Modified for Wevir selectors, Vitest and additional URL/string cases.
+  apps/desktop/src/renderer/src/theme/theme-css.ts、theme-css.test.ts
+      <- apps/web/src/themeCss.ts、themeCss.browser.test.ts
+         at 6b7027b1f43eebc4c7edf5304236a0775b2d8928
+         Modified to sanitize detached sheets before adoption, allow only reviewed rule types,
+         preserve other sheets, and remove theme motion under prefers-reduced-motion.
+  apps/desktop/src/renderer/src/theme/theme-css-hooks.test.ts
+      <- apps/web/src/themeCssHooks.test.ts
+         at 6b7027b1f43eebc4c7edf5304236a0775b2d8928
+         Modified to check Wevir data attributes without scanning the hook table or CSS.
   packages/host/src/file-urls.ts
       <- apps/server/src/http.ts（assetResponseHeaders、assetByteRange、assetFileResponse）
          apps/server/src/assets/AssetAccess.ts

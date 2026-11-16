@@ -1,4 +1,4 @@
-import type { ThemeFile } from '@wevir/protocol';
+import type { ThemeFile, ThemeResult } from '@wevir/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APPEARANCE_STORAGE_KEY,
@@ -7,7 +7,13 @@ import {
 } from '../../../shared/theme.js';
 import { cacheCustomTheme } from './custom-theme-model';
 
-const h = vi.hoisted(() => ({ native: vi.fn(), window: vi.fn() }));
+const h = vi.hoisted(() => ({
+  native: vi.fn(),
+  window: vi.fn(),
+  css: vi.fn(),
+  motion: { matches: false, addEventListener: vi.fn() },
+}));
+vi.mock('./theme-css', () => ({ applyThemeCss: h.css }));
 vi.mock('@/platform/platform', () => ({
   platformApi: () => ({
     setThemeSource: h.native,
@@ -32,6 +38,9 @@ beforeEach(() => {
   vi.resetModules();
   h.native.mockReset().mockResolvedValue(undefined);
   h.window.mockReset().mockResolvedValue(undefined);
+  h.css.mockReset();
+  h.motion.matches = false;
+  h.motion.addEventListener.mockReset();
   values = new Map();
   storage = new Map([[THEME_STORAGE_KEY, 'light']]);
   attributes = new Set();
@@ -61,7 +70,10 @@ beforeEach(() => {
       setItem: (key: string, value: string) => storage.set(key, value),
       removeItem: (key: string) => storage.delete(key),
     },
-    matchMedia: () => ({ matches: false, addEventListener: vi.fn() }),
+    matchMedia: (query: string) =>
+      query === '(prefers-reduced-motion: reduce)'
+        ? h.motion
+        : { matches: false, addEventListener: vi.fn() },
     getComputedStyle: () => ({ colorScheme: root.dataset.theme }),
   });
 });
@@ -73,14 +85,14 @@ async function setup() {
   const { customThemeStore } = await import('./custom-theme');
   mode.bootstrapTheme();
   appearance.bootstrapAppearance();
-  const activate = (theme: ThemeFile) =>
+  const activate = (theme: ThemeFile, assets: ThemeResult['assets'] = {}) =>
     customThemeStore.set({
       theme: cacheCustomTheme(
         {
           id: 'fixture',
           revision: '1',
           theme,
-          assets: {},
+          assets,
           directory: '/themes',
           problems: [],
           readOnly: false,
@@ -225,5 +237,55 @@ describe('theme and appearance application', () => {
     expect(values.has('--terminal-blue')).toBe(false);
     expect(values.has('--background')).toBe(false);
     expect(h.native).toHaveBeenLastCalledWith('light');
+  });
+
+  it('applies CSS and Host image variables without current-mode colors, then clears them', async () => {
+    const { activate, clear } = await setup();
+    const css = '[data-main-card] { background-image: var(--theme-backdrop-image) }';
+    const url = 'http://127.0.0.1:1234/files/token/backdrop.webp?v=1';
+    activate(
+      {
+        schemaVersion: 1,
+        name: 'Image',
+        dark: {},
+        css,
+        backdrop: { kind: 'image', file: 'backdrop.webp', opacity: 0.6, blur: 4, scrim: 0.2 },
+      },
+      { file: url },
+    );
+    expect(values.get('--theme-backdrop-image')).toBe(`url("${url}")`);
+    expect(values.get('--theme-backdrop-opacity')).toBe('0.6');
+    expect(values.get('--theme-backdrop-blur')).toBe('4px');
+    expect(values.get('--theme-backdrop-scrim')).toBe('0.2');
+    expect(h.css).toHaveBeenLastCalledWith(css, false);
+    h.motion.matches = true;
+    h.motion.addEventListener.mock.calls[0]?.[1]();
+    expect(h.css).toHaveBeenLastCalledWith(css, true);
+    activate(
+      { schemaVersion: 1, name: 'Video', light: {}, backdrop: { kind: 'video', file: 'a.mp4' } },
+      { file: url },
+    );
+    expect(values.has('--theme-backdrop-image')).toBe(false);
+    clear();
+    expect([...values.keys()].some((name) => name.startsWith('--theme-backdrop-'))).toBe(false);
+    expect(h.css).toHaveBeenLastCalledWith(undefined, true);
+  });
+
+  it('recovers the default appearance and removes theme CSS after application fails', async () => {
+    const { activate, customThemeStore } = await setup();
+    h.css.mockImplementationOnce(() => {
+      throw new Error('Theme CSS failed');
+    });
+    activate({
+      schemaVersion: 1,
+      name: 'Broken CSS',
+      colorScheme: 'dark',
+      dark: {},
+      css: 'body {}',
+    });
+    expect(customThemeStore.get().theme).toBeNull();
+    expect(customThemeStore.get().error).toBe('Theme CSS failed');
+    expect(root.dataset.theme).toBe('light');
+    expect(h.css).toHaveBeenLastCalledWith(undefined, false);
   });
 });

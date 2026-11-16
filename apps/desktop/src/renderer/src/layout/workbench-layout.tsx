@@ -294,6 +294,7 @@ export function WorkbenchLayout() {
       <div
         className="app-shell relative flex h-full overflow-hidden"
         data-translucent-root
+        data-app-shell=""
         data-layout-sidebar={sidebarPlan.sidebar}
       >
         {/* 收起时侧栏不卸载，宽度过渡到 0；里面一列始终是侧栏的宽，开合时不重新排版。 */}
@@ -371,6 +372,7 @@ export function WorkbenchLayout() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* 顶栏画在壳上，下面的内容卡片自己有边，不再画分隔线。 */}
           <header
+            data-app-header=""
             className="app-drag layout-transition flex h-11 shrink-0 items-center gap-2 pr-[max(0.75rem,calc(var(--caption-buttons-inset)+0.25rem))]"
             {...sidebarMotion}
             // 窗口按钮在窗口左上角不动：侧栏露出得越少，顶栏越要让出它们的位置。
@@ -432,6 +434,7 @@ export function WorkbenchLayout() {
             {/* 主窗格与停靠在它右边的会话侧栏（§12）：`主窗格 | 侧栏 | 窗格区`，侧栏在主窗格的卡片里占一列，左边一条分隔线，
                 开合时消息流跟着变宽变窄。最大化时主窗格留在原处、只是看不见，消息流的滚动位置与输入框里的草稿都还在。 */}
             <div
+              data-main-card=""
               className={cn(
                 'surface-card relative mb-2 flex min-h-0 min-w-0 flex-1 overflow-hidden',
                 plan.mode === 'maximized' && 'invisible absolute inset-0',

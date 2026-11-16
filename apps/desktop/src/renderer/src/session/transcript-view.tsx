@@ -291,6 +291,7 @@ export function TranscriptView({
     <div className="relative min-h-0 flex-1">
       <section
         ref={containerRef}
+        data-message-scroll=""
         aria-label={t('transcript.label')}
         // 可聚焦，键盘也能滚动（滚动控制器据此识别导航键）。
         // biome-ignore lint/a11y/noNoninteractiveTabindex: 可滚动区域需要能用键盘滚动。

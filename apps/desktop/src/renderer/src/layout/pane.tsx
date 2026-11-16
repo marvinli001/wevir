@@ -60,6 +60,7 @@ export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContex
     <section
       aria-label={title}
       data-pane-id={pane.id}
+      data-aux-pane=""
       tabIndex={-1}
       onPointerDownCapture={() => panes.focus(pane.id)}
       onKeyDown={onKeyDown}

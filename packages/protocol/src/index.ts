@@ -51,6 +51,7 @@ export type { BlobHeader, RecordManifest, SyncOperation } from './sync-wire.js';
 export * from './sync-workspace.js';
 export * from './terminals.js';
 export * from './theme-colors.js';
+export * from './theme-css.js';
 export * from './themes.js';
 export * from './tuning.js';
 export * from './tuning-proposals.js';

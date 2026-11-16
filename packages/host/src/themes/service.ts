@@ -20,6 +20,7 @@ import {
   type ThemeResult,
   type ThemeSave,
   type ThemesUpdated,
+  themeCssLoadsRemoteFiles,
 } from '@wevir/protocol';
 import { HostError } from '../errors.js';
 import type { FileUrls } from '../file-urls.js';
@@ -215,6 +216,8 @@ export class ThemeService {
       const parsed = ThemeFileSchema.safeParse(input.theme);
       if (!parsed.success) throw rejected('theme', parsed.error.message);
       const theme = parsed.data;
+      if (theme.css && themeCssLoadsRemoteFiles(theme.css))
+        throw rejected('css', 'CSS cannot load files; only data: and #id URLs are allowed');
       const problems = themeProblems(theme);
       const refused = problems.find((problem) => problem.severity === 'error');
       if (refused) throw rejected(refused.path, refused.message);

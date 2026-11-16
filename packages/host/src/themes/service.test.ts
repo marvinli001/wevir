@@ -55,6 +55,23 @@ function changed(service: ThemeService, predicate: (update: ThemesUpdated) => bo
 }
 
 describe('Host themes', () => {
+  it('reports remote CSS at save time while leaving manual files to the client guard', async () => {
+    const { service } = await start();
+    await service.save({ id: 'lagoon', theme });
+    const css = 'body { background-image: url(http://127.0.0.1:1234/leak) }';
+    await expect(service.save({ id: 'lagoon', theme: { ...theme, css } })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('css:'),
+    });
+    expect(service.get('lagoon').theme).toEqual(theme);
+    const updated = changed(service, () => service.get('lagoon').theme?.css === css);
+    await writeFile(
+      join(service.directory, 'lagoon', 'theme.json'),
+      JSON.stringify({ ...theme, css }),
+    );
+    await updated;
+    expect(service.get('lagoon').theme?.css).toBe(css);
+  });
   it('saves atomically, persists selection only through setActive and clears it on delete', async () => {
     const { service } = await start();
     const saved = await service.save({ id: 'lagoon', theme });

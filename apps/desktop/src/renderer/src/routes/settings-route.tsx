@@ -300,10 +300,11 @@ export function SettingsRoute() {
   );
 
   return (
-    <div className="app-shell relative flex h-full" data-translucent-root>
+    <div className="app-shell relative flex h-full" data-translucent-root data-app-shell="">
       {docked ? (
         <>
           <nav
+            data-app-sidebar=""
             aria-label={t('settings.title')}
             className="flex shrink-0 flex-col text-sidebar-foreground"
             style={{ width: navWidth }}
@@ -341,7 +342,11 @@ export function SettingsRoute() {
             }
           >
             <SheetTitle className="sr-only">{t('settings.title')}</SheetTitle>
-            <nav aria-label={t('settings.title')} className="flex min-h-0 flex-1 flex-col">
+            <nav
+              data-app-sidebar=""
+              aria-label={t('settings.title')}
+              className="flex min-h-0 flex-1 flex-col"
+            >
               {nav(
                 <WindowControls
                   onBack={onBack}
@@ -357,7 +362,10 @@ export function SettingsRoute() {
         {docked ? (
           <div className="app-drag h-11 shrink-0" />
         ) : (
-          <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
+          <div
+            data-app-header=""
+            className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]"
+          >
             <WindowControls
               onBack={onBack}
               sidebar={{
@@ -369,11 +377,15 @@ export function SettingsRoute() {
           </div>
         )}
         {/* 内容是浮在壳上的卡片，同工作台的主窗格（index.css 的 surface-card）。 */}
-        <div className="surface-card mr-2 mb-2 ml-2 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div
+          data-main-card=""
+          className="surface-card mr-2 mb-2 ml-2 flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
           {isSettingsTab(tab) && visible(tab) ? (
             <ScrollArea className="min-h-0 flex-1">
               <div
                 key={tab}
+                data-settings-page=""
                 className={cn(
                   'mx-auto w-full px-4 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10',
                   tab === 'routing' ? 'max-w-280' : 'max-w-180',
