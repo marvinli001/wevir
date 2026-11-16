@@ -59,6 +59,12 @@ describe('套餐与登录状态（T3 的 claudeSubscriptionLabel / claudeAuthSta
 
   it('套餐：API Key、订阅、Bedrock', () => {
     expect(claudePlan({ tokenSource: 'apiKey' })).toEqual({ plan: 'apiKey', planLabel: 'API Key' });
+    // 用 API Key 时 tokenSource 可能是 none，只有 apiKeySource 说明。
+    expect(claudePlan({ tokenSource: 'none', apiKeySource: 'ANTHROPIC_API_KEY' })).toEqual({
+      plan: 'apiKey',
+      planLabel: 'API Key',
+    });
+    expect(claudePlan({ tokenSource: 'none', apiKeySource: 'none' })).toBeUndefined();
     expect(claudePlan({ subscriptionType: 'max20' })).toEqual({
       plan: 'max20',
       planLabel: 'Ultra',

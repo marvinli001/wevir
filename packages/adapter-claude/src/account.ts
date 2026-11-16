@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/ClaudeProvider.ts（`checkClaudeProviderStatus`、`probeClaudeCapabilities`、`buildClaudeCapabilitiesProbeQueryOptions`、`claudeSubscriptionLabel`、`claudeAuthStatus`、`claudeAuthMetadata`）、apps/server/src/provider/claudeUsageLimits.ts
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；套餐名照 bf270e74e4c6144fc65648186e879d8bfdb411ed（Max 5x 并入 Max，Max 20x 改称 Ultra）
-// 后续用量修复：fd8dd51654f855dbf4e23c457701f5088c59b689（月度花费）、0d10c36ded035425e8eb8a372f886cee55e49091（探测时序）、6e45544850e41c989e704e99c1d3315584f03d55（失败不缓存）。
+// 后续用量修复：fd8dd51654f855dbf4e23c457701f5088c59b689（月度花费）、0d10c36ded035425e8eb8a372f886cee55e49091（探测时序）、6e45544850e41c989e704e99c1d3315584f03d55（失败不缓存）；套餐显示照 1fcb24518a04652fdc82ab6eea66b82b1a55335e（#29855，有 API Key 就显示 API Key）。
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；用量保留 5 小时、7 天与月度花费，另认 `rate_limit_event` 的 `unifiedWindows`；去掉 slash 命令、skills 与重置额度。
 //
@@ -125,11 +125,23 @@ export function claudeSignedIn(account: ClaudeAccountInfo | undefined): boolean 
   if (account === undefined) return true;
   if (account.apiProvider !== undefined && account.apiProvider !== 'firstParty') return true;
   if (account.tokenSource !== 'none') return true;
-  const hasApiKey = account.apiKeySource !== undefined && account.apiKeySource !== 'none';
-  return hasApiKey || account.email !== undefined || account.subscriptionType !== undefined;
+  return (
+    hasApiKey(account) || account.email !== undefined || account.subscriptionType !== undefined
+  );
 }
 
-/** 套餐的显示（T3 的 `claudeAuthMetadata` / `apiProviderAuthMetadata`）：API Key、Bedrock 或订阅。 */
+function hasApiKey(account: ClaudeAccountInfo | undefined): boolean {
+  return (
+    account?.apiKeySource !== undefined &&
+    account.apiKeySource !== '' &&
+    account.apiKeySource !== 'none'
+  );
+}
+
+/**
+ * 套餐的显示（T3 的 `claudeAuthMetadata` / `apiProviderAuthMetadata`）：API Key、Bedrock 或订阅。用 API Key 登录时
+ * `tokenSource` 可能是 `none`，只有 `apiKeySource` 说明（T3 的 #29855）。
+ */
 export function claudePlan(
   account: ClaudeAccountInfo | undefined,
 ): { plan: string; planLabel: string } | undefined {
@@ -137,7 +149,8 @@ export function claudePlan(
   if (
     normalized === 'apikey' ||
     normalized === 'anthropicapikey' ||
-    normalized === 'anthropicauthtoken'
+    normalized === 'anthropicauthtoken' ||
+    hasApiKey(account)
   ) {
     return { plan: 'apiKey', planLabel: 'API Key' };
   }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/Drivers/ClaudeExecutable.ts（Windows npm 启动脚本 → 包入口）、apps/server/src/provider/ClaudeProvider.ts（`claude --version`）、apps/web/src/onboarding/providerReadiness.logic.ts（安装命令）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；WinGet 的启动脚本照 5ee4fd4f25a5fa009ccf173191eaed507e42e9f6（#32138）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS；T3 的桌面端读登录 shell 的环境，Wevir 改为在 PATH 之外再找常见的安装位置，并补进交给 claude 的 PATH。
 //
@@ -132,8 +132,8 @@ export function isWindowsLauncherShim(filePath: string): boolean {
 }
 
 /**
- * npm 启动脚本旁边的包入口（T3 的 `resolveClaudeSdkExecutablePath`）：新版本带原生的 `bin/claude.exe`，旧版本只有 `cli.js`
- * （SDK 用 JS 运行时跑它）。找不到时原样返回。
+ * 启动脚本对应的包入口（T3 的 `resolveClaudeSdkExecutablePath`）：npm 的新版本带原生的 `bin/claude.exe`，旧版本只有 `cli.js`
+ * （SDK 用 JS 运行时跑它）；WinGet 的 `Links\claude.cmd` 转给 `..\Packages` 下包里的原生程序。找不到时原样返回。
  */
 export function resolveWindowsShim(
   shimPath: string,
@@ -143,6 +143,7 @@ export function resolveWindowsShim(
   for (const entry of [
     ['node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'],
     ['node_modules', '@anthropic-ai', 'claude-code', 'cli.js'],
+    ['..', 'Packages', 'Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe', 'claude.exe'],
   ]) {
     const candidate = path.win32.join(dir, ...entry);
     if (exists(candidate)) return candidate;

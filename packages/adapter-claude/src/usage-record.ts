@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// advisor 记账参照 pingdotgg/t3code apps/server/src/provider/Drivers/claudeUsage.ts，提交 adba9a31d021ed9c9cc3205aa01d7ad670568e86。
+// advisor 记账参照 pingdotgg/t3code apps/server/src/provider/Drivers/claudeUsage.ts，提交 adba9a31d021ed9c9cc3205aa01d7ad670568e86；
+// 同一请求的快照取各项最大值参照 apps/server/src/usage/usageAggregation.ts 的 `mergeUsageCopies`，提交 729f6757d91d9c45614150da297ea7d919bbe81d（#20276）。
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：从 SDK 用量发出 Wevir 的 `usage.recorded`，不扫描 transcript。
 // 一次 API 请求的用量 → `usage.recorded`（0.62.0，用量统计）。Anthropic 的 usage 本来就是事件要的口径：`input_tokens` 不含
@@ -28,6 +29,34 @@ export function mergeClaudeUsage(request: ClaudeRequest, usage: unknown): void {
   if (typeof usage !== 'object' || usage === null) return;
   for (const [key, value] of Object.entries(usage)) {
     if (value !== null && value !== undefined) request.usage[key] = value;
+  }
+}
+
+/**
+ * 同一请求的又一个快照（子 agent 每个内容块一个）：数字的用量各取最大值，后到的快照可能还是开头的用量；思考的 token 同样；
+ * 其余的字段由后到的补上。
+ */
+export function maxClaudeUsage(request: ClaudeRequest, usage: unknown): void {
+  if (typeof usage !== 'object' || usage === null) return;
+  const bigger = (held: unknown, value: unknown) =>
+    typeof value === 'number' && (typeof held !== 'number' || value > held) ? value : held;
+  for (const [key, value] of Object.entries(usage)) {
+    if (value === null || value === undefined) continue;
+    const held = request.usage[key];
+    if (typeof value === 'number') {
+      request.usage[key] = bigger(held, value);
+    } else if (key === 'output_tokens_details' && typeof value === 'object') {
+      const details = { ...(typeof held === 'object' && held !== null ? held : {}) } as Record<
+        string,
+        unknown
+      >;
+      for (const [name, count] of Object.entries(value)) {
+        if (count !== null && count !== undefined) details[name] = bigger(details[name], count);
+      }
+      request.usage[key] = details;
+    } else {
+      request.usage[key] = value;
+    }
   }
 }
 

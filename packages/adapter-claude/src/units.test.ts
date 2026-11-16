@@ -100,13 +100,22 @@ describe('找 claude', () => {
     ).toBe('/opt/homebrew/bin/claude');
   });
 
-  it('Windows：npm 的启动脚本换成包入口（新版 bin/claude.exe，旧版 cli.js）', () => {
+  it('Windows：npm 与 WinGet 的启动脚本换成包入口（npm 新版 bin/claude.exe，旧版 cli.js）', () => {
     expect(isWindowsLauncherShim('C:\\npm\\claude.cmd')).toBe(true);
     expect(isWindowsLauncherShim('C:\\x\\claude.exe')).toBe(false);
     const native = 'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe';
     expect(resolveWindowsShim('C:\\npm\\claude.cmd', files([native]))).toBe(native);
     const script = 'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js';
     expect(resolveWindowsShim('C:\\npm\\claude.cmd', files([script]))).toBe(script);
+    // WinGet：Links\claude.cmd 转给 ..\Packages 下包里的原生程序。
+    const winget =
+      'C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\\claude.exe';
+    expect(
+      resolveWindowsShim(
+        'C:\\Users\\me\\AppData\\Local\\Microsoft\\WinGet\\Links\\claude.cmd',
+        files([winget]),
+      ),
+    ).toBe(winget);
     expect(
       findClaude({
         home: 'C:\\Users\\me',

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/orchestration-v2/Adapters/ClaudeTaskOutputTail.ts（`claudeTaskOutputRoot`、`tailClaudeTaskOutput`）
-// 来源提交 a5d97921f6a2a310f55c481763248a313ed3dc17
+// 来源提交 a5d97921f6a2a310f55c481763248a313ed3dc17；之后的修复取自 eee9525fe4a8add18d6a5dedf11e8e73de3a0547（#28643，文件变短时换解码器）、
+// d7fedc57431b30a75e18b544d3b306cd5abf83dd（#33246，跳过一段后丢掉被截断的字符）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS（node:fs/promises 与定时器）；停下时不再补读最后一次，命令的完整输出以工具结果为准。
 //
@@ -91,7 +92,11 @@ export function tailClaudeTaskOutput(input: {
       } catch {
         // 文件暂时读不到：下次再看。
       }
-      if (size < offset) offset = 0;
+      if (size < offset) {
+        // 文件被截断重写：上次没读完的半个字符不属于新内容。
+        offset = 0;
+        decoder = new TextDecoder('utf-8', { fatal: false });
+      }
       if (size > offset) {
         const start = size - offset > MAX_READ_BYTES ? size - MAX_READ_BYTES : offset;
         let bytes: Uint8Array | undefined;
@@ -111,9 +116,15 @@ export function tailClaudeTaskOutput(input: {
         if (bytes !== undefined) {
           // 跳过了一段：不把前后两行拼在一起，跳过之前没读完的字符也不要了。
           const skipped = start > offset;
-          if (skipped) decoder = new TextDecoder('utf-8', { fatal: false });
+          let first = 0;
+          if (skipped) {
+            decoder = new TextDecoder('utf-8', { fatal: false });
+            // 跳到的位置可能落在一个多字节字符中间：跳过它剩下的续字节（10xxxxxx）。
+            while (first < bytes.byteLength && ((bytes[first] ?? 0) & 0xc0) === 0x80) first += 1;
+          }
           offset = start + bytes.byteLength;
-          const text = (skipped ? '\n' : '') + decoder.decode(bytes, { stream: true });
+          const text =
+            (skipped ? '\n' : '') + decoder.decode(bytes.subarray(first), { stream: true });
           if (text.length > 0) input.onChunk(text);
         }
       }

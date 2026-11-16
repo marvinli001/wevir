@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts（`permissionModeForClaudeRuntimePolicy`、`claudeRuntimeQueryPolicyForRuntimePolicy`、`permissionResultFromDecision`、`toSessionPermissionUpdates`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；拒绝附言的前缀照 365a62aa84f498894a84e63be988d73a77768803（#27871）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：按 Wevir 的三种权限模式重写映射；审批选项照 adapter-codex 的四个。
 //
@@ -54,7 +54,7 @@ export function permissionResult(input: {
   toolInput: Record<string, unknown>;
   toolUseID: string;
   suggestions?: readonly PermissionUpdate[];
-  /** 用户的拒绝附言（0.144.0），代替固定的拒绝文案。 */
+  /** 用户的拒绝附言（0.144.0），加上说明是用户的话的前缀，代替固定的拒绝文案。 */
   feedback?: string;
 }): PermissionResult {
   if (input.decision === 'accept' || input.decision === 'acceptForSession') {
@@ -69,13 +69,15 @@ export function permissionResult(input: {
       }),
     };
   }
+  // 附言前面说明是用户的话（T3 的 #27871）：只给附言时 Claude 分不清这是用户说的还是工具的报错。
+  const feedback = input.feedback?.trim();
   return {
     behavior: 'deny',
-    message:
-      input.feedback?.trim() ||
-      (input.decision === 'cancel'
+    message: feedback
+      ? `The user declined this tool call and said:\n${feedback}`
+      : input.decision === 'cancel'
         ? 'User cancelled tool execution.'
-        : 'User declined tool execution.'),
+        : 'User declined tool execution.',
     toolUseID: input.toolUseID,
     decisionClassification: 'user_reject',
     ...(input.decision === 'cancel' && { interrupt: true }),

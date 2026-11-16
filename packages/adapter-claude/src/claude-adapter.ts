@@ -4,7 +4,10 @@
 // 66cae3d7565a6cc086672a53349cc5da225189c1（上下文用量读流式事件）、598298cc3c56ef6943301944d6986578f6b7d587（以第一个 `init` 的权限模式为准）、
 // 499c9ee68b28492c9e088a98f112998dfc4ffafc（用量上限挡下的 `/compact` 算失败）；
 // 0b84aa3fa7853e2645322feebc0859802ccc1a31（#21806，完全访问下保留 Claude 的审批）、e74924538705d774e2e1c56616485351d33d38db（#22546，审批原因与长期授权限制）；
-// 25dde99a5199b89641ea0b5aef556033ea9201fb（#24254，服务端工具结果与错误）、159a914d6b99e6844f2796da44a6dee101f35d59（#22654，压缩预留 33,000 token）
+// 25dde99a5199b89641ea0b5aef556033ea9201fb（#24254，服务端工具结果与错误）、159a914d6b99e6844f2796da44a6dee101f35d59（#22654，压缩预留 33,000 token）；
+// 4aead9e6d99243c4f000df07222308c62022bb6f（#33575，显示不了的 elicitation 回 cancel）、ff599f0bef9c09398e6a08f03073426825c33e64（#34821）与
+// 72ddc3ee32e55fddc170a811b6e0199cd4968f6e（#37355，子 agent 结果去掉 Claude Code 给父模型的包装）、9e716b694ae38c0598251baee553704bdb38e9c0（#34822，恢复的会话等 MCP 服务连上）、
+// 729f6757d91d9c45614150da297ea7d919bbe81d（#20276，子 agent 同一请求的快照取各项的最大值）
 // Copyright (c) 2026 T3 Tools Inc.
 // 缓存到期计算参考同文件 a03648901640216a154d387cfb2cdec268e6527e（MIT，#21682）。
 // 修改：改写成不依赖 `effect` 的普通 TS，实现 Wevir 的 `AgentRuntimeAdapter`；插话用 priority next（T3 用 now）；关掉后台任务；不移植 T3 编排专用的部分（唤醒回合、prompt 回声的门控、后台任务名单、goal、回滚、编排用的 MCP 工具）。
@@ -120,6 +123,7 @@ import {
   type ClaudeRequest,
   claudeUsageRecord,
   claudeUsageRecords,
+  maxClaudeUsage,
   mergeClaudeUsage,
 } from './usage-record.js';
 
@@ -594,11 +598,36 @@ const TOOL_RESULT_TYPES = new Set<unknown>([
   'web_search_tool_result',
 ]);
 
-/** 后台启动的子 agent 的确认（T3 的 `isClaudeSubagentAsyncLaunchAck`）。 */
+// Claude Code 给前台 Agent 结果套的包装是写给父模型看的，不是报告本身（T3 的 #34821、#37355）：用过的工具、一段“交回”的
+// 说明（报告的每一行缩进两个空格），以及结尾的 agentId 与 `<usage>`。
+const TOOLS_USED_NOTE = /^\s*<tools-used-before-summary>[^<]*<\/tools-used-before-summary>\s*/;
+const HAND_BACK_FRAME =
+  /^\[Subagent hand-back\] The text below is the final report of a subagent [^\n]* The report follows:\n/;
+const USAGE_TRAILER = /(?:^|\n)<usage>[^<]*<\/usage>\s*$/;
+const AGENT_ID_TRAILER = /(?:^|\n)agentId: ([\w-]+) \(use SendMessage with to: '\1'[^\n]*\)\s*$/;
+
+/** 子 agent 的报告：去掉 Claude Code 的包装；有“交回”说明时报告各行的两格缩进也去掉，没有时原样保留。 */
+export function subagentReport(text: string): string {
+  const unwrapped = text
+    .replace(TOOLS_USED_NOTE, '')
+    .replace(USAGE_TRAILER, '')
+    .replace(AGENT_ID_TRAILER, '');
+  const report = unwrapped.replace(HAND_BACK_FRAME, '');
+  return report === unwrapped ? report : report.replace(/^ {2}/gm, '');
+}
+
+/**
+ * 后台启动的子 agent 的确认（T3 的 `isClaudeSubagentAsyncLaunchAck`）。看去掉用过的工具之后的原文：前台报告套着“交回”
+ * 说明，报告本身碰巧写了这些话也不算。
+ */
 function isAsyncLaunchAck(structured: unknown, text: string | undefined): boolean {
   const status = record(structured).status;
   if (status === 'async_launched') return true;
-  return text !== undefined && /launched in the background|running in the background/i.test(text);
+  if (text === undefined) return false;
+  const raw = text.replace(TOOLS_USED_NOTE, '');
+  return (
+    !HAND_BACK_FRAME.test(raw) && /launched in the background|running in the background/i.test(raw)
+  );
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1388,6 +1417,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     }
     const input = new PushQueue<SDKUserMessage>();
     const env = { ...claudeEnv(this.#env, installation.executablePath), ...session.config.env };
+    // 恢复的会话（T3 的 #34822）：Claude Code 默认不等 MCP 服务连上就发第一个请求，模型会被告知 wevir 与读历史的工具断开了。
+    // 用户或环境自己设了的照旧。
+    if (session.persisted && env.MCP_CONNECTION_NONBLOCKING === undefined) {
+      env.MCP_CONNECTION_NONBLOCKING = '0';
+    }
     const options: Options = {
       pathToClaudeCodeExecutable: installation.executablePath,
       // 环境的变量（0.130.0）并进这个会话的 `claude` 进程，模型跑的命令继承它。
@@ -1694,19 +1728,20 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   /**
    * 用户接入的 MCP 服务要用户输入（claude-event-mapping.md §5.6，`@wevir/runtime-adapter` 的 mcp-elicitation.ts）：表单换成
    * `question.requested`，链接换成一个 `MCP_URL_ELICITATION_TOOL` 工具调用加“打开链接”的审批。属于顶层会话进行中的回合（子 agent 的
-   * 请求分不出是谁的，也算顶层会话的）；没有回合、表单认不出或地址不是 http(s) 时回 `decline`。
+   * 请求分不出是谁的，也算顶层会话的）；没有回合、表单认不出或地址不是 http(s) 时回 `cancel`（T3 的 #33575）：用户没看到请求、
+   * 也就没做选择，MCP 的 `decline` 留给用户明确拒绝，`cancel` 让服务知道请求被搁下了、可以换别的办法再问。
    */
   #onElicitation(session: RootSession): NonNullable<Options['onElicitation']> {
     return async (request, { signal }) => {
       const turn = session.turn;
       if (turn === undefined || turn.settled || turn.cancelRequested || this.#disposed) {
-        return { action: 'decline' };
+        return { action: 'cancel' };
       }
       this.#nextElicitation += 1;
       const requestId = `elicitation-${this.#nextElicitation}`;
       if (request.mode === 'url') {
         const url = elicitationUrl(request.url);
-        if (url === undefined) return { action: 'decline' };
+        if (url === undefined) return { action: 'cancel' };
         const toolCallId = `mcp-elicitation-${this.#nextElicitation}`;
         session.hub.emit({
           type: 'tool.started',
@@ -1763,7 +1798,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         });
       }
       const questions = elicitationQuestions(request.message, request.requestedSchema);
-      if (questions === undefined) return { action: 'decline' };
+      if (questions === undefined) return { action: 'cancel' };
       return new Promise((resolve) => {
         let done = false;
         const finish = (result: Awaited<ReturnType<NonNullable<Options['onElicitation']>>>) => {
@@ -2554,13 +2589,17 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
 
   /**
    * 子 agent 的请求（0.62.0）：`claude` 不转发子 agent 的流式事件，只有快照，快照的输入与缓存是准的、`output_tokens` 不是。
-   * 快照换了 `id` 就是上一个请求结束了，按快照报；最后一个请求等 Agent 工具的结果，结果的 `usage` 是子 agent 最后一条
-   * 消息的最终用量（输入与缓存对得上时用它）。没有时长。
+   * 同一请求的各个快照（每个内容块一个）可能从开头的用量渐渐变成最终的，各项取最大值（T3 的 #20276）。快照换了 `id` 就是
+   * 上一个请求结束了，按快照报；最后一个请求等 Agent 工具的结果，结果的 `usage` 是子 agent 最后一条消息的最终用量（输入与
+   * 缓存对得上时用它）。没有时长。
    */
   #childRequest(child: ChildSession, message: Extract<SDKMessage, { type: 'assistant' }>): void {
     const usage = message.message.usage as unknown;
     if (usage === undefined || usage === null || message.message.model === '<synthetic>') return;
-    if (child.request?.id === message.message.id) return;
+    if (child.request?.id === message.message.id) {
+      maxClaudeUsage(child.request, usage);
+      return;
+    }
     this.#flushChildRequest(child);
     child.request = { id: message.message.id, model: message.message.model, usage: {} };
     mergeClaudeUsage(child.request, usage);
@@ -2658,9 +2697,12 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       session.outputTails.delete(toolCallId);
       // ExitPlanMode 没报 tool.started（计划另报），结果也不报。
       if (owner.tools.get(toolCallId)?.name === EXIT_PLAN_MODE) continue;
-      const text =
+      const raw =
         toolResultText(fields.content) ??
         (fields.type === 'tool_result' ? undefined : JSON.stringify(fields.content));
+      const child = session.children.get(toolCallId);
+      // 子 agent 的结果只显示报告（父会话的工具输出与子会话补的回答都是）。
+      const text = child !== undefined && raw !== undefined ? subagentReport(raw) : raw;
       const resultType = record(fields.content).type;
       const failed =
         fields.is_error === true ||
@@ -2686,9 +2728,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           });
         }
       }
-      const child = session.children.get(toolCallId);
       if (child !== undefined) {
-        if (!failed && isAsyncLaunchAck(structured, text)) {
+        if (!failed && isAsyncLaunchAck(structured, raw)) {
           child.background = true;
         } else {
           this.#settleChild(
