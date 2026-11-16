@@ -13,14 +13,17 @@ export interface RequestSupply {
 
 export function requestStats(
   payload: Record<string, unknown>,
-  mode: 'responses' | 'chat' | 'messages',
+  mode: 'responses' | 'chat' | 'messages' | 'gemini',
   serialized: string | Uint8Array,
   source: ResponsesRequest,
   seenOutputs = new Set<string>(),
 ): RequestSupply {
-  const catalog = { responses: responsesCatalog, chat: chatCatalog, messages: messagesCatalog }[
-    mode
-  ](payload, serialized);
+  const catalog = {
+    responses: responsesCatalog,
+    chat: chatCatalog,
+    messages: messagesCatalog,
+    gemini: geminiCatalog,
+  }[mode](payload, serialized);
   const input = Array.isArray(source.input) ? source.input : [];
   const calls = new Map(
     input
@@ -35,6 +38,16 @@ export function requestStats(
     for (const item of Array.isArray(payload.input) ? payload.input : []) {
       if (item.type === 'function_call_output' && isWevir(calls.get(item.call_id)))
         outputs.push({ id: item.call_id, output: item.output });
+    }
+  } else if (mode === 'gemini') {
+    for (const content of (payload.contents ?? []) as Array<{
+      parts: Array<{ functionResponse?: { id: string; name: string; response: unknown } }>;
+    }>) {
+      for (const part of content.parts) {
+        const result = part.functionResponse;
+        if (result && isWevir(result.name))
+          outputs.push({ id: result.id, output: result.response });
+      }
     }
   } else {
     for (const message of (payload.messages ?? []) as Array<Record<string, unknown>>) {
@@ -72,9 +85,16 @@ export function requestStats(
             .filter((item) => ['system', 'developer'].includes(item.role))
             .map((item) => (typeof item.content === 'string' ? item.content : ''))
             .join('\n')
-        : ((payload.system ?? []) as Array<{ text?: string }>)
-            .map((item) => item.text ?? '')
-            .join('\n');
+        : mode === 'gemini'
+          ? (
+              (payload.systemInstruction as { parts?: Array<{ text?: string }> } | undefined)
+                ?.parts ?? []
+            )
+              .map((item) => item.text ?? '')
+              .join('\n')
+          : ((payload.system ?? []) as Array<{ text?: string }>)
+              .map((item) => item.text ?? '')
+              .join('\n');
   return {
     toolCount: catalog.tools,
     toolBytes: catalog.toolBytes,
@@ -181,6 +201,28 @@ export function messagesCatalog(
     names: tools.map((tool) => tool.name ?? '?'),
     toolBytes: bytes(tools),
     instructionBytes: bytes(body.system ?? ''),
+    requestBytes:
+      serialized === undefined
+        ? bytes(body)
+        : typeof serialized === 'string'
+          ? bytes(serialized)
+          : serialized.byteLength,
+  };
+}
+
+function geminiCatalog(
+  body: Record<string, unknown>,
+  serialized?: string | Uint8Array,
+): CatalogStats {
+  const tools = (body.tools ?? []) as Array<{ functionDeclarations?: Array<{ name: string }> }>;
+  const names = tools.flatMap((tool) =>
+    (tool.functionDeclarations ?? []).map((entry) => entry.name),
+  );
+  return {
+    tools: names.length,
+    names,
+    toolBytes: bytes(tools),
+    instructionBytes: bytes(body.systemInstruction ?? ''),
     requestBytes:
       serialized === undefined
         ? bytes(body)

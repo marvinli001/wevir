@@ -146,7 +146,7 @@ export function newOpenAIForm(preset: OpenAIPreset | undefined, takenIds: string
     ...(preset?.kind === 'google-vertex' && { vertex: { project: '', location: 'global' } }),
     editing: false,
     hasSecret: false,
-    id: preset ? uniqueId(preset.id, takenIds) : '',
+    id: preset ? uniqueId(preset.modelCatalog === 'zuv' ? 'zuv-api' : preset.id, takenIds) : '',
     displayName: preset ? t(preset.name) : '',
     api: preset?.api ?? 'openai-completions',
     baseURL: preset?.baseURL ?? '',
@@ -163,6 +163,14 @@ export function newOpenAIForm(preset: OpenAIPreset | undefined, takenIds: string
 
 export function editForm(provider: EditableProvider): ProviderForm {
   const models = provider.models.map(modelRow);
+  const preset =
+    provider.kind === 'openai-compatible'
+      ? OPENAI_PRESETS.find(
+          (candidate) =>
+            candidate.modelCatalog === 'zuv' &&
+            sameAddress(candidate.baseURL, provider.baseURL ?? ''),
+        )
+      : undefined;
   const api = (FORM_APIS as readonly string[]).includes(provider.api ?? '')
     ? (provider.api as FormApi)
     : 'openai-completions';
@@ -190,6 +198,7 @@ export function editForm(provider: EditableProvider): ProviderForm {
     }),
     imageModels: (provider.imageModels ?? []).map((model) => model.id).join(', '),
     ...(provider.imageModels && { savedImageModels: provider.imageModels }),
+    ...(preset && { preset }),
   };
 }
 

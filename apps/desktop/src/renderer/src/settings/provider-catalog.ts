@@ -29,6 +29,14 @@ function preset(id: string): CatalogEntry['source'] {
 
 export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
   {
+    id: 'zuv',
+    name: 'provider.catalog.zuv',
+    logo: 'zuv',
+    group: 'global',
+    source: preset('zuv'),
+    keyURL: 'https://zuv.wevir.si/console/keys',
+  },
+  {
     id: 'openai',
     name: 'provider.catalog.openai',
     logo: 'openai',
@@ -263,6 +271,7 @@ export function catalogEntry(id: string): CatalogEntry | undefined {
 }
 
 const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
+  [/^zuv\.wevir\.si$/, 'zuv'],
   [/^ollama\.com$/, 'ollama'],
   [
     /^[a-z0-9-]+\.(openai\.azure\.com|services\.ai\.azure\.com|cognitiveservices\.azure\.com)$/,

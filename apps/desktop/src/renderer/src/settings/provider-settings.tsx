@@ -16,6 +16,7 @@ import { t } from '@/i18n';
 import { ProviderCatalogDialog } from '@/onboarding/provider-catalog-dialog';
 import { modelsOf } from '@/session/model-picker';
 import { type CatalogEntry, providerLogo } from './provider-catalog';
+import { loadProviderCatalog } from './provider-catalog-form';
 import { ProviderEditor, type SaveOutcome } from './provider-editor';
 import {
   type EditableProvider,
@@ -59,6 +60,7 @@ export function ProviderSettings() {
   const [tests, setTests] = useState<Record<string, TestState>>({});
   const [removing, setRemoving] = useState<ProviderProfile>();
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
 
   const runTest = useCallback(
     async (providerId: string) => {
@@ -114,7 +116,8 @@ export function ProviderSettings() {
   }
 
   /** 在“模型服务”对话框里选了一项：DeepSeek 官方只能有一个，已有就编辑它。 */
-  const pick = (entry: CatalogEntry) => {
+  const pick = async (entry: CatalogEntry) => {
+    if (!client || catalogLoading) return;
     setCatalogOpen(false);
     const source = entry.source;
     if (!source || (entry.id === 'google-vertex' && !vertexAvailable)) return;
@@ -123,10 +126,19 @@ export function ProviderSettings() {
       setView({ kind: 'form', form: existing ? editForm(existing) : newDeepSeekForm() });
       return;
     }
-    setView({
-      kind: 'form',
-      form: newOpenAIForm(source.kind === 'preset' ? source.preset : undefined, takenIds),
-    });
+    setCatalogLoading(true);
+    setNotice(undefined);
+    try {
+      const form = await loadProviderCatalog(
+        client,
+        newOpenAIForm(source.kind === 'preset' ? source.preset : undefined, takenIds),
+      );
+      setView({ kind: 'form', form });
+    } catch {
+      setNotice({ tone: 'error', text: t('provider.models.loadFailed') });
+    } finally {
+      setCatalogLoading(false);
+    }
   };
 
   return (
@@ -137,6 +149,11 @@ export function ProviderSettings() {
         </div>
       )}
       <SourceSummary providers={data.providers} />
+      {catalogLoading && (
+        <p role="status" className="mb-3 text-sm text-muted-foreground">
+          {t('provider.models.loading')}
+        </p>
+      )}
       <SettingsSection title={t('provider.section.subscriptions')}>
         <SubscriptionSources client={client} providers={data.providers} />
       </SettingsSection>
@@ -150,7 +167,7 @@ export function ProviderSettings() {
               setNotice(undefined);
               setCatalogOpen(true);
             }}
-            disabled={!client}
+            disabled={!client || catalogLoading}
             data-action="add-provider"
           >
             <Plus data-icon="inline-start" />

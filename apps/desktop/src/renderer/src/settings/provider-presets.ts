@@ -11,7 +11,11 @@ export const DEEPSEEK_OFFICIAL_ID = 'deepseek-official';
 export const DEEPSEEK_DEFAULT_MODELS: readonly string[] = ['deepseek-flash', 'deepseek-v4-pro'];
 
 /** `openai-compatible` 不能用的 ID：已被 DeepSeek 官方 Provider 占用（providers.md §2.1）。 */
-export const RESERVED_PROVIDER_IDS: readonly string[] = [DEEPSEEK_OFFICIAL_ID, 'deepseek-account'];
+export const RESERVED_PROVIDER_IDS: readonly string[] = [
+  DEEPSEEK_OFFICIAL_ID,
+  'deepseek-account',
+  'zuv',
+];
 
 /**
  * 界面上能选的协议。`anthropic-messages` 只有 Codex 引擎（经模型网关，R10）支持（providers.md §4）；
@@ -21,6 +25,7 @@ export const FORM_APIS = [
   'openai-completions',
   'openai-responses',
   'anthropic-messages',
+  'google-gemini',
 ] as const satisfies ProviderApi[];
 export type FormApi = (typeof FORM_APIS)[number];
 
@@ -43,6 +48,7 @@ export interface OpenAIPreset {
   docsURL?: string;
   /** 图片模型（0.139.0）：新建时填进表单，第一个是生图工具的默认模型。 */
   imageModels?: string[];
+  modelCatalog?: 'zuv';
 }
 
 /** OpenAI 与 Anthropic 模板共用的五档推理；支持关闭的模型另加 off。 */
@@ -89,6 +95,21 @@ export const DEEPSEEK_OFFICIAL_PRESET: OpenAIPreset = {
 };
 
 export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
+  {
+    id: 'zuv',
+    name: 'provider.catalog.zuv',
+    api: 'openai-responses',
+    baseURL: 'https://zuv.wevir.si/v1',
+    models: [],
+    defaultModelId: '',
+    modelCatalog: 'zuv',
+    compat: {
+      supportsCustomTools: false,
+      supportsNamespaceTools: false,
+      toolChoice: 'auto_only',
+    },
+    docsURL: 'https://zuv.wevir.si/console/integrate',
+  },
   {
     // Sol / Astra / Terra 调工具要求 Responses，Luna 在 Chat 上只有 none 支持函数调用，统一由网关透传 Responses
     // （2026-10-15 核对，Terra 2026-10-27，providers.md §7.8）。

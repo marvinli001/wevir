@@ -123,6 +123,7 @@ import {
   writeWorkspaceFile,
 } from './workspace-files.js';
 import { WritingStyleError, type WritingStyleStore } from './writing-style/store.js';
+import { discoverZuvModels, isZuvApiBaseURL } from './zuv-models.js';
 
 /** 一次请求的上下文：发起请求的连接在 `host.hello` 里给出的身份与能力位。 */
 export interface RequestContext {
@@ -1097,6 +1098,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         throw invalidParams(['kind'], 'this engine does not support Google Vertex');
       return serialProvider(async () => {
         const existing = storage.providers.get(params.id);
+        if (!existing && params.id === 'zuv')
+          throw invalidParams(['id'], 'zuv is reserved for the ZUV service account');
         if (existing && existing.kind !== params.kind) {
           throw invalidParams(['kind'], `kind of provider ${params.id} cannot be changed`);
         }
@@ -1257,18 +1260,21 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           if (provider.kind !== 'openai-compatible')
             throw invalidParams(
               ['providerId'],
-              'Ollama discovery requires an OpenAI-compatible provider',
+              'model discovery requires an OpenAI-compatible provider',
             );
           // Snapshot endpoint and credential under the same lock as provider.upsert.
-          ollamaOrigin(provider.baseURL ?? '');
+          if (!isZuvApiBaseURL(provider.baseURL ?? '')) ollamaOrigin(provider.baseURL ?? '');
           return {
             baseURL: provider.baseURL ?? '',
             apiKey: await secretOf(secrets, provider),
             modelId,
           };
         });
-        return discoverOllamaModels(target);
+        return isZuvApiBaseURL(target.baseURL)
+          ? discoverZuvModels(modelId)
+          : discoverOllamaModels(target);
       }
+      if (isZuvApiBaseURL(baseURL ?? '')) return discoverZuvModels(modelId);
       return discoverOllamaModels({ baseURL: baseURL ?? '', apiKey, modelId });
     },
 

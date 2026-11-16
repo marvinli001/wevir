@@ -15,6 +15,7 @@ import { platformApi } from '@/platform/platform';
 import { effortLabel } from '@/session/model-picker';
 import { ImageModelsField } from './image-models';
 import { OllamaModels } from './ollama-models';
+import { catalogEntry } from './provider-catalog';
 import {
   ASSUMED_CONTEXT_WINDOW,
   connectionChanged,
@@ -31,6 +32,7 @@ import {
 } from './provider-form';
 import { FORM_APIS } from './provider-presets';
 import { VertexFields } from './vertex-fields';
+import { ZuvModels } from './zuv-models';
 
 export interface SaveOutcome {
   id: string;
@@ -69,6 +71,8 @@ export function ProviderEditor({
   };
   const vertex = form.kind === 'google-vertex';
   const openAI = form.kind !== 'deepseek-official';
+  const zuv = form.preset?.modelCatalog === 'zuv';
+  const keyURL = catalogEntry(form.preset?.id ?? '')?.keyURL;
   const name = form.editing
     ? initial.displayName
     : form.preset
@@ -159,9 +163,19 @@ export function ProviderEditor({
         </h2>
       </div>
 
-      {!vertex && form.preset && (form.preset.note || form.preset.docsURL) && (
+      {!vertex && form.preset && (form.preset.note || form.preset.docsURL || keyURL) && (
         <div className="space-y-1.5 rounded-lg bg-muted px-3.5 py-2.5 text-sm text-muted-foreground">
           {form.preset.note && <p>{t(form.preset.note)}</p>}
+          {keyURL && (
+            <button
+              type="button"
+              className="mr-3 inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+              onClick={() => void platformApi().openExternal(keyURL)}
+            >
+              {t('welcome.getKey')}
+              <ExternalLink className="size-3.5" aria-hidden />
+            </button>
+          )}
           {form.preset.docsURL && (
             <button
               type="button"
@@ -211,6 +225,8 @@ export function ProviderEditor({
             <ThinkingFormatField form={form} onChange={update} />
           )}
         </>
+      ) : zuv ? (
+        <ZuvModels client={client} form={form} onChange={update} />
       ) : openAI ? (
         <>
           <FormField id={`${ids}-api`} label={t('provider.form.api')}>

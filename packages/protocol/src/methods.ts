@@ -1071,7 +1071,7 @@ export const ProviderTestResultSchema = z.object({
   httpStatus: z.int().min(100).max(599).optional(),
 });
 
-/** Ollama discovery (0.31.0). Exactly one of providerId / baseURL is required by Host. */
+/** Ollama / Zuv discovery. Exactly one of providerId / baseURL is required by Host. */
 export const ProviderDiscoverModelsParamsSchema = z.object({
   providerId: ProviderIdSchema.optional(),
   baseURL: HttpUrlSchema.optional(),

@@ -103,6 +103,7 @@ export const ProviderApiSchema = z.enum([
   'openai-completions',
   'openai-responses',
   'anthropic-messages',
+  'google-gemini',
 ]);
 export type ProviderApi = z.infer<typeof ProviderApiSchema>;
 
@@ -124,6 +125,14 @@ export const ProviderModelSchema = z.object({
   /** 发给服务端的模型 ID。 */
   id: z.string().min(1),
   displayName: z.string().optional(),
+  /** 模型级协议优先于 Provider 的默认协议；目录同时保留全部可用协议与原始能力。 */
+  api: ProviderApiSchema.optional(),
+  protocols: z.array(z.string()).optional(),
+  vendor: z.string().optional(),
+  inputModalities: z.array(z.string()).optional(),
+  outputModalities: z.array(z.string()).optional(),
+  capabilities: z.array(z.string()).optional(),
+  families: z.array(z.string()).optional(),
   contextWindow: z.int().min(1).optional(),
   /** 订阅引擎声明的原始窗口配置；省略时不支持数值编辑。 */
   contextWindowSettings: z
