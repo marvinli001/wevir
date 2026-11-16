@@ -25,6 +25,7 @@ import {
   isOutputStyle,
   resolveProviderModels,
   SyncStatusSchema,
+  ZUV_API_PROVIDER_ID,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
 import type {
@@ -123,6 +124,7 @@ import {
   writeWorkspaceFile,
 } from './workspace-files.js';
 import { WritingStyleError, type WritingStyleStore } from './writing-style/store.js';
+import type { ZuvApiConnection } from './zuv/api-connection.js';
 import { discoverZuvModels, isZuvApiBaseURL } from './zuv-models.js';
 
 /** 一次请求的上下文：发起请求的连接在 `host.hello` 里给出的身份与能力位。 */
@@ -188,6 +190,7 @@ export interface HostMethodsOptions {
   providers?: ProviderBridge;
   /** 引擎的账号（R6，`account.*`）；引擎没有账号时省略，`account.*` 回 `ENGINE_ERROR`。 */
   accounts?: HostAccounts;
+  zuvApi?: ZuvApiConnection;
   /** Provider 写操作的串行锁；与 `HostAccounts` 共用，默认新建一个。 */
   providerLock?: ProviderLock;
   /** Host 设置（R11，`settings.*`）；省略时只在内存里（测试）。 */
@@ -651,6 +654,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }
     return accounts;
   };
+  const requireZuvApi = (): ZuvApiConnection => {
+    if (!options.zuvApi) throw invalidParams([], 'ZUV API connection is unavailable');
+    return options.zuvApi;
+  };
 
   /**
    * `provider.upsert` 的 `chatgpt`（R6）：模型列表向引擎要，客户端只改显示名与默认模型。引擎没有账号时与引擎不接受的配置
@@ -1092,7 +1099,17 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'provider.list': () => ({ providers: storage.providers.list().map(toProviderProfile) }),
 
+    'zuvApi.get': async () => ({ connection: await requireZuvApi().read() }),
+    'zuvApi.login': async () => ({ connection: await requireZuvApi().login() }),
+    'zuvApi.cancel': async ({ requestId }) => ({
+      connection: await requireZuvApi().cancel(requestId),
+    }),
+    'zuvApi.disconnect': async () => ({ connection: await requireZuvApi().disconnect() }),
+    'zuvApi.refreshModels': async () => ({ connection: await requireZuvApi().refreshModels() }),
+
     'provider.upsert': async (params) => {
+      if (params.id === ZUV_API_PROVIDER_ID)
+        throw invalidParams(['id'], 'ZUV API login manages this provider');
       if (params.kind === 'chatgpt') return upsertChatgpt(params);
       if (params.kind === 'google-vertex' && bridge?.googleVertex !== true)
         throw invalidParams(['kind'], 'this engine does not support Google Vertex');
@@ -1204,8 +1221,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       });
     },
 
-    'provider.remove': ({ providerId }) =>
-      serialProvider(async () => {
+    'provider.remove': async ({ providerId }) => {
+      await serialProvider(async () => {
         const provider = storage.providers.get(providerId);
         if (!provider) {
           throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
@@ -1228,9 +1245,26 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         if (storage.usage.deleteProvider(providerId) > 0) options.usage?.service.recordsChanged();
         await applyProviders();
         return {};
-      }),
+      });
+      if (providerId === ZUV_API_PROVIDER_ID) await options.zuvApi?.disconnect();
+      return {};
+    },
 
     'provider.test': async ({ providerId, modelId }) => {
+      if (providerId === ZUV_API_PROVIDER_ID) {
+        const connection = await requireZuvApi().refreshModels();
+        const error =
+          connection.error ??
+          connection.modelsError ??
+          (connection.status === 'connected' ? undefined : 'invalid_api_key');
+        return error
+          ? {
+              ok: false,
+              reason: 'auth',
+              error: { category: 'missing_credentials', message: error },
+            }
+          : { ok: true };
+      }
       const provider = storage.providers.get(providerId);
       if (!provider) {
         throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
@@ -1271,10 +1305,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           };
         });
         return isZuvApiBaseURL(target.baseURL)
-          ? discoverZuvModels(modelId)
+          ? discoverZuvModels(modelId, fetch, target.apiKey ? { apiKey: target.apiKey } : undefined)
           : discoverOllamaModels(target);
       }
-      if (isZuvApiBaseURL(baseURL ?? '')) return discoverZuvModels(modelId);
+      if (isZuvApiBaseURL(baseURL ?? ''))
+        return discoverZuvModels(modelId, fetch, apiKey ? { apiKey } : undefined);
       return discoverOllamaModels({ baseURL: baseURL ?? '', apiKey, modelId });
     },
 

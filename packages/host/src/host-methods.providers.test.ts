@@ -85,7 +85,7 @@ async function hostError(promise: Promise<unknown>): Promise<HostError> {
 }
 
 describe('Provider 桥接（Host 侧）', () => {
-  it('discovers Zuv without credentials and preserves per-model protocols through storage and the engine bridge', async () => {
+  it('discovers permitted Zuv models with the supplied or stored key and preserves protocols through storage and the engine bridge', async () => {
     const bridge = fakeBridge();
     const { methods, storage } = setup(bridge);
     const send = vi.fn<typeof fetch>(async () =>
@@ -140,8 +140,8 @@ describe('Provider 桥接（Host 侧）', () => {
       );
       expect(send).toHaveBeenCalledTimes(2);
       for (const [url, init] of send.mock.calls) {
-        expect(url).toBe('https://zuv.wevir.si/api/public/models');
-        expect(new Headers(init?.headers).has('authorization')).toBe(false);
+        expect(url).toBe('https://zuv.wevir.si/v1/models?protocol=all');
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer synthetic-key');
         expect(init?.body).toBeUndefined();
       }
     } finally {

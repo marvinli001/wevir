@@ -408,6 +408,7 @@ import {
 } from './verification.js';
 import { ProtocolVersionSchema } from './version.js';
 import { WritingStyleMethodSchemas } from './writing-style.js';
+import { ZuvApiCancelParamsSchema, ZuvApiResultSchema } from './zuv-api.js';
 
 // Host API v0 的方法与通知。语义、错误与示例报文见 docs/architecture/host-api.md。
 
@@ -2246,6 +2247,23 @@ export const MethodSchemas = {
     params: EmptySchema,
     result: ProviderListResultSchema,
     permission: 'provider.read',
+  },
+  'zuvApi.get': { params: EmptySchema, result: ZuvApiResultSchema, permission: 'provider.read' },
+  'zuvApi.login': { params: EmptySchema, result: ZuvApiResultSchema, permission: 'provider.write' },
+  'zuvApi.cancel': {
+    params: ZuvApiCancelParamsSchema,
+    result: ZuvApiResultSchema,
+    permission: 'provider.write',
+  },
+  'zuvApi.disconnect': {
+    params: EmptySchema,
+    result: ZuvApiResultSchema,
+    permission: 'provider.write',
+  },
+  'zuvApi.refreshModels': {
+    params: EmptySchema,
+    result: ZuvApiResultSchema,
+    permission: 'provider.write',
   },
   'provider.upsert': {
     params: ProviderUpsertParamsSchema,

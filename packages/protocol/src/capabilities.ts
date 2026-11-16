@@ -100,6 +100,7 @@ export const HOST_FEATURES = {
   syncArtifacts: 'sync_artifacts',
   /** 0.171.0：Host 管理的 ZUV 设备账号。 */
   zuvAccount: 'zuv_account',
+  zuvApiConnection: 'zuv_api_connection',
   /** 0.170.0：本地同步绑定、队列与冲突数量；不表示网络传输已启用。 */
   syncMetadata: 'sync_metadata',
   /** 0.162.0：API Key 网关的隐私遮蔽设置与用户豁免。 */
@@ -659,6 +660,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_creation_identity: z.boolean().optional(),
   sync_artifacts: z.boolean().optional(),
   zuv_account: z.boolean().optional(),
+  zuv_api_connection: z.boolean().optional(),
   sync_metadata: z.boolean().optional(),
   plugins: z.boolean().optional(),
   plugin_packages: z.boolean().optional(),

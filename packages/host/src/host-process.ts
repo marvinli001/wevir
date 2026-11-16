@@ -157,6 +157,7 @@ import { loadRepairTemplate, VerificationService } from './verification/service.
 import type { WebService } from './web/service.js';
 import { WritingStyleStore } from './writing-style/store.js';
 import { ZuvAccounts } from './zuv/accounts.js';
+import { ZuvApiConnection } from './zuv/api-connection.js';
 import { ZuvClient, type ZuvClientOptions } from './zuv/client.js';
 import { zuvGatewayAuth } from './zuv/gateway-auth.js';
 
@@ -361,6 +362,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let dictation: SpeechService | undefined;
   let accounts: HostAccounts | undefined;
   let zuvAccounts: ZuvAccounts | undefined;
+  let zuvApi: ZuvApiConnection | undefined;
   let syncService: SyncService | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
@@ -1498,6 +1500,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 0.63.0：添加的账号各有自己的引擎，在把 Provider 交给引擎之前建好，它们的 Provider 才交得到对的引擎。
     const providerLock = createProviderLock();
     const db = storage;
+    const apiConnection = new ZuvApiConnection({
+      storage: db,
+      secrets,
+      providerLock,
+      applyProviders: () => syncProviders(db, secrets, adapter),
+      onSecret: (value) => logger.addSecret(value),
+      origin: options.zuv?.origin,
+      allowLoopback: options.zuv?.allowLoopback,
+      fetch: options.zuv?.fetch,
+      hostName: options.zuv?.deviceName,
+    });
+    zuvApi = apiConnection;
+    await apiConnection.load().catch(() => logger.warn('ZUV API credentials unreadable'));
     const pool = adapter instanceof EngineRouter ? adapter.accountPool : undefined;
     accounts = new HostAccounts({
       accounts: adapter.accounts,
@@ -1923,6 +1938,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           checkpoints,
           providers: adapter,
           providerLock,
+          zuvApi: apiConnection,
           ...(accounts !== undefined && { accounts }),
           settings,
           images,
@@ -1996,6 +2012,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_creation_identity: true,
         sync_artifacts: true,
         zuv_account: true,
+        zuv_api_connection: true,
         ...(adapter.bindGatewayPrivacy !== undefined && { gateway_privacy: true }),
         workspace_git: true,
         workspace_diff: true,
@@ -2307,6 +2324,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await iosSimulators?.dispose().catch(() => {});
     await syncService?.close();
     await zuvAccounts?.close();
+    await zuvApi?.close();
     accounts?.dispose();
     automations?.dispose();
     channels?.dispose();

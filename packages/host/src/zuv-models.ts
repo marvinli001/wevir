@@ -28,18 +28,36 @@ export function isZuvApiBaseURL(baseURL: string): boolean {
 export async function discoverZuvModels(
   modelId?: string,
   doFetch: typeof fetch = fetch,
+  credentials?: { apiKey: string; origin?: string; signal?: AbortSignal },
 ): Promise<MethodResult<'provider.discoverModels'>> {
   const signal = AbortSignal.timeout(15_000);
   try {
-    const response = await doFetch(CATALOG_URL, {
-      headers: { accept: 'application/json' },
-      redirect: 'error',
-      credentials: 'omit',
-      signal,
-    });
+    const response = await doFetch(
+      credentials
+        ? `${credentials.origin ?? 'https://zuv.wevir.si'}/v1/models?protocol=all`
+        : CATALOG_URL,
+      {
+        headers: {
+          accept: 'application/json',
+          ...(credentials && { authorization: `Bearer ${credentials.apiKey}` }),
+        },
+        redirect: 'error',
+        credentials: 'omit',
+        signal: credentials?.signal ? AbortSignal.any([signal, credentials.signal]) : signal,
+      },
+    );
     if (!response.ok) {
       await response.body?.cancel();
-      return { ok: false, models: [], reason: response.status === 429 ? 'rate_limited' : 'server' };
+      return {
+        ok: false,
+        models: [],
+        reason:
+          response.status === 429
+            ? 'rate_limited'
+            : [401, 403].includes(response.status)
+              ? 'auth'
+              : 'server',
+      };
     }
     if (!response.body) return { ok: false, models: [], reason: 'protocol' };
     const chunks: Uint8Array[] = [];
@@ -65,20 +83,20 @@ export async function discoverZuvModels(
       if (!Array.isArray(protocols) || !protocols.every((value) => typeof value === 'string'))
         return { ok: false, models: [], reason: 'protocol' };
       const api = Object.keys(PROTOCOLS).find((protocol) => protocols.includes(protocol));
+      const inputModalities = item.inputModalities ?? item.input_modalities;
       const parsed = ProviderModelSchema.safeParse({
         id: item.id,
         displayName: item.name,
         api: api === undefined ? undefined : PROTOCOLS[api],
         protocols,
-        vendor: item.vendor,
-        contextWindow: item.contextLength ?? undefined,
-        maxTokens: item.maxOutput ?? undefined,
-        inputModalities: item.inputModalities,
-        outputModalities: item.outputModalities,
+        vendor: item.vendor ?? item.owned_by,
+        contextWindow: item.contextLength ?? item.context_length ?? undefined,
+        maxTokens: item.maxOutput ?? item.max_output_tokens ?? undefined,
+        inputModalities,
+        outputModalities: item.outputModalities ?? item.output_modalities,
         capabilities: item.capabilities,
-        families: item.families,
-        supportsImages:
-          Array.isArray(item.inputModalities) && item.inputModalities.includes('image'),
+        families: item.families ?? item.endpoints,
+        supportsImages: Array.isArray(inputModalities) && inputModalities.includes('image'),
         // The public catalog declares reasoning capability, but no selectable effort levels.
         reasoningEfforts: [],
       });

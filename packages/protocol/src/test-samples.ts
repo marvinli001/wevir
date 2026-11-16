@@ -3406,6 +3406,43 @@ export const recoveryStatus: MethodResult<'sync.recoveryStatus'> = {
   keyEpoch: '1',
 };
 export const methodSamples: MethodSamples = {
+  'zuvApi.get': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ connection: { status: 'disconnected' } }], invalid: [{}] },
+  },
+  'zuvApi.login': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [
+        {
+          connection: {
+            status: 'authorizing',
+            login: {
+              requestId: 'fixture-request',
+              authorizationUrl: 'https://zuv.wevir.si/connect/wevir-api?request=fixture-request',
+              expiresAt: '2030-01-01T00:00:00.000Z',
+            },
+          },
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'zuvApi.cancel': {
+    params: { valid: [{}, { requestId: 'fixture-request' }], invalid: [{ requestId: 0 }] },
+    result: { valid: [{ connection: { status: 'disconnected' } }], invalid: [{}] },
+  },
+  'zuvApi.disconnect': {
+    params: { valid: [{}], invalid: [null] },
+    result: { valid: [{ connection: { status: 'disconnected' } }], invalid: [{}] },
+  },
+  'zuvApi.refreshModels': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [{ connection: { status: 'connected', modelsError: 'network' } }],
+      invalid: [{}],
+    },
+  },
   'sync.importRestorePreview': {
     params: {
       valid: [{ importId: 'import_synthetic', entryId: 'entry_synthetic' }],
