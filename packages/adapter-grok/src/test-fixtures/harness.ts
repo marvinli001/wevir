@@ -126,8 +126,10 @@ export function readLog(file: string): LoggedMessage[] {
 }
 
 /** 假 grok 的 `FAKE_GROK_ENV_LOG`：每次启动一行，argv 与它收到的 GROK_DISABLE_AUTOUPDATER。 */
-export function readEnvLog(file: string): Array<{ argv: string[]; autoupdater: string | null }> {
-  return readLog(file) as unknown as Array<{ argv: string[]; autoupdater: string | null }>;
+type EnvLogEntry = { argv: string[]; autoupdater: string | null; mise: string | null };
+
+export function readEnvLog(file: string): EnvLogEntry[] {
+  return readLog(file) as unknown as EnvLogEntry[];
 }
 
 /** 订阅一个会话，边收边存。 */

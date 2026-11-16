@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { AcpProcess } from '@wevir/adapter-acp';
+import { AcpProcess, externalProbeEnv } from '@wevir/adapter-acp';
 import {
   type AccountKind,
   type AccountLoginMethod,
@@ -487,13 +487,9 @@ export class DevinAccounts implements EngineAccounts {
     const isManaged = managed !== undefined && executablePath === managed.path;
     const base = this.#base(customPath, executablePath, isManaged);
     const executable = { path: executablePath, env: devinEnv(parent, executablePath) };
-    const versionRun = await runDevin(
-      executablePath,
-      ['--version'],
-      executable.env,
-      10_000,
-      signal,
-    );
+    // 检测在后台跑：不让 mise 的 shim 去下载没装的 CLI（`externalProbeEnv`）；会话照用 `executable.env`。
+    const probeEnv = externalProbeEnv(executable.env);
+    const versionRun = await runDevin(executablePath, ['--version'], probeEnv, 10_000, signal);
     const installed = { ...base, installed: true, executablePath };
     if (!versionRun.ok || versionRun.code !== 0) {
       if (isManaged) {
@@ -521,7 +517,7 @@ export class DevinAccounts implements EngineAccounts {
       const statusRun = await runDevin(
         executablePath,
         ['auth', 'status'],
-        executable.env,
+        probeEnv,
         COMMAND_TIMEOUT_MS,
         signal,
       );
@@ -549,7 +545,7 @@ export class DevinAccounts implements EngineAccounts {
     };
     try {
       const setup = await (this.#options.probeSession ?? probeDevinSession)(
-        executable,
+        { ...executable, env: probeEnv },
         signal,
         this.#options.workDir,
       );

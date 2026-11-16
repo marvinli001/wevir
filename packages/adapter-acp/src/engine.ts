@@ -133,6 +133,11 @@ export interface AcpRouteCodec {
   /** 选推理强度的 config option（dsh：`reasoning_effort`）；没有就不设、不读。 */
   readonly reasoningEffortOption?: string;
   /**
+   * 可选：建会话与恢复后总是写一次选定的模型，即使引擎报的当前值已经是它（Copilot：`session/new` 报的是内置的默认值，不是
+   * 它实际要跑的模型，github/copilot-cli#5363；T3 Code #35199）。会话中换模型照常只在值不同时写。
+   */
+  readonly alwaysSetModel?: boolean;
+  /**
    * `SessionConfig` 的 Provider 与模型 → 模型选项的值。undefined 表示用引擎会话当前的模型，不换（Grok 的 `grok-build`：
    * CLI 的产品名，不是模型 ID）。
    */

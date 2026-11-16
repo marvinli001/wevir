@@ -2,7 +2,13 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountState } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { DEVIN_API_KEY_ENV, DevinAccounts, parseDevinAuthStatus } from './accounts.js';
+import {
+  DEVIN_API_KEY_ENV,
+  DevinAccounts,
+  type DevinAccountsOptions,
+  parseDevinAuthStatus,
+  probeDevinSession,
+} from './accounts.js';
 import { FAKE_DEVIN, fakeDevinEnv, tempRoot } from './test-fixtures/harness.js';
 
 const temp = tempRoot('accounts');
@@ -12,7 +18,7 @@ afterEach(async () => {
   await Promise.all(subjects.splice(0).map((accounts) => accounts.dispose()));
 });
 let seq = 0;
-function setup(extra: Record<string, string> = {}, options: { installer?: null } = {}) {
+function setup(extra: Record<string, string> = {}, options: Partial<DevinAccountsOptions> = {}) {
   const dir = temp.dir(`case-${++seq}`);
   const auth = join(dir, 'auth-state');
   const accounts = new DevinAccounts({
@@ -116,6 +122,23 @@ describe('DevinAccounts', () => {
       .map((line) => JSON.parse(line));
     expect(log).toHaveLength(2);
     expect(log[1]).toEqual({ deleted: log[0].new });
+  });
+
+  it('探测会话带 MISE_OFFLINE=1，会话的环境不带', async () => {
+    const probed: Array<string | undefined> = [];
+    const { accounts, auth } = setup(
+      {},
+      {
+        probeSession: (executable, signal, workDir) => {
+          probed.push(executable.env.MISE_OFFLINE);
+          return probeDevinSession(executable, signal, workDir);
+        },
+      },
+    );
+    writeFileSync(auth, 'signed-in');
+    expect((await accounts.read('devin')).status).toBe('signed_in');
+    expect(probed).toEqual(['1']);
+    expect((await accounts.executable()).env.MISE_OFFLINE).toBeUndefined();
   });
 
   it('设了 WINDSURF_API_KEY 就算已登录；这时不能在 Wevir 里登出', async () => {

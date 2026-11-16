@@ -227,6 +227,14 @@ describe('KiroAccounts', () => {
     for (const entry of lines(own.argv)) expect(entry).toMatchObject({ autoUpdate: null });
   });
 
+  it('检测的 --version、whoami 与模型列表带 MISE_OFFLINE=1，会话的环境不带', async () => {
+    const { accounts, argv, state } = setup();
+    signIn(state);
+    expect((await accounts.read('kiro')).status).toBe('signed_in');
+    expect(lines(argv).map((entry) => entry.mise)).toEqual(['1', '1', '1']);
+    expect((await accounts.executable()).env.MISE_OFFLINE).toBeUndefined();
+  });
+
   it('应用内登录：给出 CLI 打印的网址与设备码，按选的方式传参数，授权后变成已登录', async () => {
     const done = join(temp.dir('login-flags'), 'done');
     const {

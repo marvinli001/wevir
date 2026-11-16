@@ -136,6 +136,15 @@ describe('CopilotAccounts', () => {
     ]);
   });
 
+  it('检测的 --version 与探测会话带 MISE_OFFLINE=1，会话的环境不带', async () => {
+    const { accounts, argv } = setup({ FAKE_COPILOT_SIGNED_IN: '1' });
+    expect((await accounts.read('copilot')).status).toBe('signed_in');
+    const entries = lines(argv);
+    expect(entries.map((entry) => entry.args[0])).toEqual(['--version', '--acp']);
+    for (const entry of entries) expect(entry).toMatchObject({ mise: '1' });
+    expect((await accounts.executable()).env.MISE_OFFLINE).toBeUndefined();
+  });
+
   it('令牌环境变量登录的首个账号：已登录，但不能在 Wevir 里登出', async () => {
     const { accounts } = setup({ FAKE_COPILOT_SIGNED_IN: '1', GH_TOKEN: 'gho_test' });
     expect((await accounts.read('copilot')).status).toBe('signed_in');

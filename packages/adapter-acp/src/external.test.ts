@@ -6,6 +6,7 @@ import {
   checkExternalVersion,
   compareVersions,
   type ExternalExecutableSpec,
+  externalProbeEnv,
   resolveExternalExecutable,
 } from './external.js';
 
@@ -132,6 +133,28 @@ describe.skipIf(process.platform === 'win32')('resolveExternalExecutable', () =>
     await expect(
       checkExternalVersion({ displayName: 'Demo', path: garbled, env, parse, policy }),
     ).rejects.toThrow(/看不懂/);
+  });
+
+  it('版本检测带 MISE_OFFLINE=1；非 0 退出不取版本号', async () => {
+    const policy = { minimum: '1.0.0', tested: '1.2.3' };
+    const parse = (out: string) => /demo (\S+)/.exec(out)?.[1];
+    const offline = executable(
+      join(root, 'mise'),
+      'demo',
+      '#!/bin/sh\n[ "$MISE_OFFLINE" = 1 ] && echo "demo 1.2.3" && exit 0\necho "mise: installing demo 9.9.9"\nexit 0\n',
+    );
+    await expect(
+      checkExternalVersion({ displayName: 'Demo', path: offline, env, parse, policy }),
+    ).resolves.toEqual({ version: '1.2.3', tested: true });
+    const failing = executable(
+      join(root, 'failing'),
+      'demo',
+      '#!/bin/sh\necho "demo 1.2.3"\nexit 1\n',
+    );
+    await expect(
+      checkExternalVersion({ displayName: 'Demo', path: failing, env, parse, policy }),
+    ).rejects.toThrow(/失败/);
+    expect(externalProbeEnv({ PATH: '/bin' })).toEqual({ PATH: '/bin', MISE_OFFLINE: '1' });
   });
 });
 

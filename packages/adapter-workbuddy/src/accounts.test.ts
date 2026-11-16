@@ -10,7 +10,12 @@ import {
 import { dirname, join } from 'node:path';
 import type { AccountState } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import { PROBE_TTL_MS, WORKBUDDY_SIGN_IN_APP_HINT, WorkBuddyAccounts } from './accounts.js';
+import {
+  PROBE_TTL_MS,
+  probeWorkBuddySession,
+  WORKBUDDY_SIGN_IN_APP_HINT,
+  WorkBuddyAccounts,
+} from './accounts.js';
 import { WorkBuddyInstaller } from './install.js';
 import { startWorkBuddyLogin } from './login.js';
 import { WORKBUDDY_DEFAULT_MODELS } from './models.js';
@@ -57,6 +62,27 @@ describe('WorkBuddyAccounts', () => {
     expect(readLog(log)[0]?.params.clientCapabilities).toEqual({ session: { compaction: {} } });
     expect(readLog(log)[1]?.params.mcpServers).toEqual([]);
   });
+  it('检测的 --version 与探测会话带 MISE_OFFLINE=1，会话的环境不带', async () => {
+    const dir = temp.dir(`case-${++seq}`);
+    const envLog = join(dir, 'env.ndjson');
+    const probed: Array<string | undefined> = [];
+    const subject = new WorkBuddyAccounts({
+      workDir: dir,
+      env: fakeWorkBuddyEnv({ FAKE_WORKBUDDY_ENV_LOG: envLog }),
+      probeSession: (executable, signal, workDir) => {
+        probed.push(executable.env.MISE_OFFLINE);
+        return probeWorkBuddySession(executable, signal, workDir);
+      },
+    });
+    subjects.push(subject);
+    expect((await subject.read('workbuddy')).status).toBe('signed_in');
+    expect(probed).toEqual(['1']);
+    const entries = readLog(envLog) as unknown as Array<{ mise: string | null }>;
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) expect(entry.mise).toBe('1');
+    expect((await subject.executable()).env.MISE_OFFLINE).toBeUndefined();
+  });
+
   it('未登录：应用内能登录时只是未登录，检测从不 authenticate', async () => {
     const { subject, log } = setup({ FAKE_WORKBUDDY_SIGNED_OUT: '1' });
     const state = await subject.read('workbuddy');

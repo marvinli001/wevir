@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { AcpProcess } from '@wevir/adapter-acp';
+import { AcpProcess, externalProbeEnv } from '@wevir/adapter-acp';
 import {
   type AccountKind,
   type AccountLoginMethod,
@@ -576,13 +576,9 @@ export class CopilotAccounts implements EngineAccounts {
         : copilotEnv(parent, executablePath, this.#options.account),
       args: copilotAcpArgs(isManaged),
     };
-    const versionRun = await runCopilot(
-      executablePath,
-      ['--version'],
-      executable.env,
-      30_000,
-      signal,
-    );
+    // 检测在后台跑：不让 mise 的 shim 去下载没装的 CLI（`externalProbeEnv`）；会话照用 `executable.env`。
+    const probeEnv = externalProbeEnv(executable.env);
+    const versionRun = await runCopilot(executablePath, ['--version'], probeEnv, 30_000, signal);
     const installed = { ...base, installed: true, executablePath };
     if (!versionRun.ok || versionRun.code !== 0) {
       if (isManaged) {
@@ -606,7 +602,7 @@ export class CopilotAccounts implements EngineAccounts {
     let probe: CopilotProbe;
     try {
       probe = await (this.#options.probeSession ?? probeCopilotSession)(
-        executable,
+        { ...executable, env: probeEnv },
         signal,
         this.#options.workDir,
       );

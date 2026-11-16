@@ -11,7 +11,7 @@ const args = process.argv.slice(2);
 if (env.FAKE_COPILOT_ARGV_LOG) {
   appendFileSync(
     env.FAKE_COPILOT_ARGV_LOG,
-    `${JSON.stringify({ args, home: env.COPILOT_HOME ?? null, gh: env.GH_CONFIG_DIR ?? null, token: env.GH_TOKEN ?? null, autoUpdate: env.COPILOT_AUTO_UPDATE ?? null })}\n`,
+    `${JSON.stringify({ args, home: env.COPILOT_HOME ?? null, gh: env.GH_CONFIG_DIR ?? null, token: env.GH_TOKEN ?? null, autoUpdate: env.COPILOT_AUTO_UPDATE ?? null, mise: env.MISE_OFFLINE ?? null })}\n`,
   );
 }
 const configDir = env.COPILOT_HOME || join(homedir(), '.copilot');
@@ -166,7 +166,7 @@ function serve() {
     'session/new': (params) => {
       if (!signedIn()) throw sample('authError');
       const sessionId = `copilot-fake-${process.pid}-${sessions.size + 1}-${nextRequest++}`;
-      const state = { cwd: params.cwd, model: 'auto', history: [] };
+      const state = { cwd: params.cwd, model: env.FAKE_COPILOT_NEW_MODEL ?? 'auto', history: [] };
       sessions.set(sessionId, state);
       persist(sessionId, state);
       if (env.FAKE_COPILOT_SESSION_LOG)

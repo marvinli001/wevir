@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-grok/src/server/xaiAcpExtension.ts（`isGenericAcpToolTitle`、`resolveXAiAcpToolTitle`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8，a9752171080f264c7df6a979425d4dc2448a85b8（截断不切开代理对）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 只修正工具的标题；这里另按 Grok 的工具名与 `_meta["x.ai/tool"]` 给出 Wevir 的 `ToolDisplay`（展示类型、路径、
 // 命令、查询词、网址），标题的修正只用在摘要上。
@@ -77,9 +77,16 @@ function firstString(input: Record<string, unknown>, keys: readonly string[]): s
   return undefined;
 }
 
+/** 前 `length` 个 UTF-16 码元，不从代理对中间切开（emoji 不剩半个，T3 Code #32408）。 */
+function head(text: string, length: number): string {
+  const splitsPair =
+    /[\uD800-\uDBFF]/.test(text.charAt(length - 1)) && /[\uDC00-\uDFFF]/.test(text.charAt(length));
+  return text.slice(0, splitsPair ? length - 1 : length);
+}
+
 function oneLine(text: string, max = 200): string {
   const line = text.split('\n')[0]?.trim() ?? '';
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+  return line.length > max ? `${head(line, max - 1)}…` : line;
 }
 
 /** 更新里的 `_meta["x.ai/tool"]`。 */
@@ -116,7 +123,7 @@ export function resolveToolTitle(title: string | undefined, rawInput: unknown): 
   if (variant === 'taskoutput' || variant === 'task_output') return 'Task output';
   if (variant !== undefined) return variant;
   const command = firstString(input, ['command']);
-  if (command !== undefined) return command.length > 80 ? `${command.slice(0, 77)}...` : command;
+  if (command !== undefined) return command.length > 80 ? `${head(command, 77)}...` : command;
   return title?.trim() || undefined;
 }
 

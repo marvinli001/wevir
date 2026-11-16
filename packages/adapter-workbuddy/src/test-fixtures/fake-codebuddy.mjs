@@ -12,7 +12,7 @@ if (env.FAKE_WORKBUDDY_ARGV_LOG)
 if (env.FAKE_WORKBUDDY_ENV_LOG)
   appendFileSync(
     env.FAKE_WORKBUDDY_ENV_LOG,
-    `${JSON.stringify({ autoupdate: env.DISABLE_AUTOUPDATER ?? null, args })}\n`,
+    `${JSON.stringify({ autoupdate: env.DISABLE_AUTOUPDATER ?? null, mise: env.MISE_OFFLINE ?? null, args })}\n`,
   );
 if (args.includes('--version')) {
   process.stdout.write(`${env.FAKE_WORKBUDDY_VERSION ?? '2.168.2'}\n`);

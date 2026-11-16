@@ -138,6 +138,12 @@ describe('Copilot ACP', () => {
     expect(await compaction('plain')).toEqual([]);
   });
 
+  it('session/new 报的当前模型已是选定的也照写一次（它报的是内置默认值）', async () => {
+    const { adapter, config, log } = setup({ FAKE_COPILOT_NEW_MODEL: 'fixture-model-a' });
+    await adapter.createSession(config);
+    expect(configCalls(log)).toEqual([['fixture-model-option', 'fixture-model-a']]);
+  });
+
   it('默认模型不发给 CLI，沿用 Copilot 当前的', async () => {
     const { adapter, config, log } = setup();
     await adapter.createSession({ ...config, modelId: 'copilot-default' });

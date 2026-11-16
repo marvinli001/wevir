@@ -18,7 +18,7 @@ const args = process.argv.slice(2);
 if (env.FAKE_KIRO_ARGV_LOG) {
   appendFileSync(
     env.FAKE_KIRO_ARGV_LOG,
-    `${JSON.stringify({ args, autoUpdate: env.KIRO_NO_AUTO_UPDATE ?? null, apiKey: env.KIRO_API_KEY ? 'set' : null })}\n`,
+    `${JSON.stringify({ args, autoUpdate: env.KIRO_NO_AUTO_UPDATE ?? null, mise: env.MISE_OFFLINE ?? null, apiKey: env.KIRO_API_KEY ? 'set' : null })}\n`,
   );
 }
 function readState() {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { externalProbeEnv } from '@wevir/adapter-acp';
 import {
   type AccountKind,
   type AccountLoginMethod,
@@ -528,10 +529,12 @@ export class KiroAccounts implements EngineAccounts {
       path: executablePath,
       env: isManaged ? managedKiroEnv(env) : env,
     };
+    // 检测在后台跑：不让 mise 的 shim 去下载没装的 CLI（`externalProbeEnv`）；会话照用 `executable.env`。
+    const probeEnv = externalProbeEnv(executable.env);
     const versionRun = await runKiro(
       executablePath,
       ['--version'],
-      executable.env,
+      probeEnv,
       COMMAND_TIMEOUT_MS,
       signal,
     );
@@ -558,7 +561,7 @@ export class KiroAccounts implements EngineAccounts {
     const whoamiRun = await runKiro(
       executablePath,
       ['whoami', '--format', 'json'],
-      executable.env,
+      probeEnv,
       COMMAND_TIMEOUT_MS,
       signal,
     );
@@ -579,7 +582,7 @@ export class KiroAccounts implements EngineAccounts {
     const modelRun = await runKiro(
       executablePath,
       ['chat', '--list-models', '--format', 'json'],
-      executable.env,
+      probeEnv,
       COMMAND_TIMEOUT_MS,
       signal,
     );

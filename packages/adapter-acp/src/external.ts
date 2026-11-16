@@ -4,6 +4,9 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { npmShimExecutable } from '@wevir/runtime-adapter';
 
+// 后台检测加 `MISE_OFFLINE` 参考 pingdotgg/t3code packages/provider-core/src/server/snapshotProbe.ts
+// 5dcf69ebfa955669b8d34d0fa73d2d05d6b466d0（MIT，Copyright (c) 2026 T3 Tools Inc.）。
+
 // 用户自己装的 ACP 引擎（Grok Build、Gemini CLI，ADR-0005 决策 4 第 ②、③ 行与补记 14）：不随安装包分发，也不在任何
 // package.json 里声明（AGENTS.md 规则 2）。这里找它的可执行文件、核对版本；下载与组件目录由组件管理负责，它把装好的目录
 // 传进来。Host 由桌面端拉起时继承的是 GUI 的 PATH（macOS 上只有 /usr/bin:/bin:/usr/sbin:/sbin），所以引擎可以再给一组
@@ -173,12 +176,22 @@ export interface CheckedVersion {
   tested: boolean;
 }
 
+/**
+ * 后台检测（`--version`、登录状态、模型目录、只做 `initialize` 的探测）的子进程环境：加 `MISE_OFFLINE=1`。引擎若是 mise
+ * 的 shim、工具又没装，mise 会在每次检测时去下载它，检测超时还会留下下了一半的文件（T3 Code #33448）。会话、登录与用户
+ * 自己发起的命令照用原来的环境，mise 在那里照常安装。
+ */
+export function externalProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, MISE_OFFLINE: '1' };
+}
+
 /** `--version` 的时限：Node 写的 CLI 冷启动要加载整个 bundle（Gemini CLI 约 1 s），留足余量。 */
 export const EXTERNAL_VERSION_TIMEOUT_MS = 20_000;
 
 /**
  * 跑 `<path> [...args] --version`，用 `parse` 取出版本号，与 `policy` 比较：低于最低版本或看不懂输出时报错。`env` 是
- * 子进程环境（白名单构造，不带 Key）。
+ * 子进程环境（白名单构造，不带 Key），另加 `externalProbeEnv` 的设置；非 0 退出也报错，不从它的输出里取版本号（可能是
+ * mise 这类包装程序的输出）。
  */
 export function checkExternalVersion(input: {
   displayName: string;
@@ -195,7 +208,7 @@ export function checkExternalVersion(input: {
       path,
       [...(input.args ?? []), '--version'],
       {
-        env: input.env,
+        env: externalProbeEnv(input.env),
         timeout: input.timeoutMs ?? EXTERNAL_VERSION_TIMEOUT_MS,
         windowsHide: true,
       },

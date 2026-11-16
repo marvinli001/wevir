@@ -418,7 +418,7 @@ describe('GrokAccounts：下载安装与应用内登录', () => {
     },
   );
 
-  it('Wevir 装的 grok 带 GROK_DISABLE_AUTOUPDATER=1（更新只经设置里的下载）；用户自己的只在检测时带，会话照用户的环境', async () => {
+  it('Wevir 装的 grok 带 GROK_DISABLE_AUTOUPDATER=1（更新只经设置里的下载）；用户自己的只在检测时带，检测另带 MISE_OFFLINE=1，会话照用户的环境', async () => {
     const { installer } = controlledInstaller(MANAGED);
     const managed = make({ installer });
     await managed.created.read('grok');
@@ -427,23 +427,26 @@ describe('GrokAccounts：下载安装与应用内登录', () => {
     expect(new Set(logged(managed.envLog))).toEqual(new Set(['1']));
     managed.created.dispose();
 
-    const probed: Array<string | undefined> = [];
+    const probed: Array<[string | undefined, string | undefined]> = [];
     const own = make(
       {
         installer: null,
         findExecutable: () => FAKE_GROK,
         probeInitialize: async (executable) => {
-          probed.push(executable.env.GROK_DISABLE_AUTOUPDATER);
+          probed.push([executable.env.GROK_DISABLE_AUTOUPDATER, executable.env.MISE_OFFLINE]);
           return undefined;
         },
       },
       true,
     );
     await own.created.read('grok');
-    // `--version` 与 `grok models`。
+    // `--version` 与 `grok models`；检测也不让 mise 的 shim 去下载（MISE_OFFLINE=1）。
     expect(logged(own.envLog)).toEqual(['1', '1']);
-    expect(probed).toEqual(['1']);
-    expect((await own.created.executable()).env.GROK_DISABLE_AUTOUPDATER).toBeUndefined();
+    expect(readEnvLog(own.envLog).map((entry) => entry.mise)).toEqual(['1', '1']);
+    expect(probed).toEqual([['1', '1']]);
+    const { env } = await own.created.executable();
+    expect(env.GROK_DISABLE_AUTOUPDATER).toBeUndefined();
+    expect(env.MISE_OFFLINE).toBeUndefined();
     own.created.dispose();
   });
 

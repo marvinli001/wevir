@@ -57,6 +57,7 @@ export {
   EXTERNAL_VERSION_TIMEOUT_MS,
   type ExecutableSource,
   type ExternalExecutableSpec,
+  externalProbeEnv,
   type ResolvedExecutable,
   type ResolveExecutableOptions,
   resolveExternalExecutable,

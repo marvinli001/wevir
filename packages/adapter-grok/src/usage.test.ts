@@ -4,7 +4,13 @@ import type { AccountState } from '@wevir/runtime-adapter';
 import { afterAll, describe, expect, it } from 'vitest';
 import { GrokAccounts } from './accounts.js';
 import { fakeGrokEnv, tempRoot } from './test-fixtures/harness.js';
-import { GROK_BILLING_URL, grokUsageWindows, readGrokCredential, readGrokUsage } from './usage.js';
+import {
+  GROK_BILLING_URL,
+  GROK_PRIVACY_MODE_MESSAGE,
+  grokUsageWindows,
+  readGrokCredential,
+  readGrokUsage,
+} from './usage.js';
 
 // 计费接口的形状照 T3 的 schema（`config.creditUsagePercent`、`config.currentPeriod.type/end`）；没有真实账号的录制，数是编的。
 const BILLING = {
@@ -120,6 +126,20 @@ describe('readGrokUsage', () => {
       await readGrokUsage({ env: { HOME: '/h' }, readFile: unreadable, fetch: ok.fetch }),
     ).toEqual({ usage: { ok: false } });
   });
+
+  it('旧隐私模式的 403（WKE=privacy-mode:）给出改成隐私模式的提示；别的 403 只是失败', async () => {
+    const readFile = files({ '/h/.grok/auth.json': AUTH });
+    const refused = fakeFetch(json({ error: 'Forbidden. WKE=privacy-mode:legacy' }, 403));
+    expect(await readGrokUsage({ env: { HOME: '/h' }, readFile, fetch: refused.fetch })).toEqual({
+      email: 'me@example.com',
+      usage: { ok: false, message: GROK_PRIVACY_MODE_MESSAGE },
+    });
+    const forbidden = fakeFetch(json({ error: 'Forbidden' }, 403));
+    expect(await readGrokUsage({ env: { HOME: '/h' }, readFile, fetch: forbidden.fetch })).toEqual({
+      email: 'me@example.com',
+      usage: { ok: false },
+    });
+  });
 });
 
 describe('GrokAccounts 的邮箱与用量', () => {
@@ -147,6 +167,12 @@ describe('GrokAccounts 的邮箱与用量', () => {
       });
       respond.current = json({}, 500);
       expect((await subject.read('grok', { refresh: true })).rateLimits).toEqual(state.rateLimits);
+      respond.current = json({ error: 'WKE=privacy-mode:legacy' }, 403);
+      expect(await subject.read('grok', { refresh: true })).toMatchObject({
+        status: 'signed_in',
+        lastError: GROK_PRIVACY_MODE_MESSAGE,
+        rateLimits: state.rateLimits,
+      });
       respond.current = json({ config: {} });
       const unused = await subject.read('grok', { refresh: true });
       expect(unused.email).toBe('me@example.com');
@@ -181,6 +207,15 @@ describe('GrokAccounts 的邮箱与用量', () => {
       respond.current = json({}, 500);
       await subject.refreshUsage('grok');
       expect(states.at(-1)?.rateLimits?.primary?.usedPercent).toBe(80);
+      // 隐私模式的拒绝：报出原因，留着上一次的用量；之后读到了再去掉。
+      respond.current = json({ error: 'WKE=privacy-mode:legacy' }, 403);
+      await subject.refreshUsage('grok');
+      expect(states.at(-1)).toMatchObject({ lastError: GROK_PRIVACY_MODE_MESSAGE });
+      expect(states.at(-1)?.rateLimits?.primary?.usedPercent).toBe(80);
+      respond.current = json(BILLING);
+      await subject.refreshUsage('grok');
+      expect(states.at(-1)?.lastError).toBeUndefined();
+      expect(states.at(-1)?.rateLimits?.primary?.usedPercent).toBe(37.5);
       expect(readFileSync(log, 'utf8')).toBe(runs);
     } finally {
       subject.dispose();

@@ -106,6 +106,8 @@ export const COPILOT_ENGINE: AcpEngine = {
     modelCategory: 'model',
     encode: (_providerId, modelId) => (modelId === COPILOT_DEFAULT_MODEL ? undefined : modelId),
     decodeModel: (value) => value || undefined,
+    // `session/new` 报的是内置的默认模型，不是 Copilot 实际要跑的（github/copilot-cli#5363）：建会话与恢复后总是写一次。
+    alwaysSetModel: true,
   },
   tools: {
     display: copilotToolDisplay,

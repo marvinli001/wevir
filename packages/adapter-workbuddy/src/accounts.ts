@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { AcpProcess } from '@wevir/adapter-acp';
+import { AcpProcess, externalProbeEnv } from '@wevir/adapter-acp';
 import {
   type AccountKind,
   type AccountLoginMethod,
@@ -499,13 +499,9 @@ export class WorkBuddyAccounts implements EngineAccounts {
     const base = this.#base(customPath, loginOptions, executablePath, isManaged);
     const env = workbuddyEnv(parent, executablePath);
     const executable = { path: executablePath, env: isManaged ? managedWorkBuddyEnv(env) : env };
-    const versionRun = await runWorkBuddy(
-      executablePath,
-      ['--version'],
-      executable.env,
-      10_000,
-      signal,
-    );
+    // 检测在后台跑：不让 mise 的 shim 去下载没装的 CLI（`externalProbeEnv`）；会话照用 `executable.env`。
+    const probeEnv = externalProbeEnv(executable.env);
+    const versionRun = await runWorkBuddy(executablePath, ['--version'], probeEnv, 10_000, signal);
     const installed = { ...base, installed: true, executablePath };
     if (!versionRun.ok || versionRun.code !== 0) {
       if (isManaged) {
@@ -532,7 +528,7 @@ export class WorkBuddyAccounts implements EngineAccounts {
     const versioned = { ...installed, ...(version !== undefined && { version }) };
     try {
       const setup = await (this.#options.probeSession ?? probeWorkBuddySession)(
-        executable,
+        { ...executable, env: probeEnv },
         signal,
         this.#options.workDir,
       );

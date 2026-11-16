@@ -38,6 +38,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         break;
       }
       if (setup.resultError) { reply(id, { stopReason: 'error', error: setup.resultError }); break; }
+      if (setup.stopReason) { reply(id, { stopReason: setup.stopReason }); break; }
       if (setup.hangPrompt) { pendingPrompt = id; break; }
       configOptions = setup.nextOptions ?? configOptions;
       process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
@@ -117,7 +118,11 @@ function setup(
 ) {
   const engine = {
     ...ENGINE,
-    route: { ...ENGINE.route, modelMethod },
+    route: {
+      ...ENGINE.route,
+      modelMethod,
+      ...(fields.alwaysSetModel === true && { alwaysSetModel: true }),
+    },
     classifyTurnError: (error: unknown) => ({
       ...ENGINE.classifyTurnError(error),
       ...(fields.usageLimit === true && { usageLimit: {} }),
@@ -266,6 +271,62 @@ describe('ACP 额度失败结算', () => {
     await adapter.cancel(id);
     expect((await cancelled).value).toMatchObject({ type: 'turn.failed', usageLimit: {} });
     expect(await calls(adapter)).not.toContain('session/cancel');
+  });
+});
+
+describe('ACP 没做完就停下的回合', () => {
+  it.each([
+    ['refusal', 'refused'],
+    ['max_tokens', 'output token limit'],
+    ['max_turn_requests', 'request limit'],
+  ])('%s：回合失败并给出原因，不算完成', async (stopReason, text) => {
+    const adapter = setup('config_option', { stopReason });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    const next = adapter.subscribe(id)[Symbol.asyncIterator]().next();
+    await adapter.send(id, { content: [{ type: 'text', text: 'hi' }] });
+    const event = (await next).value as AgentEvent;
+    expect(event).toMatchObject({ type: 'turn.failed', category: 'provider' });
+    expect(event).toHaveProperty('message', expect.stringContaining(text));
+    expect(adapter.refresh).not.toHaveBeenCalled();
+  });
+
+  it('引擎自己报的结束同样处理；end_turn 仍算完成', async () => {
+    const adapter = setup('config_option', { hangPrompt: true });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    const iterator = adapter.subscribe(id)[Symbol.asyncIterator]();
+    const first = iterator.next();
+    await adapter.send(id, { content: [{ type: 'text', text: 'hi' }] });
+    adapter.complete(id, { stopReason: 'max_tokens' });
+    expect((await first).value).toMatchObject({ type: 'turn.failed', category: 'provider' });
+    await adapter.process.connection.agent.request('fixture/releasePrompt', {});
+    const done = setup('config_option', { stopReason: 'end_turn' });
+    const session = await done.createSession(config('a'));
+    const settled = done.subscribe(session.engineSessionId)[Symbol.asyncIterator]().next();
+    await done.send(session.engineSessionId, { content: [{ type: 'text', text: 'hi' }] });
+    expect((await settled).value).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+  });
+});
+
+describe.each(['config_option', 'set_model'] as const)('ACP 总是写模型（%s）', (method) => {
+  const sets = async (adapter: AcpAdapter) =>
+    (await calls(adapter)).filter(
+      (m) => m === 'session/set_config_option' || m === 'session/set_model',
+    );
+  it('alwaysSetModel：建会话与恢复时当前值相同也写；会话中相同不写', async () => {
+    const adapter = setup(method, { alwaysSetModel: true });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    expect(await sets(adapter)).toHaveLength(1);
+    await adapter.select(id, 'a');
+    expect(await sets(adapter)).toHaveLength(1);
+    await adapter.close(id);
+    await adapter.resumeSession(id, config('a'));
+    expect(await sets(adapter)).toHaveLength(2);
+  });
+
+  it('默认：当前值相同不写', async () => {
+    const adapter = setup(method);
+    await adapter.createSession(config('a'));
+    expect(await sets(adapter)).toEqual([]);
   });
 });
 

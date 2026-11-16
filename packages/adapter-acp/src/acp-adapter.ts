@@ -3,6 +3,9 @@
 // e4a067b526a19b57515ceb0a820ed6b4334b8db8（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 // 会话元信息参考 pingdotgg/t3code packages/provider-acp/src/server/AcpSessionRuntime.ts
 // ab8e488e10d883fa880b0ddcf01917b51839ab07（MIT，Copyright (c) 2026 T3 Tools Inc.）。
+// 没做完就停下的回合算失败参考 pingdotgg/t3code packages/provider-acp/src/server/adapter.ts
+// 0351dbb09204c464bc556c2cfa1b48ceab0d3b21；建会话后总是写一次模型（`alwaysSetModel`）参考同一文件
+// e9e934bb3db7b13c8d09f103a59f317935e0bd72（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 import { readFile } from 'node:fs/promises';
 import {
   type ContentBlock,
@@ -341,6 +344,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           id,
           config,
           this.#withSessionModels(response.configOptions, response.models),
+          true,
         );
         configOptions = await this.afterActivation(id, config, {
           configOptions,
@@ -425,6 +429,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           engineSessionId,
           config,
           this.#withSessionModels(configOptions, models),
+          true,
         );
         configOptions = await this.afterActivation(engineSessionId, config, {
           configOptions,
@@ -1259,13 +1264,18 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   /**
    * `session/prompt` 的结果（或引擎自己报的回合结束）→ 回合的结算。`stopReason: error`（ACP v2 把回合失败报成带 `error` 的结果，
    * 而不是 JSON-RPC 错误；SDK 不校验结果，这个值照样到这里）算失败，`error` 的 `code`、`message`、`data` 像 JSON-RPC 错误那样交给
-   * 引擎归类（T3 Code #24615），已经请求取消的回合仍算取消；其余的除 `cancelled` 外都算完成。
+   * 引擎归类（T3 Code #24615），已经请求取消的回合仍算取消。引擎没做完就停下的 `refusal`、`max_tokens`、`max_turn_requests`
+   * 也算失败（`provider`），给一句看得懂的原因（ACP 要求客户端把拒绝显示出来，T3 Code #28797）；其余的除 `cancelled` 外都算完成。
    */
   #promptOutcome(
     engineSessionId: string,
     turn: Turn,
     response: { stopReason: string; error?: unknown },
   ): TurnSettledEvent | TurnFailedEvent {
+    const unfinished = UNFINISHED_STOP_MESSAGES.get(response.stopReason);
+    if (unfinished !== undefined && !turn.cancelRequested) {
+      return { type: 'turn.failed', engineSessionId, category: 'provider', message: unfinished };
+    }
     if (response.stopReason !== 'error') return settledEvent(engineSessionId, response.stopReason);
     if (turn.cancelRequested) {
       return { type: 'turn.settled', engineSessionId, outcome: 'cancelled', stopReason: 'error' };
@@ -1348,11 +1358,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
    * 选定会话的路由：模型选项的值按引擎描述的 `route` 编码（dsh 是 `JSON.stringify([provider, model])`），与
    * `session/new` 给的当前值不同就 `set_config_option`；给了推理强度、且引擎有这个选项时也一样。返回最终的
    * `configOptions`。选不上（引擎没有这个 Provider 或模型，dsh 是 `-32602 unknown model option`）报 `invalid_input`。
+   * `activated`（建会话与恢复）时引擎的 `route.alwaysSetModel` 让模型相同也写一次。
    */
   async #selectRoute(
     engineSessionId: string,
     config: Pick<SessionConfig, 'providerId' | 'modelId' | 'reasoningEffort'>,
     initial: unknown,
+    activated = false,
   ): Promise<unknown> {
     const connection = this.process.connection;
     const { name, route } = this.engine;
@@ -1379,6 +1391,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const modelOption = routeModelOption(configOptions, route);
     const effort = config.reasoningEffort;
     const effortOption = route.reasoningEffortOption;
+    const resend = activated && route.alwaysSetModel === true;
     if (route.modelMethod === 'set_model') {
       // ACP 的 session/set_model（Grok）：推理强度跟着模型走，在同一请求的 _meta 里；没给推理强度时不带，不当作清掉
       // 引擎的默认档位（T3 的 applyGrokAcpModelSelection）。
@@ -1388,7 +1401,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         currentOption(configOptions, effortOption) !== effort;
       const current = currentOption(configOptions, modelOption);
       const target = value ?? current;
-      if ((value === undefined || value === current) && !effortChanged) return configOptions;
+      if ((value === undefined || (value === current && !resend)) && !effortChanged) {
+        return configOptions;
+      }
       // 只换推理强度又不知道当前模型：没法发 set_model，用引擎的默认档位。
       if (target === undefined) return configOptions;
       let result: { _meta?: unknown } | undefined;
@@ -1422,7 +1437,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       }
       return configOptions;
     }
-    if (value !== undefined && currentOption(configOptions, modelOption) !== value) {
+    if (value !== undefined && (resend || currentOption(configOptions, modelOption) !== value)) {
       await set(modelOption, value, ` ${config.providerId} 的模型 ${config.modelId}`);
     }
     if (
@@ -1569,6 +1584,13 @@ function withTrackedToolCall(
     },
   };
 }
+
+/** 引擎没做完就停下的停止原因 → 回合失败的原因。 */
+const UNFINISHED_STOP_MESSAGES: ReadonlyMap<string, string> = new Map([
+  ['refusal', 'The agent refused this request.'],
+  ['max_tokens', 'The agent stopped because its reply reached the output token limit.'],
+  ['max_turn_requests', 'The agent stopped because it reached its request limit for this turn.'],
+]);
 
 function settledEvent(engineSessionId: string, stopReason: string): TurnSettledEvent {
   return {

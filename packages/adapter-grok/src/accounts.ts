@@ -8,6 +8,8 @@
 // c632d7e96bd8bc8a808d76c3f766809c7730a765）；`grok models` 说没登录时再跑一次才下结论（来源提交
 // a2157eced708fd25fab7b616f5a68cb65312eaed）。2026-11-01 补入：检测跑的 `--version`、`grok models` 与 `initialize` 探测带
 // `GROK_DISABLE_AUTOUPDATER=1`，不让后台的检测启动 Grok 的自动更新（来源提交 2a7bd1673c7bdad4304b7771944e73c29ecd3c01）。
+// 2026-11-16 补入：检测另带 `MISE_OFFLINE=1`，mise 的 shim 不在检测时下载没装的 `grok`（来源提交
+// 5dcf69ebfa955669b8d34d0fa73d2d05d6b466d0）。
 //
 // Grok 的账号（grok-event-mapping.md §2）：Wevir 自己不碰令牌。`grok` 找用户自己装的，没有就由 Wevir 从 npm 下载一份
 // （install.ts 的 `NpmPackageInstaller`，`account.install`）；登录由设置里的按钮替用户启动 `grok login --device-auth`
@@ -20,7 +22,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { AcpProcess } from '@wevir/adapter-acp';
+import { AcpProcess, externalProbeEnv } from '@wevir/adapter-acp';
 import {
   type AccountKind,
   type AccountModels,
@@ -51,7 +53,7 @@ import {
   modelsFromInitialize,
   parseGrokModelsOutput,
 } from './models.js';
-import { readGrokUsage } from './usage.js';
+import { GROK_PRIVACY_MODE_MESSAGE, readGrokUsage } from './usage.js';
 
 /** 检测结果的有效期（同 Claude Agent 的 `PROBE_TTL_MS`）。 */
 export const PROBE_TTL_MS = 5 * 60_000;
@@ -466,8 +468,12 @@ export class GrokAccounts implements EngineAccounts {
     const isManaged = managed !== undefined && executablePath === managed.path;
     const env = isManaged ? this.#managedEnv(executablePath) : grokEnv(parentEnv, executablePath);
     // 检测在后台定时跑，它启动的更新用户看不见（Windows 上还会为 npm 弹出控制台窗口）：检测的进程关掉 Grok 的自动更新（文档里
-    // 是进程级的开关）；会话、登录与登出照用户的环境（T3 的 `grokProbeEnvironment`）。
-    const probeEnv: NodeJS.ProcessEnv = { ...env, [GROK_DISABLE_AUTOUPDATER_ENV]: '1' };
+    // 是进程级的开关），也不让 mise 的 shim 去下载没装的 `grok`（`externalProbeEnv`）；会话、登录与登出照用户的环境（T3 的
+    // `grokProbeEnvironment`）。
+    const probeEnv: NodeJS.ProcessEnv = {
+      ...externalProbeEnv(env),
+      [GROK_DISABLE_AUTOUPDATER_ENV]: '1',
+    };
     const signal = this.#abort.signal;
     const versionRun = await runGrok(
       executablePath,
@@ -553,11 +559,14 @@ export class GrokAccounts implements EngineAccounts {
           : previous?.email === account.email
             ? previous?.rateLimits
             : undefined;
+    const usageNotice = account?.usage.ok === false ? account.usage.message : undefined;
     return {
       ...installed,
       status: 'signed_in',
       ...(account?.email !== undefined && { email: account.email }),
       ...(rateLimits !== undefined && { rateLimits }),
+      // 读不到用量、要用户处理的原因（xAI 账号的隐私模式）。
+      ...(usageNotice !== undefined && { lastError: usageNotice }),
       // 看不出来有没有登录（输出的措辞变了、`grok models` 失败）：照样当作已登录，回合里 Grok 要认证时再标回去。
       ...(cli.authenticated === null && {
         lastError: modelsRun.ok
@@ -569,7 +578,7 @@ export class GrokAccounts implements EngineAccounts {
 
   /**
    * 只重读用量（Host 定时刷新）：读 `grok login` 的 auth.json 与本周期的额度，不起 CLI；还是同一个账号、读到了而且变了才发布。
-   * 用 xAI API Key 时没有额度。
+   * 读不到、要用户处理时（隐私模式）发布那条原因，之后读到了再去掉。用 xAI API Key 时没有额度。
    */
   async refreshUsage(kind: AccountKind): Promise<void> {
     this.#check(kind);
@@ -582,12 +591,26 @@ export class GrokAccounts implements EngineAccounts {
       ...(this.#options.fetch !== undefined && { fetch: this.#options.fetch }),
       ...(this.#options.readFile !== undefined && { readFile: this.#options.readFile }),
     });
-    if (this.#state !== state || account === undefined || !account.usage.ok) return;
+    if (this.#state !== state || account === undefined) return;
+    if (!account.usage.ok) {
+      const notice = account.usage.message;
+      if (notice !== undefined && account.email === state.email && state.lastError === undefined) {
+        this.#publish({ ...state, lastError: notice });
+      }
+      return;
+    }
     if (account.email !== state.email) return;
+    const { lastError, ...rest } = state;
+    const base = lastError === GROK_PRIVACY_MODE_MESSAGE ? rest : state;
     const rateLimits = account.usage.rateLimits && accountRateLimits(account.usage.rateLimits);
-    if (rateLimits === undefined) return;
-    if (JSON.stringify(rateLimits) === JSON.stringify(state.rateLimits)) return;
-    this.#publish({ ...state, rateLimits });
+    if (
+      rateLimits === undefined ||
+      JSON.stringify(rateLimits) === JSON.stringify(state.rateLimits)
+    ) {
+      if (base !== state) this.#publish(base);
+      return;
+    }
+    this.#publish({ ...base, rateLimits });
   }
 
   #publish(state: AccountState): void {

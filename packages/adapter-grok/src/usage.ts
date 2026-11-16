@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-grok/src/server/usageLimits.ts（`grokUsageResponseToLimits`、`readGrokCredential`、
 // `readGrokAccount`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8，7b666f3780f6ed28a02d29e0176a90a9a6dbe3b8（隐私模式的 403）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `rateLimits`（0.45.0 的按月窗口）；周期是每周时报 `windowMinutes`；
 // 读到了却没有百分比的账号（还没用过）不报窗口。
@@ -17,6 +17,9 @@ import path from 'node:path';
 import { type AccountRateLimitWindow, isoTime } from '@wevir/runtime-adapter';
 
 export const GROK_BILLING_URL = 'https://cli-chat-proxy.grok.com/v1/billing?format=credits';
+/** 账号的隐私设置还是旧模式时 xAI 拒绝 Grok Build（403，`error` 里带 `WKE=privacy-mode:`）：告诉用户改成隐私模式（T3）。 */
+export const GROK_PRIVACY_MODE_MESSAGE =
+  'Switch your xAI account to Privacy Mode to show Grok usage limits.';
 /** 读用量的时限（T3：10 s）。 */
 export const USAGE_TIMEOUT_MS = 10_000;
 
@@ -121,8 +124,11 @@ export function grokUsageWindows(response: unknown): AccountRateLimitWindow[] {
 export interface GrokAccountUsage {
   /** 读的是哪个账号（auth.json 里的邮箱）。 */
   email?: string;
-  /** `ok: false`：读失败了（调用方留着上一次的值）；`rateLimits` 省略：没有可报的用量。 */
-  usage: { ok: true; rateLimits?: AccountRateLimitWindow[] } | { ok: false };
+  /**
+   * `ok: false`：读失败了（调用方留着上一次的值），`message` 是要用户处理的原因（隐私模式）；`rateLimits` 省略：没有可报的
+   * 用量。
+   */
+  usage: { ok: true; rateLimits?: AccountRateLimitWindow[] } | { ok: false; message?: string };
 }
 
 export interface GrokUsageRequest {
@@ -154,9 +160,22 @@ export async function readGrokUsage(
       headers: { Authorization: `Bearer ${credential.token}` },
       signal: AbortSignal.timeout(request.timeoutMs ?? USAGE_TIMEOUT_MS),
     });
+    if (response.status === 403 && (await privacyModeRefused(response))) {
+      return { ...email, usage: { ok: false, message: GROK_PRIVACY_MODE_MESSAGE } };
+    }
     if (!response.ok) return { ...email, usage: { ok: false } };
     return { ...email, usage: { ok: true, rateLimits: grokUsageWindows(await response.json()) } };
   } catch {
     return { ...email, usage: { ok: false } };
+  }
+}
+
+/** 403 的 `{ "error": "…" }` 是不是旧隐私模式的拒绝；读不了正文时不是。 */
+async function privacyModeRefused(response: Response): Promise<boolean> {
+  try {
+    const body = (await response.json()) as { error?: unknown } | null;
+    return typeof body?.error === 'string' && body.error.includes('WKE=privacy-mode:');
+  } catch {
+    return false;
   }
 }

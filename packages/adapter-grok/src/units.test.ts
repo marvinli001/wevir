@@ -382,6 +382,20 @@ describe('工具展示（录制的 tool_call 与 tool_call_update）', () => {
       'Monitor: watch logs',
     );
     expect(resolveToolTitle('Tool', { variant: 'TaskOutput' })).toBe('Task output');
+    // 截断不从 emoji 的代理对中间切开。
+    const commit = `git commit -m "${'x'.repeat(61)}🎉 ship it"`;
+    expect(resolveToolTitle('Tool', { command: commit })).toBe(
+      `git commit -m "${'x'.repeat(61)}...`,
+    );
+    expect(
+      grokToolDisplay(
+        'mcp__github__search',
+        { query: `${'q'.repeat(198)}🎉 tail` },
+        {
+          sessionUpdate: 'tool_call',
+        },
+      ).summary,
+    ).toBe(`${'q'.repeat(198)}…`);
     expect(
       grokToolDisplay('mcp__github__search', { query: 'x' }, { sessionUpdate: 'tool_call' }),
     ).toEqual({

@@ -20,7 +20,7 @@
 //
 // 环境变量：FAKE_GROK_FIXTURES（样本目录，默认 ./acp）、FAKE_GROK_STORE（会话记在这个目录，重启后的进程能 resume）、
 // FAKE_GROK_LOG（把收到的每条消息追加成一行 JSON）、FAKE_GROK_ARGV_LOG（每次启动追加一行 argv）、
-// FAKE_GROK_ENV_LOG（每次启动追加一行 JSON：argv 与 GROK_DISABLE_AUTOUPDATER）、
+// FAKE_GROK_ENV_LOG（每次启动追加一行 JSON：argv、GROK_DISABLE_AUTOUPDATER 与 MISE_OFFLINE）、
 // FAKE_GROK_REQUIRE_AUTH=1（`authenticate` 之前 `session/new` / `session/resume` 报 -32000 Authentication required）、
 // FAKE_GROK_PROMPT_RESPONSE=never（只发 `prompt_complete`，不回 `session/prompt`）。
 
@@ -58,7 +58,7 @@ if (env.FAKE_GROK_ARGV_LOG) appendFileSync(env.FAKE_GROK_ARGV_LOG, `${JSON.strin
 if (env.FAKE_GROK_ENV_LOG) {
   appendFileSync(
     env.FAKE_GROK_ENV_LOG,
-    `${JSON.stringify({ argv: args, autoupdater: env.GROK_DISABLE_AUTOUPDATER ?? null })}\n`,
+    `${JSON.stringify({ argv: args, autoupdater: env.GROK_DISABLE_AUTOUPDATER ?? null, mise: env.MISE_OFFLINE ?? null })}\n`,
   );
 }
 
