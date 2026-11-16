@@ -97,7 +97,7 @@ export function nodePlatform(target: string): { os: NodeJS.Platform; cpu: string
  * - `@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007 补记 3）。用户选用 Cursor 时由 Host 从
  *   npm registry 下载到数据目录（adapter-cursor 的 sdk-install.ts）。Claude Agent SDK 2026-10-17 起随安装包（补记 6），只带它的
  *   JS，不带原生的 `claude`；
- * - `@anthropic-ai/sdk`：Claude Agent SDK 0.3.286 的 peer，只在它的 `.d.ts` 里用到类型，运行时不加载（14 MB）；
+ * - `@anthropic-ai/sdk`：Claude Agent SDK 0.3.316 的 peer，只在它的 `.d.ts` 里用到类型，运行时不加载（14 MB）；
  * - `node-addon-api`：node-pty（用户终端）的依赖，只有编译原生模块用的 C++ 头文件，运行时不加载。
  */
 export const EXCLUDED_PACKAGES: readonly string[] = [

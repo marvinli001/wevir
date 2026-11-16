@@ -221,7 +221,7 @@ describe('ClaudeAccounts', () => {
     await created.read('claude', { refresh: true });
     expect(sdk.queries).toHaveLength(3);
     const models = await created.models('claude');
-    expect(models.defaultModelId).toBe('claude-fable-5-1');
+    expect(models.defaultModelId).toBe('claude-opus-5-5');
     // 2.1.287 用不了要 2.1.293 的 Haiku 5.5。
     expect(models.models.map((model) => model.id)).not.toContain('claude-haiku-5-5');
   });

@@ -366,8 +366,15 @@ describe('模型目录（T3 的随包清单）', () => {
     expect(ids.slice(0, 3)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1']);
     expect(ids).not.toContain('claude-haiku-5-5');
     expect(ids).toContain('claude-haiku-4-5');
-    expect(models.defaultModelId).toBe('claude-fable-5-1');
+    expect(models.defaultModelId).toBe('claude-opus-5-5');
     expect(claudeModels('2.1.300').models.map((model) => model.id)).toContain('claude-haiku-5-5');
+    // Fable 5.2 要 2.1.321；之后 Fable 5.1 是 legacy，`fable` 别名指向 5.2。
+    expect(claudeModels('2.1.320').models.map((model) => model.id)).not.toContain(
+      'claude-fable-5-2',
+    );
+    const latest = claudeModels('2.1.321').models.map((model) => model.id);
+    expect(latest.indexOf('claude-fable-5-2')).toBeLessThan(latest.indexOf('claude-fable-5-1'));
+    expect(canonicalClaudeModel('fable')).toBe('claude-fable-5-2');
     expect(claudeModels(undefined).models.every((model) => model.id !== 'claude-opus-5-5')).toBe(
       true,
     );

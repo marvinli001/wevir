@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/model-manifest.json
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 e5b6c96a46a6c3d1bb5e249d5a40fcb533bd5e6a（此前 ec1313c8f8333292506f05a355bb72d308a455d8）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：只取 `providers.claudeAgent` 与 `compatibility` 里 claudeAgent 的条目，原样转成 TS 常量；T3 运行时还会从 GitHub 重新拉这份清单，Wevir 只用随包的（不联网）。升级时从新的 T3 提交重新复制（docs/upstream/UPSTREAM.md）。
 //
@@ -8,12 +8,12 @@
 // 是能用它的最低 `claude` 版本。
 
 export const CLAUDE_MODEL_MANIFEST = {
-  updatedAt: '2026-10-09T23:31:10Z',
+  updatedAt: '2026-11-14T15:58:47Z',
   compatibility: [
     {
       driver: 'claudeAgent',
       t3CodeRange: '>=0.0.42',
-      recommendedRange: '>=2.1.280',
+      recommendedRange: '>=2.1.301',
       ranges: [
         {
           range: '>=2.1.280',
@@ -31,7 +31,7 @@ export const CLAUDE_MODEL_MANIFEST = {
     },
   ],
   defaults: {
-    chat: 'claude-fable-5-1',
+    chat: 'claude-opus-5-5',
   },
   profiles: {
     'fable-5': {
@@ -473,6 +473,58 @@ export const CLAUDE_MODEL_MANIFEST = {
         },
       },
     },
+    'sonnet-5-5': {
+      capabilities: {
+        optionDescriptors: [
+          {
+            id: 'effort',
+            label: 'Reasoning',
+            type: 'select',
+            options: [
+              {
+                id: 'low',
+                label: 'Low',
+              },
+              {
+                id: 'medium',
+                label: 'Medium',
+              },
+              {
+                id: 'high',
+                label: 'High',
+                isDefault: true,
+              },
+              {
+                id: 'xhigh',
+                label: 'Extra High',
+              },
+              {
+                id: 'max',
+                label: 'Max',
+              },
+              {
+                id: 'ultracode',
+                label: 'Ultracode',
+                description: 'xhigh effort plus multi-agent workflow orchestration',
+              },
+              {
+                id: 'ultrathink',
+                label: 'Ultrathink',
+              },
+            ],
+            promptInjectedValues: ['ultrathink'],
+          },
+        ],
+      },
+      adapter: {
+        claudeCode: {
+          effortMap: {
+            ultrathink: null,
+          },
+          fixedContextWindowTokens: 1000000,
+        },
+      },
+    },
     'sonnet-4-6': {
       capabilities: {
         optionDescriptors: [
@@ -571,6 +623,11 @@ export const CLAUDE_MODEL_MANIFEST = {
                 label: 'Max',
               },
               {
+                id: 'ultracode',
+                label: 'Ultracode',
+                description: 'xhigh effort plus multi-agent workflow orchestration',
+              },
+              {
                 id: 'ultrathink',
                 label: 'Ultrathink',
               },
@@ -595,6 +652,7 @@ export const CLAUDE_MODEL_MANIFEST = {
             id: 'thinking',
             label: 'Thinking',
             type: 'boolean',
+            currentValue: true,
           },
         ],
       },
@@ -623,7 +681,7 @@ export const CLAUDE_MODEL_MANIFEST = {
       name: 'Claude Sonnet 5.5',
       aliases: ['sonnet', 'sonnet-5.5', 'claude-sonnet-5.5'],
       status: 'current',
-      profile: 'sonnet-5',
+      profile: 'sonnet-5-5',
       adapter: {
         claudeCode: {
           minVersion: '2.1.284',
@@ -631,10 +689,22 @@ export const CLAUDE_MODEL_MANIFEST = {
       },
     },
     {
+      slug: 'claude-fable-5-2',
+      name: 'Claude Fable 5.2',
+      aliases: ['fable', 'fable-5.2', 'claude-fable-5.2'],
+      status: 'current',
+      profile: 'fable-5',
+      adapter: {
+        claudeCode: {
+          minVersion: '2.1.321',
+        },
+      },
+    },
+    {
       slug: 'claude-fable-5-1',
       name: 'Claude Fable 5.1',
-      aliases: ['fable', 'fable-5.1', 'claude-fable-5.1'],
-      status: 'current',
+      aliases: ['fable-5.1', 'claude-fable-5.1'],
+      status: 'legacy',
       profile: 'fable-5',
       adapter: {
         claudeCode: {
@@ -721,7 +791,7 @@ export const CLAUDE_MODEL_MANIFEST = {
       name: 'Claude Haiku 5.5',
       aliases: ['haiku', 'haiku-5.5', 'claude-haiku-5.5'],
       status: 'current',
-      badge: 'new',
+      releasedAt: '2026-10-07',
       profile: 'haiku-5-5',
       adapter: {
         claudeCode: {

@@ -38,7 +38,7 @@ ignoredOptionalDependencies:
 # 传 MCP 服务器）；当作必需的 peer 时 pnpm 会自动装上它，其他包里同名的可选 peer 随之解析到它，改动那些包的依赖。
 # 标成可选，引擎之间互不影响（AGENTS.md 规则 2）。
 packageExtensions:
-  '@anthropic-ai/claude-agent-sdk@0.3.286':
+  '@anthropic-ai/claude-agent-sdk@0.3.316':
     peerDependenciesMeta:
       '@modelcontextprotocol/sdk':
         optional: true
