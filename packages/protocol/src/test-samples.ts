@@ -4508,6 +4508,63 @@ export const methodSamples: MethodSamples = {
   },
   'host.ping': { params: empty, result: empty },
   'host.shutdown': { params: empty, result: empty },
+  'themes.list': {
+    params: empty,
+    result: {
+      valid: [{ activeId: null, directory: '/data/themes', themes: [] }],
+      invalid: [{ themes: [] }],
+    },
+  },
+  'themes.get': {
+    params: { valid: [{ id: 'lagoon' }], invalid: [{ id: '../outside' }] },
+    result: {
+      valid: [
+        {
+          id: 'lagoon',
+          theme: {
+            schemaVersion: 1,
+            name: 'Lagoon',
+            dark: { background: '#101820', foreground: '#f1f5f9' },
+          },
+          revision: 'r1',
+          readOnly: false,
+          problems: [],
+          assets: {},
+          directory: '/data/themes/lagoon',
+        },
+      ],
+      invalid: [{ id: 'lagoon' }],
+    },
+  },
+  'themes.save': {
+    params: {
+      valid: [{ id: 'lagoon', theme: { schemaVersion: 1, name: 'Lagoon', dark: {} } }],
+      invalid: [
+        { id: 'lagoon', theme: { schemaVersion: 1, name: 'Lagoon', dark: {}, unknown: 1 } },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          id: 'lagoon',
+          revision: 'r1',
+          readOnly: false,
+          problems: [],
+          assets: {},
+          directory: '/data/themes/lagoon',
+        },
+      ],
+      invalid: [{}],
+    },
+  },
+  'themes.delete': {
+    params: { valid: [{ id: 'lagoon' }], invalid: [{}] },
+    result: { valid: [{ deleted: true }], invalid: [{}] },
+  },
+  'themes.setActive': {
+    params: { valid: [{ id: 'lagoon' }, { id: null }], invalid: [{}] },
+    result: { valid: [{ activeId: null }], invalid: [{}] },
+  },
   'settings.get': {
     params: empty,
     result: {
@@ -10231,6 +10288,13 @@ type NotificationSamples = {
 };
 
 export const notificationSamples: NotificationSamples = {
+  'themes.updated': {
+    valid: [
+      { activeId: null, revisions: {} },
+      { activeId: 'lagoon', revisions: { lagoon: 'r1' } },
+    ],
+    invalid: [{ activeId: null }],
+  },
   'episode.changed': { valid: [{ workspaceId: 'ws_1', id: 'ep_1' }], invalid: [{}] },
   'plugins.changed': empty,
   'events.event': {

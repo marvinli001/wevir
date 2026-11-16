@@ -132,6 +132,7 @@ import { syncBundleRoots } from './sync/roots.js';
 import { SyncService } from './sync/service.js';
 import { boardEventRecorder, boardEventTasks, TaskBoardStore } from './task-board.js';
 import { loadTerminalModules, TerminalService } from './terminals.js';
+import { ThemeService } from './themes/service.js';
 import { defaultPromptsDir, loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
 import { toolTier } from './tool-presets.js';
@@ -373,6 +374,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let guardrails: GuardrailService | undefined;
   let hookService: HookService | undefined;
   let hookDispatcher: HookDispatcher | undefined;
+  let themeService: ThemeService | undefined;
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
@@ -1850,6 +1852,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const fileUrls = new FileUrls({
       onError: (error) => logger.warn('file preview request failed', { error }),
     });
+    const themes = new ThemeService({
+      directory: homePath(home, 'themesDir'),
+      fileUrls,
+      onError: (error) => logger.warn('theme refresh failed', { error }),
+    });
+    themeService = themes;
+    await themes.load();
 
     // 听写（0.92.0）：本机模型按需下载；这个平台没有 sherpa-onnx 的原生包时只有 Provider 的转写。润色要引擎能不带工具生成。
     let polishInstructions: string | undefined;
@@ -1941,6 +1950,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           zuvApi: apiConnection,
           ...(accounts !== undefined && { accounts }),
           settings,
+          themes,
           images,
           fileUrls,
           chats,
@@ -1997,6 +2007,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         provider_model_discovery: true,
         pending_messages: true,
         host_settings: true,
+        themes: true,
         sync_metadata: true,
         cloud_sync: true,
         sync_workspace: true,
@@ -2146,6 +2157,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       plugins,
       ...(accounts !== undefined && { accounts }),
       settings,
+      themes,
       memory,
       sessionList: listFeed,
       inbox: inboxService,
@@ -2273,6 +2285,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           previews,
           speech,
           office,
+          themes,
           terminals,
           simulators,
           verification,
@@ -2314,6 +2327,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     return host;
   } catch (error) {
     // 回收已建好的部分；这里的失败不掩盖原始错误。
+    await themeService?.close().catch(() => {});
     await rpc?.close().catch(() => {});
     await verificationService?.dispose().catch(() => {});
     await readiness?.dispose().catch(() => {});
@@ -2389,6 +2403,7 @@ interface ShutdownParts {
   speech: SpeechService;
   /** 办公文档预览（0.138.0）：取消进行中的引擎下载，释放转换器。 */
   office: OfficeService;
+  themes: ThemeService;
   /** 用户的交互终端（0.69.0）；node-pty 加载不了时没有。 */
   terminals: TerminalService | undefined;
   /** iOS 模拟器（0.122.0）：结束 helper、断开画面、清掉输出目录。 */
@@ -2476,6 +2491,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   await step('stop_remote', () => parts.remoteListener.close(), true);
   // 新连接回 503、新请求回 HOST_SHUTTING_DOWN，等在途请求结束；已连上的客户端继续收事件。
   await step('stop_accepting', () => parts.rpc.stopAccepting(), true);
+  await step('close_themes', () => parts.themes.close());
   // 取消回合的事件经订阅推送出去，所以连接要留到后面再关。
   if (!(await step('cancel_turns', () => parts.sessions.shutdown(), true))) {
     // 不再等引擎结算：先停止写事件，之后才能安全地关闭数据库。会话停在活动状态，下次启动时对账（#15）。

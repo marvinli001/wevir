@@ -3,6 +3,18 @@
 import type { Messages } from './zh.js';
 
 export const en: Messages = {
+  'group.theme': 'Themes',
+  'cmd.theme.list.summary': 'List themes',
+  'cmd.theme.list.usage': 'wevir theme list [--json]',
+  'cmd.theme.set.summary': 'Apply a theme',
+  'cmd.theme.set.usage': 'wevir theme set <ID>',
+  'cmd.theme.clear.summary': 'Restore the default theme',
+  'cmd.theme.clear.usage': 'wevir theme clear',
+  'theme.col.id': 'ID',
+  'theme.col.name': 'Name',
+  'theme.col.active': 'Active',
+  'theme.applied': 'Applied {id}',
+  'theme.cleared': 'Default theme restored',
   'zuvApi.connected': 'Connected {account} · {prefix}…',
   'zuvApi.disconnected': 'Disconnected',
   'zuvApi.waiting': 'Waiting for authorization',

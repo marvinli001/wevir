@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { colorContrast, DEFAULT_THEME_TOKENS, THEMABLE_TOKENS } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { THEME_BACKGROUND } from '../../../shared/theme.js';
 
@@ -57,17 +58,8 @@ function resolve(vars: Map<string, string>, name: string): string {
 }
 
 /** WCAG 2 的相对亮度与对比度。 */
-function luminance(hex: string): number {
-  const channels = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255);
-  const [r = 0, g = 0, b = 0] = channels.map((c) =>
-    c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4,
-  );
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
 function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
+  return colorContrast(a, b);
 }
 
 /** 文字（或图形）× 它会出现在上面的背景，以及最低对比度。 */
@@ -165,6 +157,16 @@ describe.each(['light', 'dark'] as const)('设计 Token：%s', (theme) => {
 
   it('--background 与主进程、首帧前脚本用的底色相同（shared/theme.ts 的 THEME_BACKGROUND）', () => {
     expect(resolve(vars, '--background')).toBe(THEME_BACKGROUND[theme]);
+  });
+  it('every themable token is defined in both mode blocks and shares the Host default', () => {
+    const block = blocks(TOKENS).find(
+      (block) => block.selector === (theme === 'light' ? LIGHT : DARK),
+    );
+    for (const name of THEMABLE_TOKENS) {
+      expect(block?.vars.has(`--${name}`), name).toBe(true);
+      const value = DEFAULT_THEME_TOKENS[theme][`--${name}`] ?? '';
+      if (/^#[0-9a-f]{6}$/i.test(value)) expect(resolve(vars, `--${name}`), name).toBe(value);
+    }
   });
 });
 

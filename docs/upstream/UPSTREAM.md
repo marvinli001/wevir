@@ -24,7 +24,7 @@ Zuv 品牌标志于 2026-11-15 按 `wevir-zuv` 提交 `55105bd935b13931713c4df6b
 | `openwork` | https://github.com/different-ai/openwork | `dev` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | 2026-10-11 | 2026-10-12 | **`ee/` 之外 MIT；`ee/` 为 OpenWork EE License（非开源）** |
 | `paseo` | https://github.com/getpaseo/paseo | `main` | `dc7bc8db124e837ba909ffd3b4b20e16adaebe24` | 2026-10-12 | 2026-10-12 | **Apache-2.0**（少数第三方组件 MIT） |
 | `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.167.1` | `0a94398fa60c4fac0e7659e4213a0a36e613dd46` | 2026-11-10 | 2026-11-12 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
-| `t3code`（T3 Code） | https://github.com/pingdotgg/t3code | `main` | `ec1313c8f8333292506f05a355bb72d308a455d8` | 2026-10-15 | 2026-10-15 | **MIT**（见 §2.5） |
+| `t3code`（T3 Code） | https://github.com/pingdotgg/t3code | `main` | `6b7027b1f43eebc4c7edf5304236a0775b2d8928` | 2026-11-16 | 2026-11-16 | **MIT**（见 §2.5） |
 | `opencode` | https://github.com/sst/opencode（现为 anomalyco/opencode） | tag `v1.19.3` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | 2026-10-16 | 2026-10-17 | **MIT**（见 §2.6） |
 | `idb`（facebook/idb） | https://github.com/facebook/idb | `main` | `14baeffc8f681380527c400a8184512b746ee918` | 2026-10-23 | 2026-10-24 | **MIT**（见 §2.7） |
 
@@ -619,3 +619,11 @@ T6.3 建立。登记表（§4、§4.1）、文件头与根目录 `NOTICE` 三处
 ZUV 同步契约补齐（2026-11-14）：`wevir-zuv` 提交 `71f2837` 的 MIT `contracts/wevir-sync/v1/` 中 missingBlobs、recoveryBundle、fixtures 与 state-machines 同步到本仓库；`packages/protocol/src/sync-wire.ts` 消费该提交 `packages/sync-protocol/src/index.ts` 的 missingBlobs 结构。服务端曾原地变更 revision 1，未在本次更改冻结 wire 语义；互操作仍待联合验收。
 
 ZUV 执行状态扩展（2026-11-15）：来源为 `wevir-zuv` 提交 `9e1df7b9614c293fe55d93514e76e7c4fffb6f85` 的 MIT `packages/sync-protocol/src/execution-state.ts` 与 `contracts/wevir-sync/v1-r2/`，分别移植到 `packages/protocol/src/sync-execution-state.ts` 与同名产物目录。该独立 artifact revision 2 引用未改动的 revision 1，仅增加不含 fencing token 的只读执行状态查询；旧写入及错误格式不变。许可证沿用 `contracts/wevir-sync/v1/LICENSE`，未移植服务端私有实现。
+
+## 自定义主题来源（2026-11-16）
+
+T3 main 更新到 `6b7027b1f43eebc4c7edf5304236a0775b2d8928`，包含 #35247 与 #36696，LICENSE 与此前快照无变化，仍为 MIT。既有移植文件保留各自历史来源 SHA。
+
+| Wevir 文件 | 来源路径 | 来源提交 | 许可证 | 修改说明 |
+|---|---|---|---|---|
+| `packages/host/src/themes/service.ts` | `apps/server/src/environmentTheme.ts` | `6b7027b1f43eebc4c7edf5304236a0775b2d8928` | MIT | 有界句柄读取、写后发布思路改写；普通 TS，增加素材快照、目录主题、严格校验与 fs.watch |

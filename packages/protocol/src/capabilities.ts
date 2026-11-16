@@ -126,6 +126,7 @@ export const HOST_FEATURES = {
   pendingMessages: 'pending_messages',
   /** Host 设置（0.8.0）：`settings.get` / `settings.update` 与 `settings.updated` 通知。 */
   hostSettings: 'host_settings',
+  themes: 'themes',
   /** 换会话的模型与推理档位（0.9.0）：`session.configure` 与 `session.configured` 事件。取决于引擎（Codex 有）。 */
   sessionConfigure: 'session_configure',
   /** 引擎向用户提问（0.10.0）：`question.*` 事件与 `question.respond`。取决于引擎（Codex 有）。 */
@@ -644,6 +645,7 @@ export const HOST_FEATURES = {
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
+  themes: z.boolean().optional(),
   cloud_sync: z.boolean().optional(),
   sync_workspace: z.boolean().optional(),
   sync_project_catalog: z.boolean().optional(),

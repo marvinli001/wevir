@@ -404,6 +404,9 @@ Antigravity 1.4.5 的会话元信息与回合错误：ab8e488e10d883fa880b0ddcf0
          apps/server/src/mcp/OrchestratorMcpService.ts
          apps/server/src/mcp/McpSessionRegistry.ts
          packages/provider-core/src/server/orchestrationInstructions.ts
+  packages/host/src/themes/service.ts
+      <- apps/server/src/environmentTheme.ts at 6b7027b1f43eebc4c7edf5304236a0775b2d8928
+         Modified for folder themes, asset validation, snapshots and node:fs watching.
   packages/host/src/file-urls.ts
       <- apps/server/src/http.ts（assetResponseHeaders、assetByteRange、assetFileResponse）
          apps/server/src/assets/AssetAccess.ts

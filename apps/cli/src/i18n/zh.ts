@@ -7,6 +7,18 @@
 // Key 输入、ChatGPT 的个人使用条款、删除凭据或取消回合的后果。命令、选项、路径与产品名（Wevir、Host、Provider）照原样写。
 
 export const zh = {
+  'group.theme': '主题',
+  'cmd.theme.list.summary': '列出主题',
+  'cmd.theme.list.usage': 'wevir theme list [--json]',
+  'cmd.theme.set.summary': '应用主题',
+  'cmd.theme.set.usage': 'wevir theme set <ID>',
+  'cmd.theme.clear.summary': '恢复默认主题',
+  'cmd.theme.clear.usage': 'wevir theme clear',
+  'theme.col.id': 'ID',
+  'theme.col.name': '名称',
+  'theme.col.active': '当前',
+  'theme.applied': '已应用 {id}',
+  'theme.cleared': '已恢复默认主题',
   'zuvApi.connected': '已连接 {account} · {prefix}…',
   'zuvApi.disconnected': '未连接',
   'zuvApi.waiting': '等待授权',

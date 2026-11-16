@@ -347,6 +347,66 @@ interface Case {
 
 const standaloneCases: Case[] = [
   {
+    name: 'ThemeId',
+    schema: protocol.ThemeIdSchema,
+    valid: ['lagoon', 'a_1-2'],
+    invalid: ['../escape', 'UPPER', 'a'.repeat(65)],
+  },
+  {
+    name: 'ThemeColor',
+    schema: protocol.ThemeColorSchema,
+    valid: ['#123456', '#12345678'],
+    invalid: ['red', '#fff'],
+  },
+  {
+    name: 'ThemeAssetName',
+    schema: protocol.ThemeAssetNameSchema,
+    valid: ['backdrop.html', '.wall.png'],
+    invalid: ['../image.png', '..'],
+  },
+  {
+    name: 'ThemeAccent',
+    schema: protocol.ThemeAccentSchema,
+    valid: ['ink', 'teal', '#336699'],
+    invalid: ['rainbow'],
+  },
+  {
+    name: 'ThemeColors',
+    schema: protocol.ThemeColorsSchema,
+    valid: [{}, { background: '#101820', tokens: { sidebar: '#102030' } }],
+    invalid: [{ tokens: { unknown: '#ffffff' } }],
+  },
+  {
+    name: 'ThemeBackdrop',
+    schema: protocol.ThemeBackdropSchema,
+    valid: [{ kind: 'scene', file: 'backdrop.html', opacity: 1, blur: 40, scrim: 0 }],
+    invalid: [
+      { kind: 'script', file: 'bad.js' },
+      { kind: 'image', file: 'a.png', opacity: 2 },
+    ],
+  },
+  {
+    name: 'ThemeFile',
+    schema: protocol.ThemeFileSchema,
+    valid: [{ schemaVersion: 1, name: 'Lagoon', dark: {} }],
+    invalid: [
+      { schemaVersion: 1, name: 'Lagoon' },
+      { schemaVersion: 1, name: 'Lagoon', dark: {}, unknown: 1 },
+    ],
+  },
+  {
+    name: 'ThemeProblem',
+    schema: protocol.ThemeProblemSchema,
+    valid: [{ path: 'dark.foreground', severity: 'warning', message: 'low contrast' }],
+    invalid: [{ path: 'dark.foreground', severity: 'info', message: 'low contrast' }],
+  },
+  {
+    name: 'ThemeSummary',
+    schema: protocol.ThemeSummarySchema,
+    valid: [{ id: 'lagoon', name: 'Lagoon', revision: 'r1', readOnly: false, hasBackdrop: false }],
+    invalid: [{ id: 'lagoon', name: 'Lagoon' }],
+  },
+  {
     name: 'ZuvApiError',
     schema: protocol.ZuvApiErrorSchema,
     valid: ['authorization_expired', 'key_disabled', 'key_window_limit', 'network'],

@@ -88,6 +88,42 @@
   --card-edge: color-mix(in oklab, var(--ivory-9) 9%, transparent);
   --card-lift: 0 0 0 0 transparent;
 
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --accent-foreground: var(--foreground);
+  --input: var(--border-strong);
+  --ring: var(--running);
+  --ring-soft: color-mix(in oklab, var(--running) 50%, var(--border-strong));
+  --highlight: var(--running);
+  --user-bubble: var(--muted);
+  --selected: color-mix(in oklab, var(--foreground) 3.5%, transparent);
+  --selected-border: color-mix(in oklab, var(--foreground) 14%, transparent);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-accent: var(--card);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-ring: var(--ring);
+  --code-comment: var(--muted-foreground);
+  --code-meta: var(--soft-foreground);
+
+  --terminal-black: #1a1a17;
+  --terminal-red: #c4372d;
+  --terminal-green: #2f7d32;
+  --terminal-yellow: #8a6a00;
+  --terminal-blue: #2b5fb8;
+  --terminal-magenta: #9b3aa6;
+  --terminal-cyan: #1f7a86;
+  --terminal-white: #6b6a64;
+  --terminal-bright-black: #57564f;
+  --terminal-bright-red: #d9473c;
+  --terminal-bright-green: #3a9440;
+  --terminal-bright-yellow: #a07c00;
+  --terminal-bright-blue: #3a6fd0;
+  --terminal-bright-magenta: #b04abb;
+  --terminal-bright-cyan: #2a8f9c;
+  --terminal-bright-white: #3d3c37;
+
   color-scheme: light;
 }
 
@@ -161,40 +197,56 @@
   --card-edge: color-mix(in oklab, var(--graphite-10) 8%, transparent);
   --card-lift: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 
-  color-scheme: dark;
-}
-
-/* 亮暗共用的部分：由上面的变量推导，或与主题无关。 */
-:root {
   --card-foreground: var(--foreground);
   --popover-foreground: var(--foreground);
   --secondary-foreground: var(--foreground);
   --accent-foreground: var(--foreground);
-
-  /* 控件边框用强分隔线；焦点色出自运行色（方向稿的 :focus-visible）。 */
   --input: var(--border-strong);
   --ring: var(--running);
-  /* 焦点细线（§63）：运行色与强分隔线各半，外面再配一圈 2 px 的 ring/12 淡光；用法见 theme.css 的 focus-field / focus-ring。 */
   --ring-soft: color-mix(in oklab, var(--running) 50%, var(--border-strong));
-
-  /* 高光色：选中文字的底（index.css 的 ::selection）与用户消息气泡的着色。默认是运行色（墨色的选区看着像灰块）；设置 → 外观
-   * 选了强调色时换成强调色，气泡也随它着一点色（theme/appearance-model.ts）。 */
   --highlight: var(--running);
   --user-bubble: var(--muted);
-
-  /* 选中（§63）：很淡的墨色底加一圈 1 px 的细边，不用整块底色。用法 `bg-selected ring-1 ring-selected-border ring-inset`。 */
   --selected: color-mix(in oklab, var(--foreground) 3.5%, transparent);
   --selected-border: color-mix(in oklab, var(--foreground) 14%, transparent);
-
-  /* 侧栏（左栏与右栏共用）：选中的行是表面色，悬停是它的 60%。 */
   --sidebar-foreground: var(--foreground);
   --sidebar-border: var(--border);
   --sidebar-accent: var(--card);
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-ring: var(--ring);
-
   --code-comment: var(--muted-foreground);
   --code-meta: var(--soft-foreground);
+
+  --terminal-black: #1e1f24;
+  --terminal-red: #f2675d;
+  --terminal-green: #7ccf7f;
+  --terminal-yellow: #e6c45c;
+  --terminal-blue: #6fa3f2;
+  --terminal-magenta: #d68ae0;
+  --terminal-cyan: #63c7d1;
+  --terminal-white: #d4d3ce;
+  --terminal-bright-black: #6e6f76;
+  --terminal-bright-red: #ff8a80;
+  --terminal-bright-green: #9be39d;
+  --terminal-bright-yellow: #f5d77e;
+  --terminal-bright-blue: #94bcff;
+  --terminal-bright-magenta: #e8a8f0;
+  --terminal-bright-cyan: #8fdde5;
+  --terminal-bright-white: #f4f3ee;
+
+  color-scheme: dark;
+}
+
+/* 亮暗共用的部分：由上面的变量推导，或与主题无关。 */
+:root {
+  /* 控件边框用强分隔线；焦点色出自运行色（方向稿的 :focus-visible）。 */
+  /* 焦点细线（§63）：运行色与强分隔线各半，外面再配一圈 2 px 的 ring/12 淡光；用法见 theme.css 的 focus-field / focus-ring。 */
+
+  /* 高光色：选中文字的底（index.css 的 ::selection）与用户消息气泡的着色。默认是运行色（墨色的选区看着像灰块）；设置 → 外观
+   * 选了强调色时换成强调色，气泡也随它着一点色（theme/appearance-model.ts）。 */
+
+  /* 选中（§63）：很淡的墨色底加一圈 1 px 的细边，不用整块底色。用法 `bg-selected ring-1 ring-selected-border ring-inset`。 */
+
+  /* 侧栏（左栏与右栏共用）：选中的行是表面色，悬停是它的 60%。 */
 
   /* 圆角：卡片（含窗格、对话框、浮层与菜单、消息输入框）12px，按钮、输入控件与列表项 8px；theme.css 的
    * --radius-* 阶梯由这两个推导，嵌套时外层比内层大一阶。 */

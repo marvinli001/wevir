@@ -83,6 +83,7 @@ import {
   accountLogout as subscriptionLogout,
 } from './commands/subscription.js';
 import { syncCall, syncInvoke } from './commands/sync.js';
+import { themeList, themeSet } from './commands/theme.js';
 import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
 import {
   workspaceAdd,
@@ -1220,6 +1221,32 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       },
     },
   },
+  theme: {
+    list: {
+      summary: 'cmd.theme.list.summary',
+      usage: 'cmd.theme.list.usage',
+      options: json,
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx, v) => themeList(ctx, v.json === true),
+    },
+    set: {
+      summary: 'cmd.theme.set.summary',
+      usage: 'cmd.theme.set.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      remote: true,
+      run: (ctx, _v, [id]) => themeSet(ctx, id as string),
+    },
+    clear: {
+      summary: 'cmd.theme.clear.summary',
+      usage: 'cmd.theme.clear.usage',
+      options: {},
+      positionals: { min: 0, max: 0 },
+      remote: true,
+      run: (ctx) => themeSet(ctx, null),
+    },
+  },
   settings: {
     list: {
       summary: 'cmd.settings.list.summary',
@@ -1395,6 +1422,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
 const DEFAULT_COMMANDS: Record<string, string> = {
   inbox: 'list',
   settings: 'list',
+  theme: 'list',
   instructions: 'show',
   usage: 'summary',
 };
@@ -1413,6 +1441,7 @@ const GROUP_TITLES: Record<string, PlainMessageKey> = {
   plugin: 'group.plugin',
   mcp: 'group.mcp',
   settings: 'group.settings',
+  theme: 'group.theme',
   instructions: 'group.instructions',
   process: 'group.process',
   usage: 'group.usage',

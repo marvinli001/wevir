@@ -1,0 +1,59 @@
+{
+  "protocolVersion": "0.193.0",
+  "methods": {
+    "themes.list": {
+      "params": [{}],
+      "result": [{ "activeId": null, "directory": "/data/themes", "themes": [] }]
+    },
+    "themes.get": {
+      "params": [{ "id": "lagoon" }],
+      "result": [
+        {
+          "id": "lagoon",
+          "revision": "r1",
+          "readOnly": false,
+          "theme": {
+            "schemaVersion": 1,
+            "name": "Lagoon",
+            "dark": { "background": "#101820", "foreground": "#f1f5f9" }
+          },
+          "problems": [],
+          "assets": {},
+          "directory": "/data/themes/lagoon"
+        }
+      ]
+    },
+    "themes.save": {
+      "params": [
+        {
+          "id": "lagoon",
+          "theme": { "schemaVersion": 1, "name": "Lagoon", "dark": {} },
+          "assets": [{ "name": "backdrop.html", "sourcePath": "/project/backdrop.html" }]
+        }
+      ],
+      "result": [
+        {
+          "id": "lagoon",
+          "revision": "r1",
+          "readOnly": false,
+          "problems": [],
+          "assets": {},
+          "directory": "/data/themes/lagoon"
+        }
+      ]
+    },
+    "themes.delete": { "params": [{ "id": "lagoon" }], "result": [{ "deleted": true }] },
+    "themes.setActive": {
+      "params": [{ "id": "lagoon" }, { "id": null }],
+      "result": [{ "activeId": "lagoon" }, { "activeId": null }]
+    }
+  },
+  "notifications": {
+    "themes.updated": [
+      { "activeId": "lagoon", "revisions": { "lagoon": "r1" } },
+      { "activeId": null, "revisions": {} }
+    ]
+  },
+  "events": [],
+  "errors": []
+}

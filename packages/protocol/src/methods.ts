@@ -349,6 +349,7 @@ import {
   TerminalResizeParamsSchema,
   TerminalResizeResultSchema,
 } from './terminals.js';
+import { ThemeMethodSchemas, ThemesUpdatedParamsSchema } from './themes.js';
 import {
   TuningBlobParamsSchema,
   TuningBlobResultSchema,
@@ -2145,6 +2146,7 @@ export const MethodSchemas = {
     result: SettingsResultSchema,
     permission: 'host.manage',
   },
+  ...ThemeMethodSchemas,
   'power.get': {
     params: EmptySchema,
     result: PowerStateSchema,
@@ -3401,6 +3403,7 @@ export const NotificationSchemas = {
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
   'settings.updated': { params: SettingsUpdatedParamsSchema },
+  'themes.updated': { params: ThemesUpdatedParamsSchema },
   /** 发给调用过 `memory.*` 的连接（0.57.0）。 */
   'episode.changed': {
     params: z.object({ workspaceId: WorkspaceIdSchema, id: EpisodeIdSchema.optional() }),
@@ -3475,6 +3478,7 @@ export const NOTIFICATION_PERMISSIONS = {
   'push.changed': 'session.read',
   'account.updated': 'provider.read',
   'settings.updated': 'session.read',
+  'themes.updated': 'session.read',
   'episode.changed': 'session.read',
   'memory.changed': 'session.read',
   'usage.changed': 'session.read',

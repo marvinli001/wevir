@@ -18,6 +18,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname } from 'node:path';
 import { injectHtmlPreviewBootstrap } from './html-preview.js';
 import { HTML_PREVIEW_CSP } from './html-preview-csp.js';
+import { THEME_SCENE_CSP } from './themes/scene-csp.js';
 import { statWorkspaceFile } from './workspace-files.js';
 
 /** 路径前缀。 */
@@ -84,6 +85,7 @@ interface Grant {
   root: string;
   expiresAt: number;
   explicitPaths: Set<string>;
+  theme: boolean;
 }
 
 export interface FileUrlsOptions {
@@ -112,14 +114,23 @@ export class FileUrls {
   }
 
   /** `root`（realpath）下 `path` 的地址；端口未知时抛错。 */
-  issue(root: string, path: string): { url: string; expiresAt: number } {
+  issue(
+    root: string,
+    path: string,
+    options?: { theme?: boolean },
+  ): { url: string; expiresAt: number } {
     if (this.#port === undefined) throw new Error('file urls are not listening yet');
     const now = this.#now();
     let token = this.#byRoot.get(root);
     let grant = token === undefined ? undefined : this.#grants.get(token);
     if (token === undefined || grant === undefined || grant.expiresAt - now < FILE_URL_TTL_MS / 2) {
       token = randomBytes(24).toString('base64url');
-      grant = { root, expiresAt: now + FILE_URL_TTL_MS, explicitPaths: new Set() };
+      grant = {
+        root,
+        expiresAt: now + FILE_URL_TTL_MS,
+        explicitPaths: new Set(),
+        theme: options?.theme === true,
+      };
       this.#grants.set(token, grant);
       this.#byRoot.set(root, token);
       this.#prune(now);
@@ -175,10 +186,12 @@ export class FileUrls {
       return plain(res, 404);
     }
     if (!isServablePath(path, grant.explicitPaths.has(path))) return plain(res, 404);
+    if (grant.theme && !grant.explicitPaths.has(path)) return plain(res, 404);
     const file = await statWorkspaceFile(grant.root, path);
     if (!file) return plain(res, 404);
     const headers = fileResponseHeaders(path);
-    if (isHtml(path) && file.size <= HTML_INJECT_MAX_BYTES) {
+    if (grant.theme && isHtml(path)) headers['Content-Security-Policy'] = THEME_SCENE_CSP;
+    if (!grant.theme && isHtml(path) && file.size <= HTML_INJECT_MAX_BYTES) {
       const body = Buffer.from(
         injectHtmlPreviewBootstrap((await readFile(file.real)).toString('utf8')),
         'utf8',

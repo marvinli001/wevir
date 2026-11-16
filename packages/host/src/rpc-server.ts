@@ -73,6 +73,7 @@ export interface HostRpcServerOptions {
   accounts?: { watch(listener: (state: AccountState) => void): () => void };
   /** Host 设置（R11）：调过 `settings.*` 的连接经它收 `settings.updated`。 */
   settings?: { watch(listener: (settings: HostSettings) => void): () => void };
+  themes?: ConnectionHost['themes'];
   plugins?: { watch(listener: () => void): () => void };
   /** 跨会话记忆（0.57.0）：调过 `memory.*` 的连接经它收 `memory.changed`。 */
   memory?: { watch(listener: (change: MemoryChange) => void): () => void };
@@ -213,6 +214,7 @@ export class HostRpcServer {
       ...(options.engineFeatures !== undefined && { engineFeatures: options.engineFeatures }),
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.settings !== undefined && { settings: options.settings }),
+      ...(options.themes !== undefined && { themes: options.themes }),
       ...(options.plugins !== undefined && { plugins: options.plugins }),
       ...(options.memory !== undefined && { memory: options.memory }),
       ...(options.episodes !== undefined && { episodes: options.episodes }),

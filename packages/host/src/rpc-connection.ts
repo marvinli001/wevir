@@ -105,6 +105,7 @@ export interface ConnectionHost {
   readonly accounts?: { watch(listener: (state: AccountState) => void): () => void };
   /** Host 设置（R11）：调过 `settings.*` 的连接用它收 `settings.updated`。 */
   readonly settings?: { watch(listener: (settings: HostSettings) => void): () => void };
+  readonly themes?: import('./themes/service.js').ThemeService;
   readonly plugins?: { watch(listener: () => void): () => void };
   /** 跨会话记忆（0.57.0）：调过 `memory.*` 的连接用它收 `memory.changed`。 */
   readonly memory?: { watch(listener: (change: MemoryChange) => void): () => void };
@@ -304,6 +305,7 @@ export class RpcConnection {
   #unwatchAccounts: (() => void) | undefined;
   /** 调过 `settings.*` 之后：退订 `settings.updated`。 */
   #unwatchSettings: (() => void) | undefined;
+  #unwatchThemes: (() => void) | undefined;
   #unwatchPlugins: (() => void) | undefined;
   /** 调过 `memory.*` 之后：退订 `memory.changed`。 */
   #unwatchMemory: (() => void) | undefined;
@@ -820,6 +822,11 @@ export class RpcConnection {
         if (/^(device|pairing|remote)\./.test(method)) this.#watchRemote();
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
+        if (method.startsWith('themes.') && !this.#unwatchThemes) {
+          this.#unwatchThemes = this.#host.themes?.watch((update) =>
+            this.#notify('themes.updated', update),
+          );
+        }
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
         if (method.startsWith('memory.')) this.#watchMemory();
         if (method.startsWith('episode.') && this.#unwatchEpisodes === undefined)
@@ -1627,6 +1634,8 @@ export class RpcConnection {
     this.#unwatchAccounts?.();
     this.#unwatchAccounts = undefined;
     this.#unwatchSettings?.();
+    this.#unwatchThemes?.();
+    this.#unwatchThemes = undefined;
     this.#unwatchPlugins?.();
     this.#unwatchPlugins = undefined;
     this.#unwatchSettings = undefined;

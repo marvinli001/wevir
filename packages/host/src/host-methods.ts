@@ -105,6 +105,7 @@ import type { SimulatorService } from './simulator/service.js';
 import type { SpeechService } from './speech/service.js';
 import type { SyncService } from './sync/service.js';
 import type { TerminalService } from './terminals.js';
+import type { ThemeService } from './themes/service.js';
 import type { AutoTuner } from './tuning/auto.js';
 import type { ProposalService } from './tuning/proposals.js';
 import type { TuningService } from './tuning/service.js';
@@ -195,6 +196,7 @@ export interface HostMethodsOptions {
   providerLock?: ProviderLock;
   /** Host 设置（R11，`settings.*`）；省略时只在内存里（测试）。 */
   settings?: HostSettingsStore;
+  themes?: ThemeService;
   /** 回合快照（0.20.0）；省略时 `workspace.diff` 的 `turn` 回 `unavailable`，`session.checkpoints` 为空（测试）。 */
   checkpoints?: TurnCheckpoints;
   /** 消息里的图片（0.28.0）；省略时 `image.*` 回 `INVALID_PARAMS`（测试）。 */
@@ -336,6 +338,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   };
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   const settings = options.settings ?? new HostSettingsStore();
+  const themes = () => {
+    if (!options.themes) throw invalidParams(['themes'], 'This Host has no theme service');
+    return options.themes;
+  };
   const remoteService = (): NonNullable<HostMethodsOptions['remote']> => {
     if (options.remote === undefined) throw invalidParams([], 'this host has no remote access');
     return options.remote;
@@ -1658,6 +1664,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'image.read': (params) => imageStore().read(params),
 
     'settings.get': () => ({ settings: settings.get() }),
+    'themes.list': () => themes().list(),
+    'themes.get': ({ id }) => themes().get(id),
+    'themes.save': (input) => themes().save(input),
+    'themes.delete': ({ id }) => themes().delete(id),
+    'themes.setActive': ({ id }) => themes().setActive(id),
     'sync.cancelBundle': ({ vaultId, entityId }) => {
       if (!options.sync)
         throw new HostError('SYNC_FAILED', 'UPGRADE_REQUIRED', { code: 'UPGRADE_REQUIRED' });
