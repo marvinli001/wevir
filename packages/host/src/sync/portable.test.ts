@@ -242,7 +242,7 @@ describe('portable local data', () => {
       expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(4 * 1024 * 1024);
       buffers.push(Buffer.from(result.base64, 'base64'));
     }
-    expect(Buffer.concat(buffers)).toEqual(Buffer.alloc(3 * 1024 * 1024, 71));
+    expect(Buffer.concat(buffers).equals(Buffer.alloc(3 * 1024 * 1024, 71))).toBe(true);
   });
   it('rejects source changes during export instead of publishing mixed revisions', async () => {
     const a = fixture('concurrent-source');

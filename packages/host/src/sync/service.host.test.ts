@@ -41,7 +41,7 @@ vi.mock('node:fs', async (importOriginal) => {
         path,
         recursive: options.recursive,
       });
-      if (watches.failure && path.includes('/memory'))
+      if (watches.failure && path.split('\\').join('/').includes('/memory'))
         throw Object.assign(new Error(watches.failure), { code: watches.failure });
       const watcher = fs.watch(filename, options, (event, name) => {
         if (!watches.manual) listener(event, name);

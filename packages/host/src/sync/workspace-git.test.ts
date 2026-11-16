@@ -63,7 +63,13 @@ const metadata = (captured: Awaited<ReturnType<typeof captureWorkspaceTree>>) =>
 
 describe('workspace snapshots preserve Git layers without execution', () => {
   it('trusts every discovered rule name and rejects Windows aliases on all platforms', () => {
-    for (const name of ['CLAUDE.local.md', 'GEMINI.md', '.cursorrules'])
+    for (const name of [
+      'CLAUDE.local.md',
+      'GEMINI.md',
+      '.cursorrules',
+      '.claude\\CLAUDE.md',
+      '.cursor\\rules\\base.mdc',
+    ])
       expect(workspaceRequiresTrust(name)).toBe(true);
     for (const file of PROJECT_FILES) expect(workspaceRequiresTrust(file.name)).toBe(true);
     expect(workspaceRequiresTrust('.cursor/rules/base.mdc')).toBe(true);

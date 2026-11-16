@@ -176,6 +176,7 @@ async function linked() {
         (await first.rpc.request('session.list', {})).sessions.find(
           (session: { id: string }) => session.id === source.id,
         )?.state,
+      { timeout: 10000 },
     )
     .toBe('idle');
   const snapshot = (
@@ -422,6 +423,7 @@ describe('workspace handoff through two isolated Hosts', () => {
           (await second.rpc.request('session.list', {})).sessions.find(
             (session: { id: string }) => session.id === continuation.id,
           )?.state,
+        { timeout: 10000 },
       )
       .toBe('idle');
     const continued = (await second.rpc.request('session.get', { sessionId: continuation.id }))

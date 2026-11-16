@@ -1,5 +1,4 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { devNull } from 'node:os';
 import { join } from 'node:path';
 import { runGit } from '../git-diff.js';
 
@@ -77,7 +76,7 @@ export async function mergeSyncText(home: string, base: string, local: string, r
       directory,
       [
         '-c',
-        `core.hooksPath=${devNull}`,
+        'core.hooksPath=/dev/null',
         'merge-file',
         '--stdout',
         '--diff3',
@@ -90,7 +89,7 @@ export async function mergeSyncText(home: string, base: string, local: string, r
         ...paths,
       ],
       {
-        env: { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1' },
+        env: { GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
         okCodes: Array.from({ length: 128 }, (_, index) => index),
         maxBytes: 512 * 1024,
         timeoutMs: 5000,
