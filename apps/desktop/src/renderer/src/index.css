@@ -192,8 +192,9 @@
   background-color: color-mix(in oklab, var(--highlight) 36%, transparent);
 }
 
-/* 项目背景（projects/backdrop.tsx）：铺在内容卡片的上半部分，往下渐隐，到输入框一带已经看不见（MonoCode 的 Haze 的遮罩）。
- * 预设是几团柔和的光晕（--backdrop，编辑项目对话框的色板也用它），亮暗共用、深色更浓一点；自定义图片铺满后整体压淡。 */
+/* 项目背景（projects/backdrop.tsx）：往下渐隐（MonoCode 的 Haze 的遮罩）；光晕预设覆盖卡片的上 62%，亮暗共用、深色更浓。
+ * 自定义图片只占顶部 clamp(200px, 36%, 380px)，图片不透明度浅色 20%、深色 18%（叠加整体后约 14% / 16%）。
+ * 预设的 --backdrop 也用于编辑项目对话框的色板。 */
 .project-backdrop {
   position: absolute;
   inset: 0 0 auto;
@@ -223,15 +224,19 @@
   opacity: 0.9;
 }
 
+.project-backdrop[data-backdrop-kind="image"] {
+  height: clamp(200px, 36%, 380px);
+}
+
 .project-backdrop img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0.4;
+  opacity: 0.2;
 }
 
 :root[data-theme="dark"] .project-backdrop img {
-  opacity: 0.32;
+  opacity: 0.18;
 }
 
 [data-backdrop="dawn"] {

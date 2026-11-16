@@ -55,6 +55,7 @@ export function ProjectBackdropLayer({ workspaceId }: { workspaceId: string | un
     <div
       aria-hidden
       className="project-backdrop"
+      data-backdrop-kind={backdrop.kind}
       data-backdrop={backdrop.kind === 'preset' ? backdrop.preset : undefined}
     >
       {backdrop.kind === 'image' && <img src={backdrop.src} alt="" draggable={false} />}
