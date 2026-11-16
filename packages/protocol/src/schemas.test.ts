@@ -347,6 +347,26 @@ interface Case {
 
 const standaloneCases: Case[] = [
   {
+    name: 'ZuvApiError',
+    schema: protocol.ZuvApiErrorSchema,
+    valid: ['authorization_expired', 'key_disabled', 'key_window_limit', 'network'],
+    invalid: ['unknown_key_error'],
+  },
+  {
+    name: 'ZuvApiState',
+    schema: protocol.ZuvApiStateSchema,
+    valid: [
+      { status: 'disconnected' },
+      {
+        status: 'connected',
+        account: { id: 'fixture-api', email: 'api@fixture.test', name: 'API' },
+        keyPrefix: 'zuv-prefix',
+        modelsError: 'no_models',
+      },
+    ],
+    invalid: [{ status: 'unknown' }, { status: 'connected', keyPrefix: 'a'.repeat(40) }],
+  },
+  {
     name: 'SuggestedTaskOrigin',
     schema: protocol.SuggestedTaskOriginSchema,
     valid: [{ kind: 'suggested_task', sessionId: 'ses_1', taskId: 'tsk_1' }],
