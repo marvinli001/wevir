@@ -16,6 +16,7 @@
 // opencode 的循环还没开始”时会去问 session.status、读到 idle 就提前结束回合）；取消在回合没停下之前每秒重发一次 abort。
 // 跟进 T3 8298664e9e：上游报 HTTP 429 时回合失败带 `usageLimit`，之前先重读账号的用量。
 // 跟进 T3 9f018954d0474d9dbfaa53636294459496ed08ba：上游错误的信息是 `<none>` 时改报可读的说明（`readableProviderErrorMessage`）。
+// 跟进 T3 1530bec29a：`ContextOverflowError` 先不让回合失败（opencode 接着自动压缩），回到 idle 时还没见到 session.compacted 才失败。
 //
 // OpenCode 引擎（订阅来源 `opencode`，ADR-0005 补记 14，docs/architecture/opencode-event-mapping.md）：用户自己装的 `opencode`
 // 与他接上的上游，Wevir 在本机起它的服务器（runtime.ts / server.ts），经 `@opencode-ai/sdk` 说话。一个 Wevir 会话是一个
@@ -184,6 +185,11 @@ interface Turn {
   cancelling: boolean;
   /** 撞上了用量上限，正在重读用量、之后以失败结算：这期间到的 idle 不按完成结算。 */
   limited: boolean;
+  /**
+   * 上下文超长（`ContextOverflowError`）报出的失败：opencode 报完仍是 busy、自动压缩后接着跑，先压着；见到 session.compacted
+   * 就作废，没压缩就回到 idle 时按它失败结算（T3 的 contextOverflow）。
+   */
+  overflow: AgentEvent | undefined;
   done: boolean;
   readonly settled: Promise<void>;
   readonly resolve: () => void;
@@ -1082,6 +1088,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       prompt: undefined,
       cancelling: false,
       limited: false,
+      overflow: undefined,
       done: false,
       settled,
       resolve,
@@ -1139,6 +1146,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   }
 
   #completed(session: Session, turn: Turn): AgentEvent {
+    if (!turn.cancelling && turn.overflow !== undefined) return turn.overflow;
     return turn.cancelling
       ? {
           type: 'turn.settled',
@@ -1448,6 +1456,8 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
         return;
       case 'session.compacted': {
         if (session.turn === undefined) return;
+        // 上下文超长之后 opencode 自己压缩完了，回合接着跑。
+        session.turn.overflow = undefined;
         const compactionId = randomUUID();
         this.#emit(session, [
           {
@@ -1691,6 +1701,11 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       ...(statusCode !== undefined && { code: statusCode }),
       ...(usageLimited && { usageLimit: {} }),
     };
+    if (error?.name === 'ContextOverflowError') {
+      // opencode 仍是 busy、接着自动压缩：回合不在这里失败，没压缩就回到 idle 时才按它失败（#completed）。
+      turn.overflow = failed;
+      return;
+    }
     if (!usageLimited) {
       this.#settle(session, turn, failed);
       return;

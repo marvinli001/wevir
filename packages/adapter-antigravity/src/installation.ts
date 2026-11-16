@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/AntigravityInstallation.ts
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；大内存页内核与 IPv6 的说明照 cf65084c979a0376f8a62ec95e17fd400e8d9b24
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；大内存页内核与 IPv6 的说明照 cf65084c979a0376f8a62ec95e17fd400e8d9b24；
+// Intel Mac 上核对 sha256 之后重新 ad-hoc 签名、记下签名后的大小照 c55db3e9c72fdf584f4b54192fb39beb88667b59
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS；目录换到 Wevir 的 `<数据目录>/engines/antigravity/runtime/<平台>-<架构>/`；下载请求不压缩
 // （Accept-Encoding: identity），没下完的留在 downloads/ 里、下次用 Range 接着下；60 秒收不到数据算卡住；连不上时的说明
@@ -36,6 +37,7 @@ const RECORD_MAX_BYTES = 8 * 1024;
 const RELEASE_RECORD = '.install-complete.json';
 const RELEASE_ID = /^[a-f0-9]{64}$/u;
 const PAGE_SIZE_TIMEOUT_MS = 5_000;
+const CODESIGN_TIMEOUT_MS = 60_000;
 const LARGE_PAGE_KERNEL_MESSAGE =
   "Google's linux-arm64 Antigravity runtime needs a kernel with 4 KiB memory pages, and this kernel uses larger pages (as on Asahi Linux or Raspberry Pi 5). Set a custom executable path.";
 const IPV6_MESSAGE =
@@ -61,6 +63,18 @@ function systemPageSize(): Promise<number | undefined> {
         const size = Number(String(stdout).trim());
         resolve(error === null && Number.isFinite(size) && size > 0 ? size : undefined);
       },
+    );
+  });
+}
+
+/** `codesign --force --sign -`（ad-hoc）重新签名；退出码不是 0 时抛错。 */
+function adHocSign(files: readonly string[], signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      '/usr/bin/codesign',
+      ['--force', '--sign', '-', ...files],
+      { timeout: CODESIGN_TIMEOUT_MS, signal },
+      (error) => (error === null ? resolve() : reject(error)),
     );
   });
 }
@@ -113,6 +127,8 @@ export interface AntigravityInstallationOptions {
   fetch?: typeof fetch;
   /** 内核的内存页大小（字节，只在 linux-arm64 上读）；测试换掉，默认跑 `getconf PAGESIZE`。 */
   pageSize?: () => Promise<number | undefined>;
+  /** ad-hoc 重新签名（只在 darwin-x64 上用）；测试换掉，默认跑 `/usr/bin/codesign --force --sign -`。 */
+  codesign?: (files: readonly string[], signal: AbortSignal) => Promise<void>;
   idleTimeoutMs?: number;
   progressIntervalMs?: number;
 }
@@ -302,15 +318,31 @@ export class AntigravityInstallation {
         const pairDirectory = path.join(staging, 'runtime');
         await fsp.mkdir(pairDirectory);
         await this.#extract(asset, archivePath, pairDirectory, signal);
+        const executablePath = path.join(pairDirectory, asset.executable.name);
+        const harnessPath = path.join(pairDirectory, asset.harness.name);
         if (this.#platform !== 'win32') {
-          await fsp.chmod(path.join(pairDirectory, asset.executable.name), 0o755);
-          await fsp.chmod(path.join(pairDirectory, asset.harness.name), 0o755);
+          await fsp.chmod(executablePath, 0o755);
+          await fsp.chmod(harnessPath, 0o755);
+        }
+        if (this.#platform === 'darwin' && this.#arch === 'x64') {
+          // Google 给 Intel 版签的是带 hardened runtime、却没有 JIT 授权的签名，libffi 的可写可执行跳板会一直空转：核对
+          // sha256 之后重新 ad-hoc 签名（签名改了文件大小，下面记的是签名后的大小）。
+          try {
+            await (this.#options.codesign ?? adHocSign)([executablePath, harnessPath], signal);
+          } catch (cause) {
+            signal.throwIfAborted();
+            throw new AntigravityInstallationError(
+              'extract',
+              'Could not prepare the Antigravity runtime for this Mac. Check that codesign is available.',
+              { cause },
+            );
+          }
         }
         report('verifying', asset.archiveBytes);
         await this.#validate(
           {
-            executablePath: path.join(pairDirectory, asset.executable.name),
-            harnessPath: path.join(pairDirectory, asset.harness.name),
+            executablePath,
+            harnessPath,
             source: 'managed',
             version: asset.version,
             managedVersionDirectory: pairDirectory,
@@ -321,8 +353,8 @@ export class AntigravityInstallation {
         const record: InstalledRecord = {
           releaseId: asset.sha256,
           version: asset.version,
-          executable: asset.executable,
-          harness: asset.harness,
+          executable: { name: asset.executable.name, bytes: (await fsp.stat(executablePath)).size },
+          harness: { name: asset.harness.name, bytes: (await fsp.stat(harnessPath)).size },
         };
         await fsp.writeFile(path.join(pairDirectory, RELEASE_RECORD), JSON.stringify(record), {
           flag: 'wx',

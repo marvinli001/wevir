@@ -2,7 +2,14 @@
 // 服务器不支持 Range、卡住、取消、HTTP 错误、不安全的压缩包、校验失败、连不上 dl.google.com 时的说明。
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -407,6 +414,48 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     // 读不到页大小时不拦。
     await target.install(() => {});
     expect(requests).toHaveLength(1);
+  });
+
+  it('Intel Mac：核对 sha256 之后 ad-hoc 重新签名两个文件，记下签名后的大小（之后 resolve 认得出）；别的平台不签', async () => {
+    const asset = assetFor(await serve(ZIP));
+    const signed: string[][] = [];
+    // codesign 改写签名，文件大小随之变化。
+    const codesign = async (paths: readonly string[]) => {
+      signed.push([...paths]);
+      for (const file of paths) appendFileSync(file, '\n// ad-hoc signature\n');
+    };
+    const target = installation(asset, { platform: 'darwin', arch: 'x64', codesign });
+    const installed = await target.install(() => {});
+    // 签的是解包目录里的文件（之后整个目录挪到 versions/<sha256>/）。
+    expect(signed.map((paths) => paths.map((file) => path.basename(file)))).toEqual([
+      [path.basename(installed.executablePath), path.basename(installed.harnessPath)],
+    ]);
+    const resolved = await installation(asset, {
+      platform: 'darwin',
+      arch: 'x64',
+      codesign,
+    }).resolve();
+    expect(resolved).toMatchObject({ source: 'managed', version: ANTIGRAVITY_RELEASE_VERSION });
+    expect(statSync(resolved.executablePath).size).toBeGreaterThan(asset.executable.bytes);
+
+    await installation(asset, { platform: 'darwin', arch: 'arm64', codesign }).install(() => {});
+    expect(signed).toHaveLength(1);
+  });
+
+  it('Intel Mac：codesign 失败时安装失败并说明，不启用', async () => {
+    const asset = assetFor(await serve(ZIP));
+    const target = installation(asset, {
+      platform: 'darwin',
+      arch: 'x64',
+      codesign: async () => {
+        throw new Error('codesign exited with 1');
+      },
+    });
+    await expect(target.install(() => {})).rejects.toMatchObject({
+      operation: 'extract',
+      message: expect.stringMatching(/codesign is available/),
+    });
+    await expect(target.resolve()).rejects.toThrow(/not installed/);
   });
 
   it('钉住的发布是 1.4.5：六个平台的地址、sha256 与大小（官方发布清单，macOS arm64 已实测），运行体自报的版本认得出', () => {

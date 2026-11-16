@@ -577,6 +577,49 @@ describe('OpenCodeAdapter（假 opencode）', () => {
     });
   });
 
+  it('上下文超长（ContextOverflowError）：opencode 自动压缩后回合照常完成，没压缩就回到 idle 时才失败', async () => {
+    const overflow = (compacted: boolean) => {
+      const h = setup();
+      const fail = h.fake.recordings.find((recording) => recording.name === 'fail');
+      const index = fail?.lines.findIndex((line) => line.event?.type === 'session.error') ?? -1;
+      const error = fail?.lines[index]?.event as
+        | { properties: { error: { name: string; data: Record<string, unknown> } } }
+        | undefined;
+      if (fail === undefined || error === undefined)
+        throw new Error('fail 录音里没有 session.error');
+      error.properties.error.name = 'ContextOverflowError';
+      error.properties.error.data = { message: 'maximum context length exceeded' };
+      if (compacted) {
+        fail.lines.splice(index + 1, 0, {
+          event: {
+            id: 'evt_compacted',
+            type: 'session.compacted',
+            properties: { sessionID: fail.sessionID },
+          } as Event,
+        });
+      }
+      return h;
+    };
+
+    const uncompacted = overflow(false);
+    const first = await openSession(uncompacted);
+    await uncompacted.adapter.send(first.id, text(EXTRA_PROMPTS.fail));
+    await first.log.terminal();
+    expect(first.log.events.at(-1)).toMatchObject({
+      type: 'turn.failed',
+      category: 'provider',
+      message: 'maximum context length exceeded',
+    });
+
+    const compacted = overflow(true);
+    const second = await openSession(compacted);
+    await compacted.adapter.send(second.id, text(EXTRA_PROMPTS.fail));
+    await second.log.terminal();
+    expect(second.log.events.some((event) => event.type === 'turn.failed')).toBe(false);
+    expect(second.log.events.some((event) => event.type === 'context.compacted')).toBe(true);
+    expect(second.log.events.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+  });
+
   it('session.compacted 映射进行中回合的自动压缩，回合外忽略', async () => {
     const h = setup();
     const { id, log } = await openSession(h);
