@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 改写自 pingdotgg/t3code apps/server/src/provider/acp/AntigravityTurnOutcome.ts
-// 来源提交 ab8e488e10d883fa880b0ddcf01917b51839ab07
+// 来源提交 ab8e488e10d883fa880b0ddcf01917b51839ab07、7c22e24e3fa1a3bb3a95f27aea000067f198fe7f
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：同步只读 SQLite，结果换成 Wevir 的 turn.failed；只读当前 prompt 新增的最后一步。
 
@@ -23,12 +23,15 @@ const DURATION_UNIT_MS: Record<string, number> = {
   h: 3_600_000,
 };
 
+const QUOTA_RESET_DELAY =
+  /\bquotaResetDelay:((?:\d+(?:\.\d+)?(?:ns|us|µs|μs|ms|h|m|s))+)(?=[\s\]])/u;
+const RETRY_DELAY = /\bretryDelay:((?:\d+(?:\.\d+)?(?:ns|us|µs|μs|ms|h|m|s))+)(?=[\s\]])/u;
+
 function resetAt(text: string): string | undefined {
   const timestamp = /\bquotaResetTimeStamp:([^\s\]]+)/u.exec(text)?.[1];
   if (timestamp !== undefined && Number.isFinite(Date.parse(timestamp))) return timestamp;
-  const delay = /\bquotaResetDelay:((?:\d+(?:\.\d+)?(?:ns|us|µs|μs|ms|h|m|s))+)(?=[\s\]])/u.exec(
-    text,
-  )?.[1];
+  // 普通限流没有额度恢复时间，只带 google.rpc.RetryInfo 的 retryDelay；额度时长优先。
+  const delay = (QUOTA_RESET_DELAY.exec(text) ?? RETRY_DELAY.exec(text))?.[1];
   if (delay === undefined) return undefined;
   let ms = 0;
   for (const [, amount, unit] of delay.matchAll(/(\d+(?:\.\d+)?)(ns|us|µs|μs|ms|h|m|s)/gu)) {

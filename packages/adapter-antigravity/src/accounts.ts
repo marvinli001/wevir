@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/AntigravityAuth.ts（makeAntigravityAuth）、Drivers/AntigravityDriver.ts（不启动
 // 运行体的健康检查、refreshModels、一次性的登录进程）与 AntigravityProvider.ts（登录状态与模型）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；登录无响应的诊断照 2887855528661ec6a154c0bd094bfb5482fbdfbf
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；登录无响应的诊断照 2887855528661ec6a154c0bd094bfb5482fbdfbf，运行体没启动时
+// 不怪网络照 d075bed70f7b8cee456f06d299a11e99ea19673c、6e8851cc43f7876cf556969195abcad435418531
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 EngineAccounts。只有个人 Google 账号；回调落在 Host 这台机器的 127.0.0.1，浏览器要在
 // 本机，不做 T3 的远程粘贴回调网址（协议里没有这个方法）；登录状态不启动运行体，只看 profile 里登录文件在不在，
@@ -77,6 +78,8 @@ interface LoginFlow {
   readonly launcher: AntigravityLauncher;
   readonly cwd: string;
   authUrl?: string;
+  /** 运行体回过 `initialize`：之后还没拿到网址才是连不上 Google，之前是运行体没起来（单文件运行体每次启动先解包）。 */
+  initialized?: boolean;
   sessionId?: string;
   timer?: ReturnType<typeof setTimeout>;
   run?: Promise<AccountModels | undefined>;
@@ -201,9 +204,11 @@ export class AntigravityAccounts implements EngineAccounts {
         void this.#fail(
           current,
           new Error('timeout'),
-          current.authUrl === undefined
-            ? "Antigravity could not reach Google. Check this machine's network connection, then start sign-in again."
-            : 'Google sign-in expired. Start sign-in again.',
+          current.authUrl !== undefined
+            ? 'Google sign-in expired. Start sign-in again.'
+            : current.initialized === true
+              ? "Antigravity could not reach Google. Check this machine's network connection, then start sign-in again."
+              : 'Antigravity did not start or respond. Its runtime may not run on this machine.',
         ),
       this.#options.loginTimeoutMs ?? LOGIN_TIMEOUT_MS,
     );
@@ -213,6 +218,7 @@ export class AntigravityAccounts implements EngineAccounts {
       if (this.#flow !== current) return undefined;
       this.#set(this.#signingIn(current, fields));
       await process.start();
+      current.initialized = true;
       const connection = process.connection;
       // 没登录时运行体经 BROWSER 钩子给出登录网址，等用户在浏览器里完成（回调落在本机 127.0.0.1）。
       await connection.agent.request(methods.agent.authenticate, {

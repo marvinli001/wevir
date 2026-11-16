@@ -2,7 +2,8 @@
 // 移植自 pingdotgg/t3code apps/server/src/provider/antigravityAuthSupport.ts（环境、BROWSER 钩子、私有 profile、登录网址的
 // 解析、stdout / stderr 上的登录提示）与 Drivers/AntigravitySkills.ts（用户全局 skills 的两个目录）
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 a6e2236c4d4ed2f655c42e1766b8c79214ff4075（skills 目录不在时
-// 不留悬空链接，运行体留下的空占位目录换成链接）
+// 不留悬空链接，运行体留下的空占位目录换成链接）、385851d7fedc645d3ecf6363135c3c8c35c32b2d（钩子核对放宽到 30 s）、
+// 12085f0b0c1229198bbcbf47c63135f4931936f6（不传 CHROME_CRASHPAD_PIPE_NAME）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS；只保留个人 Google 账号登录（oauth-personal），不做 T3 的 API Key、Gemini Enterprise 与
 // Vertex（Wevir 不保存这类密钥，AGENTS.md 规则 5）；BROWSER 钩子用 Host 自己的 Node（process.execPath，Electron 里靠
@@ -38,7 +39,8 @@ const MAX_BROWSER_HELPER_LINE_LENGTH =
 const MAX_STDOUT_LINE_BYTES = 16 * 1024 * 1024;
 const AUTH_PREFIX_BYTES = new TextEncoder().encode(ANTIGRAVITY_AUTH_STDOUT_PREFIX);
 const BROWSER_PREFLIGHT_URL = 'https://example.invalid/wevir-antigravity-browser-preflight';
-const BROWSER_PREFLIGHT_TIMEOUT_MS = 5_000;
+/** 核对 BROWSER 钩子的时限：机器忙或杀毒软件扫描新进程时，Electron 以 Node 启动要好几秒。 */
+export const BROWSER_PREFLIGHT_TIMEOUT_MS = 30_000;
 
 // Python 先按平台的路径分隔符切开 BROWSER 再解析引号：脚本里不能有冒号和分号。EPIPE 也要以 0 退出，否则取消之后
 // Python 会退回去开系统浏览器。
@@ -65,6 +67,8 @@ const REMOVED_ENVIRONMENT_KEYS = new Set([
   'BROWSER',
   'PYTHONUNBUFFERED',
   'ELECTRON_RUN_AS_NODE',
+  // 继承来的 Crashpad 管道，原主进程退出后 Electron 以 Node 运行时会往 stderr 报 Crashpad 错误，钩子核对因此失败。
+  'CHROME_CRASHPAD_PIPE_NAME',
 ]);
 
 export interface AntigravityProfile {

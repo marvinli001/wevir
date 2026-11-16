@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/AntigravityInstallation.ts
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；大内存页内核与 IPv6 的说明照 cf65084c979a0376f8a62ec95e17fd400e8d9b24
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS；目录换到 Wevir 的 `<数据目录>/engines/antigravity/runtime/<平台>-<架构>/`；下载请求不压缩
 // （Accept-Encoding: identity），没下完的留在 downloads/ 里、下次用 Range 接着下；60 秒收不到数据算卡住；连不上时的说明
@@ -11,6 +11,7 @@
 // versions/<sha256>/ 是装好的一个发布（两个可执行文件加 .install-complete.json），active.json 是指向它的原子指针，写下它才算
 // 装好；下载与解包都在 versions/.install-* 里进行，失败或取消不影响已装的版本。
 
+import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import * as fsp from 'node:fs/promises';
@@ -34,6 +35,35 @@ const FREE_SPACE_MARGIN = 256 * 1024 * 1024;
 const RECORD_MAX_BYTES = 8 * 1024;
 const RELEASE_RECORD = '.install-complete.json';
 const RELEASE_ID = /^[a-f0-9]{64}$/u;
+const PAGE_SIZE_TIMEOUT_MS = 5_000;
+const LARGE_PAGE_KERNEL_MESSAGE =
+  "Google's linux-arm64 Antigravity runtime needs a kernel with 4 KiB memory pages, and this kernel uses larger pages (as on Asahi Linux or Raspberry Pi 5). Set a custom executable path.";
+const IPV6_MESSAGE =
+  'Antigravity requires IPv6 socket support. Enable IPv6 on this machine. On WSL, remove ipv6.disable=1 from .wslconfig and run wsl --shutdown.';
+
+/** 运行体起不来时按它的 stderr 说明原因（关了 IPv6、内核内存页大于 4 KiB）；认不出时 undefined。 */
+export function antigravityStartFailure(stderr: string): string | undefined {
+  if (/\b(?:AF_INET6|enforce_kernel_ipv6_support)\b/u.test(stderr)) return IPV6_MESSAGE;
+  if (/page-size\.cc|Compile-time page size does not match/u.test(stderr)) {
+    return LARGE_PAGE_KERNEL_MESSAGE;
+  }
+  return undefined;
+}
+
+/** `getconf PAGESIZE`；读不到时 undefined（不拦安装）。 */
+function systemPageSize(): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    execFile(
+      'getconf',
+      ['PAGESIZE'],
+      { timeout: PAGE_SIZE_TIMEOUT_MS, windowsHide: true },
+      (error, stdout) => {
+        const size = Number(String(stdout).trim());
+        resolve(error === null && Number.isFinite(size) && size > 0 ? size : undefined);
+      },
+    );
+  });
+}
 
 /** 安装或解析失败。`message` 给人看（进 AccountState 的 lastError），`cause` 是原始错误。 */
 export class AntigravityInstallationError extends Error {
@@ -81,6 +111,8 @@ export interface AntigravityInstallationOptions {
     signal: AbortSignal,
   ) => Promise<void>;
   fetch?: typeof fetch;
+  /** 内核的内存页大小（字节，只在 linux-arm64 上读）；测试换掉，默认跑 `getconf PAGESIZE`。 */
+  pageSize?: () => Promise<number | undefined>;
   idleTimeoutMs?: number;
   progressIntervalMs?: number;
 }
@@ -222,6 +254,13 @@ export class AntigravityInstallation {
     const report = (phase: InstallProgress['phase'], completedBytes: number) =>
       onProgress({ phase, completedBytes, totalBytes: asset.archiveBytes });
     try {
+      // linux-arm64 的发布按 4 KiB 内存页编译，16 KiB 页的内核上一启动就崩：下载之前先说清楚。
+      if (this.#platform === 'linux' && this.#arch === 'arm64') {
+        const pageSize = await (this.#options.pageSize ?? systemPageSize)();
+        if (pageSize !== undefined && pageSize > 4096) {
+          throw new AntigravityInstallationError('download', LARGE_PAGE_KERNEL_MESSAGE);
+        }
+      }
       await fsp.mkdir(this.#versions, { recursive: true });
       await fsp.mkdir(this.#downloads, { recursive: true });
       await this.#removeStaleStaging();

@@ -21,6 +21,7 @@ import {
   antigravitySpawnSpec,
   antigravityStderrWatcher,
   antigravityStdoutFilter,
+  BROWSER_PREFLIGHT_TIMEOUT_MS,
   parseAntigravityAuthorizationUrl,
   prepareAntigravityProfile,
 } from './profile.js';
@@ -78,6 +79,7 @@ describe('antigravityEnvironment', () => {
         GOOGLE_APPLICATION_CREDENTIALS: '/creds.json',
         GEMINI_HOME: '/home/me/.gemini',
         BROWSER: 'firefox',
+        CHROME_CRASHPAD_PIPE_NAME: '\\\\.\\pipe\\crashpad_1_stale',
         TMPDIR: '/tmp',
       },
       '/data/engines/antigravity/tmp/run-1',
@@ -106,6 +108,10 @@ describe('antigravityEnvironment', () => {
     expect(spec.args).toEqual(['--uid=']);
     expect(spec.options.env.ANTIGRAVITY_HARNESS_PATH).toBe('/rt/localharness_external');
     expect(spec.options.env.TMPDIR).toBe('/t/run-2');
+  });
+
+  it('BROWSER 钩子核对给慢机器留 30 s', () => {
+    expect(BROWSER_PREFLIGHT_TIMEOUT_MS).toBe(30_000);
   });
 });
 

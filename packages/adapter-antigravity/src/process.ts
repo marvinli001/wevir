@@ -19,6 +19,7 @@ import {
   type AntigravityExecutable,
   type AntigravityInstallation,
   AntigravityInstallationError,
+  antigravityStartFailure,
 } from './installation.js';
 import {
   ANTIGRAVITY_AUTH_METHOD,
@@ -274,7 +275,17 @@ export async function validateAntigravityRuntime(
   const abort = () => void process.dispose();
   signal.addEventListener('abort', abort, { once: true });
   try {
-    const initialized: InitializeResponse = await process.start();
+    let initialized: InitializeResponse;
+    try {
+      initialized = await process.start();
+    } catch (error) {
+      // 运行体一启动就退出：按 stderr 认出的原因（关了 IPv6、内核内存页太大）比笼统的“起不来”有用。
+      const reason = signal.aborted ? undefined : antigravityStartFailure(process.stderrTail);
+      if (reason !== undefined) {
+        throw new AntigravityInstallationError('verify', reason, { cause: error });
+      }
+      throw error;
+    }
     signal.throwIfAborted();
     const capabilities = initialized.agentCapabilities as
       | (InitializeResponse['agentCapabilities'] & {

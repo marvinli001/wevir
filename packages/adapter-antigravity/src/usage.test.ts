@@ -142,6 +142,32 @@ describe('summaryWindows / modelWindows', () => {
     expect(windows.filter((window) => window.scope === 'Gemini')).toHaveLength(2);
   });
 
+  it('Gemini 4 Carbon 单独一份（gemini-carbon 桶或组名带 Carbon），不并进 Gemini', () => {
+    const windows = summaryWindows({
+      groups: [
+        ...SUMMARY.groups,
+        {
+          displayName: 'Gemini 4 Carbon',
+          buckets: [
+            { bucketId: 'gemini-carbon-wtu-weekly', window: 'weekly', remainingFraction: 0.4 },
+          ],
+        },
+        {
+          displayName: ' ',
+          buckets: [{ bucketId: 'gemini-carbon-5h', window: '5h', remainingFraction: 0.8 }],
+        },
+      ],
+    });
+    expect(windows.filter((window) => window.scope === 'Gemini 4 Carbon')).toEqual([
+      { usedPercent: 60, scope: 'Gemini 4 Carbon', windowMinutes: 10080 },
+      { usedPercent: expect.closeTo(20), scope: 'Gemini 4 Carbon', windowMinutes: 300 },
+    ]);
+    expect(windows.filter((window) => window.scope === 'Gemini')).toEqual([
+      expect.objectContaining({ usedPercent: 25, windowMinutes: 300 }),
+      expect.objectContaining({ usedPercent: 60, windowMinutes: 10080 }),
+    ]);
+  });
+
   it('没有分组时读顶层的 buckets；别的窗口把桶名接在额度名后面', () => {
     expect(
       summaryWindows({
@@ -260,7 +286,7 @@ describe('AntigravityUsage', () => {
     });
   });
 
-  it('合并两个端点独有的额度组，同一窗口取用得最多的读数', async () => {
+  it('合并两个端点独有的额度组，同一窗口以 daily 端点的读数为准（即使 prod 用得更多）', async () => {
     const http = fakeFetch({
       ...TOKEN_OK,
       'daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary': json({
@@ -286,7 +312,7 @@ describe('AntigravityUsage', () => {
         expect.objectContaining({ scope: 'Gemini', windowMinutes: 300, usedPercent: 25 }),
         expect.objectContaining({ scope: 'Gemini', windowMinutes: 10080, usedPercent: 60 }),
         expect.objectContaining({ scope: 'Claude & GPT', windowMinutes: 300, usedPercent: 75 }),
-        expect.objectContaining({ scope: 'Claude & GPT', windowMinutes: 10080, usedPercent: 90 }),
+        expect.objectContaining({ scope: 'Claude & GPT', windowMinutes: 10080, usedPercent: 50 }),
       ]),
     );
     expect(result.ok && result.rateLimits?.windows).toHaveLength(4);

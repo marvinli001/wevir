@@ -90,6 +90,27 @@ describe('Antigravity prompt outcome', () => {
     expect(check({ stopReason: 'cancelled' })).toBeUndefined();
   });
 
+  it('普通限流从 retryDelay 取恢复时间；额度时长优先于 retryDelay', () => {
+    const f = fixture();
+    for (const [text, delay] of [
+      [
+        'Error 429, Message: Resource has been exhausted., Status: RESOURCE_EXHAUSTED, Details: [map[reason:RATE_LIMIT_EXCEEDED] map[@type:type.googleapis.com/google.rpc.RetryInfo retryDelay:42s]]',
+        42_000,
+      ],
+      [
+        'Error 429, Message: Quota exhausted., Status: RESOURCE_EXHAUSTED, Details: [map[retryDelay:42s] map[quotaResetDelay:3600s quotaResetTimeStamp:soon] reason:QUOTA_EXHAUSTED]',
+        3_600_000,
+      ],
+    ] as const) {
+      const check = f.watch();
+      const before = Date.now();
+      f.add(17, text);
+      const at = Date.parse(check({ stopReason: 'end_turn' })?.usageLimit?.resetsAt ?? '');
+      expect(at).toBeGreaterThanOrEqual(before + delay);
+      expect(at).toBeLessThanOrEqual(Date.now() + delay);
+    }
+  });
+
   it('refusal 没有会话库时仍算额度错误；拒绝路径穿越与链接日志', () => {
     const f = fixture();
     const invalid = watchAntigravityPromptOutcome(f.profile, '../outside');

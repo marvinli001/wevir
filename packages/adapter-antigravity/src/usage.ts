@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/server/src/provider/antigravityUsageLimits.ts（`makeAntigravityUsageProbe`、`summaryWindows`、
 // `modelWindows`、`quotaWindow`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；双端点合并照 340ee237bf6f691634b91e21c1211570377ba678
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；双端点合并照 340ee237bf6f691634b91e21c1211570377ba678，计量端点优先照
+// 047d492736ef7ad6c46250b52afafbd0b731f32f；Carbon 额度照 e8d3075e4862c5d7909816821221efe57e217cf7
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `rateLimits`（0.45.0 的额度名 `scope`，窗口名由界面按长度说）；不读
 // Google 账号 ID（T3 用它跨环境合并账号）；只有个人 Google 账号这一种登录（Wevir 只做这种）。
@@ -13,12 +14,13 @@
 //
 // 2026-10-20 补 Gemini 4 Argon：付费 AI Pro 的 Argon 有单独的每周额度（`gemini-argon-…` 桶，组名 “Gemini 4 Argon”），只在
 // `retrieveUserQuotaSummary` 里有，Cloud Code 只给 2.16 以上的客户端版本，所以 User-Agent 报 `ANTIGRAVITY_HUB_VERSION`；
-// Ultra 的 Argon 算在 Gemini 那份里，不另报。
+// Ultra 的 Argon 算在 Gemini 那份里，不另报。2026-11 补 Gemini 4 Carbon：同样有单独的额度（`gemini-carbon-…` 桶）。
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { type AccountRateLimitWindow, accountRateLimits, isoTime } from '@wevir/runtime-adapter';
 
+/** 运行体给个人账号计量用的是 daily 端点，所以它排第一、它读到的窗口优先；prod 只补 daily 没有的额度。 */
 const ENDPOINTS = [
   'https://daily-cloudcode-pa.googleapis.com',
   'https://cloudcode-pa.googleapis.com',
@@ -33,6 +35,8 @@ const TOKEN_MARGIN_MS = 60_000;
 export const ANTIGRAVITY_HUB_VERSION = '2.24.0';
 /** Argon 的额度名。 */
 export const ARGON_SCOPE = 'Gemini 4 Argon';
+/** Carbon 的额度名。 */
+export const CARBON_SCOPE = 'Gemini 4 Carbon';
 const FIVE_HOURS = 5 * 60;
 const ONE_WEEK = 7 * 24 * 60;
 
@@ -92,7 +96,7 @@ interface Bucket extends Quota {
 
 /**
  * `retrieveUserQuotaSummary` → 窗口（T3 的 `summaryWindows`）：`gemini-argon` 开头的桶（或组名带 Argon）是 Argon 单独的那份，
- * 别的 `gemini-` 开头的桶是 Gemini，`3p-` 开头的是 Claude 与 GPT 共用的那份，别的用组名或桶 ID。`5h` / `weekly` 给窗口长度，
+ * `gemini-carbon` 开头的（或组名带 Carbon）是 Carbon 单独的那份，别的 `gemini-` 开头的桶是 Gemini，`3p-` 开头的是 Claude 与 GPT 共用的那份，别的用组名或桶 ID。`5h` / `weekly` 给窗口长度，
  * 别的窗口把桶名接在额度名后面。停用的桶不报；额度名与长度都相同的几个桶（Argon 有过两个每周的桶）只留用得最多的。
  */
 export function summaryWindows(summary: unknown): AccountRateLimitWindow[] {
@@ -117,11 +121,13 @@ export function summaryWindows(summary: unknown): AccountRateLimitWindow[] {
       const family =
         bucket.bucketId.startsWith('gemini-argon') || /\bargon\b/i.test(groupName)
           ? ARGON_SCOPE
-          : bucket.bucketId.startsWith('gemini-')
-            ? 'Gemini'
-            : bucket.bucketId.startsWith('3p-')
-              ? 'Claude & GPT'
-              : groupName || bucket.bucketId;
+          : bucket.bucketId.startsWith('gemini-carbon') || /\bcarbon\b/i.test(groupName)
+            ? CARBON_SCOPE
+            : bucket.bucketId.startsWith('gemini-')
+              ? 'Gemini'
+              : bucket.bucketId.startsWith('3p-')
+                ? 'Claude & GPT'
+                : groupName || bucket.bucketId;
       const minutes =
         bucket.window === '5h' ? FIVE_HOURS : bucket.window === 'weekly' ? ONE_WEEK : undefined;
       const bucketName = typeof bucket.displayName === 'string' ? bucket.displayName.trim() : '';
@@ -287,7 +293,7 @@ export class AntigravityUsage {
     return accessToken;
   }
 
-  /** 并行读两个端点；同一额度窗口取用得最多的，单个端点失败不影响另一个。 */
+  /** 并行读两个端点；同一额度窗口按 `ENDPOINTS` 的顺序取先读到的，单个端点失败不影响另一个。 */
   async #fetchWindows(
     operation: string,
     accessToken: string,
@@ -316,10 +322,7 @@ export class AntigravityUsage {
     const windows = new Map<string, AccountRateLimitWindow>();
     for (const window of responses.flat()) {
       const key = `${window.scope}\0${window.windowMinutes ?? ''}`;
-      const previous = windows.get(key);
-      if (previous === undefined || window.usedPercent > previous.usedPercent) {
-        windows.set(key, window);
-      }
+      if (!windows.has(key)) windows.set(key, window);
     }
     return [...windows.values()];
   }

@@ -372,6 +372,43 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     await expect(target.resolve()).rejects.toThrow(/not installed/);
   });
 
+  it.each([
+    [
+      'OSError: [Errno 97] Address family not supported by protocol: enforce_kernel_ipv6_support',
+      /requires IPv6 socket support/,
+    ],
+    [
+      'external/base/allocator/page-size.cc:42 Compile-time page size does not match run-time page size',
+      /4 KiB memory pages/,
+    ],
+    ['Segmentation fault', /could not start in this environment/],
+  ])('运行体一启动就退出：按 stderr 说明原因（%s）', async (stderr, message) => {
+    const asset = assetFor(await serve(ZIP));
+    const target = installation(asset, {
+      env: { ...process.env, FAKE_AGY_EXIT_AT_START: '1', FAKE_AGY_START_STDERR: stderr },
+    });
+    await expect(target.install(() => {})).rejects.toThrow(message);
+    await expect(target.resolve()).rejects.toThrow(/not installed/);
+  });
+
+  it('linux-arm64 的内核内存页大于 4 KiB：下载之前就说明，不下载', async () => {
+    const asset = assetFor(await serve(ZIP));
+    const sizes: Array<number | undefined> = [16_384, undefined];
+    const target = installation(asset, {
+      platform: 'linux',
+      arch: 'arm64',
+      pageSize: async () => sizes.shift(),
+    });
+    await expect(target.install(() => {})).rejects.toMatchObject({
+      operation: 'download',
+      message: expect.stringMatching(/4 KiB memory pages/),
+    });
+    expect(requests).toHaveLength(0);
+    // 读不到页大小时不拦。
+    await target.install(() => {});
+    expect(requests).toHaveLength(1);
+  });
+
   it('钉住的发布是 1.4.5：六个平台的地址、sha256 与大小（官方发布清单，macOS arm64 已实测），运行体自报的版本认得出', () => {
     expect(ANTIGRAVITY_RELEASE_VERSION).toBe('1.4.5');
     const platforms = [

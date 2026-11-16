@@ -83,30 +83,50 @@ function deferred() {
 const posix = process.platform !== 'win32';
 
 describe.skipIf(!posix)('AntigravityAccounts', () => {
-  it.each([true, false])('登录超时：收到过网址=%s，区分网络不可达和过期', async (linkShown) => {
-    const original = globalThis.setTimeout;
-    let expire: (() => void) | undefined;
-    vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
-      if (ms === LOGIN_TIMEOUT_MS) expire = () => callback(...args);
-      return original(callback, ms, ...args);
-    });
-    const { accounts, states } = create({ env: linkShown ? {} : { FAKE_AGY_AUTH_STALL: '1' } });
-    await accounts.setExecutablePath('antigravity', executable());
-    const login = accounts.login('antigravity', 'browser');
-    await waitFor(() => (linkShown ? states.at(-1)?.login?.authUrl : expire), '登录开始');
-    expire?.();
-    await login;
-    await waitFor(() => states.at(-1)?.lastError !== undefined, '登录超时');
-    const error = states.at(-1)?.lastError;
-    expect(states.at(-1)?.status).toBe('signed_out');
-    if (!linkShown) {
-      expect(error).toContain('could not reach Google');
-      expect(error).not.toContain('expired');
-    } else {
-      expect(error).toBe('Google sign-in expired. Start sign-in again.');
-    }
-    expect(leftovers()).toEqual([]);
-  });
+  it.each(['link', 'initialized', 'not started'] as const)(
+    '登录超时（%s）：区分过期、连不上 Google 与运行体没起来',
+    async (stage) => {
+      const original = globalThis.setTimeout;
+      let expire: (() => void) | undefined;
+      vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, ms, ...args) => {
+        if (ms === LOGIN_TIMEOUT_MS) expire = () => callback(...args);
+        return original(callback, ms, ...args);
+      });
+      const starting = vi.spyOn(AcpProcess.prototype, 'start');
+      const { accounts, states } = create({
+        env:
+          stage === 'link'
+            ? {}
+            : stage === 'initialized'
+              ? { FAKE_AGY_AUTH_STALL: '1' }
+              : { FAKE_AGY_INIT_STALL: '1' },
+      });
+      await accounts.setExecutablePath('antigravity', executable());
+      const login = accounts.login('antigravity', 'browser');
+      if (stage === 'link') await waitFor(() => states.at(-1)?.login?.authUrl, '登录开始');
+      if (stage === 'initialized') {
+        await waitFor(() => starting.mock.results.at(-1), '启动运行体');
+        await starting.mock.results.at(-1)?.value;
+      }
+      if (stage === 'not started') await waitFor(() => starting.mock.results.at(-1), '启动运行体');
+      await waitFor(() => expire, '登录计时');
+      expire?.();
+      await login;
+      await waitFor(() => states.at(-1)?.lastError !== undefined, '登录超时');
+      const error = states.at(-1)?.lastError;
+      expect(states.at(-1)?.status).toBe('signed_out');
+      expect(error).toBe(
+        {
+          link: 'Google sign-in expired. Start sign-in again.',
+          initialized:
+            "Antigravity could not reach Google. Check this machine's network connection, then start sign-in again.",
+          'not started':
+            'Antigravity did not start or respond. Its runtime may not run on this machine.',
+        }[stage],
+      );
+      expect(leftovers()).toEqual([]);
+    },
+  );
   it.each(['timeout', 'cancel', 'dispose'] as const)(
     '启动准备中结束登录（%s）：启动结束和 dispose 后不留临时目录',
     async (action) => {
@@ -148,7 +168,7 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
       await ending;
       if (action === 'timeout') {
         await waitFor(() => states.at(-1)?.lastError, '登录超时');
-        expect(states.at(-1)?.lastError).toContain('could not reach Google');
+        expect(states.at(-1)?.lastError).toContain('did not start or respond');
       }
       await accounts.dispose();
       expect(leftovers()).toEqual([]);

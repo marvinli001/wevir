@@ -32,7 +32,11 @@ if (process.env.FAKE_AGY_ENV_DUMP) {
     JSON.stringify({ env: process.env, cwd: process.cwd(), argv: process.argv.slice(2) }),
   );
 }
-if (process.env.FAKE_AGY_EXIT_AT_START) process.exit(Number(process.env.FAKE_AGY_EXIT_AT_START));
+if (process.env.FAKE_AGY_EXIT_AT_START) {
+  // 同步写 stderr 再退出（stderr 是管道时异步写可能来不及送出）。
+  if (process.env.FAKE_AGY_START_STDERR) fs.writeSync(2, `${process.env.FAKE_AGY_START_STDERR}\n`);
+  process.exit(Number(process.env.FAKE_AGY_EXIT_AT_START));
+}
 
 let nextId = 1;
 const waiting = new Map();
@@ -469,6 +473,8 @@ function handle(message) {
   const { id, method, params } = message;
   switch (method) {
     case 'initialize':
+      // 运行体起不来（解包卡住、这台机器跑不了）：不回 initialize。
+      if (process.env.FAKE_AGY_INIT_STALL) return;
       clientName = typeof params?.clientInfo?.name === 'string' ? params.clientInfo.name : '';
       if (process.env.FAKE_AGY_CLIENT_DUMP) {
         fs.writeFileSync(
