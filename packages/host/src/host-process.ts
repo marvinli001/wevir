@@ -1773,6 +1773,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         },
         retro,
         search,
+        themeUiConnected: () => rpcServer?.hasUiClients === true,
         hostCall: hostCaller(() => hostMethods, {
           deviceId: hostId,
           clientId: 'wevir-app-tools',

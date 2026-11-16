@@ -30,6 +30,7 @@ import {
   toolGroupOf,
   toolPresetGroups,
   toolsAllowed,
+  toolTier,
 } from './tool-presets.js';
 
 const tempDir = useTempDir();
@@ -81,9 +82,9 @@ const CORE: ToolPreset = { id: 'core' };
 const FULL: ToolPreset = { id: 'full' };
 
 describe('工具分组', () => {
-  it('Host 的每个应用级工具都属于一个组；core 留 23 个，另 4 组是浏览器 29、LSP 7、进程 6、插件与配置 12', () => {
+  it('Host 的每个应用级工具都属于一个组；core 留 25 个，另 4 组是浏览器 29、LSP 7、进程 6、插件与配置 12', () => {
     const tools = allTools().tools;
-    expect(tools).toHaveLength(77);
+    expect(tools).toHaveLength(79);
     expect(tools.filter((tool) => toolGroupOf(tool.name) === undefined)).toEqual([]);
     const contents = toolGroupContents(tools);
     expect(Object.fromEntries(contents.map((group) => [group.id, group.tools.length]))).toEqual({
@@ -91,7 +92,7 @@ describe('工具分组', () => {
       catalog: 2,
       tasks: 3,
       memory: 4,
-      workbench: 5,
+      workbench: 7,
       browser: 29,
       lsp: 7,
       processes: 6,
@@ -106,7 +107,20 @@ describe('工具分组', () => {
         .flatMap((group) => group.tools)
         .sort(byOrder(tools)),
     );
-    expect(toolsAllowed(tools, { preset: CORE })).toHaveLength(23);
+    expect(toolsAllowed(tools, { preset: CORE })).toHaveLength(25);
+  });
+
+  it('主题工具属于 workbench，按需加载；只读角色只留读取', () => {
+    const tools = allTools().tools;
+    const explorer = BUILTIN_ROLES.find((role) => role.name === 'explorer');
+    const readonly = toolsAllowed(tools, { role: explorer }).map((tool) => tool.name);
+    for (const name of ['wevir_theme_read', 'wevir_theme_set']) {
+      expect(toolGroupOf(name)).toBe('workbench');
+      expect(toolTier(name)).toBe('more');
+      expect(presetAllowsTool(CORE, name)).toBe(true);
+    }
+    expect(readonly).toContain('wevir_theme_read');
+    expect(readonly).not.toContain('wevir_theme_set');
   });
 
   it('core 留下协作入口：读写会话、记忆读写、任务清单、模型与角色、展示与交文件', () => {
@@ -129,6 +143,8 @@ describe('工具分组', () => {
       'wevir_wrap_up',
       'wevir_report_findings',
       'wevir_show',
+      'wevir_theme_read',
+      'wevir_theme_set',
     ]) {
       expect(presetAllowsTool(CORE, name), name).toBe(true);
     }
@@ -216,7 +232,7 @@ describe('与角色取交集', () => {
     expect(core).toContain('wevir_session_list');
     expect(core).not.toContain('wevir_session_create');
     expect(core).not.toContain('wevir_process_start');
-    expect(core).toHaveLength(18);
+    expect(core).toHaveLength(20);
   });
 
   it('没有角色也没有预设时原样返回同一个数组', () => {

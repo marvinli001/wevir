@@ -274,6 +274,7 @@ export const APP_TOOLS_NO_APPROVAL: readonly string[] = Object.freeze([
   'wevir_session_archive',
   'wevir_config_session',
   'wevir_config_read',
+  'wevir_theme_read',
   'wevir_models',
   'wevir_roles',
   'wevir_tasks',

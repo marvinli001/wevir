@@ -41,15 +41,17 @@ const INSTRUCTIONS_MAX_CHARS = 4000;
  * 配置 Wevir 本身的六个 `wevir_config_*`（0.136.0，按需那层）与 `wevir_show` 的设置页进来后实测：默认会话 91 个工具 106,134 / 3,832，
  * core 39,681 / 2,738，只读角色 40,219 / 3,456（多了只读的 `wevir_config_read`），worker（不许改设置与配置）81 个工具 93,239 / 3,526；工具字节的预算照样留 5%。插件管理的 `wevir_plugins_browse`（只读）与
  * `wevir_plugins_manage` 同日加入，算在这些预算里。
+ * 2026-11-16 加入按需主题工具：read 468 B、set 802 B，完整指南只在读取结果里。当前默认 97 个工具 112,756 / 3,832，core 37 个
+ * 42,803 / 2,734，只读角色 44 个 42,333 / 3,471，worker 86 个 97,145 / 3,541；工具预算按实测保留约 5%，说明与常驻预算保持。
  */
 const BUDGETS: Record<string, { tools: number; instructions: number }> = {
-  default: { tools: 111_500, instructions: 3_900 },
-  core: { tools: 41_700, instructions: 2_850 },
-  advisor: { tools: 42_200, instructions: 3_500 },
-  explorer: { tools: 42_200, instructions: 3_500 },
-  planner: { tools: 42_200, instructions: 3_500 },
-  reviewer: { tools: 42_200, instructions: 3_500 },
-  worker: { tools: 98_000, instructions: 3_600 },
+  default: { tools: 118_500, instructions: 3_900 },
+  core: { tools: 45_000, instructions: 2_850 },
+  advisor: { tools: 44_500, instructions: 3_500 },
+  explorer: { tools: 44_500, instructions: 3_500 },
+  planner: { tools: 44_500, instructions: 3_500 },
+  reviewer: { tools: 44_500, instructions: 3_500 },
+  worker: { tools: 102_000, instructions: 3_600 },
 };
 
 /**

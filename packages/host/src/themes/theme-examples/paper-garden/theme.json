@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "name": "Paper Garden",
+  "author": "Wevir",
+  "accent": "#617441",
+  "light": {
+    "background": "#f4f0e5",
+    "foreground": "#3b432f",
+    "tokens": {
+      "sidebar": "#e8e7d9",
+      "card": "#f8f5ec",
+      "popover": "#f8f5ec",
+      "border": "#cccfb9",
+      "sidebar-border": "#cccfb9",
+      "muted-foreground": "#59614a",
+      "user-bubble": "#e2e8d4",
+      "code-background": "#e9eadc"
+    }
+  },
+  "dark": {
+    "background": "#252d26",
+    "foreground": "#e8ecdc",
+    "tokens": {
+      "sidebar": "#202720",
+      "card": "#2b352b",
+      "popover": "#303c2f",
+      "primary": "#b3c99a",
+      "primary-foreground": "#202720",
+      "border": "#4e6048",
+      "sidebar-border": "#4e6048",
+      "muted-foreground": "#b2bda2",
+      "user-bubble": "#3b4a34",
+      "code-background": "#202720"
+    }
+  },
+  "css": "[data-main-card] { background-image: radial-gradient(ellipse at 94% 6%, color-mix(in srgb, var(--primary) 13%, transparent), transparent 46%), radial-gradient(ellipse at 8% 96%, color-mix(in srgb, var(--primary) 7%, transparent), transparent 42%); } [data-composer-box] { border-color: color-mix(in srgb, var(--primary) 32%, var(--border)) !important; box-shadow: 0 3px 20px color-mix(in srgb, var(--foreground) 5%, transparent) !important; } [data-user-message-bubble] { border: 1px solid color-mix(in srgb, var(--primary) 16%, transparent); } [data-code-block] { border-color: color-mix(in srgb, var(--primary) 24%, var(--border)) !important; }"
+}

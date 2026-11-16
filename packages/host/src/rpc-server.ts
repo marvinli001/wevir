@@ -317,6 +317,10 @@ export class HostRpcServer {
     return this.#connections.size;
   }
 
+  get hasUiClients(): boolean {
+    return [...this.#connections].some((connection) => connection.client?.clientKind === 'desktop');
+  }
+
   /** 所有连接上的订阅数之和。 */
   get subscriptionCount(): number {
     let count = 0;

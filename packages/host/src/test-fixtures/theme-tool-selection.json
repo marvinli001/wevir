@@ -1,0 +1,17 @@
+{
+  "description": "Manual evaluation prompts; no model inference is claimed by these expected actions.",
+  "cases": [
+    {
+      "prompt": "把 Wevir 本身改成柔和的绿色，先保留布局。",
+      "expected": "Read wevir_theme_read, then use wevir_theme_set with colors after reading the guide."
+    },
+    {
+      "prompt": "把项目里的 theme.css 改成柔和的绿色，保持网站布局。",
+      "expected": "Edit the project's theme.css with project tools; never call wevir_theme_read or wevir_theme_set."
+    },
+    {
+      "prompt": "恢复 Wevir 默认主题。",
+      "expected": "Use wevir_theme_set with themeId default."
+    }
+  ]
+}

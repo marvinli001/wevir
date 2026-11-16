@@ -22,6 +22,7 @@
  *                                                    LICENSE-facebook-idb.txt；桌面端拉起 Host 时设 WEVIR_IOS_SIMULATOR_BIN
  *   resources/host/dist/                             wevir-host 打成的 bundle（main.js 与按需加载的几个文件，bundleHost），
  *                                                    桌面端以 Electron 的 utilityProcess 运行它
+ *   resources/host/dist/theme-examples/              只读主题示例及其场景、静态替身（CLI 共用 stageHost）
  *   resources/host/migrations/                       @wevir/storage 的 SQL 迁移（bundle 按 `../migrations/` 找）
  *   resources/host/node_modules/                     只有 ON_DISK_PACKAGES 与它们的依赖：pnpm deploy 的 hoisted 布局（没有
  *                                                    符号链接），不含运行时用不到的文件（pruneUnusedFiles）；Linux 的
@@ -456,6 +457,7 @@ export async function bundleHost(
     const chunks = output.filter((item): item is OutputChunk => item.type === 'chunk');
     checkBundleImports(chunks, external);
     onModules?.(chunks.flatMap((chunk) => chunk.moduleIds));
+    cpSync(join(dir, 'dist', 'theme-examples'), join(out, 'theme-examples'), { recursive: true });
     rmSync(join(dir, 'dist'), { recursive: true, force: true });
     renameSync(out, join(dir, 'dist'));
     return chunks.map((chunk) => chunk.fileName);

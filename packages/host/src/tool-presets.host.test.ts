@@ -137,11 +137,11 @@ describe('工具预设经 Host API', () => {
       ]),
     );
     expect(counts).toEqual({
-      sessions: 26,
+      sessions: 27,
       catalog: 2,
       tasks: 3,
       memory: 9,
-      workbench: 7,
+      workbench: 9,
       browser: 45,
       lsp: 7,
       processes: 10,
@@ -175,7 +175,9 @@ describe('工具预设经 Host API', () => {
     });
 
     const coreNames = await h.names(core.id);
-    expect(coreNames).toHaveLength(32 + 7);
+    expect(coreNames).toHaveLength(34 + 7);
+    expect(coreNames).toContain('wevir_theme_read');
+    expect(coreNames).toContain('wevir_theme_set');
     expect(coreNames.filter((name) => name.startsWith('browser_'))).toEqual([]);
     expect(coreNames).toContain('lsp_hover');
     expect(coreNames).toContain('wevir_memory_save');
@@ -200,7 +202,7 @@ describe('工具预设经 Host API', () => {
     const raw = async (sessionId: SessionId) =>
       JSON.stringify(await h.mcp(sessionId, 'tools/list'));
     expect(await raw(full.id)).toBe(await raw(plain.id));
-    expect(await h.names(plain.id)).toHaveLength(90);
+    expect(await h.names(plain.id)).toHaveLength(92);
     const everything = listedToolInstructions(APP_TOOLS_INSTRUCTIONS, await h.names(plain.id));
     const toolPart = (text: string) =>
       text.split('\n\nSaved project context from earlier sessions')[0];

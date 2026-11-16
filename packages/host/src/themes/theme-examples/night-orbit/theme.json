@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "name": "Night Orbit",
+  "author": "Wevir",
+  "accent": "#49759f",
+  "light": {
+    "background": "#ebf0f6",
+    "foreground": "#2d3b52",
+    "tokens": {
+      "sidebar": "#dfe7f0",
+      "card": "#f1f5fa",
+      "popover": "#f1f5fa",
+      "border": "#b9c9dc",
+      "sidebar-border": "#b9c9dc",
+      "muted-foreground": "#495f78",
+      "user-bubble": "#d7e4f2",
+      "code-background": "#e0e8f2",
+      "code-comment": "#4e657f"
+    }
+  },
+  "dark": {
+    "background": "#111f33",
+    "foreground": "#dfe9f5",
+    "tokens": {
+      "sidebar": "#0e1b2c",
+      "card": "#172a40",
+      "popover": "#1c314a",
+      "primary": "#a0bfdf",
+      "primary-foreground": "#111f33",
+      "border": "#3a5472",
+      "sidebar-border": "#3a5472",
+      "muted-foreground": "#abc0d9",
+      "user-bubble": "#2c4562",
+      "code-background": "#0e1b2c"
+    }
+  },
+  "backdrop": {
+    "kind": "scene",
+    "file": "backdrop.html",
+    "poster": "poster.png",
+    "scope": "window",
+    "opacity": 0.72,
+    "scrim": 0.08,
+    "glass": true
+  }
+}

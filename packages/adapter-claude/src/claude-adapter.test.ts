@@ -1992,6 +1992,7 @@ describe('应用级工具（0.30.0）', () => {
       // 0.136.0：只改自己与自己开出的会话、读配置。
       'mcp__wevir__wevir_config_session',
       'mcp__wevir__wevir_config_read',
+      'mcp__wevir__wevir_theme_read',
       'mcp__wevir__wevir_models',
       'mcp__wevir__wevir_roles',
       'mcp__wevir__wevir_tasks',
@@ -2024,6 +2025,7 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_channel_status',
       'mcp__wevir__wevir_channel_timeline',
       'mcp__wevir__wevir_channel_post',
+      'mcp__wevir__wevir_channel_react',
       'mcp__wevir__wevir_channel_needs',
       'mcp__wevir__wevir_channel_suggest',
       'mcp__wevir__wevir_channel_start_thread',
@@ -2077,6 +2079,7 @@ describe('应用级工具（0.30.0）', () => {
       // 0.122.0：iOS 模拟器（装 .app 时 Host 自己问）。
       'mcp__wevir__simulator_control',
     ]);
+    expect(options?.allowedTools).not.toContain('mcp__wevir__wevir_theme_set');
   });
 
   it('Claude Code 的工具搜索照常：环境不设 ENABLE_TOOL_SEARCH，wevir 服务不整体 alwaysLoad（常驻的工具由 Host 逐个标）', async () => {

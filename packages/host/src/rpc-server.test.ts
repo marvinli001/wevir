@@ -314,6 +314,19 @@ function rawUpgrade(port: number, headers: Record<string, string>): Promise<stri
 // ── 用例 ────────────────────────────────────────────────────────────────
 
 describe('监听与升级校验', () => {
+  it('reports only authenticated desktop/web UI connections, excluding CLI and mobile', async () => {
+    const h = await startHost();
+    const pending = await RpcClient.connect(h.url);
+    expect(h.server.hasUiClients).toBe(false);
+    await pending.hello(cli);
+    await readyClient(h, { ...cli, clientKind: 'mobile' });
+    expect(h.server.hasUiClients).toBe(false);
+    const ui = await readyClient(h, desktop);
+    expect(h.server.hasUiClients).toBe(true);
+    ui.ws.close();
+    await vi.waitFor(() => expect(h.server.hasUiClients).toBe(false));
+  });
+
   it('只监听 127.0.0.1，端口由系统分配，url 照此给出', async () => {
     const h = await startHost();
     expect(h.port).toBeGreaterThan(0);

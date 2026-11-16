@@ -208,11 +208,16 @@ describe('bundleHost / checkBundleImports / writeBundleManifest', () => {
     file('node_modules/cjs-dep/index.js', "module.exports = { name: 'cjs' };");
     pkg(root, 'zod', { version: '4.0.0', type: 'module', exports: './index.js' });
     file('node_modules/zod/index.js', 'export const z = 1;');
+    file('dist/theme-examples/night-orbit/theme.json', '{"name":"Night Orbit"}');
+    file('dist/theme-examples/night-orbit/backdrop.html', '<html><canvas></canvas></html>');
 
     const files = await bundleHost(root);
     expect(files[0]).toBe('main.js');
     expect(files.length).toBeGreaterThan(1);
-    expect(readdirSync(join(root, 'dist')).sort()).toEqual([...files].sort());
+    expect(readdirSync(join(root, 'dist')).sort()).toEqual([...files, 'theme-examples'].sort());
+    expect(
+      readFileSync(join(root, 'dist', 'theme-examples', 'night-orbit', 'backdrop.html'), 'utf8'),
+    ).toBe('<html><canvas></canvas></html>');
     const main = readFileSync(join(root, 'dist', 'main.js'), 'utf8');
     // esm-dep 打进 main.js，cjs-dep 拆成按需加载的文件，zod 留在外面。
     expect(main).toContain('"hello " + n');

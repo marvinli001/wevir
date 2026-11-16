@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Night Orbit</title>
+    <style>
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      canvas { display: block; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <canvas aria-hidden="true"></canvas>
+    <script>
+      const canvas = document.querySelector('canvas');
+      const context = canvas.getContext('2d', { alpha: false });
+      const frameInterval = 1000 / 30;
+      const orbits = [
+        { width: 0.42, height: 0.28, angle: -0.42, speed: 0.07, phase: 0.2 },
+        { width: 0.34, height: 0.34, angle: 0.38, speed: -0.05, phase: 2.5 },
+        { width: 0.29, height: 0.42, angle: 0.92, speed: 0.035, phase: 4.4 },
+      ];
+      const stars = Array.from({ length: 48 }, (_, i) => ({
+        x: ((i * 149 + 47) % 997) / 997,
+        y: ((i * 229 + 131) % 991) / 991,
+        radius: i % 9 === 0 ? 1.25 : 0.65,
+      }));
+      let width = 1;
+      let height = 1;
+      let ink = '#9ebcdd';
+      let background = '#111f33';
+      let light = false;
+      let visible = false;
+      let reducedMotion = false;
+      let request = 0;
+      let previous = 0;
+      let elapsed = 0;
+
+      function draw() {
+        context.fillStyle = background;
+        context.fillRect(0, 0, width, height);
+        context.fillStyle = ink;
+        context.globalAlpha = light ? 0.35 : 0.55;
+        for (const star of stars) {
+          context.beginPath();
+          context.arc(star.x * width, star.y * height, star.radius, 0, Math.PI * 2);
+          context.fill();
+        }
+        const x = width * 0.66;
+        const y = height * 0.5;
+        for (const [index, orbit] of orbits.entries()) {
+          const radiusX = width * orbit.width;
+          const radiusY = height * orbit.height;
+          context.strokeStyle = ink;
+          context.globalAlpha = light ? 0.35 : 0.55;
+          context.lineWidth = index === 1 ? 1.15 : 0.75;
+          context.beginPath();
+          context.ellipse(x, y, radiusX, radiusY, orbit.angle, 0, Math.PI * 2);
+          context.stroke();
+          const phase = orbit.phase + elapsed * orbit.speed;
+          const localX = radiusX * Math.cos(phase);
+          const localY = radiusY * Math.sin(phase);
+          const pointX = x + localX * Math.cos(orbit.angle) - localY * Math.sin(orbit.angle);
+          const pointY = y + localX * Math.sin(orbit.angle) + localY * Math.cos(orbit.angle);
+          context.globalAlpha = light ? 0.65 : 0.9;
+          context.beginPath();
+          context.arc(pointX, pointY, 2.6, 0, Math.PI * 2);
+          context.fill();
+          context.globalAlpha = light ? 0.09 : 0.14;
+          context.beginPath();
+          context.arc(pointX, pointY, 9, 0, Math.PI * 2);
+          context.fill();
+        }
+        context.globalAlpha = 1;
+      }
+
+      function frame(now) {
+        request = 0;
+        if (!visible || reducedMotion) return;
+        const delta = now - previous;
+        if (delta >= frameInterval) {
+          elapsed += Math.min(delta, 100) / 1000;
+          previous = now - (delta % frameInterval);
+          draw();
+        }
+        request = requestAnimationFrame(frame);
+      }
+
+      function updatePlayback() {
+        if (request) cancelAnimationFrame(request);
+        request = 0;
+        previous = performance.now();
+        draw();
+        if (visible && !reducedMotion) request = requestAnimationFrame(frame);
+      }
+
+      function resize() {
+        width = Math.max(1, window.innerWidth);
+        height = Math.max(1, window.innerHeight);
+        canvas.width = width;
+        canvas.height = height;
+        draw();
+      }
+
+      addEventListener('resize', resize);
+      addEventListener('message', (event) => {
+        if (event.source !== parent || event.data?.type !== 'wevir-theme') return;
+        const theme = event.data;
+        light = theme.mode === 'light';
+        ink = theme.tokens.primary || theme.tokens.foreground || ink;
+        background = theme.tokens.background || background;
+        visible = theme.visible === true;
+        reducedMotion = theme.reducedMotion === true;
+        updatePlayback();
+      });
+      resize();
+    </script>
+  </body>
+</html>

@@ -41,6 +41,8 @@ const EXACT: Readonly<Record<string, ToolGroup>> = {
   wevir_show: 'workbench',
   wevir_share_file: 'workbench',
   wevir_image_generate: 'workbench',
+  wevir_theme_read: 'workbench',
+  wevir_theme_set: 'workbench',
   wevir_notify: 'workbench',
   wevir_mark_chapter: 'workbench',
   wevir_wrap_up: 'workbench',

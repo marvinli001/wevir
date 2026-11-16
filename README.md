@@ -111,6 +111,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 - **Built-in browser**: In-app page navigation, accessibility snapshots, and page interaction.
 - **Web access**: Web search (Bocha or Tavily) and page fetching for gateway-connected models.
 - **Workspace tools**: Background processes, project and global memory, a shared task board, session creation and messaging, and roles that preset a model, permissions, and instructions.
+- **Custom themes**: Set colors, restricted CSS and isolated image, video or canvas backgrounds from Appearance or agent tools, with three bundled examples and native-menu or CLI recovery.
 - **Plugins**: MCP servers, Skills, and plugin packages (Wevir, Codex, and Claude formats), installable by the agent from chat after approval.
 
 ### Local Host

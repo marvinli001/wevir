@@ -198,7 +198,7 @@ describe('Host themes', () => {
     expect(service.get('lagoon', status).problems).toContainEqual(
       expect.objectContaining({ path: 'backdrop.file', severity: 'error' }),
     );
-    expect(service.list().themes[0]?.problems).toContainEqual(
+    expect(service.list().themes.find((entry) => entry.id === 'lagoon')?.problems).toContainEqual(
       expect.objectContaining({ path: 'backdrop.file' }),
     );
     expect(updates).toEqual([]);
@@ -366,13 +366,15 @@ describe('Host themes', () => {
     await writeFile(source, Buffer.alloc(THEME_MAX_BYTES + 1));
     await expect(readThemeFile(source, THEME_MAX_BYTES)).rejects.toThrow('exceeds');
   });
-  it('caps the number of examined themes, including invalid folders', async () => {
+  it('keeps the 200-user-theme capacity separate from bundled examples, including invalid folders', async () => {
     const { service } = await start();
     await Promise.all(
-      Array.from({ length: THEME_MAX_COUNT }, (_, i) =>
+      Array.from({ length: THEME_MAX_COUNT - 1 }, (_, i) =>
         mkdir(join(service.directory, `theme-${i}`)),
       ),
     );
+    await expect(service.save({ id: 'last', theme })).resolves.toMatchObject({ id: 'last' });
+    expect(service.list().themes.filter((entry) => !entry.readOnly)).toHaveLength(THEME_MAX_COUNT);
     await expect(service.save({ id: 'extra', theme })).rejects.toThrow('maximum 200');
   });
   it('uses strict sandbox headers and serves only explicitly granted theme assets', async () => {

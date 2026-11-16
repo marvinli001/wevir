@@ -8,8 +8,10 @@ import { createHash, randomBytes } from 'node:crypto';
 import { constants, type FSWatcher, watch } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   RESERVED_THEME_IDS,
+  THEME_EXAMPLE_IDS,
   THEME_MAX_BYTES,
   THEME_MAX_COUNT,
   ThemeAssetNameSchema,
@@ -31,6 +33,8 @@ import { assetLimit, themeProblems, validateAsset } from './validation.js';
 
 interface Entry {
   id: string;
+  directory: string;
+  readOnly: boolean;
   theme?: ThemeFile;
   revision: string;
   fingerprint: string;
@@ -181,7 +185,7 @@ export class ThemeService {
         id: entry.id,
         name: entry.theme?.name ?? entry.id,
         revision: entry.revision,
-        readOnly: false,
+        readOnly: entry.readOnly,
         hasBackdrop: entry.theme?.backdrop !== undefined,
         ...(entry.theme?.colorScheme && { colorScheme: entry.theme.colorScheme }),
         swatches: [
@@ -232,8 +236,8 @@ export class ThemeService {
       problems: structuredClone(this.#problems(entry)),
       assets,
       revision: entry.revision,
-      readOnly: false,
-      directory: join(this.directory, id),
+      readOnly: entry.readOnly,
+      directory: entry.directory,
     };
   }
 
@@ -320,7 +324,10 @@ export class ThemeService {
     if (Buffer.byteLength(text) > THEME_MAX_BYTES)
       throw rejected('theme', `exceeds ${THEME_MAX_BYTES} bytes`);
     await this.#refresh();
-    if (!this.#entries.has(input.id) && this.#entries.size >= THEME_MAX_COUNT)
+    if (
+      !this.#entries.has(input.id) &&
+      [...this.#entries.values()].filter((entry) => !entry.readOnly).length >= THEME_MAX_COUNT
+    )
       throw rejected('id', `maximum ${THEME_MAX_COUNT} themes`);
     const target = join(this.directory, input.id);
     const assets = copiedAssets;
@@ -462,16 +469,23 @@ export class ThemeService {
       .slice(0, THEME_MAX_COUNT);
     this.#directories.clear();
     let changed = false;
-    for (const id of names) {
+    const sources = [
+      ...THEME_EXAMPLE_IDS.map((id) => ({
+        id,
+        root: fileURLToPath(new URL(`./theme-examples/${id}/`, import.meta.url)),
+        readOnly: true,
+      })),
+      ...names.map((id) => ({ id, root: join(this.directory, id), readOnly: false })),
+    ];
+    for (const { id, root, readOnly } of sources) {
       const previous = this.#entries.get(id);
       let fingerprint = '';
       let snapshot: string | undefined;
       try {
-        const root = join(this.directory, id);
         const info = await lstat(root);
         if (!info.isDirectory() || info.isSymbolicLink())
           throw new Error('theme directory must not be a symbolic link');
-        this.#directories.set(root, `${info.dev}:${info.ino}`);
+        if (!readOnly) this.#directories.set(root, `${info.dev}:${info.ino}`);
         const files = (await readdir(root))
           .filter((name) => !/\.tmp-[0-9a-f]{16}$/.test(name))
           .sort();
@@ -519,6 +533,8 @@ export class ThemeService {
         }
         this.#entries.set(id, {
           id,
+          directory: root,
+          readOnly,
           theme,
           problems,
           fingerprint,
@@ -536,6 +552,8 @@ export class ThemeService {
         this.#entries.set(id, {
           ...previous,
           id,
+          directory: root,
+          readOnly,
           problems,
           revision,
           fingerprint,
@@ -545,7 +563,7 @@ export class ThemeService {
       }
     }
     for (const [id, entry] of this.#entries) {
-      if (names.includes(id)) continue;
+      if (entry.readOnly || names.includes(id)) continue;
       if (entry.snapshot) await rm(entry.snapshot, { recursive: true, force: true });
       this.#entries.delete(id);
       changed = true;

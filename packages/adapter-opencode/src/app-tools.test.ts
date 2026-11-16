@@ -346,6 +346,8 @@ describe('适配器', () => {
       token: 'engine-token',
       noApproval: [...APP_TOOLS_NO_APPROVAL, APP_TOOLS_SEARCH],
     });
+    expect(plugin?.[1].noApproval).toContain('wevir_theme_read');
+    expect(plugin?.[1].noApproval).not.toContain('wevir_theme_set');
     const file = fileURLToPath(plugin?.[0] ?? '');
     expect(file.startsWith(join(openCodeEngineDir(h.home), PLUGIN_DIRECTORY))).toBe(true);
     expect(existsSync(file)).toBe(true);

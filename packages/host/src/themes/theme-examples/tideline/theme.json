@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "name": "Tideline",
+  "author": "Wevir",
+  "accent": "#347984",
+  "light": {
+    "background": "#eaf0f0",
+    "foreground": "#253f46",
+    "tokens": {
+      "sidebar": "#dce7e8",
+      "card": "#f3f7f7",
+      "popover": "#f3f7f7",
+      "border": "#b7cbce",
+      "sidebar-border": "#b7cbce",
+      "muted-foreground": "#48616a",
+      "user-bubble": "#d4e5e7",
+      "code-background": "#e0eaec",
+      "terminal-cyan": "#266b76",
+      "terminal-bright-cyan": "#347f8a"
+    }
+  },
+  "dark": {
+    "background": "#142b33",
+    "foreground": "#deecee",
+    "tokens": {
+      "sidebar": "#10252c",
+      "card": "#19343d",
+      "popover": "#1d3a44",
+      "primary": "#88c0c7",
+      "primary-foreground": "#10252c",
+      "border": "#3d5963",
+      "sidebar-border": "#3d5963",
+      "muted-foreground": "#a2bcc2",
+      "user-bubble": "#294853",
+      "code-background": "#10252c",
+      "terminal-cyan": "#74afb9",
+      "terminal-bright-cyan": "#a0d6dc"
+    }
+  }
+}

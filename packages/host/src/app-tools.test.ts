@@ -266,6 +266,33 @@ async function setup(
 }
 
 describe('应用级工具的端点', () => {
+  it('Host 方法接入主题工具：读取免批准，保存与切换按权限模式审批', async () => {
+    const h = await setup();
+    const app = new AppTools({
+      storage: h.storage,
+      events: h.events,
+      sessions: h.manager,
+      hostId: 'host_test' as HostId,
+      sendWhileBusy: () => 'queue',
+      hostCall: async () => {
+        throw new Error('not called');
+      },
+    });
+    const themes = app.tools.filter((tool) => tool.name.startsWith('wevir_theme_'));
+    expect(themes.map((tool) => tool.name)).toEqual(['wevir_theme_read', 'wevir_theme_set']);
+    const { APP_TOOLS_NO_APPROVAL } = await import('@wevir/runtime-adapter');
+    for (const tool of themes) {
+      const read = tool.name === 'wevir_theme_read';
+      expect(tool.annotations).toMatchObject({
+        readOnlyHint: read,
+        destructiveHint: !read,
+        openWorldHint: false,
+      });
+      expect(APP_TOOLS_NO_APPROVAL.includes(tool.name), tool.name).toBe(read);
+    }
+    expect(h.tools.tools.filter((tool) => tool.name.startsWith('wevir_theme_'))).toEqual([]);
+  });
+
   it('每个会话一个令牌；没有令牌、带 Origin、Host 不对、不是 POST 都拒绝', async () => {
     const h = await setup();
     const a = await h.create();
