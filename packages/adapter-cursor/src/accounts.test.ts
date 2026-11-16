@@ -320,6 +320,58 @@ describe('CursorAccounts', () => {
     await expect(accounts.models('cursor')).rejects.toMatchObject({ code: 'missing_credentials' });
   });
 
+  it('模型列表读超时一次时再读一次；两次都超时才报错', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { accounts, sdk, path } = setup();
+      await new CursorCredentialFile(path).save({
+        version: 1,
+        backendUrl: 'x',
+        apiKey: 'good',
+        createdAtMs: 0,
+      });
+      const list = sdk.listModels.bind(sdk);
+      let reads = 0;
+      let hangs = 1;
+      sdk.listModels = (apiKey) => {
+        reads += 1;
+        return reads <= hangs ? new Promise(() => {}) : list(apiKey);
+      };
+      // 读凭据是真的文件 I/O：等第一次读开始了再拨钟。
+      const started = async (count: number) => {
+        while (reads < count) await new Promise((resolve) => setImmediate(resolve));
+      };
+      const slow = accounts.models('cursor');
+      await started(1);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect((await slow).models.length).toBeGreaterThan(0);
+      expect(reads).toBe(2);
+
+      const { accounts: stuck, sdk: stuckSdk, path: stuckPath } = setup();
+      await new CursorCredentialFile(stuckPath).save({
+        version: 1,
+        backendUrl: 'x',
+        apiKey: 'good',
+        createdAtMs: 0,
+      });
+      reads = 0;
+      hangs = 2;
+      stuckSdk.listModels = sdk.listModels;
+      const failed = expect(stuck.models('cursor')).rejects.toMatchObject({
+        code: 'engine_unavailable',
+        message: expect.stringContaining('timed out'),
+      });
+      await started(1);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await started(2);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await failed;
+      expect(reads).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('登录确认时新 Key 被拒：删掉它，未登录带原因', async () => {
     const { accounts, sdk, states, path } = setup();
     await accounts.login('cursor', 'browser');

@@ -16,6 +16,8 @@ const USAGE = {
   enabled: true,
 };
 const RESETS_AT = new Date(1793779200000).toISOString();
+/** 2026-10-04 到 2026-11-04（UTC）：31 天。 */
+const CYCLE_MINUTES = 31 * 24 * 60;
 
 interface Call {
   url: string;
@@ -48,12 +50,65 @@ const OK = {
 };
 
 describe('cursorUsageRateLimits', () => {
-  it('三个百分比是三个按月的窗口，总的没有额度名，重置时间是计费周期的结束', () => {
+  it('两份额度是两个按月的窗口，带额度名，重置时间是计费周期的结束、长度是周期的分钟数；两份都有时不报总的', () => {
     expect(cursorUsageRateLimits(USAGE)).toEqual([
-      { usedPercent: 41.5, period: 'monthly', resetsAt: RESETS_AT },
-      { usedPercent: 12, period: 'monthly', resetsAt: RESETS_AT, scope: 'Auto + Composer' },
-      { usedPercent: 71, period: 'monthly', resetsAt: RESETS_AT, scope: 'API' },
+      {
+        usedPercent: 12,
+        period: 'monthly',
+        windowMinutes: CYCLE_MINUTES,
+        resetsAt: RESETS_AT,
+        scope: 'Auto + Composer',
+      },
+      {
+        usedPercent: 71,
+        period: 'monthly',
+        windowMinutes: CYCLE_MINUTES,
+        resetsAt: RESETS_AT,
+        scope: 'API',
+      },
     ]);
+  });
+
+  it('统一额度（总的与 Auto + Composer 相同）只留 Auto + Composer；只有总的与一份不同的额度时都留着', () => {
+    const windows = (planUsage: Record<string, number>) =>
+      cursorUsageRateLimits({ planUsage }).map((window) => [window.scope, window.usedPercent]);
+    expect(windows({ totalPercentUsed: 1.77, autoPercentUsed: 1.77 })).toEqual([
+      ['Auto + Composer', 1.77],
+    ]);
+    expect(windows({ totalPercentUsed: 20, autoPercentUsed: 10 })).toEqual([
+      [undefined, 20],
+      ['Auto + Composer', 10],
+    ]);
+    expect(windows({ totalPercentUsed: 100, apiPercentUsed: 100 })).toEqual([
+      [undefined, 100],
+      ['API', 100],
+    ]);
+    expect(windows({ totalPercentUsed: 40 })).toEqual([[undefined, 40]]);
+  });
+
+  it('周期开始缺失、无效或不在结束之前时不报周期长度', () => {
+    for (const billingCycleStart of [
+      undefined,
+      '',
+      '0',
+      'not-a-number',
+      '1793779200000',
+      '1799999999999',
+    ]) {
+      expect(
+        cursorUsageRateLimits({
+          billingCycleStart,
+          billingCycleEnd: '1793779200000',
+          planUsage: { totalPercentUsed: 40 },
+        }),
+      ).toEqual([{ usedPercent: 40, period: 'monthly', resetsAt: RESETS_AT }]);
+    }
+    expect(
+      cursorUsageRateLimits({
+        billingCycleStart: 1_791_100_800_000,
+        planUsage: { totalPercentUsed: 40 },
+      }),
+    ).toEqual([{ usedPercent: 40, period: 'monthly' }]);
   });
 
   it('缺的百分比跳过；没有周期结束时不报重置时间；没有套餐用量时是空的', () => {
@@ -82,9 +137,15 @@ describe('readCursorUsage', () => {
       ],
     ]);
     expect(calls[1]?.headers.get('connect-protocol-version')).toBe('1');
-    expect(limits?.windows).toHaveLength(3);
-    expect(limits?.primary).toEqual({ usedPercent: 41.5, period: 'monthly', resetsAt: RESETS_AT });
-    expect(limits?.secondary?.scope).toBe('Auto + Composer');
+    expect(limits?.windows).toHaveLength(2);
+    expect(limits?.primary).toEqual({
+      usedPercent: 12,
+      period: 'monthly',
+      windowMinutes: CYCLE_MINUTES,
+      resetsAt: RESETS_AT,
+      scope: 'Auto + Composer',
+    });
+    expect(limits?.secondary?.scope).toBe('API');
   });
 
   it('换令牌或读用量失败时抛错，消息里没有 Key 与令牌；没有套餐用量时 undefined', async () => {
@@ -148,7 +209,7 @@ describe('CursorAccounts 的用量', () => {
     const { accounts, fake } = await setup(OK, {}, 'https://minted.example');
     const state = await accounts.read('cursor');
     expect(state).toMatchObject({ status: 'signed_in', email: 'me@example.com' });
-    expect(state.rateLimits?.windows?.map((window) => window.usedPercent)).toEqual([41.5, 12, 71]);
+    expect(state.rateLimits?.windows?.map((window) => window.usedPercent)).toEqual([12, 71]);
     expect(fake.calls[0]?.url).toBe('https://minted.example/auth/exchange_user_api_key');
 
     const env = await setup(OK, {

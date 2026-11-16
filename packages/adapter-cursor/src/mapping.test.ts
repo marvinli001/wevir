@@ -101,6 +101,7 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
         type: 'tool.finished',
         toolCallId: 'call-shell',
         status: 'completed',
+        exitCode: 0,
         output: 'total 8\nREADME.md\n',
       },
       {
@@ -194,6 +195,59 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
     expect(messages.map((event) => 'text' in event && event.text)).toEqual([
       'Editing now.',
       'Done.',
+    ]);
+  });
+
+  it('命令退出码非零算失败并带上退出码；MCP 结果里的图片交给 tool.finished.images', () => {
+    const { events } = replay([
+      {
+        type: 'tool-call-completed',
+        callId: 'call-exit-1',
+        modelCallId: 'model-call-1',
+        toolCall: {
+          type: 'shell',
+          args: { command: 'pnpm test' },
+          result: {
+            status: 'success',
+            value: { exitCode: 1, signal: '', stdout: '', stderr: '1 failed', executionTime: 1 },
+          },
+        },
+      },
+      {
+        type: 'tool-call-completed',
+        callId: 'call-shot',
+        modelCallId: 'model-call-1',
+        toolCall: {
+          type: 'mcp',
+          args: { providerIdentifier: 'browser', toolName: 'screenshot' },
+          result: {
+            status: 'success',
+            value: {
+              content: [
+                { text: { text: 'Preview complete' } },
+                { image: { data: 'iVBORw0KGgo=', mimeType: 'image/png' } },
+              ],
+              isError: false,
+            },
+          },
+        },
+      },
+    ]);
+    expect(strip(events).filter((event) => event.type === 'tool.finished')).toEqual([
+      {
+        type: 'tool.finished',
+        toolCallId: 'call-exit-1',
+        status: 'failed',
+        exitCode: 1,
+        output: '1 failed',
+      },
+      {
+        type: 'tool.finished',
+        toolCallId: 'call-shot',
+        status: 'completed',
+        output: 'Preview complete',
+        images: [{ data: 'iVBORw0KGgo=' }],
+      },
     ]);
   });
 

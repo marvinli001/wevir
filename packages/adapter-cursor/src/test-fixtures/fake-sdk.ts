@@ -12,7 +12,7 @@ import type {
   SdkLoginResult,
   SendOptions,
 } from '@cursor/sdk';
-import type { CursorAgentHandle, CursorRun, CursorSdk } from '../sdk.js';
+import type { CursorAgentHandle, CursorLocalRunOptions, CursorRun, CursorSdk } from '../sdk.js';
 import { PLAIN_UPDATES, TOOL_UPDATES } from './updates.js';
 
 export interface RunScript {
@@ -179,6 +179,9 @@ export class FakeCursorSdk implements CursorSdk {
   /** agentId → 遗留 run 的 ID：下一次 send 报“already has active run”，cancelRun 之后消失。 */
   readonly activeRunConflicts = new Map<string, string>();
   readonly cancelledRuns: string[] = [];
+  /** `listRuns` 列出的、排在遗留 run 前面的已结束 run 有几个。 */
+  finishedRunCount = 0;
+  readonly listRunsCalls: { agentId: string; options: CursorLocalRunOptions }[] = [];
   script: (message: string) => RunScript = scriptFor;
   deltaBeforeSend = false;
   runCount = 0;
@@ -209,10 +212,22 @@ export class FakeCursorSdk implements CursorSdk {
     return agent;
   }
 
-  async listRuns(agentId: string) {
+  async listRuns(agentId: string, options: CursorLocalRunOptions = {}) {
+    this.listRunsCalls.push({ agentId, options });
+    // 照真 SDK 的本地存储：从旧到新列出，遗留的 run 在已结束的那些后面；分页用不透明的 cursor，每页默认 50 条。
     const conflict = this.activeRunConflicts.get(agentId);
+    const runs = [
+      ...Array.from({ length: this.finishedRunCount }, (_, index) => ({
+        id: `run-old-${index}`,
+        status: 'finished',
+      })),
+      ...(conflict === undefined ? [] : [{ id: conflict, status: 'running' }]),
+    ];
+    const offset = options.cursor === undefined ? 0 : Number(options.cursor);
+    const end = offset + (options.limit ?? 50);
     return {
-      items: conflict === undefined ? [] : [{ id: conflict, status: 'running' }],
+      items: runs.slice(offset, end),
+      ...(end < runs.length && { nextCursor: String(end) }),
     };
   }
 

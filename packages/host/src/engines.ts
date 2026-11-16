@@ -18,6 +18,7 @@ import {
   cursorSdkInstallSupported,
   isCursorClosedStreamWrite,
   isCursorShellSpawnFailure,
+  isCursorStallAbort,
 } from '@wevir/adapter-cursor';
 import { DevinAdapter } from '@wevir/adapter-devin';
 import { GrokAdapter } from '@wevir/adapter-grok';
@@ -282,12 +283,16 @@ function withoutKeys(env: NodeJS.ProcessEnv, keys: readonly string[]): NodeJS.Pr
 
 /**
  * 在 Host 进程里跑的引擎留下的、只记日志不退出的 unhandled rejection（cli.ts），返回要记的日志；别的返回 undefined。都是 Cursor
- * SDK reject 了没人等的内部 promise（adapter-cursor 的 errors.ts）：给工具调用起 shell 失败，或往已关闭的 exec 流写最后一帧。
+ * SDK reject 了没人等的内部 promise（adapter-cursor 的 errors.ts）：给工具调用起 shell 失败，往已关闭的流写最后一帧，或卡顿检测
+ * 自己 abort 请求。
  */
 export function ignorableEngineRejection(reason: unknown): string | undefined {
   if (isCursorShellSpawnFailure(reason)) return 'engine shell spawn failed; the host keeps running';
   if (isCursorClosedStreamWrite(reason)) {
     return 'Cursor SDK wrote to a closed exec stream; the host keeps running';
+  }
+  if (isCursorStallAbort(reason)) {
+    return 'Cursor SDK aborted a stalled request; the host keeps running';
   }
   return undefined;
 }

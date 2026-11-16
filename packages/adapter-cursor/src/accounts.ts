@@ -6,6 +6,7 @@
 // 模型列表缓存 30 分钟，15 s 超时；状态报成 Wevir 的 AccountState。用量不读 Cursor CLI 的登录，用这把 API Key 读（usage.ts）。
 // 团队屏蔽 `/v1/me` 时照常登录、不带邮箱，跟进 T3 80fd67eca6aba67da3e632f90c4b82a4e1cf0fbc。
 // 免费计划拒绝不沿用登录状态，跟进 T3 8046e1d8cdaacd50bf1e4a2257a1a02eaec3d8bf（status.ts / auth.ts，MIT）。
+// 模型列表读超时时再读一次，跟进 T3 80d8623fc3（status.ts）。
 //
 // Cursor 的账号（订阅来源 `cursor`，domain-model §3.6，docs/architecture/cursor-event-mapping.md §2）：在应用里登录。
 // `Cursor.auth.login` 给出浏览器网址，用户在浏览器里登录后 SDK 铸一把有期限的 API Key（90 天，Cursor 后台的 API Keys 里看得到、
@@ -377,9 +378,14 @@ export class CursorAccounts implements EngineAccounts {
     const cached = this.#models;
     if (cached?.apiKey === apiKey && this.#now() - cached.at < MODELS_TTL_MS) return cached.models;
     const sdk = await this.#loadSdk();
+    const read = () => withTimeout(sdk.listModels(apiKey), CATALOG_TIMEOUT_MS, 'Cursor model list');
     let models: SDKModel[];
     try {
-      models = await withTimeout(sdk.listModels(apiKey), CATALOG_TIMEOUT_MS, 'Cursor model list');
+      // api.cursor.com 时快时慢，一次超时不算失败，再读一次（T3 80d8623fc3）。别的错误不重试。
+      models = await read().catch((error: unknown) => {
+        if (error instanceof CatalogTimeoutError) return read();
+        throw error;
+      });
     } catch (error) {
       throw new AdapterError(
         isAuthenticationFailure(error) ? 'missing_credentials' : 'engine_unavailable',
@@ -600,10 +606,16 @@ function lastError(state: AccountState): Pick<AccountState, 'lastError'> {
     : {};
 }
 
+/** `withTimeout` 到时限时的错误。 */
+class CatalogTimeoutError extends Error {}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
+    timer = setTimeout(
+      () => reject(new CatalogTimeoutError(`${what} timed out after ${ms} ms`)),
+      ms,
+    );
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }

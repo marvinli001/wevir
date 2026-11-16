@@ -4,13 +4,14 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 投影成自己的回合项（命令、文件改动、搜索结果）；这里换成 Wevir 的 ToolDisplay 与输出文本，待办状态换成 in_progress 写法。
+// 跟进 T3 8871c265a2（退出码非零的命令算失败）与 d51bc58f5e（MCP 结果里的图片，这里交给 tool.finished.images）。
 //
 // Cursor 的工具调用（SDK 的 `ToolCall`）→ 工具名、展示类型、输出与待办（docs/architecture/cursor-event-mapping.md §4）。SDK 的
 // 工具调用自带类型与结构化参数，不必按工具名猜（domain-model §7）。只读、列目录与搜索归为 read / search，与 Codex 一致
 // （codex-event-mapping.md §6.3），桌面端把连续的读取 / 搜索合成一组。
 
 import type { ToolCall } from '@cursor/sdk';
-import type { TodoItem, ToolDisplay } from '@wevir/runtime-adapter';
+import type { AgentToolImage, TodoItem, ToolDisplay } from '@wevir/runtime-adapter';
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -118,12 +119,36 @@ export function toolDisplay(toolCall: ToolCall): ToolDisplay {
   }
 }
 
-/** 结果是错误（MCP 工具的 `isError` 也算，T3 的 cursorToolFailed）。 */
+/**
+ * 结果是错误（T3 的 cursorToolFailed）：MCP 工具的 `isError` 也算；SDK 把退出码非零的命令也报成 success，按退出码算失败。
+ */
 export function toolFailed(toolCall: ToolCall): boolean {
   if (toolCall.result?.status === 'error') return true;
+  if (toolCall.type === 'shell' && toolCall.result?.status === 'success') {
+    return toolCall.result.value.exitCode !== 0;
+  }
   return toolCall.type === 'mcp' && toolCall.result?.status === 'success'
     ? toolCall.result.value.isError === true
     : false;
+}
+
+/** 命令的退出码（`tool.finished.exitCode`）：结果是 success 且带数字退出码时才有。 */
+export function toolExitCode(toolCall: ToolCall): number | undefined {
+  if (toolCall.type !== 'shell' || toolCall.result?.status !== 'success') return undefined;
+  const code = toolCall.result.value.exitCode;
+  return typeof code === 'number' && Number.isInteger(code) ? code : undefined;
+}
+
+/**
+ * MCP 工具结果里的图片（`tool.finished.images`，base64）：交给 Host 认格式、存进图片目录；没有数据的跳过，一张都没有时省略。
+ */
+export function toolImages(toolCall: ToolCall): AgentToolImage[] | undefined {
+  if (toolCall.type !== 'mcp' || toolCall.result?.status !== 'success') return undefined;
+  const images = toolCall.result.value.content.flatMap((part) => {
+    const data = part.image?.data;
+    return typeof data === 'string' && data !== '' ? [{ data }] : [];
+  });
+  return images.length === 0 ? undefined : images;
 }
 
 function stableJson(value: unknown): string {

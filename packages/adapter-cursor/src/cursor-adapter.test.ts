@@ -329,9 +329,12 @@ describe('CursorAdapter', () => {
     // 部分回答保留成已提交消息。
     expect(events.some((event) => event.type === 'assistant.message')).toBe(true);
 
+    // 本地存储从旧到新列 run：遗留的那个排在 50 个已结束的后面，在第二页。
+    sdk.finishedRunCount = 50;
     sdk.activeRunConflicts.set(engineSessionId, 'run-1');
     await adapter.send(engineSessionId, text('Say hello'));
     expect(sdk.cancelledRuns).toEqual(['run-1']);
+    expect(sdk.listRunsCalls.map((call) => call.options.cursor)).toEqual([undefined, '50']);
     await vi.waitFor(() => expect(events.at(-1)).toMatchObject({ outcome: 'completed' }));
   });
 

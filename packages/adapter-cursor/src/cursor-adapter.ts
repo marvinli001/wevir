@@ -5,7 +5,8 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 AgentRuntimeAdapter；去掉 T3 的 MCP 服务、skills、附件与计划模式；权限模式改按 Wevir 的三种映射；
 // 换权限时重新打开 agent；取消 10 秒确认不了时自己按取消结算。跟进 T3 be1d066732：回合已经结束后 SDK 迟到的恢复失败不算回合失败；
-// 跟进 T3 8298664e9e：用量到了上限时回合失败带 `usageLimit`，之前先重读账号的用量。
+// 跟进 T3 8298664e9e：用量到了上限时回合失败带 `usageLimit`，之前先重读账号的用量；跟进 T3 8c15be97dd：找遗留的 run 时读完
+// listRuns 的每一页。
 // 手动压缩照 c8a601c0dfa5c7626e51e06d727076f6b840a005（CursorAgentSdk.ts、adapter.ts）的 summarize()。
 //
 // Cursor 引擎（订阅来源 `cursor`，ADR-0005 补记 14，docs/architecture/cursor-event-mapping.md）：经官方 `@cursor/sdk` 在 Host
@@ -794,8 +795,18 @@ export class CursorAdapter implements AgentRuntimeAdapter {
   ): Promise<CursorRun> {
     session.recoverAbandonedRun = false;
     const sdk = await this.#loadSdk();
-    const runs = await sdk.listRuns(session.id, { cwd: session.cwd, apiKey, limit: 1 });
-    const active = runs.items.find((candidate) => candidate.status === 'running');
+    // 本地存储按从旧到新列 run，还在跑的那个在最后一页，所以每一页都要读（T3 8c15be97dd）。
+    let active: { id: string; status: string } | undefined;
+    let cursor: string | undefined;
+    do {
+      const page = await sdk.listRuns(session.id, {
+        cwd: session.cwd,
+        apiKey,
+        ...(cursor !== undefined && { cursor }),
+      });
+      active = page.items.findLast((candidate) => candidate.status === 'running') ?? active;
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
     if (active === undefined) throw conflict;
     this.#options.logger?.warn('cancelling a Cursor run left over from an earlier process', {
       engineSessionId: session.id,

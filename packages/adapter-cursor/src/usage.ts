@@ -6,10 +6,12 @@
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `rateLimits`（0.45.0 的按月窗口与额度名）；T3 读 Cursor CLI 的登录
 // （~/.cursor/auth.json 或钥匙串里的 accessToken），Wevir 不读，而是像 @cursor/sdk 自己那样用登录铸出的 API Key 经
 // `/auth/exchange_user_api_key` 换一个短期的 accessToken（只在内存里），再调同一个接口；三个窗口的名字用 Cursor 后台的说法。
+// 跟进 T3 e2a781477a（计费周期的长度，用来画匀速线）、f28dc8ee94 与 489fa8c052（总的与额度重复时不报总的；T3 放在多账号
+// 合并的显示层，Wevir 一个账号一份用量，在这里去掉）。
 //
 // Cursor 的用量（cursor-event-mapping.md §2）：`DashboardService/GetCurrentPeriodUsage` 给本计费周期的百分比——总的、
-// Auto + Composer 的、API 模型的（Cursor 后台的两份额度，总的不是第三份），周期结束时一起重置。百分比含赠送的额度
-// （T3：spend / limit 不含）。
+// Auto + Composer 的、API 模型的（Cursor 后台的两份额度，总的不是第三份），周期结束时一起重置。两份额度都报时总的不报；
+// 统一额度的套餐只报总的与 Auto + Composer、两者相同，这时只留 Auto + Composer。百分比含赠送的额度（T3：spend / limit 不含）。
 
 import { type AccountRateLimitWindow, accountRateLimits, isoTime } from '@wevir/runtime-adapter';
 
@@ -31,7 +33,8 @@ const WINDOWS = [
  */
 export function cursorUsageRateLimits(response: unknown): AccountRateLimitWindow[] {
   if (typeof response !== 'object' || response === null) return [];
-  const { billingCycleEnd, planUsage } = response as {
+  const { billingCycleStart, billingCycleEnd, planUsage } = response as {
+    billingCycleStart?: unknown;
     billingCycleEnd?: unknown;
     planUsage?: Record<string, unknown>;
   };
@@ -40,19 +43,39 @@ export function cursorUsageRateLimits(response: unknown): AccountRateLimitWindow
     (typeof billingCycleEnd === 'string' || typeof billingCycleEnd === 'number') && end > 0
       ? isoTime(end)
       : undefined;
+  // 计费周期的长度（分钟）：有重置时间、周期开始有效且在结束之前时才有，桌面端拿它画匀速线。
+  const start =
+    typeof billingCycleStart === 'string' || typeof billingCycleStart === 'number'
+      ? Number(billingCycleStart)
+      : Number.NaN;
+  const windowMinutes =
+    resetsAt !== undefined && start > 0 ? Math.round((end - start) / 60_000) : 0;
   if (typeof planUsage !== 'object' || planUsage === null) return [];
-  const windows: AccountRateLimitWindow[] = [];
+  const windows: { field: string; window: AccountRateLimitWindow }[] = [];
   for (const window of WINDOWS) {
     const usedPercent = planUsage[window.field];
     if (typeof usedPercent !== 'number' || !Number.isFinite(usedPercent)) continue;
     windows.push({
-      usedPercent,
-      period: 'monthly',
-      ...(resetsAt !== undefined && { resetsAt }),
-      ...('scope' in window && { scope: window.scope }),
+      field: window.field,
+      window: {
+        usedPercent,
+        period: 'monthly',
+        ...(windowMinutes > 0 && { windowMinutes }),
+        ...(resetsAt !== undefined && { resetsAt }),
+        ...('scope' in window && { scope: window.scope }),
+      },
     });
   }
-  return windows;
+  const total = windows.find((entry) => entry.field === 'totalPercentUsed');
+  const pools = windows.filter((entry) => entry !== total);
+  const auto = pools.find((entry) => entry.field === 'autoPercentUsed');
+  const hideTotal =
+    total !== undefined &&
+    (pools.length === 2 ||
+      (pools.length === 1 &&
+        auto !== undefined &&
+        auto.window.usedPercent === total.window.usedPercent));
+  return (hideTotal ? pools : windows).map((entry) => entry.window);
 }
 
 export interface CursorUsageRequest {

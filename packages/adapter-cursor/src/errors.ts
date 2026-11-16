@@ -4,7 +4,8 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：错误按 name 判断而不用 instanceof；去掉 T3 自己注册的 unhandledRejection 监听，改由 Host 的 cli.ts 先问 engines.ts；
-// 加上 AgentNotFoundError 与 AdapterError 的归类。isCursorClosedStreamWrite 跟进 T3 f54dfc0991，isUsageLimitError 跟进 T3 8298664e9e
+// 加上 AgentNotFoundError 与 AdapterError 的归类。isCursorClosedStreamWrite 跟进 T3 f54dfc0991、727a502816，isCursorStallAbort
+// 跟进 T3 4c9a87309d，isUsageLimitError 跟进 T3 8298664e9e
 // （CursorAgentSdk.ts 的 isCursorUsageLimitError），isAccountLookupBlocked 跟进 T3 80fd67eca6aba67da3e632f90c4b82a4e1cf0fbc
 // （CursorSdkCatalogError.accountBlocked）。
 //
@@ -115,9 +116,29 @@ export function isCursorShellSpawnFailure(reason: unknown): boolean {
 }
 
 /**
- * 本地 exec 失败后，SDK 从一个没人等的 promise 往这个 exec 的流里写最后一帧；流已经关了时这次写入 reject，同样成了进程级的
- * unhandled rejection。SDK 的类名被压缩过，只能按 `name` 认。
+ * SDK 从没人等的 promise 往流里写最后一帧，写入 reject 后同样成了进程级的 unhandled rejection：本地 exec 的流已经关了时是
+ * WriteIterableClosedError；请求体已经结束时是 connect-node 把 ERR_STREAM_WRITE_AFTER_END 包成的 Aborted ConnectError。SDK 的
+ * 类名被压缩过，只能按 `name` 认。
  */
 export function isCursorClosedStreamWrite(reason: unknown): boolean {
-  return reason instanceof Error && reason.name === 'WriteIterableClosedError';
+  if (!(reason instanceof Error)) return false;
+  if (reason.name === 'WriteIterableClosedError') return true;
+  return (
+    reason.name === 'ConnectError' &&
+    reason.cause instanceof Error &&
+    Reflect.get(reason.cause, 'code') === 'ERR_STREAM_WRITE_AFTER_END'
+  );
+}
+
+/**
+ * SDK 的卡顿检测触发时自己 abort 请求，再 reject 一个没人等的 promise。这是 SDK 自己的恢复，不该让 Host 退出；只认从 `onStall`
+ * 抛出的 AbortError（看堆栈），别的 AbortError 照旧算意外。
+ */
+export function isCursorStallAbort(reason: unknown): boolean {
+  return (
+    reason instanceof Error &&
+    reason.name === 'AbortError' &&
+    typeof reason.stack === 'string' &&
+    /^\s+at (?:\S+\.)?onStall\b/m.test(reason.stack)
+  );
 }

@@ -50,13 +50,17 @@ export interface CursorLocalRunOptions {
   cwd?: string;
   apiKey?: string;
   limit?: number;
+  /** 下一页（上一页的 `nextCursor`）。 */
+  cursor?: string;
 }
 
 /** 适配器用到的 SDK 入口。 */
 export interface CursorSdk {
   createAgent(options: AgentOptions): Promise<CursorAgentHandle>;
   resumeAgent(agentId: string, options: AgentOptions): Promise<CursorAgentHandle>;
-  /** 最近的 run（T3：恢复后第一条消息撞上“already has active run”时用它找出遗留的 run 取消掉）。 */
+  /**
+   * agent 的 run，分页（T3：恢复后第一条消息撞上“already has active run”时用它找出遗留的 run 取消掉）。本地存储按从旧到新列出。
+   */
   listRuns(
     agentId: string,
     options: CursorLocalRunOptions,

@@ -2,12 +2,13 @@
 // 移植自 pingdotgg/t3code packages/provider-cursor/src/server/transportFailure.test.ts、CursorSdk.test.ts（用例）
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：用例改写成 Vitest，补上 isCursorShellSpawnFailure 的用例；isCursorClosedStreamWrite 的用例跟进 T3 f54dfc0991，isUsageLimitError 的用例跟进 T3 8298664e9e。
+// 修改：用例改写成 Vitest，补上 isCursorShellSpawnFailure 的用例；isCursorClosedStreamWrite 的用例跟进 T3 f54dfc0991、727a502816，isCursorStallAbort 的用例跟进 T3 4c9a87309d，isUsageLimitError 的用例跟进 T3 8298664e9e。
 
 import { describe, expect, it } from 'vitest';
 import {
   isCursorClosedStreamWrite,
   isCursorShellSpawnFailure,
+  isCursorStallAbort,
   isUsageLimitError,
 } from './errors.js';
 import { CursorTransportFailure } from './transport-failure.js';
@@ -66,6 +67,40 @@ describe('isCursorClosedStreamWrite', () => {
     expect(isCursorClosedStreamWrite(new Error('WritableIterable is closed'))).toBe(false);
     expect(isCursorClosedStreamWrite({ name: 'WriteIterableClosedError' })).toBe(false);
     expect(isCursorClosedStreamWrite(undefined)).toBe(false);
+  });
+
+  it('请求体结束后再写入（Aborted ConnectError 包着 ERR_STREAM_WRITE_AFTER_END）也算；别的 Aborted 不算', () => {
+    // 形状照 SDK 里 connect-node 的 `ConnectError.from(e, Code.Aborted)`。
+    const writeAfterEnd = Object.assign(new Error('write after end'), {
+      code: 'ERR_STREAM_WRITE_AFTER_END',
+    });
+    const reason = Object.assign(new Error('[aborted] write after end', { cause: writeAfterEnd }), {
+      name: 'ConnectError',
+      code: 10,
+      rawMessage: 'write after end',
+    });
+    expect(isCursorClosedStreamWrite(reason)).toBe(true);
+    const reset = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+    const other = Object.assign(new Error('[aborted] socket hang up', { cause: reset }), {
+      name: 'ConnectError',
+      code: 10,
+    });
+    expect(isCursorClosedStreamWrite(other)).toBe(false);
+  });
+});
+
+describe('isCursorStallAbort', () => {
+  it('只认从 onStall 抛出的 AbortError', () => {
+    const stall = new DOMException('This operation was aborted', 'AbortError');
+    stall.stack = 'AbortError: This operation was aborted\n    at Is.onStall (689.js:1:111536)';
+    expect(isCursorStallAbort(stall)).toBe(true);
+    const elsewhere = new DOMException('onStall was aborted', 'AbortError');
+    elsewhere.stack = 'AbortError: onStall was aborted\n    at somewhereElse (app.js:1:1)';
+    expect(isCursorStallAbort(elsewhere)).toBe(false);
+    const notAbort = new Error('stalled');
+    notAbort.stack = 'Error: stalled\n    at Is.onStall (689.js:1:1)';
+    expect(isCursorStallAbort(notAbort)).toBe(false);
+    expect(isCursorStallAbort(undefined)).toBe(false);
   });
 });
 

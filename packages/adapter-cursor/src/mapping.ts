@@ -4,7 +4,8 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 投影成自己的节点、消息与回合项；这里产出 Wevir 的增量、已提交消息、工具与待办事件，子 agent 只当工具，没完成的工具在取消或失败时按失败收尾。
-// 跟进 T3 656f3f4094（每段回答单独判断传输诊断）与 be1d066732（记下回合是否已经结束）。
+// 跟进 T3 656f3f4094（每段回答单独判断传输诊断）、be1d066732（记下回合是否已经结束）、8871c265a2（命令的退出码）与
+// d51bc58f5e（MCP 结果里的图片）。
 //
 // Cursor SDK 的流式更新（`send` 的 `onDelta`，`InteractionUpdate`）→ AgentEvent（docs/architecture/cursor-event-mapping.md §4）。
 // 一个回合（一个 run）一个映射器，按更新到达的顺序调用 `map`，回合结束时 `finish`。
@@ -14,7 +15,15 @@
 
 import type { InteractionUpdate, ToolCall } from '@cursor/sdk';
 import type { AgentEvent, TodoItem, UsageRecordedEvent } from '@wevir/runtime-adapter';
-import { todoItems, toolDisplay, toolFailed, toolName, toolOutput } from './tool-display.js';
+import {
+  todoItems,
+  toolDisplay,
+  toolExitCode,
+  toolFailed,
+  toolImages,
+  toolName,
+  toolOutput,
+} from './tool-display.js';
 import { CursorTransportFailure } from './transport-failure.js';
 
 /** engine.raw 的 `protocol`。 */
@@ -313,12 +322,16 @@ export class CursorTurnMapper {
     if (update.type === 'tool-call-completed') {
       this.#tools.delete(toolCallId);
       const output = toolOutput(toolCall, tool.output);
+      const exitCode = toolExitCode(toolCall);
+      const images = toolImages(toolCall);
       events.push({
         type: 'tool.finished',
         engineSessionId: this.engineSessionId,
         toolCallId,
         status: toolFailed(toolCall) ? 'failed' : 'completed',
+        ...(exitCode !== undefined && { exitCode }),
         ...(output !== undefined && { output }),
+        ...(images !== undefined && { images }),
       });
     }
     return events;
