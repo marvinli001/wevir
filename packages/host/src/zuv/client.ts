@@ -15,6 +15,7 @@ import {
 export const ZUV_ORIGIN = 'https://zuv.wevir.si';
 const IDENTITY_SECRET = 'zuv.identity';
 const ENROLLMENT_SECRET = 'zuv.enrollment';
+const DEVICE_KEY_SECRET = 'zuv.device-key';
 type Entitlements = typeof schemas.entitlements._output;
 type Enrollment = typeof schemas.enrollmentStarted._output;
 interface Tokens {
@@ -169,7 +170,16 @@ export class ZuvClient {
     this.#identityTransitions++;
     try {
       await this.#options.onIdentityChanging?.();
-      const key = newZuvDeviceKey();
+      const key = await this.#persist(async () => {
+        const name = `${DEVICE_KEY_SECRET}.${sha256(this.transport.origin)}`;
+        const stored = await this.#options.secrets.get(name);
+        if (stored !== undefined) return JSON.parse(stored) as ZuvDeviceKey;
+        const key = this.#identity?.key ?? newZuvDeviceKey();
+        this.#remember(key.privateKey);
+        await this.#options.secrets.set(name, JSON.stringify(key));
+        return key;
+      });
+      if (generation !== this.#generation) throw new ZuvRequestError('ENROLLMENT_EXPIRED');
       const verifier = randomBytes(32).toString('base64url');
       this.#remember(key.privateKey, verifier);
       const body = Buffer.from(

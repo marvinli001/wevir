@@ -552,7 +552,10 @@ describe('Host-owned ZUV identity', () => {
       ).toHaveLength(0);
       if (action === 'close')
         expect(JSON.parse(h.values.get('zuv.identity') as string).refreshPending).not.toBe(true);
-      else expect(h.values.size).toBe(0);
+      else
+        expect([...h.values.keys()]).toEqual([
+          `zuv.device-key.${sha256(h.client.transport.origin)}`,
+        ]);
       vi.restoreAllMocks();
     },
   );
@@ -677,7 +680,7 @@ describe('Host-owned ZUV identity', () => {
     release();
     await expect(pending).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
     expect(h.client.signedIn).toBe(false);
-    expect(h.values.size).toBe(0);
+    expect([...h.values.keys()]).toEqual([`zuv.device-key.${sha256(h.client.transport.origin)}`]);
   });
   it('waits for the prior vault application to drain before clearing its identity', async () => {
     const h = mock();
@@ -699,7 +702,7 @@ describe('Host-owned ZUV identity', () => {
     await loggingOut;
     expect(peer.changingIdentity).toBe(false);
     expect(peer.signedIn).toBe(false);
-    expect(h.values.size).toBe(0);
+    expect([...h.values.keys()]).toEqual([`zuv.device-key.${sha256(h.client.transport.origin)}`]);
     await peer.close();
   });
   it('rejects late network responses after close without overwriting credentials', async () => {
@@ -806,7 +809,7 @@ describe('Host-owned ZUV identity', () => {
     expect(h.request.mock.calls).toHaveLength(before);
     await h.client.logout();
     expect(h.client.signedIn).toBe(false);
-    expect(h.values.size).toBe(0);
+    expect([...h.values.keys()]).toEqual([`zuv.device-key.${sha256(h.client.transport.origin)}`]);
   });
 
   it('does not reuse a saved identity after changing the configured origin', async () => {
@@ -816,5 +819,41 @@ describe('Host-owned ZUV identity', () => {
     const changed = new ZuvClient({ ...h.options, origin: 'https://other.test' });
     await expect(changed.load()).rejects.toThrow('ZUV credentials unreadable');
     expect(h.values).toEqual(original);
+  });
+
+  it('keeps a stable device key after logout, restart and canceled enrollment', async () => {
+    const h = mock();
+    await h.login();
+    const first = JSON.parse(h.values.get('zuv.identity') as string).key;
+    await h.client.logout();
+    await h.client.close();
+    const restarted = new ZuvClient(h.options);
+    await restarted.load();
+    await restarted.beginEnrollment('Renamed device');
+    expect(JSON.parse(h.values.get('zuv.enrollment') as string).key).toEqual(first);
+    await restarted.cancelEnrollment();
+    await restarted.beginEnrollment('Renamed device');
+    await restarted.pollEnrollment();
+    expect(JSON.parse(h.values.get('zuv.identity') as string).key).toEqual(first);
+    await restarted.close();
+  });
+
+  it('preserves the signed-in identity when durable device-key creation fails', async () => {
+    const h = mock();
+    await h.login();
+    const previous = h.values.get('zuv.identity');
+    h.values.delete(`zuv.device-key.${sha256(h.client.transport.origin)}`);
+    const before = h.request.mock.calls.length;
+    const write = vi
+      .spyOn(h.options.secrets, 'set')
+      .mockRejectedValueOnce(new Error('Synthetic store failure'));
+    await expect(h.client.beginEnrollment('Same device')).rejects.toThrow(
+      'Synthetic store failure',
+    );
+    expect(h.values.get('zuv.identity')).toBe(previous);
+    expect(h.client.signedIn).toBe(true);
+    expect(h.request.mock.calls).toHaveLength(before);
+    write.mockRestore();
+    await h.client.close();
   });
 });
