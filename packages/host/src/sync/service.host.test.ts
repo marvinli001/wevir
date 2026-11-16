@@ -1661,6 +1661,9 @@ describe('full Host material synchronization with synthetic identities', () => {
       await expect
         .poll(async () => (await first.rpc.request('sync.status')).pending, { timeout: 8000 })
         .toBe(0);
+      await expect
+        .poll(async () => (await second.rpc.request('sync.status')).state, { timeout: 8000 })
+        .toBe('reset_required');
       const exports = mock.sync.exports;
       await second.rpc.request('sync.retry');
       expect(mock.sync.exports).toBe(exports);
