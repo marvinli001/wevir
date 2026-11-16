@@ -4516,7 +4516,16 @@ export const methodSamples: MethodSamples = {
     },
   },
   'themes.get': {
-    params: { valid: [{ id: 'lagoon' }], invalid: [{ id: '../outside' }] },
+    params: {
+      valid: [
+        { id: 'lagoon' },
+        { id: 'lagoon', backdropStatus: { revision: 'r1', asset: 'file', status: 'failed' } },
+      ],
+      invalid: [
+        { id: '../outside' },
+        { id: 'lagoon', backdropStatus: { revision: 'r1', asset: 'poster', status: 'unknown' } },
+      ],
+    },
     result: {
       valid: [
         {

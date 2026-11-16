@@ -52,6 +52,9 @@ const fullAccess = {
  * 模式运行）不算设置。
  */
 export const PARAM_PERMISSION_RULES: ParamPermissionRules = {
+  'themes.get': [
+    { permission: 'host.manage', applies: (params) => params.backdropStatus !== undefined },
+  ],
   'session.create': [fullAccess],
   'session.createFromHistory': [
     {

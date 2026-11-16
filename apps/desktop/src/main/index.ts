@@ -26,6 +26,7 @@ import {
   screen,
   session,
   shell,
+  webFrameMain,
 } from 'electron';
 import {
   type HostConnection,
@@ -46,6 +47,7 @@ import {
 } from '../shared/renderer-origin.js';
 import { isCleanableCategory, type StorageUsage } from '../shared/storage.js';
 import { isThemeMode, supportsWindowMaterial } from '../shared/theme.js';
+import { isThemeSceneId, isThemeSceneUrl } from '../shared/theme-assets.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
 import { appMenuTemplate, DEFAULT_APP_MENU_LABELS, parseAppMenuLabels } from './app-menu.js';
 import { registerBrowserIpc } from './browser/browser-ipc.js';
@@ -77,6 +79,7 @@ import {
   DISK_CACHE_MAX_BYTES,
 } from './storage.js';
 import { StorageUsageReader } from './storage-reader.js';
+import { ThemeSceneGuard } from './theme-scene.js';
 import { titleBarOverlay } from './title-bar.js';
 import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
@@ -177,6 +180,7 @@ const GPU_INFO_TIMEOUT_MS = 1500;
 
 function run(): void {
   let mainWindow: BrowserWindow | undefined;
+  const sceneGuards = new Map<number, ThemeSceneGuard>();
   const gpuReady = new Promise<void>((resolve) => app.once('gpu-info-update', () => resolve()));
   app.on('gpu-info-update', () => {
     if (mainWindow && !mainWindow.isDestroyed())
@@ -407,6 +411,25 @@ function run(): void {
     if (translucent !== windowMaterial()) applyWindowMaterial(window, translucent);
     rememberWindowAppearance({ ...windowAppearance, ...input, translucentWindow: translucent });
     window.setBackgroundColor(windowBackground());
+  });
+  ipcMain.handle(IPC_CHANNELS.setThemeScene, (event, value: unknown): void => {
+    const window = assertSender(event);
+    if (value === null || typeof value !== 'object') throw new Error('invalid theme scene');
+    const { id, url } = value as Record<string, unknown>;
+    if (
+      !isThemeSceneId(id) ||
+      (url !== undefined &&
+        (typeof url !== 'string' ||
+          !isThemeSceneUrl(url) ||
+          new URL(url).searchParams.get('theme-mount') !== id))
+    )
+      throw new Error('invalid theme scene');
+    const guard = sceneGuards.get(window.webContents.id);
+    if (!guard) throw new Error('theme scene guard unavailable');
+    guard.set(
+      { id, ...(typeof url === 'string' && { url }) },
+      window.webContents.mainFrame.framesInSubtree.map((frame) => frame.frameTreeNodeId),
+    );
   });
   // 运行时防止系统休眠（设置 → 常规）：渲染进程在“有回合在跑且打开了这一项”变化时告诉这里。
   let sleepBlocker: number | undefined;
@@ -767,9 +790,35 @@ function run(): void {
       event.preventDefault();
       openIfExternal(url);
     });
+    const scenes = new ThemeSceneGuard((failure) =>
+      contents.send(IPC_CHANNELS.themeSceneFailure, failure),
+    );
+    sceneGuards.set(contents.id, scenes);
+    contents.once('destroyed', () => sceneGuards.delete(contents.id));
+    contents.on('did-start-navigation', (details) => {
+      const frame = details.frame;
+      if (details.isMainFrame || !frame) return;
+      scenes.begin(
+        frame.frameTreeNodeId,
+        details.url,
+        frame.parent?.frameTreeNodeId === contents.mainFrame.frameTreeNodeId,
+      );
+    });
+    contents.on(
+      'did-fail-load',
+      (_event, _code, _description, _url, isMain, processId, routingId) => {
+        if (isMain) return;
+        const frame = webFrameMain.fromId(processId, routingId);
+        if (frame) scenes.fail(frame.frameTreeNodeId);
+      },
+    );
     // 子框架（0.32.0，文件窗格的 PDF 与网页预览）：只能加载 Host 的文件地址（host-api.md §1 的 `/files/`）与 PDF 查看器自己的
     // 框架。沙箱里的网页（跨 origin 的子框架）自己发起的跳转不触发这个事件，由 whenReady 里的 webRequest 拦下。
     contents.on('will-frame-navigate', (details) => {
+      if (scenes.blocks(details.frame?.frameTreeNodeId, details.url)) {
+        details.preventDefault();
+        return;
+      }
       if (details.isMainFrame || isFilePreviewUrl(details.url)) return;
       details.preventDefault();
     });
@@ -841,10 +890,15 @@ function run(): void {
     // 预览同样要挡导航，CSP 管不到）。新窗口（target=_blank、window.open）照旧由 setWindowOpenHandler 交给系统浏览器，Chromium
     // 只在用户点了之后才放行弹窗。只拦子框架：其余请求（Host 的文件、图片）不必每个都经主进程走一趟。
     session.defaultSession.webRequest.onBeforeRequest(
-      { urls: ['http://*/*', 'https://*/*'], types: ['subFrame'] },
+      { urls: ['<all_urls>'], types: ['subFrame'] },
       (details, callback) => {
         callback({
-          cancel: details.resourceType === 'subFrame' && !isFilePreviewUrl(details.url),
+          cancel:
+            details.resourceType === 'subFrame' &&
+            (sceneGuards
+              .get(details.webContentsId ?? -1)
+              ?.blocks(details.frame?.frameTreeNodeId, details.url) ||
+              (/^https?:/.test(details.url) && !isFilePreviewUrl(details.url))),
         });
       },
     );

@@ -15,6 +15,7 @@ import { workspaceLabel } from '@/projects/chats';
 import { useRememberLocation } from '@/routes/last-location';
 import { paths, ROUTE_PATTERNS } from '@/routes/paths';
 import { EngineTrail } from '@/session/engine-trail';
+import { ThemeBackdropLayer } from '@/theme/theme-backdrop';
 import {
   type AuxPlan,
   arrangePanes,
@@ -297,6 +298,7 @@ export function WorkbenchLayout() {
         data-app-shell=""
         data-layout-sidebar={sidebarPlan.sidebar}
       >
+        <ThemeBackdropLayer scope="window" workspaceId={workspaceId} />
         {/* 收起时侧栏不卸载，宽度过渡到 0；里面一列始终是侧栏的宽，开合时不重新排版。 */}
         <aside
           aria-hidden={!docked}
@@ -450,6 +452,11 @@ export function WorkbenchLayout() {
               >
                 <Outlet />
               </main>
+              <ThemeBackdropLayer
+                scope="conversation"
+                workspaceId={workspaceId}
+                suspended={plan.mode === 'maximized'}
+              />
               {/* 停靠的会话侧栏：开合过渡外层宽度，收起时不卸载，里面一列始终是侧栏的宽。宽只有开与关两种，拖窗口时也过渡：
                   跨过默认显示的宽度时滑进滑出，不是一下跳开（index.css）。 */}
               {rail && header.entry && sessionId !== undefined && plan.mode !== 'maximized' && (

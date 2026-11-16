@@ -183,7 +183,16 @@ export const ThemesListResultSchema = z.object({
   activeId: ThemeIdSchema.nullable(),
   directory: z.string(),
 });
-export const ThemesGetParamsSchema = z.object({ id: ThemeIdSchema });
+export const ThemeBackdropStatusSchema = z.object({
+  revision: z.string().min(1).max(128),
+  asset: z.enum(['file', 'poster']),
+  status: z.enum(['loaded', 'failed']),
+});
+export type ThemeBackdropStatus = z.infer<typeof ThemeBackdropStatusSchema>;
+export const ThemesGetParamsSchema = z.object({
+  id: ThemeIdSchema,
+  backdropStatus: ThemeBackdropStatusSchema.optional(),
+});
 export const ThemesGetResultSchema = z.object({
   id: ThemeIdSchema,
   theme: ThemeFileSchema.optional(),
@@ -223,7 +232,7 @@ export const ThemeMethodSchemas = {
     permission: 'host.manage',
   },
   'themes.delete': {
-    params: ThemesGetParamsSchema,
+    params: z.object({ id: ThemeIdSchema }),
     result: ThemesDeleteResultSchema,
     permission: 'host.manage',
   },

@@ -1665,7 +1665,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'settings.get': () => ({ settings: settings.get() }),
     'themes.list': () => themes().list(),
-    'themes.get': ({ id }) => themes().get(id),
+    'themes.get': ({ id, backdropStatus }) => themes().get(id, backdropStatus),
     'themes.save': (input) => themes().save(input),
     'themes.delete': ({ id }) => themes().delete(id),
     'themes.setActive': ({ id }) => themes().setActive(id),

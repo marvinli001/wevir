@@ -139,6 +139,7 @@
 .app-shell {
   --accent: color-mix(in oklab, var(--foreground) 5.5%, transparent);
   background-color: var(--sidebar);
+  isolation: isolate;
 }
 
 @utility surface-card {
@@ -161,6 +162,125 @@
 
 :root[data-translucent-window][data-theme="dark"] .app-shell .surface-card {
   background-color: color-mix(in oklab, var(--background) 90%, transparent);
+}
+
+:root[data-theme-window-backdrop] .app-shell {
+  background-color: transparent;
+}
+
+:root[data-theme-window-backdrop] .app-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: color-mix(in oklab, var(--sidebar) var(--shell-tint), transparent);
+}
+
+.surface-card:has(> .theme-backdrop) {
+  isolation: isolate;
+}
+
+.theme-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--theme-backdrop-fade) ease-out;
+}
+
+.theme-backdrop[data-theme-backdrop="window"] {
+  z-index: -2;
+}
+
+.theme-backdrop[data-loaded] {
+  opacity: 1;
+}
+
+.theme-backdrop[data-reduced] {
+  transition: none;
+}
+
+.theme-backdrop-media,
+.theme-backdrop-scrim,
+.theme-backdrop-tiles {
+  position: absolute;
+  inset: 0;
+}
+
+.theme-backdrop-media {
+  opacity: var(--theme-backdrop-opacity, 1);
+  filter: blur(var(--theme-backdrop-blur, 0px));
+}
+
+.theme-backdrop-media :is(img, video, iframe) {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  pointer-events: none;
+  object-fit: cover;
+}
+
+.theme-backdrop[data-fit="contain"] :is(img, video) {
+  object-fit: contain;
+}
+
+:where(.theme-backdrop[data-fit="tile"]) > .theme-backdrop-media > img {
+  visibility: hidden;
+}
+
+.theme-backdrop-tiles {
+  background-repeat: repeat;
+  background-position: center;
+}
+
+.theme-backdrop-scrim {
+  background-color: var(--background);
+  opacity: var(--theme-backdrop-scrim, 0);
+}
+
+:root[data-theme-glass] [data-app-sidebar] {
+  background-color: color-mix(
+    in oklab,
+    var(--sidebar) var(--theme-glass-sidebar-tint),
+    transparent
+  );
+}
+
+:root[data-theme-glass][data-theme] .app-shell .surface-card {
+  background-color: color-mix(
+    in oklab,
+    var(--background) var(--theme-glass-surface-tint),
+    transparent
+  );
+}
+
+:root[data-theme-glass] :is([data-app-sidebar], .surface-card, [data-composer-box]) {
+  -webkit-backdrop-filter: blur(var(--theme-glass-blur));
+  backdrop-filter: blur(var(--theme-glass-blur));
+}
+
+:root[data-theme-backdrop-reduced] {
+  --theme-glass-sidebar-tint: 100%;
+  --theme-glass-surface-tint: 100%;
+  --theme-glass-composer-tint: 100%;
+  --theme-glass-blur: 0px;
+}
+
+:root[data-theme-glass][data-theme-backdrop-reduced]
+  :is([data-app-sidebar], .surface-card, [data-composer-box]) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-theme-glass][data-theme-backdrop-reduced] [data-app-sidebar] {
+  background-color: oklab(from var(--sidebar) l a b / var(--theme-glass-sidebar-tint));
+}
+
+:root[data-theme-glass][data-theme][data-theme-backdrop-reduced] .app-shell .surface-card {
+  background-color: oklab(from var(--background) l a b / var(--theme-glass-surface-tint));
 }
 
 /* 磨砂的浮层：菜单、弹出框、选择框与对话框透出下面的内容，不是一块实色的纸。不放进 @layer，盖过原语里的 bg-popover。 */
@@ -330,6 +450,14 @@
  * 光束的每一帧把这一块重新模糊一遍，颜色与直接混出来的一样。 */
 :root[data-theme="dark"] [data-composer-box] {
   background-color: color-mix(in oklab, var(--card) 76%, var(--background));
+}
+
+:root[data-theme-glass] [data-composer-box] {
+  background-color: color-mix(in oklab, var(--card) var(--theme-glass-composer-tint), transparent);
+}
+
+:root[data-theme-glass][data-theme-backdrop-reduced] [data-composer-box] {
+  background-color: oklab(from var(--card) l a b / var(--theme-glass-composer-tint));
 }
 
 /* 原生滚动条（overflow-auto 的容器）：macOS 是系统的浮动滚动条，自己会隐藏，不管；Windows、Linux 上默认是粗的常驻滚动条，

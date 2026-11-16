@@ -414,6 +414,8 @@ export interface DesktopApi {
    * 主进程记下来（连同 setThemeSource 的模式），下次启动时窗口一创建就用上，不闪默认的底色。
    */
   setWindowAppearance(appearance: WindowAppearanceInput): Promise<void>;
+  setThemeScene(scene: { id: string; url?: string }): Promise<void>;
+  onThemeSceneFailure(listener: (failure: { id: string; url: string }) => void): () => void;
   /** 运行时防止系统休眠（设置 → 常规）：有回合在跑且打开了这一项时为 true，系统不会因空闲而睡眠。 */
   setPreventSleep(active: boolean): Promise<void>;
   /** 当前的窗口标题栏形态。同步取值：preload 按平台给出初值，之后跟着主进程的推送更新。 */
@@ -508,6 +510,8 @@ export const IPC_CHANNELS = {
   copyText: 'wevir:copy-text',
   setThemeSource: 'wevir:set-theme-source',
   setWindowAppearance: 'wevir:set-window-appearance',
+  setThemeScene: 'wevir:set-theme-scene',
+  themeSceneFailure: 'wevir:theme-scene-failure',
   setPreventSleep: 'wevir:set-prevent-sleep',
   /** 主进程 → 渲染进程的推送。 */
   windowChrome: 'wevir:window-chrome',

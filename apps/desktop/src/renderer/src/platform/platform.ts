@@ -141,6 +141,8 @@ export function unsupportedPlatformApi(overrides: Partial<DesktopApi> = {}): Des
     copyText: unsupported,
     setThemeSource: resolved,
     setWindowAppearance: resolved,
+    setThemeScene: resolved,
+    onThemeSceneFailure: noListener,
     setPreventSleep: resolved,
     getLowGpu: () => Promise.resolve(false),
     onLowGpu: noListener,

@@ -55,6 +55,54 @@ function changed(service: ThemeService, predicate: (update: ThemesUpdated) => bo
 }
 
 describe('Host themes', () => {
+  it('keeps playback diagnostics separate from validation and ignores stale revisions', async () => {
+    const { service } = await start();
+    const source = join(temp(), 'backdrop.png');
+    await writeFile(source, png);
+    const saved = await service.save({
+      id: 'lagoon',
+      theme: { ...theme, backdrop: { kind: 'image', file: 'backdrop.png' } },
+      assets: [{ name: 'backdrop.png', sourcePath: source }],
+    });
+    const updates: ThemesUpdated[] = [];
+    service.watch((update) => updates.push(update));
+    const status = { revision: saved.revision, asset: 'file' as const, status: 'failed' as const };
+    expect(service.get('lagoon', status).problems).toContainEqual(
+      expect.objectContaining({ path: 'backdrop.file', severity: 'error' }),
+    );
+    expect(service.list().themes[0]?.problems).toContainEqual(
+      expect.objectContaining({ path: 'backdrop.file' }),
+    );
+    expect(updates).toEqual([]);
+    await expect(service.setActive('lagoon')).resolves.toEqual({ activeId: 'lagoon' });
+    expect(() => service.get('lagoon', { ...status, asset: 'poster' })).toThrow(
+      'asset does not exist',
+    );
+    expect(
+      service
+        .get('lagoon', { ...status, status: 'loaded' })
+        .problems.some((p) => p.path === 'backdrop.file'),
+    ).toBe(false);
+    service.get('lagoon', status);
+    const changed = await service.save({
+      id: 'lagoon',
+      theme: { ...(saved.theme as ThemeFile), name: 'Revised' },
+    });
+    expect(changed.revision).not.toBe(saved.revision);
+    expect(service.get('lagoon', status).problems.some((p) => p.path === 'backdrop.file')).toBe(
+      false,
+    );
+    expect(
+      service
+        .get('lagoon', { ...status, revision: changed.revision })
+        .problems.some((p) => p.path === 'backdrop.file'),
+    ).toBe(true);
+    expect(
+      service
+        .get('lagoon', { ...status, status: 'loaded' })
+        .problems.some((p) => p.path === 'backdrop.file'),
+    ).toBe(true);
+  });
   it('reports remote CSS at save time while leaving manual files to the client guard', async () => {
     const { service } = await start();
     await service.save({ id: 'lagoon', theme });

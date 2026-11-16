@@ -107,6 +107,28 @@ async function setup() {
 }
 
 describe('theme and appearance application', () => {
+  it('temporarily disables native material for a window backdrop and restores the device preference', async () => {
+    const { appearance } = await setup();
+    expect(h.window).toHaveBeenLastCalledWith(expect.objectContaining({ translucentWindow: true }));
+    appearance.setThemeBackdropPresentation(true, true);
+    expect(h.window).toHaveBeenLastCalledWith(
+      expect.objectContaining({ translucentWindow: false }),
+    );
+    expect(attributes.has('data-theme-window-backdrop')).toBe(true);
+    expect(attributes.has('data-theme-glass')).toBe(true);
+    expect(appearance.appearanceStore.get().translucentWindow).toBe(true);
+    appearance.setThemeBackdropPresentation(false, false);
+    expect(h.window).toHaveBeenLastCalledWith(expect.objectContaining({ translucentWindow: true }));
+    expect(attributes.has('data-theme-window-backdrop')).toBe(false);
+    expect(attributes.has('data-theme-glass')).toBe(false);
+    appearance.updateAppearance({ translucentWindow: false });
+    appearance.setThemeBackdropPresentation(true, true, true);
+    expect(attributes.has('data-theme-backdrop-reduced')).toBe(true);
+    appearance.setThemeBackdropPresentation(false, false);
+    expect(h.window).toHaveBeenLastCalledWith(
+      expect.objectContaining({ translucentWindow: false }),
+    );
+  });
   it('bootstraps the cached scheme and background before sending any native defaults', async () => {
     const theme = cacheCustomTheme(
       {

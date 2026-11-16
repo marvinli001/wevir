@@ -20,6 +20,11 @@
   --popover: var(--ivory-1);
   /* 半透明窗口下壳盖多少侧栏色，其余透出系统材质。 */
   --shell-tint: 90%;
+  --theme-backdrop-fade: 200ms;
+  --theme-glass-sidebar-tint: 76%;
+  --theme-glass-surface-tint: 78%;
+  --theme-glass-composer-tint: 82%;
+  --theme-glass-blur: 16px;
   /* 分段切换的滑块（输入框里的“插话 | 排队”，session/delivery-switch.tsx），轨道是 --muted。 */
   --switch-thumb: var(--ivory-1);
   /* 思考力度滑块（session/model-picker.tsx，照 Codex 桌面端）：已选一段的蓝，圆钮、粒子与档位点的白；亮暗同值，只用于图形。 */
@@ -137,6 +142,11 @@
   --popover: var(--graphite-4);
   /* 半透明窗口下壳盖多少侧栏色，其余透出系统材质。 */
   --shell-tint: 46%;
+  --theme-backdrop-fade: 200ms;
+  --theme-glass-sidebar-tint: 68%;
+  --theme-glass-surface-tint: 72%;
+  --theme-glass-composer-tint: 78%;
+  --theme-glass-blur: 16px;
   --switch-thumb: var(--graphite-7);
   --effort-fill: var(--sky-vivid);
   --effort-thumb: var(--ivory-1);

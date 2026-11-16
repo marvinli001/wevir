@@ -5,6 +5,7 @@ import {
   type ThemeResult,
   themeColorVariables,
 } from '@wevir/protocol';
+import { isThemeAssetUrl } from '../../../shared/theme-assets.js';
 
 export interface CachedCustomTheme {
   version: 1;
@@ -37,7 +38,20 @@ export function cacheCustomTheme(result: ThemeResult, hostId: string): CachedCus
     colorScheme: theme.colorScheme,
     css: theme.css,
     backdrop: theme.backdrop,
-    assets: result.assets,
+    assets: Object.fromEntries(
+      Object.entries(result.assets)
+        .filter(
+          ([asset, url]) =>
+            theme.backdrop !== undefined &&
+            isThemeAssetUrl(url, theme.backdrop[asset as 'file' | 'poster'], result.revision),
+        )
+        .map(([asset, value]) => {
+          if (asset !== 'file' || theme.backdrop?.kind !== 'scene') return [asset, value];
+          const url = new URL(value);
+          url.searchParams.set('theme-scene', '1');
+          return [asset, url.href];
+        }),
+    ),
     readOnly: result.readOnly,
     directory: result.directory,
   };
@@ -88,5 +102,14 @@ export function parseCachedCustomTheme(raw: unknown): CachedCustomTheme | undefi
     backdrop: raw.backdrop,
   });
   if (!description.success) return undefined;
+  if (
+    !Object.entries(raw.assets).every(
+      ([asset, url]) =>
+        (asset === 'file' || asset === 'poster') &&
+        description.data.backdrop?.[asset] !== undefined &&
+        isThemeAssetUrl(url as string, description.data.backdrop[asset], raw.revision as string),
+    )
+  )
+    return undefined;
   return raw as unknown as CachedCustomTheme;
 }

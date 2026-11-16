@@ -68,6 +68,13 @@ const api: DesktopApi = {
   setThemeSource: (mode) => ipcRenderer.invoke(IPC_CHANNELS.setThemeSource, mode),
   setWindowAppearance: (appearance) =>
     ipcRenderer.invoke(IPC_CHANNELS.setWindowAppearance, appearance),
+  setThemeScene: (scene) => ipcRenderer.invoke(IPC_CHANNELS.setThemeScene, scene),
+  onThemeSceneFailure: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, failure: { id: string; url: string }) =>
+      listener(failure);
+    ipcRenderer.on(IPC_CHANNELS.themeSceneFailure, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.themeSceneFailure, handler);
+  },
   setPreventSleep: (active) => ipcRenderer.invoke(IPC_CHANNELS.setPreventSleep, active),
   getLowGpu: () => ipcRenderer.invoke(IPC_CHANNELS.getLowGpu),
   onLowGpu: (listener) => {

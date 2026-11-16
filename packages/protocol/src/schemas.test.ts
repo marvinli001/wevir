@@ -386,6 +386,19 @@ const standaloneCases: Case[] = [
     ],
   },
   {
+    name: 'ThemeBackdropStatus',
+    schema: protocol.ThemeBackdropStatusSchema,
+    valid: [
+      { revision: 'r1', asset: 'file', status: 'failed' },
+      { revision: 'r2', asset: 'poster', status: 'loaded' },
+    ],
+    invalid: [
+      { revision: '', asset: 'file', status: 'failed' },
+      { revision: 'r1', asset: 'other', status: 'failed' },
+      { revision: 'r1', asset: 'poster', status: 'unknown' },
+    ],
+  },
+  {
     name: 'ThemeFile',
     schema: protocol.ThemeFileSchema,
     valid: [{ schemaVersion: 1, name: 'Lagoon', dark: {} }],

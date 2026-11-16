@@ -36,6 +36,7 @@ export function translucentWindowSupported(): boolean {
 
 let applied = new Set<string>();
 let sentToWindow: string | undefined;
+let windowBackdrop = false;
 const listeners = new Set<() => void>();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -43,6 +44,19 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 export function subscribeAppearance(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** 背景层只在实际挂载期间接管材质，不写设备偏好。 */
+export function setThemeBackdropPresentation(
+  window: boolean,
+  glass: boolean,
+  reduced = false,
+): void {
+  windowBackdrop = window;
+  document.documentElement.toggleAttribute('data-theme-window-backdrop', window);
+  document.documentElement.toggleAttribute('data-theme-glass', glass);
+  document.documentElement.toggleAttribute('data-theme-backdrop-reduced', reduced);
+  applySafely();
 }
 
 function apply(): void {
@@ -71,7 +85,8 @@ function apply(): void {
   applied = new Set(Object.keys(vars));
   applyThemeCss(theme?.css, reducedMotion.matches);
 
-  const translucentWindow = translucentWindowSupported() && appearance.translucentWindow;
+  const translucentWindow =
+    !windowBackdrop && translucentWindowSupported() && appearance.translucentWindow;
   root.toggleAttribute('data-translucent-window', translucentWindow);
   // 窗口的底色与材质交给主进程，它也记下来，下次启动时窗口一出现就是这个底色（main/window-appearance.ts）。
   const windowAppearance: WindowAppearanceInput = {

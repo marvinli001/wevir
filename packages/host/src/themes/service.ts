@@ -13,6 +13,7 @@ import {
   THEME_MAX_BYTES,
   THEME_MAX_COUNT,
   ThemeAssetNameSchema,
+  type ThemeBackdropStatus,
   type ThemeFile,
   ThemeFileSchema,
   ThemeIdSchema,
@@ -33,6 +34,7 @@ interface Entry {
   fingerprint: string;
   problems: ThemeProblem[];
   snapshot?: string;
+  backdropFailures?: Set<'file' | 'poster'>;
 }
 
 function rejected(path: string, message: string): HostError<'INVALID_PARAMS'> {
@@ -183,26 +185,46 @@ export class ThemeService {
           entry.theme?.light?.foreground,
           entry.theme?.dark?.foreground,
         ].filter((color): color is string => color !== undefined),
-        problems: entry.problems,
+        problems: this.#problems(entry),
       })),
     };
   }
 
-  get(id: string): ThemeResult {
+  #problems(entry: Entry): ThemeProblem[] {
+    return [
+      ...entry.problems,
+      ...[...(entry.backdropFailures ?? [])].map((asset) => ({
+        path: `backdrop.${asset}`,
+        message: 'Background asset could not be loaded or decoded by a desktop client',
+        severity: 'error' as const,
+      })),
+    ];
+  }
+
+  get(id: string, status?: ThemeBackdropStatus): ThemeResult {
     this.#id(id);
     const entry = this.#entries.get(id);
     if (!entry) throw rejected('id', `unknown theme ${id}`);
+    if (status && status.revision === entry.revision) {
+      const backdrop = entry.theme?.backdrop;
+      if (!entry.snapshot || !backdrop?.[status.asset])
+        throw rejected('backdropStatus.asset', 'asset does not exist');
+      entry.backdropFailures ??= new Set();
+      if (status.status === 'failed') entry.backdropFailures.add(status.asset);
+      else entry.backdropFailures.delete(status.asset);
+    }
     const assets: ThemeResult['assets'] = {};
     const backdrop = entry.theme?.backdrop;
     if (backdrop && entry.snapshot) {
       assets.file = `${this.#urls.issue(entry.snapshot, backdrop.file, { theme: true }).url}?v=${entry.revision}`;
+      if (backdrop.kind === 'scene') assets.file += '&theme-scene=1';
       if (backdrop.poster)
         assets.poster = `${this.#urls.issue(entry.snapshot, backdrop.poster, { theme: true }).url}?v=${entry.revision}`;
     }
     return {
       id,
       ...(entry.theme && { theme: structuredClone(entry.theme) }),
-      problems: structuredClone(entry.problems),
+      problems: structuredClone(this.#problems(entry)),
       assets,
       revision: entry.revision,
       readOnly: false,
@@ -424,7 +446,14 @@ export class ThemeService {
           { path: 'theme.json', message: messageOf(error), severity: 'error' },
         ];
         const revision = digest(`${fingerprint}:${JSON.stringify(problems)}`);
-        this.#entries.set(id, { ...previous, id, problems, revision, fingerprint });
+        this.#entries.set(id, {
+          ...previous,
+          id,
+          problems,
+          revision,
+          fingerprint,
+          backdropFailures: previous?.revision === revision ? previous.backdropFailures : undefined,
+        });
         if (previous?.revision !== revision) changed = true;
       }
     }

@@ -91,6 +91,16 @@ it('allows theme reads and refuses writes without host.manage', async () => {
   clients.push(client);
   expect((await client.hello(token)).error).toBeUndefined();
   expect(await client.request('themes.get', { id: 'lagoon' })).toMatchObject({ theme });
+  for (const status of ['loaded', 'failed']) {
+    expect(
+      (
+        await client.call('themes.get', {
+          id: 'lagoon',
+          backdropStatus: { revision: 'r1', asset: 'file', status },
+        })
+      ).error?.code,
+    ).toBe(ErrorCode.DEVICE_FORBIDDEN);
+  }
   for (const method of ['themes.save', 'themes.delete', 'themes.setActive']) {
     expect((await client.call(method)).error?.code).toBe(ErrorCode.DEVICE_FORBIDDEN);
   }

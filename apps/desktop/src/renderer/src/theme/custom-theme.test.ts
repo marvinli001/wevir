@@ -34,6 +34,7 @@ function deferred<T>() {
 beforeEach(() => {
   vi.resetModules();
   const storage = new Map<string, string>();
+  vi.stubGlobal('document', Object.assign(new EventTarget(), { visibilityState: 'visible' }));
   vi.stubGlobal('window', {
     localStorage: {
       getItem: (key: string) => storage.get(key) ?? null,
@@ -48,7 +49,7 @@ function fakeClient() {
   const updates = new Set<(update: ThemesUpdated) => void>();
   const client = {
     state: { status: 'connected' },
-    hello: { hostId: 'host_fixture' },
+    hello: { hostId: 'host_fixture', protocolVersion: '0.195.0' },
     supports: vi.fn(() => true),
     can: vi.fn(() => true),
     request: vi.fn<(method: string) => Promise<ThemeResult | { activeId: string | null }>>(
@@ -80,6 +81,22 @@ function fakeClient() {
 }
 
 describe('custom theme cache', () => {
+  it('keeps cached colors but waits for a live Host read before exposing media addresses', async () => {
+    window.localStorage.setItem(
+      CUSTOM_THEME_STORAGE_KEY,
+      JSON.stringify(cacheCustomTheme(result(), 'host_fixture')),
+    );
+    const { customThemeStore } = await import('./custom-theme');
+    expect(customThemeStore.get().theme?.variables.dark['--background']).toBe('#002b36');
+    expect(customThemeStore.get().theme?.assets).toEqual({});
+    const cached = cacheCustomTheme(result(), 'host_fixture');
+    expect(
+      parseCachedCustomTheme({
+        ...cached,
+        assets: { file: 'http://127.0.0.1:1234/arbitrary-page' },
+      }),
+    ).toBeUndefined();
+  });
   it('keeps parsed mode variables and descriptions without asset bytes, rejecting unsafe cached values', () => {
     const cached = cacheCustomTheme(result(), 'host_fixture');
     expect(parseCachedCustomTheme(JSON.parse(JSON.stringify(cached)))).toEqual(cached);
@@ -106,6 +123,90 @@ describe('custom theme cache', () => {
 });
 
 describe('Host custom themes', () => {
+  it('renews asset URLs while visible and releases the renewal timer and visibility listener', async () => {
+    vi.useFakeTimers();
+    const host = fakeClient();
+    let stop: (() => void) | undefined;
+    try {
+      stop = await host.bind();
+      const { customThemeStore } = await import('./custom-theme');
+      await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('lagoon'));
+      const refreshed = {
+        ...result(),
+        assets: { file: 'http://127.0.0.1:1234/files/renewed/backdrop.webp?v=1' },
+      };
+      host.client.request.mockImplementation(async (method) =>
+        method === 'themes.list' ? { activeId: 'lagoon' } : refreshed,
+      );
+      await vi.advanceTimersByTimeAsync(20 * 60 * 1000);
+      expect(customThemeStore.get().theme?.assets).toEqual(refreshed.assets);
+      Object.assign(document, { visibilityState: 'hidden' });
+      const count = host.client.request.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(20 * 60 * 1000);
+      expect(host.client.request.mock.calls).toHaveLength(count);
+      Object.assign(document, { visibilityState: 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(host.client.request.mock.calls.length).toBeGreaterThan(count);
+      stop();
+      stop = undefined;
+      const stopped = host.client.request.mock.calls.length;
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(20 * 60 * 1000);
+      expect(host.client.request.mock.calls).toHaveLength(stopped);
+    } finally {
+      stop?.();
+      vi.useRealTimers();
+    }
+  });
+  it('falls back locally without retrying the same failed URL and lets a new revision recover', async () => {
+    const host = fakeClient();
+    const stop = await host.bind();
+    const { customThemeStore, reportThemeBackdrop } = await import('./custom-theme');
+    await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('lagoon'));
+    const theme = customThemeStore.get().theme as NonNullable<
+      ReturnType<typeof customThemeStore.get>['theme']
+    >;
+    const failed = {
+      ...result(),
+      problems: [{ path: 'backdrop.file', severity: 'error' as const, message: 'Cannot decode' }],
+    };
+    host.client.request.mockResolvedValue(failed);
+    reportThemeBackdrop(theme, 'file', theme.assets.file as string, 'failed');
+    await vi.waitFor(() => expect(customThemeStore.get().problems).toEqual(failed.problems));
+    const count = host.client.request.mock.calls.length;
+    reportThemeBackdrop(theme, 'file', theme.assets.file as string, 'failed');
+    expect(host.client.request.mock.calls).toHaveLength(count);
+    reportThemeBackdrop(theme, 'file', theme.assets.file as string, 'loaded');
+    expect(host.client.request.mock.calls).toHaveLength(count);
+    expect(host.client.request).toHaveBeenLastCalledWith('themes.get', {
+      id: theme.id,
+      backdropStatus: { revision: '1', asset: 'file', status: 'failed' },
+    });
+    host.client.request.mockResolvedValue(result('lagoon', '2'));
+    host.update('lagoon');
+    await vi.waitFor(() => expect(customThemeStore.get().theme?.revision).toBe('2'));
+    expect(customThemeStore.get().failedAssets).toBeUndefined();
+    reportThemeBackdrop(theme, 'file', theme.assets.file as string, 'failed');
+    expect(customThemeStore.get().failedAssets).toBeUndefined();
+    stop();
+  });
+
+  it('does not send diagnostic parameters without management permission', async () => {
+    const host = fakeClient();
+    host.client.can.mockImplementation((...args: unknown[]) => args[0] !== 'host.manage');
+    const stop = await host.bind();
+    const { customThemeStore, reportThemeBackdrop } = await import('./custom-theme');
+    await vi.waitFor(() => expect(customThemeStore.get().theme?.id).toBe('lagoon'));
+    const theme = customThemeStore.get().theme as NonNullable<
+      ReturnType<typeof customThemeStore.get>['theme']
+    >;
+    reportThemeBackdrop(theme, 'file', theme.assets.file as string, 'failed');
+    await Promise.resolve();
+    expect(host.client.request).toHaveBeenLastCalledWith('themes.get', { id: theme.id });
+    expect(customThemeStore.get().failedAssets?.file).toBe(theme.assets.file);
+    stop();
+  });
   it('loads the active theme, follows notifications, clears on disable, and releases subscriptions', async () => {
     const host = fakeClient();
     const stop = await host.bind();
