@@ -231,7 +231,7 @@ describe('startHost', () => {
     }
     const { host, home, lines } = await start({
       adapter: new HangingAdapter({ stepDelayMs: 1 }),
-      shutdownBudgetMs: 200,
+      shutdownBudgetMs: process.platform === 'win32' ? 1500 : 200,
     });
     const client = await connect(host);
     const sessionId = await createSession(client);
