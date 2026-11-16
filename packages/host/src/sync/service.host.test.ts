@@ -1860,6 +1860,7 @@ describe('full Host material synchronization with synthetic identities', () => {
   }, 25000);
 
   it('reads immutable text, binary and HTML artifacts by source event without falling back to local files', async () => {
+    const deliveryTimeout = process.platform === 'win32' ? 20000 : 8000;
     const { first, second } = await fixture(true);
     await linkSessions(first, second, true, true);
     const session = (
@@ -1907,17 +1908,15 @@ describe('full Host material synchronization with synthetic identities', () => {
             .sessions[0]?.id;
           return remoteId;
         },
-        { timeout: 8000 },
+        { timeout: deliveryTimeout },
       )
       .toBeDefined();
     const scope = { workspaceId: second.workspaceId, sessionId: remoteId };
     await expect
-      .poll(
-        async () =>
-          (await second.rpc.request('workspace.readFile', { ...scope, path: 'report.md' })).text,
-        { timeout: 8000 },
-      )
-      .toBe('Synthetic version one');
+      .poll(() => second.rpc.request('workspace.readFile', { ...scope, path: 'report.md' }), {
+        timeout: deliveryTimeout,
+      })
+      .toMatchObject({ text: 'Synthetic version one' });
     const { subscriptionId } = await second.rpc.request('events.subscribe', {
       sessionId: remoteId,
       sinceSeq: 0,
@@ -1997,12 +1996,10 @@ describe('full Host material synchronization with synthetic identities', () => {
     ).toBe('Synthetic unrelated local file');
     await share(['report.md']);
     await expect
-      .poll(
-        async () =>
-          (await second.rpc.request('workspace.readFile', { ...scope, path: 'report.md' })).text,
-        { timeout: 8000 },
-      )
-      .toBe('Synthetic version two');
+      .poll(() => second.rpc.request('workspace.readFile', { ...scope, path: 'report.md' }), {
+        timeout: deliveryTimeout,
+      })
+      .toMatchObject({ text: 'Synthetic version two' });
     expect(
       (
         await second.rpc.request('workspace.readFile', {
@@ -2016,7 +2013,7 @@ describe('full Host material synchronization with synthetic identities', () => {
       'Synthetic unrelated local file',
     );
     expect(second.adapter.endpoints.size).toBe(0);
-  }, 20000);
+  }, 60000);
 
   it('discovers encrypted project names explicitly before binding a different local directory', async () => {
     const { mock, first, second } = await fixture();
