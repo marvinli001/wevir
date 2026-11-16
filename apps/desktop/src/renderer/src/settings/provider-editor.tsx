@@ -1,5 +1,9 @@
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
-import { inferredReasoningEfforts, ProviderReasoningLevelSchema } from '@wevir/protocol';
+import {
+  inferredReasoningEfforts,
+  ProviderReasoningLevelSchema,
+  ZUV_API_PROVIDER_ID,
+} from '@wevir/protocol';
 import { ArrowLeft, ExternalLink, Plus, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useId, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
@@ -16,6 +20,7 @@ import { effortLabel } from '@/session/model-picker';
 import { ImageModelsField } from './image-models';
 import { OllamaModels } from './ollama-models';
 import { catalogEntry } from './provider-catalog';
+import { loadProviderCatalog } from './provider-catalog-form';
 import {
   ASSUMED_CONTEXT_WINDOW,
   connectionChanged,
@@ -32,6 +37,7 @@ import {
 } from './provider-form';
 import { FORM_APIS } from './provider-presets';
 import { VertexFields } from './vertex-fields';
+import { ZuvApiConnectionPanel } from './zuv-api-connection';
 import { ZuvModels } from './zuv-models';
 
 export interface SaveOutcome {
@@ -63,6 +69,7 @@ export function ProviderEditor({
   /** 保存失败，或 Host 退回了没有对应输入框的问题（compat 等）。 */
   const [failure, setFailure] = useState<{ title: string; items: string[] }>();
   const [saving, setSaving] = useState(false);
+  const [manual, setManual] = useState(initial.editing && initial.id !== ZUV_API_PROVIDER_ID);
   const ids = useId();
 
   const update = (patch: Partial<ProviderForm>) => {
@@ -149,6 +156,41 @@ export function ProviderEditor({
     }
     await onSaved(outcome);
   };
+
+  if (zuv && client.supports('zuv_api_connection') && !manual)
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-1.5">
+          <IconButton label={t('provider.form.back')} onClick={onCancel}>
+            <ArrowLeft />
+          </IconButton>
+          <h2 className="text-base font-semibold">{name}</h2>
+        </div>
+        <ZuvApiConnectionPanel client={client} />
+        {failure && (
+          <p role="alert" className="text-sm text-destructive">
+            {failure.title}
+          </p>
+        )}
+        {!form.editing && (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              void client
+                .request('zuvApi.cancel', {})
+                .then(async () => {
+                  setForm(await loadProviderCatalog(client, form));
+                  setManual(true);
+                })
+                .catch((error) => setFailure({ title: describe(error), items: [] }));
+            }}
+          >
+            {t('provider.zuvApi.manual')}
+          </Button>
+        )}
+      </div>
+    );
 
   return (
     <form className="space-y-5" onSubmit={submit} noValidate data-provider-form={form.kind}>

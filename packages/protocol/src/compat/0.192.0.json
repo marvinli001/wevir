@@ -1,0 +1,53 @@
+{
+  "protocolVersion": "0.192.0",
+  "methods": {
+    "zuvApi.get": {
+      "params": [{}],
+      "result": [
+        { "connection": { "status": "disconnected" } },
+        {
+          "connection": {
+            "status": "connected",
+            "account": { "id": "fixture-api-account", "email": "api@fixture.test", "name": "API" },
+            "keyPrefix": "zuv-prefix",
+            "providerId": "zuv-api-login",
+            "modelCount": 2
+          }
+        }
+      ]
+    },
+    "zuvApi.login": {
+      "params": [{}],
+      "result": [
+        {
+          "connection": {
+            "status": "authorizing",
+            "login": {
+              "requestId": "fixture-request",
+              "authorizationUrl": "https://zuv.wevir.si/connect/wevir-api?request=fixture-request",
+              "expiresAt": "2030-01-01T00:00:00.000Z"
+            }
+          }
+        }
+      ]
+    },
+    "zuvApi.cancel": {
+      "params": [{}, { "requestId": "fixture-request" }],
+      "result": [{ "connection": { "status": "disconnected" } }]
+    },
+    "zuvApi.disconnect": {
+      "params": [{}],
+      "result": [{ "connection": { "status": "disconnected" } }]
+    },
+    "zuvApi.refreshModels": {
+      "params": [{}],
+      "result": [
+        { "connection": { "status": "connected", "error": "key_expired" } },
+        { "connection": { "status": "connected", "modelsError": "network" } }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

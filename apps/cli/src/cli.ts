@@ -90,6 +90,7 @@ import {
   workspaceRemove,
   workspaceRename,
 } from './commands/workspace.js';
+import { zuvApiDisconnect, zuvApiLogin, zuvApiStatus } from './commands/zuv-api.js';
 import { type CliIO, type Context, createContext } from './context.js';
 import { EXIT, UsageError } from './errors.js';
 import { padEnd } from './format.js';
@@ -584,14 +585,16 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       help: 'cmd.provider.login.help',
       options: {},
       positionals: { min: 0, max: 1 },
-      run: (ctx, _v, [kind]) => accountLogin(ctx, parseAccountKind(kind)),
+      run: (ctx, _v, [kind]) =>
+        kind === 'zuv' ? zuvApiLogin(ctx) : accountLogin(ctx, parseAccountKind(kind)),
     },
     status: {
       summary: 'cmd.provider.status.summary',
       usage: 'cmd.provider.status.usage',
       options: {},
       positionals: { min: 0, max: 1 },
-      run: (ctx, _v, [kind]) => accountStatus(ctx, parseAccountKind(kind)),
+      run: (ctx, _v, [kind]) =>
+        kind === 'zuv' ? zuvApiStatus(ctx) : accountStatus(ctx, parseAccountKind(kind)),
     },
     logout: {
       summary: 'cmd.provider.logout.summary',
@@ -599,7 +602,8 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       help: 'cmd.provider.logout.help',
       options: {},
       positionals: { min: 0, max: 1 },
-      run: (ctx, _v, [kind]) => accountLogout(ctx, parseAccountKind(kind)),
+      run: (ctx, _v, [kind]) =>
+        kind === 'zuv' ? zuvApiDisconnect(ctx) : accountLogout(ctx, parseAccountKind(kind)),
     },
   },
   account: {

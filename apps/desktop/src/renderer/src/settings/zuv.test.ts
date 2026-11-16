@@ -72,6 +72,7 @@ describe('Zuv API provider', () => {
     });
     expect(client.request).toHaveBeenCalledWith('provider.discoverModels', {
       baseURL: preset.baseURL,
+      apiKey: 'synthetic-key',
     });
     expect(validateForm(form, [])).toEqual({});
     const params = MethodSchemas['provider.upsert'].params.parse(toUpsertParams(form));
@@ -111,13 +112,14 @@ describe('Zuv API provider', () => {
       api: 'openai-completions',
       protocols: ['chat'],
     };
-    const refreshed = await loadProviderCatalog(
-      clientWith({
-        ok: true,
-        models: [newModel, ...models].map((model) => ({ model })),
-      }),
-      form,
-    );
+    const client = clientWith({
+      ok: true,
+      models: [newModel, ...models].map((model) => ({ model })),
+    });
+    const refreshed = await loadProviderCatalog(client, form);
+    expect(client.request).toHaveBeenCalledWith('provider.discoverModels', {
+      providerId: saved.id,
+    });
     expect(toUpsertParams(refreshed)).toMatchObject({
       models: [newModel, ...models],
       defaultModelId: models[1]?.id,
