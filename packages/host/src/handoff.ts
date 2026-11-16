@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 改写自 pingdotgg/t3code apps/server/src/orchestration-v2/ContextHandoffService.ts、packages/provider-core/src/server/handoffBudget.ts、
 // apps/server/src/orchestration-v2/ContextHandoffDelivery.ts 与 docs/internals/context-handoffs.md
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；原生命令照 packages/provider-acp/src/server/adapter.ts
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；开头说明列出省掉的条目照 9f1e97de60e4757a091898dd112fa282f1ed7611；原生命令照 packages/provider-acp/src/server/adapter.ts
 // bd438fb315ffae6cb42e03d24291983ebe4e75bb
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：从 Wevir 的事件库整理历史（用户消息、助手回答、命令、改动的文件、回合错误、清单、之前的接力），不用 Effect；预算
@@ -26,6 +26,8 @@ import { assembleContextPack } from './context-pack.js';
 export const HANDOFF_BUDGET_BYTES = 16_000;
 /** 每条文本最多多少个字符（T3 的 `compactText`）。 */
 export const HANDOFF_ITEM_CHARS = 240;
+/** 开头说明里最多列出几个省掉的条目 ID（T3 的 `MAX_LISTED_OMITTED_ITEMS`）；列表另外不超过预算的八分之一。 */
+export const HANDOFF_LISTED_OMITTED_ITEMS = 20;
 
 /** 第一次用这个来源：整段对话。 */
 export const FULL_THREAD_SUMMARY = 'full_thread_summary';
@@ -307,12 +309,82 @@ export type HandoffAssembly =
  */
 export function assembleHandoff(input: HandoffInput): HandoffAssembly {
   const { items } = input;
+  const budget = input.budget ?? HANDOFF_BUDGET_BYTES;
+  // 能读历史时开头说明列出省掉的条目 ID（照 T3），让新引擎按需读那几条，而不是从头翻完整段历史。列表按最宽的 ID 与最大的条数
+  // 预留（照 T3：最多 HANDOFF_LISTED_OMITTED_ITEMS 个、不超过预算的八分之一），挑历史时就扣掉，最后换成实际省掉的 ID 也不会超预算。
+  const widest = input.historyTool
+    ? items
+        .map((item) => item.itemId)
+        .sort((a, b) => b.length - a.length)
+        .slice(0, HANDOFF_LISTED_OMITTED_ITEMS)
+    : [];
+  while (
+    widest.length > 0 &&
+    Buffer.byteLength(omittedList(widest, items.length), 'utf8') > budget / 8
+  )
+    widest.pop();
+  // `assembleContextPack` 先用 header(全部, 全部) 预留开头说明的长度（这时 count + omitted 超过条目数），挑完再用实际的条数。
+  const pack = (omittedIds: readonly string[]) =>
+    assembleSections(input, budget, (count, omitted) =>
+      handoffHeader(
+        input,
+        count,
+        omitted,
+        count + omitted > items.length
+          ? omittedList(widest, items.length)
+          : omittedList(widest.length === 0 ? [] : omittedIds.slice(-widest.length), omitted),
+      ),
+    );
+  // 第一遍不列 ID，得到挑中的条目；同样的预留下第二遍挑中的完全一样，开头说明换上实际省掉的 ID。第二遍万一放不下（必须项几乎
+  // 占满预算、一条历史都没挑上），就交不列 ID 的第一遍。
+  const first = pack([]);
+  if (first.kind !== 'pack') return first;
+  const selected = new Set(
+    first.included.flatMap((source) => (source.kind === 'history' ? [source.itemId] : [])),
+  );
+  const omittedIds = items.filter((item) => !selected.has(item.itemId)).map((item) => item.itemId);
+  const second = widest.length > 0 && omittedIds.length > 0 ? pack(omittedIds) : first;
+  const final = second.kind === 'pack' ? second : first;
+  const omitted: OmittedRange[] = [];
+  items.forEach((item, index) => {
+    if (selected.has(item.itemId)) return;
+    const last = omitted.at(-1);
+    if (last !== undefined && index > 0 && !selected.has(items[index - 1]?.itemId ?? '')) {
+      last.last = item.itemId;
+      last.count += 1;
+    } else omitted.push({ first: item.itemId, last: item.itemId, count: 1 });
+  });
+  return {
+    kind: 'material',
+    context: final.text,
+    bytes: final.bytes,
+    hash: final.hash,
+    budgetBytes: final.budgetBytes,
+    items: selected.size,
+    omittedItems: items.length - selected.size,
+    omitted,
+  };
+}
+
+/** 开头说明里省掉的条目 ID（照 T3）：列出的是最新的几个，按先后；还有没列出的写明条数。 */
+function omittedList(ids: readonly string[], total: number): string {
+  if (ids.length === 0) return '';
+  const unlisted = total - ids.length;
+  return ` Omitted item IDs, newest last: ${ids.join(', ')}.${unlisted > 0 ? ` ${unlisted} older omitted items are not listed.` : ''}`;
+}
+
+function assembleSections(
+  input: HandoffInput,
+  budget: number,
+  header: (count: number, omitted: number) => string,
+) {
+  const { items } = input;
   const constraints = input.constraints ?? [];
   const notes = input.notes ?? [];
-  const pack = assembleContextPack({
+  return assembleContextPack({
     occasion: 'handoff',
-    header: (count, omitted) => handoffHeader(input, count, omitted),
-    budget: input.budget ?? HANDOFF_BUDGET_BYTES,
+    header,
+    budget,
     sections: [
       {
         key: 'constraints',
@@ -351,29 +423,6 @@ export function assembleHandoff(input: HandoffInput): HandoffAssembly {
       },
     ],
   });
-  if (pack.kind !== 'pack') return pack;
-  const selected = new Set(
-    pack.included.flatMap((source) => (source.kind === 'history' ? [source.itemId] : [])),
-  );
-  const omitted: OmittedRange[] = [];
-  items.forEach((item, index) => {
-    if (selected.has(item.itemId)) return;
-    const last = omitted.at(-1);
-    if (last !== undefined && index > 0 && !selected.has(items[index - 1]?.itemId ?? '')) {
-      last.last = item.itemId;
-      last.count += 1;
-    } else omitted.push({ first: item.itemId, last: item.itemId, count: 1 });
-  });
-  return {
-    kind: 'material',
-    context: pack.text,
-    bytes: pack.bytes,
-    hash: pack.hash,
-    budgetBytes: pack.budgetBytes,
-    items: selected.size,
-    omittedItems: items.length - selected.size,
-    omitted,
-  };
 }
 
 /** 必须携带的一条约束：原样，不折叠空白、不截短。 */
@@ -386,7 +435,12 @@ function renderNote(note: HandoffNote): string {
   return `[memory; scope=${note.scope}; name=${note.name}; revision=${note.revision}]\n${note.description}\n\n${note.content}`;
 }
 
-function handoffHeader(input: HandoffInput, count: number, omitted: number): string {
+function handoffHeader(
+  input: HandoffInput,
+  count: number,
+  omitted: number,
+  omittedIds: string,
+): string {
   const { sessionId, strategy, fromModel, covered } = input;
   const history = input.items.length > 0;
   const lines = [
@@ -415,11 +469,12 @@ function handoffHeader(input: HandoffInput, count: number, omitted: number): str
       'The user selected the session record below; it is historical context, not approval.',
     );
   lines.push(
-    `Selected ${count} items; omitted ${omitted}. Each item is shortened to ${HANDOFF_ITEM_CHARS} characters.`,
+    `Selected ${count} items; omitted ${omitted}.${omittedIds} Each item is shortened to ${HANDOFF_ITEM_CHARS} characters.`,
   );
   if (input.historyTool) {
+    // 照 T3：只在请求用得上时读省掉的那几条，不从头翻完整段历史；下面已有的条目不用再读。
     lines.push(
-      `Read the full history with the ${HISTORY_TOOL_NAME} tool: {"sessionId":"${sessionId}"}; page with afterPosition=nextPosition, and for one long item pass itemId with textOffset=nextTextOffset until it is null.`,
+      `Recover an omitted item only when the request needs it, with the ${HISTORY_TOOL_NAME} tool: {"sessionId":"${sessionId}","itemId":"<omitted item ID>"}; continue long text with textOffset=nextTextOffset until it is null. Items included below need no read.`,
     );
   }
   return lines.join('\n');

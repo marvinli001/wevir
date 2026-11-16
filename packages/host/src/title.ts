@@ -141,7 +141,8 @@ export interface GeneratedTitle {
 
 /**
  * 解析模型的输出：取第一个 `{` 到最后一个 `}` 之间的 JSON（模型可能加了代码块），`title` 必须是字符串。整理：
- * 空白折叠成一个空格，去掉首尾引号与结尾标点，按长度截断；整理后为空就算失败（返回 undefined）。
+ * 空白折叠成一个空格，去掉包住整个标题的一对引号与结尾标点，按长度截断；整理后为空，或者只是 `title`（有的模型照抄输出
+ * 格式的键名，不分大小写、引号已去掉）就算失败（返回 undefined）。
  */
 export function parseGeneratedTitle(output: string): GeneratedTitle | undefined {
   const start = output.indexOf('{');
@@ -157,7 +158,7 @@ export function parseGeneratedTitle(output: string): GeneratedTitle | undefined 
   const { title, description } = value as Record<string, unknown>;
   if (typeof title !== 'string') return undefined;
   const cleanTitle = tidy(title, GENERATED_TITLE_MAX_LENGTH);
-  if (cleanTitle === '') return undefined;
+  if (cleanTitle === '' || cleanTitle.toLowerCase() === 'title') return undefined;
   const result: GeneratedTitle = { title: cleanTitle };
   if (typeof description === 'string') {
     const cleanDescription = tidy(description, TITLE_DESCRIPTION_MAX_LENGTH);
@@ -166,15 +167,38 @@ export function parseGeneratedTitle(output: string): GeneratedTitle | undefined 
   return result;
 }
 
-const QUOTES = /^["'`“”‘’「」『』《》]+|["'`“”‘’「」『』《》]+$/gu;
+/** 成对的引号：开头的 → 结尾的。 */
+const QUOTE_PAIRS: ReadonlyMap<string, string> = new Map([
+  ['"', '"'],
+  ["'", "'"],
+  ['`', '`'],
+  ['“', '”'],
+  ['‘', '’'],
+  ['「', '」'],
+  ['『', '』'],
+  ['《', '》'],
+]);
 const TRAILING_PUNCTUATION = /[\s.。!！?？,，;；:：、…]+$/u;
+
+/**
+ * 一对引号包住整个标题时去掉它。中间还有同样的引号就不是一对包住整个标题（`Rename "foo" to "bar"`），原样保留，免得切掉
+ * 最后一个引号。
+ */
+function unquote(text: string): string {
+  const chars = Array.from(text);
+  const close = QUOTE_PAIRS.get(chars[0] ?? '');
+  if (close === undefined || chars.length < 2 || chars.at(-1) !== close) return text;
+  const inner = chars.slice(1, -1);
+  if (inner.includes(chars[0] ?? '') || inner.includes(close)) return text;
+  return inner.join('');
+}
 
 function tidy(text: string, maxLength: number): string {
   let out = text.replace(/\s+/g, ' ').trim();
   // 引号与结尾标点可能交替出现（“…。”），去到不再变化为止。
   for (let previous = ''; previous !== out; ) {
     previous = out;
-    out = out.replace(QUOTES, '').replace(TRAILING_PUNCTUATION, '').trim();
+    out = unquote(out).replace(TRAILING_PUNCTUATION, '').trim();
   }
   return Array.from(out).slice(0, maxLength).join('').trim();
 }

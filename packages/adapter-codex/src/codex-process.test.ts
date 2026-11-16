@@ -12,6 +12,7 @@ const write = (text) => new Promise((resolve) => process.stdout.write(text, reso
 const pause = () => new Promise((resolve) => setTimeout(resolve, 20));
 const reply = (id, result) => write(JSON.stringify({ id, result }) + '\n');
 let buffer = '';
+let asker;
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', async (chunk) => {
   buffer += chunk;
@@ -19,6 +20,11 @@ process.stdin.on('data', async (chunk) => {
   while ((newline = buffer.indexOf('\n')) !== -1) {
     const message = JSON.parse(buffer.slice(0, newline));
     buffer = buffer.slice(newline + 1);
+    if (message.method === undefined && message.id === 'ask-1') {
+      // askBack 发出的服务端请求得到了回复：把回复原样交给原来的请求。
+      await reply(asker, message);
+      continue;
+    }
     switch (message.method) {
       case 'initialize':
         await reply(message.id, { userAgent: 'fake', codexHome: '', platformFamily: 'unix', platformOs: 'macos' });
@@ -37,6 +43,11 @@ process.stdin.on('data', async (chunk) => {
         await write('{"id":' + message.id + ',"result":"' + 'x'.repeat(600));
         await pause();
         await write('y'.repeat(600));
+        break;
+      case 'askBack':
+        // 先向客户端发一条服务端请求，等它回复了再回复这条请求。
+        asker = message.id;
+        await write(JSON.stringify({ id: 'ask-1', method: 'item/tool/requestUserInput', params: {} }) + '\n');
         break;
       case 'closeStdout':
         // 关掉 stdout 但进程不退出（像 app-server 的输出管道坏了）。
@@ -101,6 +112,19 @@ describe('CodexProcess 的 stdout', () => {
         : { exitCode: null, signal: 'SIGTERM' },
     );
     expect(exits[0]?.stderrTail).toContain('超过 1024 字节');
+  });
+
+  it('服务端请求的回调同步抛错：回复 Internal error，不把异常原文交出去，读循环照常', async () => {
+    const { codex } = start({
+      onServerRequest: () => {
+        throw new Error('secret-sentinel');
+      },
+    });
+    await codex.start();
+    const answer = await codex.request<Record<string, unknown>>('askBack', {});
+    expect(answer).toEqual({ id: 'ask-1', error: { code: -32603, message: 'Internal error' } });
+    expect(JSON.stringify(answer)).not.toContain('secret-sentinel');
+    await expect(codex.request('split', {})).resolves.toEqual({ text: '你好' });
   });
 
   // Windows 上子进程关不掉自己的 stdout 让父进程读到结束（closeSync(1)、句柄 close、stdout.end() 实测都不行），

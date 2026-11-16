@@ -100,4 +100,21 @@ describe('parseGeneratedTitle', () => {
     expect(parseGeneratedTitle('{"title": "。。"}')).toBeUndefined();
     expect(parseGeneratedTitle('{"title": ')).toBeUndefined();
   });
+
+  it('只在一对引号包住整个标题时去掉引号，标题里引着的词保留结尾的引号', () => {
+    const title = (text: string) => parseGeneratedTitle(JSON.stringify({ title: text }))?.title;
+    expect(title('Rename "foo" to "bar"')).toBe('Rename "foo" to "bar"');
+    expect(title('"Rename foo to bar"')).toBe('Rename foo to bar');
+    expect(title('修复“登录”与“注册”')).toBe('修复“登录”与“注册”');
+    expect(title('“修复登录”。')).toBe('修复登录');
+    expect(title('《三体》读后感')).toBe('《三体》读后感');
+    expect(title('"a" and "b"')).toBe('"a" and "b"');
+  });
+
+  it('模型照抄键名、标题只是 title（不分大小写与引号）时返回 undefined', () => {
+    expect(parseGeneratedTitle('{"title": "title"}')).toBeUndefined();
+    expect(parseGeneratedTitle('{"title": "\\"Title\\"."}')).toBeUndefined();
+    expect(parseGeneratedTitle('{"title": "TITLE", "description": "x"}')).toBeUndefined();
+    expect(parseGeneratedTitle('{"title": "Title case"}')).toEqual({ title: 'Title case' });
+  });
 });

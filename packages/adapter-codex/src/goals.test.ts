@@ -1,4 +1,6 @@
+import type { AgentInput } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
+import { GOAL_KICKOFF, goalKickoffInput } from './codex-adapter.js';
 import { engineGoal, goalNotification } from './goals.js';
 import type { ThreadGoal } from './protocol.js';
 
@@ -41,5 +43,38 @@ describe('会话目标的映射', () => {
     expect(goalNotification('thread/goal/cleared', { threadId: 't-1' })).toEqual({ goal: null });
     expect(goalNotification('thread/goal/updated', { threadId: 't-1' })).toBeUndefined();
     expect(goalNotification('turn/started', { threadId: 't-1' })).toBeUndefined();
+  });
+});
+
+describe('goalKickoffInput', () => {
+  it('目标前面接上开头，告诉模型目标已经设好、不要再调 create_goal（照 T3 #33260）', () => {
+    expect(GOAL_KICKOFF).toBe(
+      "This thread's goal is already set. Do not call create_goal. Start working on it now: ",
+    );
+    expect(goalKickoffInput({ content: [{ type: 'text', text: '修好登录' }] }, '修好登录')).toEqual(
+      {
+        content: [{ type: 'text', text: `${GOAL_KICKOFF}修好登录` }],
+      },
+    );
+  });
+
+  it('前面有接力摘要时插在目标紧前面；其余段落与协作模式不变', () => {
+    const input: AgentInput = {
+      content: [
+        { type: 'text', text: 'Context handoff (...)\n\nUser message:\n修好登录' },
+        { type: 'image', path: '/tmp/a.png', mimeType: 'image/png' },
+        { type: 'text', text: '<reminder>' },
+      ],
+    };
+    expect(goalKickoffInput(input, '修好登录').content).toEqual([
+      { type: 'text', text: `Context handoff (...)\n\nUser message:\n${GOAL_KICKOFF}修好登录` },
+      input.content[1],
+      input.content[2],
+    ]);
+  });
+
+  it('第一段文字不以目标结尾时原样交', () => {
+    const input = { content: [{ type: 'text' as const, text: '别的' }] };
+    expect(goalKickoffInput(input, '修好登录')).toBe(input);
   });
 });

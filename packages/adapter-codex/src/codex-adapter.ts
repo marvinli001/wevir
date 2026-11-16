@@ -1260,7 +1260,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       throw engineError(error, 'thread/goal/set', this.#logger);
     }
     try {
-      await this.#turnStart(session, turn, userInput(request.input));
+      await this.#turnStart(
+        session,
+        turn,
+        userInput(goalKickoffInput(request.input, request.objective)),
+      );
     } finally {
       turn.goalActivation = false;
     }
@@ -3535,6 +3539,29 @@ export function extraRootsInstructions(roots: readonly string[] | undefined): {
 }
 
 /** `turn/start` 与 `turn/steer` 的输入：文本照旧，图片是 Host 存下的文件（`localImage`，0.28.0）。 */
+/**
+ * 设目标的第一个回合交给模型的开头（照 T3 Code #33260）：只交目标本身，模型会把它当成一句陈述复述一遍；写成“开始做这个目标”，
+ * 模型又会调 `create_goal`，而目标已经设好，Codex 拒绝。消息记录里仍是用户写的目标。
+ */
+export const GOAL_KICKOFF =
+  "This thread's goal is already set. Do not call create_goal. Start working on it now: ";
+
+/**
+ * 在目标前面接上 `GOAL_KICKOFF`。Host 交来的第一段文字以目标结尾（前面可能有接力摘要、规则等，`User message:` 之后才是目标），
+ * 就插在目标紧前面；对不上时原样交。
+ */
+export function goalKickoffInput(input: AgentInput, objective: string): AgentInput {
+  const index = input.content.findIndex((part) => part.type === 'text');
+  const first = input.content[index];
+  if (first?.type !== 'text' || objective === '' || !first.text.endsWith(objective)) return input;
+  const content = [...input.content];
+  content[index] = {
+    ...first,
+    text: `${first.text.slice(0, first.text.length - objective.length)}${GOAL_KICKOFF}${objective}`,
+  };
+  return { ...input, content };
+}
+
 function userInput(input: AgentInput): UserInput[] {
   return input.content.map((part) =>
     part.type === 'text'

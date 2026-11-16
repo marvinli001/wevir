@@ -177,6 +177,12 @@ export class CodexRpcError extends Error {
 export const METHOD_NOT_FOUND = -32601;
 
 /**
+ * 处理服务端请求时同步抛错（回调自己崩了，而不是按约定返回被拒的 Promise）的回复码（JSON-RPC Internal error）。照 T3
+ * 的做法回复固定的 `Internal error`，不把异常的原文交给 app-server。
+ */
+export const INTERNAL_ERROR = -32603;
+
+/**
  * 服务端请求的处理结果是它时不回复：请求已经由 app-server 自己结束了（`serverRequest/resolved`，回合被中断），
  * 或者进程已经不在了。
  */
@@ -615,12 +621,21 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
 
   #onServerRequest(launch: Launch, request: CodexServerRequest): void {
     const handler = this.#options.onServerRequest;
-    const answer =
-      handler === undefined
-        ? Promise.reject(
-            Object.assign(new Error(`不支持 ${request.method}`), { code: METHOD_NOT_FOUND }),
-          )
-        : handler(request);
+    let answer: Promise<unknown>;
+    if (handler === undefined) {
+      answer = Promise.reject(
+        Object.assign(new Error(`不支持 ${request.method}`), { code: METHOD_NOT_FOUND }),
+      );
+    } else {
+      try {
+        answer = Promise.resolve(handler(request));
+      } catch {
+        // 回调同步抛错会顺着 stdout 的 data 监听冒出去，这条请求也就永远没有回复，app-server 一直等着。
+        answer = Promise.reject(
+          Object.assign(new Error('Internal error'), { code: INTERNAL_ERROR }),
+        );
+      }
+    }
     answer.then(
       (result) => {
         if (result === NO_REPLY) return;

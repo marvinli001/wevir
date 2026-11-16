@@ -3,7 +3,7 @@
 
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import type { CodexAdapter } from './codex-adapter.js';
+import { type CodexAdapter, GOAL_KICKOFF } from './codex-adapter.js';
 import {
   codexBinaryOrSkip,
   collectEvents,
@@ -102,9 +102,9 @@ describe.skipIf(binary === undefined)(
       await startGoal(adapter, id);
       const first = await finishTurn(events, 0);
       expect(first.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-      // 第一个请求就带着三个目标工具，输入是目标本身。
+      // 第一个请求就带着三个目标工具，输入是目标，前面说明目标已经设好、不要再调 create_goal。
       const firstRequest = mock.requests.at(0)?.body;
-      expect(JSON.stringify(firstRequest?.input)).toContain(OBJECTIVE);
+      expect(JSON.stringify(firstRequest?.input)).toContain(`${GOAL_KICKOFF}${OBJECTIVE}`);
       const names = toolNames({
         index: 0,
         lastUserText: '',

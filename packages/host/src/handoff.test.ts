@@ -8,6 +8,7 @@ import {
   FULL_THREAD_SUMMARY,
   HANDOFF_BUDGET_BYTES,
   HANDOFF_ITEM_CHARS,
+  HANDOFF_LISTED_OMITTED_ITEMS,
   type HandoffAssembly,
   type HandoffInput,
   type HistoryItem,
@@ -186,9 +187,73 @@ describe('assembleHandoff', () => {
     expect(context).toContain('was running on Mock API · Mock Pro');
     expect(context).toContain('session events 1-40');
     expect(context).toContain('Selected 2 items; omitted 0.');
-    expect(context).toContain(`read_session_history tool: {"sessionId":"${SESSION}"}`);
+    expect(context).toContain(
+      `read_session_history tool: {"sessionId":"${SESSION}","itemId":"<omitted item ID>"}`,
+    );
+    expect(context).toContain('Items included below need no read.');
+    expect(context).not.toContain('Omitted item IDs');
     expect(context.indexOf('问题')).toBeLessThan(context.indexOf('回答'));
     expect(context).toContain('[user; user_message; item=e2]\n问题');
+  });
+
+  it('有读历史的工具时列出省掉的条目 ID（最新的在后，最多 20 个），按需读那几条；总长不超预算', () => {
+    const items = Array.from({ length: 40 }, (_, index) =>
+      item(
+        index + 1,
+        index % 2 === 0 ? 'user_message' : 'assistant_message',
+        `第 ${index + 1} 条 ${'字'.repeat(200)}`,
+      ),
+    );
+    const budget = 6000;
+    const result = material(
+      assembleHandoff({
+        ...base,
+        strategy: FULL_THREAD_SUMMARY,
+        items,
+        historyTool: true,
+        budget,
+      }),
+    );
+    expect(result.bytes).toBeLessThanOrEqual(budget);
+    expect(result.omittedItems).toBeGreaterThan(HANDOFF_LISTED_OMITTED_ITEMS);
+    const absent = items
+      .filter((entry) => !result.context.includes(`item=${entry.itemId}]`))
+      .map((entry) => entry.itemId);
+    expect(absent).toHaveLength(result.omittedItems);
+    const listed = absent.slice(-HANDOFF_LISTED_OMITTED_ITEMS);
+    expect(result.context).toContain(
+      `Selected ${result.items} items; omitted ${result.omittedItems}. Omitted item IDs, newest last: ${listed.join(', ')}. ${result.omittedItems - listed.length} older omitted items are not listed.`,
+    );
+    expect(result.context).not.toContain('afterPosition');
+
+    // 没有工具时不列（列了也读不到）。
+    const without = material(
+      assembleHandoff({
+        ...base,
+        strategy: FULL_THREAD_SUMMARY,
+        items,
+        historyTool: false,
+        budget,
+      }),
+    );
+    expect(without.context).not.toContain('Omitted item IDs');
+  });
+
+  it('必须项几乎占满预算、连 ID 列表都放不下时不列 ID，材料照样交', () => {
+    const input: HandoffInput = {
+      ...base,
+      strategy: FULL_THREAD_SUMMARY,
+      items: [item(2, 'user_message', '问题')],
+      historyTool: true,
+      constraints: ['只改 src/'],
+    };
+    // 一条历史都不放、不列 ID 时的长度（超限结果里的 bytes），预算只多给几个字节。
+    const minimum = assembleHandoff({ ...input, budget: 1 });
+    if (minimum.kind !== 'over_budget') throw new Error(minimum.kind);
+    const tight = material(assembleHandoff({ ...input, budget: minimum.bytes + 8 }));
+    expect(tight).toMatchObject({ items: 0, omittedItems: 1, bytes: minimum.bytes });
+    expect(tight.context).toContain('Selected 0 items; omitted 1. Each item');
+    expect(tight.context).not.toContain('Omitted item IDs');
   });
 
   it('补齐：说明换了措辞；没有工具时不提它', () => {
