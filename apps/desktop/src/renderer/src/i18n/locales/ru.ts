@@ -1788,6 +1788,7 @@ export const messages: Messages = {
   'source.idleCompaction.off': 'Выкл.',
   'settings.chat.recap': 'Итоги после отсутствия',
   'settings.chat.insights': 'Подсказки по сеансу',
+  'settings.chat.proactiveSubagents': 'Проактивные субагенты',
   'settings.chat.ruleFiles': 'Добавлять правила других агентов',
   'settings.personalization.outputStyle': 'Стиль ответов',
   'settings.personalization.instructions': 'Инструкции для агента',

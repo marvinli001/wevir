@@ -1781,6 +1781,7 @@ export const messages: Messages = {
   'source.idleCompaction.off': 'Disattivata',
   'settings.chat.recap': 'Riepilogo al rientro',
   'settings.chat.insights': 'Avvisi della sessione',
+  'settings.chat.proactiveSubagents': 'Subagenti proattivi',
   'settings.chat.ruleFiles': 'Aggiungi le regole di altri agenti',
   'settings.personalization.outputStyle': 'Stile di risposta',
   'settings.personalization.instructions': 'Istruzioni per l’agente',

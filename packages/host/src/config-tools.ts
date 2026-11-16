@@ -97,6 +97,8 @@ export const SETTINGS_ACCESS: Record<keyof HostSettings, 'agent' | 'approval' | 
   sessionInsights: 'agent',
   compactIdleClaudeSessions: 'approval',
   claudeIdleCompactionOverrides: 'approval',
+  // 每个会话都可能多出好几路子智能体的模型请求。
+  proactiveSubagents: 'approval',
   autoMemory: 'agent',
   autoEpisodes: 'agent',
   ruleFiles: 'agent',

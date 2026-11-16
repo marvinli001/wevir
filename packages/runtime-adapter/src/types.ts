@@ -99,6 +99,11 @@ export interface SessionConfig {
    * 做不到的部分靠权限模式与角色说明。没有角色或角色不限引擎工具时省略。
    */
   engineTools?: EngineToolLimits;
+  /**
+   * 主动派子智能体（Host 设置 `proactiveSubagents`）：开着时引擎在用户没明确要求时也可以把调查、查证与复核派给子智能体。只有
+   * Codex 执行（换掉 `spawn_agent` 说明里的限制并加一段开发者说明），别的引擎忽略。
+   */
+  proactiveSubagents?: boolean;
 }
 
 /** 引擎自带工具的类别：读与搜索文件、改文件、跑命令、联网。 */

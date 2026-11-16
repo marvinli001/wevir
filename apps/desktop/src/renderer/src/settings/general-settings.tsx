@@ -68,6 +68,10 @@ export function GeneralSettings() {
     supported && view.status === 'connected' && hostSupports(view.hello.features, 'plugin_market');
   const ruleFilesSupported =
     supported && view.status === 'connected' && hostSupports(view.hello.features, 'rule_files');
+  const proactiveSubagentsSupported =
+    supported &&
+    view.status === 'connected' &&
+    hostSupports(view.hello.features, 'proactive_subagents');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   // 0.102.0：Host 有 `prevent_sleep` 时开关存在 Host 设置，旧 Host 上仍只存在本机。
@@ -182,6 +186,20 @@ export function GeneralSettings() {
                   label={t('settings.chat.insights')}
                   disabled={busy}
                   onChange={(sessionInsights) => void save({ sessionInsights })}
+                />
+              }
+            />
+          )}
+          {proactiveSubagentsSupported && (
+            <SettingsRow
+              title={t('settings.chat.proactiveSubagents')}
+              data-setting="proactive-subagents"
+              control={
+                <Switch
+                  checked={settings.proactiveSubagents === true}
+                  label={t('settings.chat.proactiveSubagents')}
+                  disabled={busy}
+                  onChange={(proactiveSubagents) => void save({ proactiveSubagents })}
                 />
               }
             />

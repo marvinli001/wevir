@@ -986,6 +986,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       // 角色对引擎自带工具的限制：按会话的角色现算。
       engineTools: async (sessionId) => appTools?.engineToolLimits(sessionId),
+      proactiveSubagents: () => settings.get().proactiveSubagents === true,
       // 只给某个项目的连接器（0.74.0）：按会话所在的工作区交给引擎。
       projectConnectors: (workspaceId) => plugins.projectConnectors(workspaceId),
       // 环境变量（0.130.0）：建立、恢复与分出环境的会话时现读。
@@ -2141,6 +2142,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         files_read: true,
         prevent_sleep: true,
         idle_compaction: true,
+        proactive_subagents: true,
         inbox: true,
         approval_timeout: true,
         notification_intents: true,

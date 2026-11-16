@@ -1742,6 +1742,7 @@ export const messages: Messages = {
   'source.idleCompaction.off': '끄기',
   'settings.chat.recap': '자리 비운 뒤 요약',
   'settings.chat.insights': '세션 인사이트',
+  'settings.chat.proactiveSubagents': '하위 에이전트 적극 활용',
   'settings.chat.ruleFiles': '다른 에이전트의 규칙 파일 추가',
   'settings.personalization.outputStyle': '출력 스타일',
   'settings.personalization.instructions': '에이전트 지침',

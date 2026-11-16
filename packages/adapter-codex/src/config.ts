@@ -505,6 +505,23 @@ export function sessionEnvConfig(
   return { 'shell_environment_policy.set': { ...env } };
 }
 
+/**
+ * 主动派子智能体时 `spawn_agent` 说明末尾的用法提示。Codex 的 V1 子智能体工具（Wevir 用的这套，`features.multi_agent`）在没有提示时
+ * 写的是“除非用户或 AGENTS.md / skill 明确要求，不要派子智能体”，要求深入调查也不算（upstream/codex/codex-rs/core/src/tools/handlers/
+ * multi_agents_spec.rs 的 `spawn_agent_tool_description`）；有 `features.multi_agent_v2.usage_hint_text` 时整段换成它。V2 的开关
+ * 照旧关着，这张表只为借它的提示文本（`config/mod.rs` 的 `resolve_multi_agent_v2_config`）。具体做法在开发者说明里
+ * （prompts/subagents-proactive.md），工具搜索打开时 `spawn_agent` 是延迟加载的，模型先看到的是开发者说明。
+ */
+export const PROACTIVE_SUBAGENTS_TOOL_HINT =
+  '用户打开了“主动派子智能体”：不必等用户明确要求，按开发者说明里“主动派子智能体”一节决定何时派、怎么派。';
+
+/** 主动派子智能体（Host 设置 `proactiveSubagents`）：`thread/start` / `thread/resume` / `thread/fork` 的 `config` 覆盖。 */
+export function proactiveSubagentsConfig(): Record<string, unknown> {
+  return {
+    'features.multi_agent_v2': { enabled: false, usage_hint_text: PROACTIVE_SUBAGENTS_TOOL_HINT },
+  };
+}
+
 /** 应用级工具一次调用的上限（秒）：`wevir_session_wait` 最长等 10 分钟，再留一点余量。 */
 export const APP_TOOLS_TOOL_TIMEOUT_SEC = 660;
 

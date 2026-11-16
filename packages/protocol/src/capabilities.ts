@@ -525,6 +525,8 @@ export const HOST_FEATURES = {
    */
   preventSleep: 'prevent_sleep',
   idleCompaction: 'idle_compaction',
+  /** 主动派子智能体：设置 `proactiveSubagents`。 */
+  proactiveSubagents: 'proactive_subagents',
   /** 收件箱（0.105.0，ADR-0017 §5，domain-model §3.47）：`inbox.list`、`inbox.dismiss` 与 `inbox.changed` 通知。与引擎无关。 */
   inbox: 'inbox',
   /**
@@ -773,6 +775,7 @@ export const HostFeaturesSchema = z.looseObject({
   files_read: z.boolean().optional(),
   prevent_sleep: z.boolean().optional(),
   idle_compaction: z.boolean().optional(),
+  proactive_subagents: z.boolean().optional(),
   inbox: z.boolean().optional(),
   approval_timeout: z.boolean().optional(),
   notification_intents: z.boolean().optional(),

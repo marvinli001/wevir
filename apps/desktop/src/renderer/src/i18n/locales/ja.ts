@@ -1753,6 +1753,7 @@ export const messages: Messages = {
   'source.idleCompaction.off': 'オフ',
   'settings.chat.recap': '不在後の振り返り',
   'settings.chat.insights': '見守りヒント',
+  'settings.chat.proactiveSubagents': 'サブエージェントを積極的に使う',
   'settings.chat.ruleFiles': '他のエージェントのルールファイルを追加',
   'settings.personalization.outputStyle': '出力スタイル',
   'settings.personalization.instructions': 'エージェントへの指示',

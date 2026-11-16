@@ -378,6 +378,11 @@ export interface SessionManagerOptions {
    */
   engineTools?: (sessionId: SessionId) => Promise<EngineToolLimits | undefined>;
   /**
+   * Host 设置的“主动派子智能体”（`proactiveSubagents`）：建立、恢复、分出与接力会话时现读，开着时给适配器的
+   * `SessionConfig.proactiveSubagents`。
+   */
+  proactiveSubagents?: () => boolean;
+  /**
    * 消息里的图片（0.28.0，images.ts）。没给时、或适配器没有 `acceptsImages` 时，带图片的消息回 `INVALID_PARAMS`。
    */
   images?: ImageStore;
@@ -922,6 +927,7 @@ export class SessionManager {
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
   readonly #engineTools: SessionManagerOptions['engineTools'];
+  readonly #proactiveSubagents: SessionManagerOptions['proactiveSubagents'];
   /** 角色对引擎工具的限制，按会话（最近一次建立或恢复时算的）：审批请求按它拒绝（`#roleRefused`）。 */
   readonly #roleLimits = new Map<SessionId, EngineToolLimits>();
   /**
@@ -1025,6 +1031,7 @@ export class SessionManager {
     this.#images = options.images;
     this.#appTools = options.appTools;
     this.#engineTools = options.engineTools;
+    this.#proactiveSubagents = options.proactiveSubagents;
     this.#approvalPolicy = options.approvalPolicy;
     this.#projectConnectors = options.projectConnectors;
     this.#environmentVariables = options.environmentVariables;
@@ -1119,10 +1126,13 @@ export class SessionManager {
       engineHooks.length === 0 && disabledHooks.length === 0
         ? withEnv
         : { ...withEnv, hooks: engineHooks, disabledHooks };
-    const withGuardrails =
+    const withTap =
       this.#hooks !== undefined && this.#adapter.hookCallbacks?.(config.providerId) === true
         ? { ...withHooks, hookTap: this.#hooks.claudeTap(sessionId) }
         : withHooks;
+    // 主动派子智能体：每次建立或恢复都按当时的设置。
+    const withGuardrails =
+      this.#proactiveSubagents?.() === true ? { ...withTap, proactiveSubagents: true } : withTap;
     if (this.#adapter.appTools !== true) return withGuardrails;
     const frozenContext =
       workspaceId === undefined

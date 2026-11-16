@@ -1751,6 +1751,7 @@ export const zhCN = {
   'source.idleCompaction.off': '关闭',
   'settings.chat.recap': '离开后回顾',
   'settings.chat.insights': '旁观提示',
+  'settings.chat.proactiveSubagents': '主动派子智能体',
   'settings.chat.ruleFiles': '补充其他引擎的规则文件',
   'settings.personalization.outputStyle': '输出风格',
   'settings.personalization.instructions': '给 Agent 的说明',

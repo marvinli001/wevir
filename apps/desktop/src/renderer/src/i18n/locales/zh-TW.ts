@@ -1738,6 +1738,7 @@ export const messages: Messages = {
   'source.idleCompaction.off': '關閉',
   'settings.chat.recap': '離開後回顧',
   'settings.chat.insights': '旁觀提示',
+  'settings.chat.proactiveSubagents': '主動派子代理',
   'settings.chat.ruleFiles': '補充其他引擎的規則檔',
   'settings.personalization.outputStyle': '輸出風格',
   'settings.personalization.instructions': '給 Agent 的說明',

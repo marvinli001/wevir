@@ -85,6 +85,7 @@ import {
   codexProviderId,
   contextWindowOf,
   fromCodexEffort,
+  proactiveSubagentsConfig,
   renderChatgptConfigToml,
   renderModelCatalog,
   sessionEnvConfig,
@@ -866,8 +867,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.disabledHooks,
           config.env,
           config.engineTools,
+          config.proactiveSubagents,
         ),
-        ...threadDeveloperInstructions(config),
+        ...threadDeveloperInstructions(config, this.#prompt),
       };
       let response: ThreadStartResponse;
       try {
@@ -928,8 +930,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.disabledHooks,
           config.env,
           config.engineTools,
+          config.proactiveSubagents,
         ),
-        ...threadDeveloperInstructions(config),
+        ...threadDeveloperInstructions(config, this.#prompt),
         excludeTurns: true,
       };
       const response = await this.#resumeThread(params);
@@ -1434,8 +1437,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
             config.disabledHooks,
             config.env,
             config.engineTools,
+            config.proactiveSubagents,
           ),
-          ...threadDeveloperInstructions(config),
+          ...threadDeveloperInstructions(config, this.#prompt),
           excludeTurns: true,
         });
         session.appliedContextWindow = window;
@@ -1564,6 +1568,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           config.disabledHooks,
           config.env,
           config.engineTools,
+          config.proactiveSubagents,
         ),
         ephemeral: false,
         excludeTurns: true,
@@ -3185,6 +3190,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     disabledHooks: SessionConfig['disabledHooks'],
     env: SessionConfig['env'],
     engineTools: SessionConfig['engineTools'],
+    proactiveSubagents?: boolean,
   ): Omit<ThreadStartParams, 'cwd'> {
     // 角色关掉的引擎工具（roles.ts）：命令关 shell，改文件用只读沙箱（`turn/start` 每回合也带，见 `permissionSettings`），联网关
     // Codex 的搜索与 Wevir 的联网工具。读文件关不掉（shell 能读），靠说明。
@@ -3207,6 +3213,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         'features.unified_exec': false,
       }),
       ...(denied.has('web') && { web_search: 'disabled' }),
+      // 主动派子智能体：换掉 spawn_agent 说明里“用户明确要求才派”的限制（做法见开发者说明）。
+      ...(proactiveSubagents === true && proactiveSubagentsConfig()),
     };
     if (this.#chatgpt) {
       // ChatGPT 登录的 OpenAI 模型用 Codex 内置的、按模型调好的提示词（补记 2），不覆盖 baseInstructions。
@@ -3490,12 +3498,17 @@ export function permissionSettings(
  * `thread/start` 与 `thread/resume` 的 `developerInstructions`：额外目录的说明，加上 Host 补给的规则文件（0.68.0，Codex 自己只读
  * 项目里的 AGENTS.md；`CODEX_HOME` 是 Wevir 的私有目录，用户的 `~/.codex/AGENTS.md` 它也读不到）。两样都没有时不带。
  */
-export function threadDeveloperInstructions(config: SessionConfig): {
+export function threadDeveloperInstructions(
+  config: SessionConfig,
+  prompts?: Pick<BasePrompt, 'proactiveSubagents'>,
+): {
   developerInstructions?: string;
 } {
   const parts = [
     extraRootsInstructions(config.additionalRoots).developerInstructions,
     config.ruleInstructions,
+    // 主动派子智能体（Host 设置）：接在最后。
+    config.proactiveSubagents === true ? prompts?.proactiveSubagents() : undefined,
   ].filter((part): part is string => part !== undefined && part !== '');
   return parts.length === 0 ? {} : { developerInstructions: parts.join('\n\n') };
 }

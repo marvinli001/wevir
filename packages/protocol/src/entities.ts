@@ -1335,6 +1335,12 @@ export const HostSettingsSchema = z.object({
    */
   sessionInsights: z.boolean().optional(),
   /**
+   * 主动派子智能体（Host 功能 `proactive_subagents`）：开着时，支持子智能体的引擎在没被要求时也把边界清楚的调查、查证与复核派给
+   * 后台子智能体，主线接着做。Host 在给引擎的说明里加上这条做法；Codex 另把 `spawn_agent` 说明里“用户明确要求才派”的限制换掉。
+   * 子智能体各自请求模型，用量会明显增加，所以默认关；从下一次建会话、恢复或接力起生效。省略按关着。
+   */
+  proactiveSubagents: z.boolean().optional(),
+  /**
    * 官方插件市场的镜像（0.91.0，Host 功能 `plugin_market`）：`auto` 首次使用时测速，记住最快的一家，之后一直用它；选了某一家就用那一家。
    * 省略按 `auto`。
    */

@@ -93,6 +93,7 @@ export class BasePrompt {
   #source: string | undefined;
   #planMode: string | undefined;
   #compact: string | undefined;
+  #proactiveSubagents: string | undefined;
 
   constructor(dir: string = defaultPromptsDir()) {
     this.#read = promptReader(dir);
@@ -119,6 +120,19 @@ export class BasePrompt {
   compact(): string {
     this.#compact ??= renderPromptTemplate(this.#read('compact.md'), {}, this.#read);
     return this.#compact;
+  }
+
+  /**
+   * 主动派子智能体的说明（`subagents-proactive.md`）：Host 设置开着时接在 thread 的 `developerInstructions` 后面。没有变量；只读、
+   * 只渲染一次。
+   */
+  proactiveSubagents(): string {
+    this.#proactiveSubagents ??= renderPromptTemplate(
+      this.#read('subagents-proactive.md'),
+      {},
+      this.#read,
+    );
+    return this.#proactiveSubagents;
   }
 }
 
