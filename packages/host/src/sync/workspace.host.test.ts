@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { MethodResult, SessionId, WorkspaceId } from '@wevir/protocol';
 import type { AgentInput, SessionConfig } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startHost } from '../host-process.js';
 import { createLogger } from '../logger.js';
 import { TestRpcClient, useTempDir } from '../test-utils.js';
@@ -179,12 +179,17 @@ async function linked() {
       { timeout: 10000 },
     )
     .toBe('idle');
-  const snapshot = (
-    await first.rpc.request('sync.workspaceCapture', {
-      sessionId: source.id,
-      untracked: ['selected.txt'],
-    })
-  ).snapshot;
+  // 空闲状态之后仍可能追加同步事件，捕获需等修订稳定。
+  const snapshot = await vi.waitFor(
+    async () =>
+      (
+        await first.rpc.request('sync.workspaceCapture', {
+          sessionId: source.id,
+          untracked: ['selected.txt'],
+        })
+      ).snapshot,
+    { timeout: 10000 },
+  );
   let mirrored: { id: SessionId } | undefined;
   await expect
     .poll(
