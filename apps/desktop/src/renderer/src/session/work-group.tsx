@@ -94,8 +94,8 @@ export const WorkspaceRoot = createContext<string | undefined>(undefined);
 export function DiffStat({ stats }: { stats: LineStats }) {
   return (
     <span className="inline-flex shrink-0 overflow-hidden rounded-sm font-mono text-xs leading-[18px] tabular-nums">
-      <span className="bg-success/10 px-1.5 text-success">+{stats.added}</span>
-      <span className="bg-destructive/10 px-1.5 text-destructive">−{stats.removed}</span>
+      <span className="bg-diff-added px-1.5 text-success">+{stats.added}</span>
+      <span className="bg-diff-removed px-1.5 text-destructive">−{stats.removed}</span>
     </span>
   );
 }

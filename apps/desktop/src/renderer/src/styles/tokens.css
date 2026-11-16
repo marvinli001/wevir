@@ -47,6 +47,14 @@
   --warning: var(--ochre-deep);
   --destructive: var(--red-deep);
 
+  /* 差异视图：整行、行号一侧、行内改动的词。 */
+  --diff-added: var(--green-wash-1);
+  --diff-added-gutter: var(--green-wash-2);
+  --diff-added-emphasis: var(--green-wash-3);
+  --diff-removed: var(--red-wash-1);
+  --diff-removed-gutter: var(--red-wash-2);
+  --diff-removed-emphasis: var(--red-wash-3);
+
   /* 插件市场的认证徽章（图形，WCAG 1.4.11 的 3:1）：verified 蓝、official 金，里面的勾用 -foreground。深色也用金，
    * 铂金上白勾看不清。 */
   --verified: var(--blue-verified);
@@ -113,6 +121,13 @@
   --success: var(--green-pale);
   --warning: var(--ochre-pale);
   --destructive: var(--red-pale);
+
+  --diff-added: var(--green-shade-1);
+  --diff-added-gutter: var(--green-shade-2);
+  --diff-added-emphasis: var(--green-shade-3);
+  --diff-removed: var(--red-shade-1);
+  --diff-removed-gutter: var(--red-shade-2);
+  --diff-removed-emphasis: var(--red-shade-3);
 
   /* 插件市场的认证徽章（图形，WCAG 1.4.11 的 3:1）：verified 蓝、official 金，里面的勾用 -foreground。深色也用金，
    * 铂金上白勾看不清。 */

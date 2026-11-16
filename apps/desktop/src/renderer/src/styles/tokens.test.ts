@@ -107,6 +107,34 @@ const PAIRS: { fg: string[]; bg: string[]; min: number }[] = [
     bg: ['--code-background'],
     min: 4.5,
   },
+  {
+    fg: [
+      '--foreground',
+      '--muted-foreground',
+      '--success',
+      '--destructive',
+      '--code-keyword',
+      '--code-string',
+      '--code-number',
+      '--code-title',
+    ],
+    bg: ['--diff-added', '--diff-added-gutter', '--diff-removed', '--diff-removed-gutter'],
+    min: 4.5,
+  },
+  {
+    fg: [
+      '--foreground',
+      '--muted-foreground',
+      '--success',
+      '--destructive',
+      '--code-keyword',
+      '--code-string',
+      '--code-number',
+      '--code-title',
+    ],
+    bg: ['--diff-added-emphasis', '--diff-removed-emphasis'],
+    min: 4,
+  },
   // 品牌主标是图形，不是文字：WCAG 1.4.11 的 3:1。
   { fg: ['--brand'], bg: ['--background', '--sidebar', '--card'], min: 3 },
   // 认证徽章（插件市场）：徽章在列表、详情、悬停行与浮层的底色上，勾在徽章上，都是图形的 3:1。

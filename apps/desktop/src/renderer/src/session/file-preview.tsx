@@ -8,16 +8,15 @@ import { relativeToRoot } from './tool-model';
 /** 一个文件最多画出的行数，其余写“另有 N 行”（输入里的字符串已被 Host 截到 16 KB 以内，这里只防行很多的短行）。 */
 const MAX_LINES = 400;
 
-// 颜色同“变更”窗格（desktop-tokens.md §33）：增删的行底是代码底混 12% 的成功色 / 失败色，行号格混 20%，左边一道 2 px 的竖条。
+// 颜色同“变更”窗格（desktop-tokens.md §33）：行底与行号格用差异变量，左边一道 2 px 的成功色 / 失败色竖条。
 const ROW_TONES: Record<PreviewLine['kind'], string> = {
-  add: 'bg-[color-mix(in_srgb,var(--code-background)_88%,var(--success))]',
-  remove: 'bg-[color-mix(in_srgb,var(--code-background)_88%,var(--destructive))]',
+  add: 'bg-diff-added',
+  remove: 'bg-diff-removed',
   context: '',
 };
 const GUTTER_TONES: Record<PreviewLine['kind'], string> = {
-  add: 'bg-[color-mix(in_srgb,var(--code-background)_80%,var(--success))] shadow-[inset_2px_0_var(--success)]',
-  remove:
-    'bg-[color-mix(in_srgb,var(--code-background)_80%,var(--destructive))] shadow-[inset_2px_0_var(--destructive)]',
+  add: 'bg-(--diff-added-gutter) shadow-[inset_2px_0_var(--success)]',
+  remove: 'bg-(--diff-removed-gutter) shadow-[inset_2px_0_var(--destructive)]',
   context: 'bg-(--code-background)',
 };
 
