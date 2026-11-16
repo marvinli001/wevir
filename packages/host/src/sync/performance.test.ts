@@ -111,7 +111,11 @@ describe('sync performance boundaries', () => {
     const paths = Array.from({ length: 3000 }, (_, i) => `file-${i}.txt`);
     for (const [index, path] of paths.entries())
       await writeFile(join(root, path), `Synthetic content ${index % 32}`);
-    await workspaceGit(root, ['add', '--', ...paths]);
+    await workspaceGit(
+      root,
+      ['add', '--pathspec-from-file=-', '--pathspec-file-nul'],
+      Buffer.from(`${paths.join('\0')}\0`),
+    );
     const started = performance.now();
     const { snapshot } = await h.service.workspaces.capture({ sessionId: 'ses_perf' });
     const captureMs = performance.now() - started;

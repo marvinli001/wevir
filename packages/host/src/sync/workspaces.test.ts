@@ -18,7 +18,7 @@ vi.mock('node:fs/promises', async (original) => {
   return {
     ...fs,
     readdir: async (...args: Parameters<typeof fs.readdir>) => {
-      if (String(args[0]).endsWith('/sync/workspaces/trees') && race.beforeTrees) {
+      if (String(args[0]).endsWith(join('sync', 'workspaces', 'trees')) && race.beforeTrees) {
         const build = race.beforeTrees;
         race.beforeTrees = undefined;
         await build();

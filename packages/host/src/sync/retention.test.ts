@@ -5,8 +5,8 @@ import { syncAncestors } from './ancestry.js';
 import { SyncBlobCache } from './cache.js';
 import { collectSyncRecords } from './retention.js';
 
-const stores = useStorages(),
-  temp = useTempDir();
+const temp = useTempDir(),
+  stores = useStorages();
 describe('local sync record retention', () => {
   it('pins material dependency closures and conflicts while trimming confirmed records', async () => {
     const home = temp(),
