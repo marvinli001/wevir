@@ -395,7 +395,7 @@ describe('full Host material synchronization with synthetic identities', () => {
         )
         .toBe('Captured without a filename');
     },
-    15000,
+    process.platform === 'win32' ? 30000 : 15000,
   );
   it('captures a memory created between a scan and new-directory watcher registration', async () => {
     const { first, second } = await fixture();
