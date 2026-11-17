@@ -1,8 +1,17 @@
 import type { WevirClient } from '@wevir/client-sdk';
-import type { ProviderProfile, Session } from '@wevir/protocol';
+import { type ProviderProfile, type Session, ZUV_API_PROVIDER_ID } from '@wevir/protocol';
 import { cn } from 'cn';
-import { CircleCheck, CircleX, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import {
+  ChevronDown,
+  CircleCheck,
+  CircleX,
+  LoaderCircle,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { Collapse } from '@/components/collapse';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
@@ -38,9 +47,13 @@ import {
   SettingsSection,
 } from './settings-ui';
 import { SubscriptionSources } from './subscription-sources';
+import { ZuvApiConnectionPanel } from './zuv-api-connection';
 import { ZuvStrip } from './zuv-strip';
 
 type View = { kind: 'list' } | { kind: 'form'; form: ProviderForm };
+
+/** 列表里就地展开的详情：某个 Provider（ZUV API 的登录连接），或新增 ZUV API 时的连接面板。 */
+type Expanded = { kind: 'provider'; id: string } | { kind: 'zuv-add' } | undefined;
 
 type TestState = { status: 'running' } | { status: 'done'; result: TestPresentation };
 
@@ -48,7 +61,8 @@ type TestState = { status: 'running' } | { status: 'done'; result: TestPresentat
  * 设置 → 模型服务（T5.4，U7 改样式）：列表、新增（在与首次引导相同的“模型服务”对话框里选，再填表单）、编辑、删除、测试连接。
  * Key 只在表单里输入一次，之后只显示“已设置”。有 Key、且新建或改了影响连接的字段时，保存后自动测一次连接。
  * 0.19.0 起上面是“订阅”（subscription-sources.tsx：Codex 与五种订阅的格子与详情，ChatGPT 账号也在里面），下面是“API Key”的
- * 列表，每行有在模型选择里显示的开关；页面顶上一行是现在能选的来源与模型数。
+ * 列表，每行有在模型选择里显示的开关；页面顶上一行是现在能选的来源与模型数。ZUV API 的登录连接照订阅来源在列表里就地展开
+ * （zuv-api-connection.tsx），新增时也在列表上方展开，不另开页面。
  */
 export function ProviderSettings() {
   const data = useWorkbenchData();
@@ -62,6 +76,17 @@ export function ProviderSettings() {
   const [removing, setRemoving] = useState<ProviderProfile>();
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [expanded, setExpanded] = useState<Expanded>();
+  const zuvConnection = client?.supports('zuv_api_connection') === true;
+  const zuvProvider =
+    data.status === 'ready'
+      ? data.providers.find((provider) => provider.id === ZUV_API_PROVIDER_ID)
+      : undefined;
+  // 新增时登录成功、ZUV API 出现在列表里：收起新增面板，展开它那一行。
+  useEffect(() => {
+    if (expanded?.kind === 'zuv-add' && zuvProvider?.hasSecret)
+      setExpanded({ kind: 'provider', id: ZUV_API_PROVIDER_ID });
+  }, [expanded, zuvProvider?.hasSecret]);
 
   const runTest = useCallback(
     async (providerId: string) => {
@@ -127,14 +152,21 @@ export function ProviderSettings() {
       setView({ kind: 'form', form: existing ? editForm(existing) : newDeepSeekForm() });
       return;
     }
+    if (entry.id === 'zuv' && zuvConnection) {
+      setNotice(undefined);
+      setExpanded(zuvProvider ? { kind: 'provider', id: zuvProvider.id } : { kind: 'zuv-add' });
+      return;
+    }
+    await openForm(source.kind === 'preset' ? source.preset : undefined);
+  };
+
+  /** 填 Key 的表单：先读这一家的模型目录。 */
+  const openForm = async (preset?: Parameters<typeof newOpenAIForm>[0]) => {
+    if (!client) return;
     setCatalogLoading(true);
     setNotice(undefined);
     try {
-      const initial = newOpenAIForm(source.kind === 'preset' ? source.preset : undefined, takenIds);
-      const form =
-        entry.id === 'zuv' && client.supports('zuv_api_connection')
-          ? initial
-          : await loadProviderCatalog(client, initial);
+      const form = await loadProviderCatalog(client, newOpenAIForm(preset, takenIds));
       setView({ kind: 'form', form });
     } catch {
       setNotice({ tone: 'error', text: t('provider.models.loadFailed') });
@@ -187,16 +219,35 @@ export function ProviderSettings() {
         ) && (
           <ZuvStrip
             disabled={!client || catalogLoading}
+            expanded={expanded?.kind === 'zuv-add'}
             onAdd={() => {
+              if (zuvConnection) {
+                setNotice(undefined);
+                setExpanded((value) =>
+                  value?.kind === 'zuv-add' ? undefined : { kind: 'zuv-add' },
+                );
+                return;
+              }
               const entry = catalogEntry('zuv');
               if (entry) void pick(entry);
             }}
-          />
+          >
+            {client && zuvConnection && (
+              <ZuvApiConnectionPanel
+                client={client}
+                onManual={() => {
+                  setExpanded(undefined);
+                  const preset = catalogEntry('zuv')?.source;
+                  void openForm(preset?.kind === 'preset' ? preset.preset : undefined);
+                }}
+              />
+            )}
+          </ZuvStrip>
         )}
         {providers.length === 0 ? (
           <EmptyList>{t('provider.emptyKeyed')}</EmptyList>
         ) : (
-          <ul className={LIST_CARD}>
+          <ul className={cn(LIST_CARD, 'overflow-hidden')}>
             {providers.map((provider) => (
               <ProviderCard
                 key={provider.id}
@@ -217,8 +268,22 @@ export function ProviderSettings() {
                   }
                 }}
                 onTest={() => void runTest(provider.id)}
+                expanded={expanded?.kind === 'provider' && expanded.id === provider.id}
+                detail={
+                  client && zuvConnection && provider.id === ZUV_API_PROVIDER_ID ? (
+                    <ZuvApiConnectionPanel client={client} provider={provider} />
+                  ) : undefined
+                }
                 onEdit={() => {
                   setNotice(undefined);
+                  if (client && zuvConnection && provider.id === ZUV_API_PROVIDER_ID) {
+                    setExpanded((value) =>
+                      value?.kind === 'provider' && value.id === provider.id
+                        ? undefined
+                        : { kind: 'provider', id: provider.id },
+                    );
+                    return;
+                  }
                   setView({ kind: 'form', form: editForm(provider) });
                 }}
                 onRemove={() => setRemoving(provider)}
@@ -262,9 +327,14 @@ function ProviderCard({
   onTest,
   onEdit,
   onRemove,
+  expanded = false,
+  detail,
 }: {
   provider: EditableProvider;
   test: TestState | undefined;
+  /** 有详情时这一行点开就地展开（ZUV API 的登录连接），编辑按钮换成展开。 */
+  expanded?: boolean;
+  detail?: ReactNode;
   disabled: boolean;
   canToggle: boolean;
   onToggle: (enabled: boolean) => Promise<void>;
@@ -272,6 +342,7 @@ function ProviderCard({
   onEdit: () => void;
   onRemove: () => void;
 }) {
+  const expandable = detail !== undefined;
   const running = test?.status === 'running';
   const [toggling, setToggling] = useState(false);
   const enabled = provider.enabled !== false;
@@ -281,38 +352,67 @@ function ProviderCard({
       : provider.baseURL
         ? safeHost(provider.baseURL)
         : t('provider.baseURLOfficial');
-  return (
-    <li className="group/provider px-4 py-3" data-provider-id={provider.id}>
-      <div className="flex items-center gap-3.5">
-        <span
-          className={cn(
-            'flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background inset-well transition-opacity duration-150',
-            !enabled && 'opacity-50',
-          )}
-        >
-          <ProviderLogo logo={providerLogo(provider)} fallback={provider.displayName} />
-        </span>
-        <div
-          className={cn('min-w-0 flex-1 transition-opacity duration-150', !enabled && 'opacity-60')}
-        >
-          <div className="flex items-center gap-2">
-            <h3 className="truncate text-sm font-medium">{provider.displayName}</h3>
-            <span
-              className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
-              data-key-status
-            >
-              <StatusDot tone={provider.hasSecret ? 'success' : 'warning'} className="size-1.5" />
-              {provider.hasSecret ? t('provider.key.set') : t('provider.key.unset')}
-            </span>
-          </div>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            <span className="font-mono">{provider.defaultModelId}</span>
-            {provider.models.length > 1 &&
-              ` · ${t('provider.modelCount', { count: provider.models.length })}`}
-            {` · ${host}`}
-          </p>
+  const summary = (
+    <>
+      <span
+        className={cn(
+          'flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background inset-well transition-opacity duration-150',
+          !enabled && 'opacity-50',
+        )}
+      >
+        <ProviderLogo logo={providerLogo(provider)} fallback={provider.displayName} />
+      </span>
+      <div
+        className={cn('min-w-0 flex-1 transition-opacity duration-150', !enabled && 'opacity-60')}
+      >
+        <div className="flex items-center gap-2">
+          <h3 className="truncate text-sm font-medium">{provider.displayName}</h3>
+          <span
+            className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+            data-key-status
+          >
+            <StatusDot tone={provider.hasSecret ? 'success' : 'warning'} className="size-1.5" />
+            {expandable
+              ? t(provider.hasSecret ? 'provider.zuvApi.connected' : 'provider.zuvApi.disconnected')
+              : provider.hasSecret
+                ? t('provider.key.set')
+                : t('provider.key.unset')}
+          </span>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+          <span className="font-mono">{provider.defaultModelId}</span>
+          {provider.models.length > 1 &&
+            ` · ${t('provider.modelCount', { count: provider.models.length })}`}
+          {` · ${host}`}
+        </p>
+      </div>
+    </>
+  );
+  return (
+    <li className="group/provider" data-provider-id={provider.id}>
+      <div
+        className={cn(
+          'relative flex items-center gap-3.5 px-4 py-3',
+          expandable && 'transition-colors duration-150 hover:bg-muted/40',
+          expandable && expanded && 'bg-muted/40',
+        )}
+      >
+        {expandable ? (
+          // 整行可点：按钮铺满这一行，右边的操作按钮叠在它上面。
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={provider.displayName}
+            onClick={onEdit}
+            disabled={disabled}
+            className="absolute inset-0 cursor-pointer outline-none focus-visible:focus-field disabled:cursor-default"
+            data-action="expand-provider"
+          />
+        ) : null}
+        <div className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-3.5">
+          {summary}
+        </div>
+        <div className="relative flex shrink-0 items-center gap-0.5">
           <Button
             variant="ghost"
             size="sm"
@@ -323,9 +423,25 @@ function ProviderCard({
             {running && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
             {running ? t('provider.testing') : t('provider.test')}
           </Button>
-          <IconButton label={t('provider.edit')} onClick={onEdit} disabled={disabled}>
-            <Pencil />
-          </IconButton>
+          {expandable ? (
+            <IconButton
+              label={t(expanded ? 'message.collapse' : 'message.expand')}
+              onClick={onEdit}
+              disabled={disabled}
+              aria-expanded={expanded}
+            >
+              <ChevronDown
+                className={cn(
+                  'transition-transform duration-200 ease-smooth',
+                  expanded && 'rotate-180',
+                )}
+              />
+            </IconButton>
+          ) : (
+            <IconButton label={t('provider.edit')} onClick={onEdit} disabled={disabled}>
+              <Pencil />
+            </IconButton>
+          )}
           <IconButton label={t('provider.remove')} onClick={onRemove} disabled={disabled}>
             <Trash2 />
           </IconButton>
@@ -344,7 +460,21 @@ function ProviderCard({
           )}
         </div>
       </div>
-      {test?.status === 'done' && <TestResultView result={test.result} />}
+      {test?.status === 'done' && (
+        <div className="-mt-3 px-4 pb-3">
+          <TestResultView result={test.result} />
+        </div>
+      )}
+      {expandable && (
+        <Collapse open={expanded}>
+          <div
+            className="border-t border-border bg-background/40 px-5 py-4"
+            data-provider-detail={provider.id}
+          >
+            {detail}
+          </div>
+        </Collapse>
+      )}
     </li>
   );
 }

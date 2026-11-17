@@ -48,6 +48,8 @@
 
   /* 状态 */
   --running: var(--blue-deep);
+  /* 消息里的文件链接（照 Codex 桌面端的蓝色链接）。 */
+  --link: var(--blue-deep);
   --success: var(--green-deep);
   --warning: var(--ochre-deep);
   --destructive: var(--red-deep);
@@ -164,6 +166,7 @@
   --brand: var(--platinum);
 
   --running: var(--blue-pale);
+  --link: var(--blue-pale);
   --success: var(--green-pale);
   --warning: var(--ochre-pale);
   --destructive: var(--red-pale);

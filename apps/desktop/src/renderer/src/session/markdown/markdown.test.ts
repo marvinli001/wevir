@@ -3,7 +3,9 @@
 
 import DOMPurify from 'dompurify';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { fileLinkIcon } from './link-icons';
 import {
+  citationHost,
   codeLanguage,
   createStreamingMarkdownRenderer,
   externalHref,
@@ -31,8 +33,13 @@ describe('renderMarkdownHtml', () => {
     );
     expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
     expect(html).not.toContain('<script>');
-    expect(html).toContain('<a href="https://example.com/" data-external-link="">官网</a>');
-    expect(html).toContain('<a href="#" data-file-link="./a.md">本地</a>');
+    expect(html).toContain(
+      '<a href="https://example.com/" class="md-nowrap" data-external-link="">官网<svg class="md-link-arrow"',
+    );
+    expect(html).toContain(
+      '<a href="#" class="md-file-link md-nowrap" data-file-link="./a.md"><svg',
+    );
+    expect(html).toContain('</svg>本地</a>');
     expect(html).toContain('<a href="https://e.com/a.png" data-external-link="">图</a>');
     expect(html).not.toContain('<img');
   });
@@ -147,7 +154,7 @@ describe('createStreamingMarkdownRenderer', () => {
     renderer.render('见[文档][d]。\n\n[d]: https://example.com\n\n后文');
     const blocks = renderer.render('见[文档][d]。\n\n[d]: https://example.com\n\n后文更多');
     expect(blocks.map((block) => block.__html).join('')).toContain(
-      '<a href="https://example.com/" data-external-link="">文档</a>',
+      'data-external-link="">文档<svg',
     );
   });
 });
@@ -162,10 +169,36 @@ describe('辅助函数', () => {
   });
 
   it('文件路径的链接带 data-file-link，别的协议只留文字', () => {
-    expect(renderMarkdownHtml('[a.ts](/Users/me/p/a.ts:12)')).toContain(
-      '<a href="#" data-file-link="/Users/me/p/a.ts:12">a.ts</a>',
+    const html = renderMarkdownHtml('[a.ts](/Users/me/p/a.ts:12)');
+    expect(html).toContain(
+      '<a href="#" class="md-file-link md-nowrap" data-file-link="/Users/me/p/a.ts:12"><svg class="md-link-icon"',
     );
+    expect(html).toContain('</svg>a.ts</a>');
     expect(renderMarkdownHtml('[x](javascript:alert(1))')).not.toContain('<a');
+  });
+
+  it('文字就是网址或域名的外链渲染成域名胶囊，mailto 不带箭头', () => {
+    const chip =
+      '<a href="https://repair.dji.com/help" class="md-cite" data-external-link=""><svg class="md-cite-icon"';
+    expect(renderMarkdownHtml('见 https://repair.dji.com/help')).toContain(chip);
+    expect(renderMarkdownHtml('[repair.dji.com](https://repair.dji.com/help)')).toContain(chip);
+    expect(
+      renderMarkdownHtml('[https://www.repair.dji.com/help/](https://repair.dji.com/help)'),
+    ).toContain('<span>repair.dji.com</span>');
+    expect(renderMarkdownHtml('[教程](https://repair.dji.com/help)')).not.toContain('md-cite');
+    expect(renderMarkdownHtml('[写信](mailto:a@b.c)')).not.toContain('<svg');
+    expect(citationHost('https://www.example.com/a', 'example.com')).toBe('example.com');
+    expect(citationHost('https://example.com/a', 'example.com/a')).toBe('example.com');
+    expect(citationHost('https://example.com/a', '示例')).toBeUndefined();
+  });
+
+  it('fileLinkIcon 按扩展名选图标', () => {
+    expect(fileLinkIcon('/a/report.md')).toBe('text');
+    expect(fileLinkIcon('out/findings.json')).toBe('data');
+    expect(fileLinkIcon('src/index.ts')).toBe('code');
+    expect(fileLinkIcon('shot.PNG')).toBe('image');
+    expect(fileLinkIcon('docs/')).toBe('folder');
+    expect(fileLinkIcon('LICENSE')).toBe('file');
   });
 
   it('会话链接（wevir://session/<id> 或 #<id>）渲染成胶囊，别的锚点只留文字', () => {

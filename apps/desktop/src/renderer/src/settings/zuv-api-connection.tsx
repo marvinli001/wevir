@@ -1,12 +1,14 @@
 import type { WevirClient } from '@wevir/client-sdk';
-import type { ZuvApiError, ZuvApiState } from '@wevir/protocol';
-import { ExternalLink, LoaderCircle } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import type { ProviderProfile, ZuvApiError, ZuvApiState } from '@wevir/protocol';
+import { ExternalLink, KeyRound, LoaderCircle, LogIn, RotateCw, Unplug } from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { StatusDot } from '@/components/status-dot';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useWorkbenchStore } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { capabilities, platformApi } from '@/platform/platform';
+import { NoticeBanner } from './settings-ui';
 
 const ERRORS: Partial<Record<ZuvApiError, PlainMessageKey>> = {
   network: 'provider.test.reason.network',
@@ -44,10 +46,24 @@ export function zuvApiError(error: ZuvApiError): string {
 
 type Action = 'zuvApi.login' | 'zuvApi.cancel' | 'zuvApi.disconnect' | 'zuvApi.refreshModels';
 
-export function ZuvApiConnectionPanel({ client }: { client: WevirClient }) {
+/**
+ * ZUV API 的登录连接（设置 → 模型服务）：照订阅来源的详情，在列表里就地展开，不另开页面。已连接时列出账号、API Key 前缀与模型，
+ * 下面一排“重新登录”“刷新模型”“断开连接”；未连接时“登录连接”（新增时还有“手动填写”，转到填 Key 的表单）；授权中显示进度与
+ * “打开授权页”“取消”。每 2 s 读一次状态，变了刷新工作台。
+ */
+export function ZuvApiConnectionPanel({
+  client,
+  provider,
+  onManual,
+}: {
+  client: WevirClient;
+  /** 已登记的 ZUV API Provider，有时列出它的模型。 */
+  provider?: ProviderProfile;
+  onManual?: () => void;
+}) {
   const store = useWorkbenchStore();
   const [connection, setConnection] = useState<ZuvApiState>();
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<Action>();
   const [failure, setFailure] = useState<string>();
   const version = useRef('');
 
@@ -90,7 +106,7 @@ export function ZuvApiConnectionPanel({ client }: { client: WevirClient }) {
         ? window.open('about:blank', '_blank')
         : null;
     if (popup) popup.opener = null;
-    setBusy(true);
+    setBusy(action);
     setFailure(undefined);
     try {
       const params = action === 'zuvApi.cancel' ? { requestId: connection?.login?.requestId } : {};
@@ -106,61 +122,96 @@ export function ZuvApiConnectionPanel({ client }: { client: WevirClient }) {
       popup?.close();
       setFailure(describe(error));
     } finally {
-      setBusy(false);
+      setBusy(undefined);
     }
+  };
+
+  const manual = async () => {
+    if (!onManual || busy) return;
+    if (connection?.status === 'authorizing') await run('zuvApi.cancel');
+    onManual();
   };
 
   const pending = connection?.status === 'authorizing';
   const connected = connection?.status === 'connected';
+  const errors = [
+    connection?.error && zuvApiError(connection.error),
+    connection?.modelsError &&
+      t('provider.zuvApi.modelsFailed', { reason: zuvApiError(connection.modelsError) }),
+    failure,
+  ].filter((text): text is string => typeof text === 'string' && text !== '');
+  const facts: [string, ReactNode][] = [];
+  if (connection?.account) {
+    facts.push([t('source.fact.account'), connection.account.email]);
+    if (connection.keyPrefix)
+      facts.push([
+        t('provider.form.apiKey'),
+        <span key="key" className="font-mono text-xs">
+          {connection.keyPrefix}…
+        </span>,
+      ]);
+  }
+  const models = provider?.models ?? [];
+  const spinner = (action: Action) =>
+    busy === action ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : null;
+
   return (
-    <section className="space-y-4" data-zuv-api-connection>
-      <p className="flex items-center gap-2 text-sm" role="status">
-        {(!connection || pending) && <LoaderCircle className="size-4 animate-spin" />}
-        {t(
-          pending
-            ? 'provider.zuvApi.waiting'
-            : connected
-              ? 'provider.zuvApi.connected'
-              : 'provider.zuvApi.disconnected',
-        )}
-      </p>
-      {connection?.account && (
-        <div className="space-y-1 text-sm">
-          <p className="break-all">{connection.account.email}</p>
-          <p className="font-mono text-xs text-muted-foreground">{connection.keyPrefix}…</p>
+    <section className="space-y-4" data-zuv-api-connection={connection?.status ?? 'loading'}>
+      {connected && facts.length > 0 && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
+          {facts.map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="min-w-0 truncate">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {connected && models.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-xs text-muted-foreground">
+            {t('source.models', { count: models.length })}
+          </p>
+          <ul className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto" data-source-models>
+            {models.map((model) => (
+              <li
+                key={model.id}
+                className="rounded-md border border-border bg-background px-2 py-0.5 text-xs"
+              >
+                {model.displayName ?? model.id}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
-      {connection?.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {zuvApiError(connection.error)}
-        </p>
-      )}
-      {connection?.modelsError && (
-        <p role="alert" className="text-sm text-destructive">
-          {t('provider.zuvApi.modelsFailed', { reason: zuvApiError(connection.modelsError) })}
-        </p>
-      )}
-      {failure && (
-        <p role="alert" className="text-sm text-destructive">
-          {failure}
-        </p>
-      )}
-      <div className="flex flex-wrap gap-2">
+      {/* 未连接与授权中：状态在左、按钮在右，一行。 */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {!connected && (
+          <p className="mr-auto flex min-h-8 items-center gap-2 pr-3 text-sm" role="status">
+            {!connection || pending ? (
+              <LoaderCircle className="size-3.5 animate-spin text-muted-foreground" />
+            ) : (
+              <StatusDot tone={connection.status === 'error' ? 'danger' : 'neutral'} />
+            )}
+            {t(pending ? 'provider.zuvApi.waiting' : 'provider.zuvApi.disconnected')}
+          </p>
+        )}
         {pending && connection?.login ? (
           <>
             <a
-              className={buttonVariants({ variant: 'outline' })}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
               href={connection.login.authorizationUrl}
               target="_blank"
               rel="noopener noreferrer"
             >
-              <ExternalLink className="size-4" />
+              <ExternalLink data-icon="inline-start" />
               {t('provider.zuvApi.open')}
             </a>
             <Button
               type="button"
               variant="ghost"
-              disabled={busy}
+              size="sm"
+              disabled={busy !== undefined}
               onClick={() => void run('zuvApi.cancel')}
             >
               {t('common.cancel')}
@@ -169,9 +220,13 @@ export function ZuvApiConnectionPanel({ client }: { client: WevirClient }) {
         ) : (
           <Button
             type="button"
-            disabled={busy || !connection}
+            variant={connected ? 'outline' : 'default'}
+            size="sm"
+            disabled={busy !== undefined || !connection}
             onClick={() => void run('zuvApi.login')}
+            data-action="zuv-login"
           >
+            {spinner('zuvApi.login') ?? <LogIn data-icon="inline-start" />}
             {t(
               connected || connection?.status === 'error'
                 ? 'provider.zuvApi.reconnect'
@@ -184,22 +239,44 @@ export function ZuvApiConnectionPanel({ client }: { client: WevirClient }) {
             <Button
               type="button"
               variant="outline"
-              disabled={busy}
+              size="sm"
+              disabled={busy !== undefined}
               onClick={() => void run('zuvApi.refreshModels')}
+              data-action="zuv-refresh-models"
             >
+              {spinner('zuvApi.refreshModels') ?? <RotateCw data-icon="inline-start" />}
               {t('provider.zuvApi.models')}
             </Button>
             <Button
               type="button"
               variant="ghost"
-              disabled={busy}
+              size="sm"
+              disabled={busy !== undefined}
               onClick={() => void run('zuvApi.disconnect')}
+              data-action="zuv-disconnect"
             >
+              {spinner('zuvApi.disconnect') ?? <Unplug data-icon="inline-start" />}
               {t('provider.zuvApi.disconnect')}
             </Button>
           </>
         )}
+        {onManual && !connected && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy !== undefined}
+            onClick={() => void manual()}
+            data-action="zuv-manual"
+          >
+            <KeyRound data-icon="inline-start" />
+            {t('provider.zuvApi.manual')}
+          </Button>
+        )}
       </div>
+      {errors.map((text) => (
+        <NoticeBanner key={text} notice={{ tone: 'error', text }} />
+      ))}
     </section>
   );
 }

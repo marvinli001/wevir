@@ -7,6 +7,7 @@ import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
 import { MarkdownSessionLinks } from '../session-link';
 import { highlightCodeBlocks, whenNearViewport } from './highlight';
+import { MarkdownLinkPreviews } from './link-preview';
 import {
   createStreamingMarkdownRenderer,
   type MarkdownBlockHtml,
@@ -296,6 +297,7 @@ export const MarkdownView = memo(function MarkdownView({
       </div>
       {/* 放在根元素外面：根元素的子元素与 blocks 一一对应（新字淡入按位置找块）。 */}
       <MarkdownSessionLinks root={rootRef} version={blocks} />
+      <MarkdownLinkPreviews root={rootRef} />
     </>
   );
 });

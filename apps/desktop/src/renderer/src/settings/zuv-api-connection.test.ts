@@ -41,13 +41,13 @@ afterEach(() => {
   platform.localHost = true;
 });
 function render(state: ZuvApiState) {
-  hooks.reset([state, false, undefined]);
+  hooks.reset([state, undefined, undefined]);
   return hooks.render(() => ZuvApiConnectionPanel({ client }));
 }
 function click(state: ZuvApiState, label: string) {
   const button = findElement(
     render(state),
-    (element) => element.type === Button && element.props.children === label,
+    (element) => element.type === Button && [element.props.children].flat().includes(label),
   );
   (button.props.onClick as () => void)();
 }

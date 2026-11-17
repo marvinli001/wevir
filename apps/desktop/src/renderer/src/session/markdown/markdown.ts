@@ -15,6 +15,7 @@ import { Marked, type RendererObject, type Token } from 'marked';
 import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
 import { sessionHrefId } from '@/session/session-link-model';
+import { fileLinkIcon, linkIconHtml } from './link-icons';
 import { mathReady, withMath } from './markdown-math-loader';
 import { repairStreamingMarkdown } from './stream-safe';
 
@@ -57,6 +58,41 @@ export function codeBlockHtml(text: string, lang: string | undefined): string {
 }
 
 /** 图片只显示为链接（CSP 也不加载外部图片）。 */
+/**
+ * 链接前后的图标是 inline-block，和字之间总有断点：短的链接整段不折行，图标不会单独留在行尾或行首；长的照常折行。
+ */
+const NOWRAP_MAX = 40;
+
+function nowrapClass(text: string): string {
+  return text.length <= NOWRAP_MAX ? ' class="md-nowrap"' : '';
+}
+
+/**
+ * 引用式的外链显示成域名胶囊：链接文字就是网址本身（去掉协议、结尾的 `/` 也算）或它的域名。返回去掉 `www.` 的域名；不是引用
+ * 时 undefined。
+ */
+export function citationHost(href: string, text: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
+  const bare = (value: string) =>
+    value
+      .trim()
+      .replace(/^[a-z]+:\/\//i, '')
+      .replace(/^www\./i, '')
+      .replace(/\/$/, '')
+      .toLowerCase();
+  const label = bare(text);
+  const host = url.hostname.replace(/^www\./i, '').toLowerCase();
+  if (label === '' || (label !== host && label !== bare(href) && label !== bare(url.href)))
+    return undefined;
+  return host;
+}
+
 export function imageLinkHtml(href: string, text: string): string {
   const external = externalHref(href);
   const label = escapeHtml(text || href);
@@ -97,21 +133,39 @@ export const renderer: RendererObject<string, string> = {
   html({ text }) {
     return escapeHtml(text);
   },
-  link({ href, title, tokens }) {
+  link({ href, title, text, tokens }) {
     const inner = this.parser.parseInline(tokens);
     const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
     const external = externalHref(href);
     if (external) {
-      return `<a href="${escapeHtml(external)}" data-external-link=""${titleAttr}>${inner}</a>`;
+      // 引用（文字就是网址或域名，含 GFM 自动链接）：域名胶囊；其余外链：文字后跟一个斜箭头。悬停卡片见 link-preview.tsx。
+      const host = citationHost(external, text);
+      if (host !== undefined) {
+        return (
+          `<a href="${escapeHtml(external)}" class="md-cite" data-external-link=""${titleAttr}>` +
+          `${linkIconHtml('globe', 'md-cite-icon')}<span>${escapeHtml(host)}</span></a>`
+        );
+      }
+      if (external.startsWith('mailto:'))
+        return `<a href="${escapeHtml(external)}" data-external-link=""${titleAttr}>${inner}</a>`;
+      return (
+        `<a href="${escapeHtml(external)}"${nowrapClass(text)} data-external-link=""${titleAttr}>` +
+        `${inner}${linkIconHtml('arrow', 'md-link-arrow')}</a>`
+      );
     }
     // 会话链接（`wevir://session/<id>` 或 `#<id>`）：胶囊，悬停与点击由 session-link.tsx 的 MarkdownSessionLinks 处理。
     const sessionId = sessionHrefId(href);
     if (sessionId) {
       return `<a href="#" class="session-pill" data-session-link="${sessionId}"${titleAttr}>${inner}</a>`;
     }
-    // 文件链接（U32，Codex 写 `[a.ts](/绝对路径/a.ts:12)`）：点开时由 markdown-view.tsx 交给文件窗格。
-    if (parseFileHref(href)) {
-      return `<a href="#" data-file-link="${escapeHtml(href)}"${titleAttr}>${inner}</a>`;
+    // 文件链接（U32，Codex 写 `[a.ts](/绝对路径/a.ts:12)`）：前面一个按类型的图标，点开时由 markdown-view.tsx 交给文件窗格。
+    const file = parseFileHref(href);
+    if (file) {
+      return (
+        `<a href="#" class="md-file-link${text.length <= NOWRAP_MAX ? ' md-nowrap' : ''}" ` +
+        `data-file-link="${escapeHtml(href)}"${titleAttr}>` +
+        `${linkIconHtml(fileLinkIcon(file.path), 'md-link-icon')}${inner}</a>`
+      );
     }
     return inner;
   },
@@ -180,6 +234,13 @@ export function sanitizeMarkdown(html: string, allowImages = false): string {
       'preserveaspectratio',
       'preserveAspectRatio',
       'd',
+      'cx',
+      'cy',
+      'r',
+      'rx',
+      'ry',
+      'x',
+      'y',
     ],
     // img 只有 data-file-image（src 由 markdown-view.tsx 换成 Host 的文件地址）。
     FORBID_ATTR: ['src', 'srcset'],

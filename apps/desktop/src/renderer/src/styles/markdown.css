@@ -76,15 +76,98 @@
     color: var(--muted-foreground);
   }
 
+  /* 链接（照 Codex 桌面端 2026-11）：外链是正文色加点状下划线，文字后跟一个斜箭头；文件链接是蓝色，前面一个按类型的图标；
+   * 文字就是网址或域名的引用是灰底的域名胶囊。悬停卡片在 session/markdown/link-preview.tsx。 */
   .markdown a {
-    color: var(--primary);
-    text-decoration: underline;
-    text-decoration-color: color-mix(in oklab, var(--primary) 40%, transparent);
-    text-underline-offset: 2px;
+    color: inherit;
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-decoration-thickness: 1px;
+    text-decoration-color: color-mix(in oklab, currentColor 45%, transparent);
+    text-underline-offset: 3px;
+    transition: text-decoration-color 150ms var(--ease-smooth);
   }
 
   .markdown a:hover {
-    text-decoration-color: var(--primary);
+    text-decoration-color: currentColor;
+  }
+
+  .markdown a.md-file-link {
+    color: var(--link);
+  }
+
+  /* 短链接整段不折行，图标不与文字分开（markdown.ts 的 NOWRAP_MAX）。 */
+  .markdown a.md-nowrap {
+    white-space: nowrap;
+  }
+
+  .markdown :is(.md-link-icon, .md-link-arrow, .md-cite-icon) {
+    display: inline-block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    flex-shrink: 0;
+  }
+
+  .markdown .md-link-icon {
+    width: 0.95em;
+    height: 0.95em;
+    margin-right: 0.25em;
+    vertical-align: -0.12em;
+  }
+
+  .markdown .md-link-arrow {
+    width: 0.8em;
+    height: 0.8em;
+    margin-left: 0.15em;
+    vertical-align: -0.05em;
+    color: var(--muted-foreground);
+    transition:
+      color 150ms var(--ease-smooth),
+      transform 150ms var(--ease-smooth);
+  }
+
+  .markdown a:hover .md-link-arrow {
+    color: currentColor;
+    transform: translate(1px, -1px);
+  }
+
+  .markdown a.md-cite {
+    display: inline-flex;
+    max-width: 16em;
+    height: 1.5em;
+    align-items: center;
+    gap: 0.3em;
+    margin-inline: 0.1em;
+    padding-inline: 0.5em;
+    border-radius: 999px;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 0.75em;
+    line-height: 1;
+    vertical-align: 0.1em;
+    text-decoration: none;
+    transition:
+      background-color 150ms var(--ease-smooth),
+      color 150ms var(--ease-smooth);
+  }
+
+  .markdown a.md-cite > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .markdown a.md-cite:hover {
+    background: color-mix(in oklab, var(--foreground) 10%, var(--muted));
+    color: var(--foreground);
+  }
+
+  .markdown .md-cite-icon {
+    width: 1.05em;
+    height: 1.05em;
   }
 
   .markdown hr {
