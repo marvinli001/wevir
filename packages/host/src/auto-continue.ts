@@ -22,6 +22,12 @@ export const SWITCH_CONTINUE_PROMPT =
 /** 重置之后再等一会儿才发：服务端窗口的边界与本机时钟有出入，早了又会碰到上限。 */
 export const AUTO_CONTINUE_DELAY_MS = 30_000;
 
+/**
+ * 回合因用量上限失败、重置时刻引擎没报、账号最近的用量里也找不到用完的窗口时（一次运行的第一个请求就碰到上限，引擎还没推过用量，
+ * T3 Code 80e1e4d，#27791），Host 先重读这个账号的用量再记下失败，最多等这么久；读不到就照旧记下，没有重置时刻。
+ */
+export const USAGE_REFRESH_TIMEOUT_MS = 5_000;
+
 /** 计时器一次最多睡多久：电脑睡眠时计时器不走，醒来之后最迟这么久按墙上时钟重新算。 */
 const MAX_TICK_MS = 60_000;
 

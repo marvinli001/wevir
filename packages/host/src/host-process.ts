@@ -1013,10 +1013,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         // 回合还在跑：订阅账号的用量读得勤一些（usage-refresh.ts），长回合里也跟得上。
         accounts?.usage.used(context.providerId);
       },
-      // 额度恢复后自动继续（0.119.0）：回合因用量上限失败时从账号最近的用量补重置时刻；账号 ID 就是 Provider ID。
+      // 额度恢复后自动继续（0.119.0）：回合因用量上限失败时从账号最近的用量补重置时刻（没有时先重读一次）；账号 ID 就是 Provider ID。
       routing: () => settings.get().routing,
       autoContinue: {
         account: (providerId) => accounts?.peek(providerId),
+        refreshUsage: async (providerId) => {
+          await accounts?.refreshUsage(providerId);
+        },
         identity: { deviceId: hostId, clientId: 'wevir-auto-continue', clientKind: 'desktop' },
       },
       idleCompaction: {

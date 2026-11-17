@@ -384,13 +384,25 @@ export class ChatgptAccount {
     this.#publish();
   }
 
-  /** 只重读用量（Host 定时刷新）；没登录、正在登录或读不到时什么都不做。 */
+  /**
+   * 只重读用量（Host 定时刷新，回合因用量上限失败、找不到重置时刻时也读一次）；没登录、正在登录或读不到时什么都不做。读的时候到了
+   * 变了的 `account/rateLimits/updated`：那几个额度比读到的新，留着通知的（T3 Code 80e1e4d）。
+   */
   async refreshUsage(): Promise<void> {
     if (this.#base?.signedIn !== true || this.#login !== undefined) return;
     const rpc = await this.#options.rpc().catch(() => undefined);
     if (rpc === undefined) return;
-    const limits = await this.#readRateLimits(rpc);
+    const before = this.#base.limits;
+    const read = await this.#readRateLimits(rpc);
     if (this.#base?.signedIn !== true) return;
+    const current = this.#base.limits;
+    let limits = read;
+    if (current !== before && current !== undefined) {
+      limits = { ...read };
+      for (const [id, limit] of Object.entries(current)) {
+        if (limit !== before?.[id]) limits[id] = limit;
+      }
+    }
     this.#base = { ...this.#base, limits };
     this.#publish();
   }

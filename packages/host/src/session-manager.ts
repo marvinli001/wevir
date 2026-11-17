@@ -111,6 +111,7 @@ import {
   type SubagentStartedEvent,
   type SubagentUpdatedEvent,
   type TitleRequest,
+  type TurnFailedEvent,
   type TurnStartedEvent,
   type TurnSteeredEvent,
   type UsageRecordedEvent,
@@ -133,6 +134,7 @@ import {
   completeUsageLimit,
   resumeAtFor,
   SWITCH_CONTINUE_PROMPT,
+  USAGE_REFRESH_TIMEOUT_MS,
 } from './auto-continue.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
@@ -199,6 +201,12 @@ import {
   recapInput,
 } from './recap.js';
 import { pastedContent, relayContent } from './relay.js';
+import {
+  RETRY_BUDGET_MS,
+  RETRY_RECOVERY_EVENTS,
+  retryExpiredMessage,
+  retryRateLimited,
+} from './retry-budget.js';
 import type { FindingInput } from './review/service.js';
 import { roleBriefTask } from './roles.js';
 import { decideRouting } from './routing.js';
@@ -266,6 +274,8 @@ export interface SessionManagerOptions {
   engine?: string;
   /** 默认 `CANCEL_TIMEOUT_MS`。 */
   cancelTimeoutMs?: number;
+  /** 回合停在引擎重试里最多多久（retry-budget.ts），默认 `RETRY_BUDGET_MS`。 */
+  retryBudgetMs?: number;
   /** 空闲释放（`SESSION_IDLE_RELEASE_MS`）的时长，毫秒；0 表示不释放。 */
   idleReleaseMs?: number;
   /** 无人值守的会话里提问的超时（0.72.0）；默认 `QUESTION_TIMEOUT_MS`，0 表示一直等。 */
@@ -501,6 +511,11 @@ export interface SessionManagerOptions {
    */
   autoContinue?: {
     account?: (providerId: string) => AccountState | undefined;
+    /**
+     * 重读这个账号的用量（`EngineAccounts.refreshUsage`）：回合因用量上限失败、哪里都找不到重置时刻时先读一次再记下（最多等
+     * `USAGE_REFRESH_TIMEOUT_MS`）。没给时不读。
+     */
+    refreshUsage?: (providerId: string) => Promise<void>;
     identity?: ClientIdentity;
     /** 测试用：时钟与重置之后再等多久（默认 `AUTO_CONTINUE_DELAY_MS`）。 */
     now?: () => number;
@@ -599,6 +614,13 @@ interface TurnRuntime {
    * 跑完叫醒父会话）的事件并进这个回合（`#engineMainTurnStarted`），它的结束事件不结束这个回合：用户的消息还没交出去。
    */
   beforeSend?: true;
+  /**
+   * 引擎在重试（`turn.retrying`，retry-budget.ts）：第一条重试时排上的时限计时器、最后一次重试的原因。模型重新有输出时清掉，
+   * 之后的重试另算一个时限。
+   */
+  retry?: { timer: ReturnType<typeof setTimeout>; reason: string | undefined };
+  /** 重试超过时限、Host 停下的回合：结算时记为失败，带这个错误（引擎自己报了失败时用引擎的）。 */
+  retryExpired?: EngineErrorInfo & { usageLimit?: UsageLimit };
 }
 
 /** 一次对引擎事件流的订阅。 */
@@ -895,6 +917,7 @@ export class SessionManager {
   readonly #adapter: AgentRuntimeAdapter;
   readonly #engine: string;
   readonly #cancelTimeoutMs: number;
+  readonly #retryBudgetMs: number;
   readonly #questionTimeoutMs: number;
   readonly #approvalTimeoutMs: () => number;
   readonly #onError: (error: unknown) => void;
@@ -992,6 +1015,7 @@ export class SessionManager {
     this.#adapter = options.adapter;
     this.#engine = options.engine ?? 'echo';
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#retryBudgetMs = options.retryBudgetMs ?? RETRY_BUDGET_MS;
     this.#idleReleaseMs = options.idleReleaseMs ?? SESSION_IDLE_RELEASE_MS;
     if (this.#idleReleaseMs > 0) {
       this.#idleReleaseTimer = setInterval(
@@ -6210,6 +6234,11 @@ export class SessionManager {
       return;
     }
     const { turnId } = turn;
+    if (turn.retry !== undefined && RETRY_RECOVERY_EVENTS.has(event.type)) {
+      // 模型又有输出了：重试已经恢复，时限作废。
+      clearTimeout(turn.retry.timer);
+      turn.retry = undefined;
+    }
     switch (event.type) {
       case 'assistant.delta':
         this.#startup?.mark(sessionId, 'firstDelta');
@@ -6331,7 +6360,8 @@ export class SessionManager {
         return;
       }
       case 'turn.retrying':
-        // 引擎在重发模型请求（0.119.0）：只是进度，回合照常进行。
+        // 引擎在重发模型请求（0.119.0）：是进度，回合照常进行；停在重试里太久时 Host 停下它（`#retrying`）。
+        this.#retrying(runtime, turn, event.reason);
         this.#write(runtime, [
           {
             type: 'turn.retrying',
@@ -6458,19 +6488,112 @@ export class SessionManager {
           ]);
           return;
         }
-        this.#turnEnded(runtime, turn, 'failed', undefined, {
-          category: event.category,
-          message: event.message,
-          ...(event.code !== undefined && { code: event.code }),
-          ...(event.usageLimit !== undefined && {
-            usageLimit: completeUsageLimit(
-              event.usageLimit,
-              this.#autoContinue?.account?.(this.#snapshot(runtime).session.providerId),
-            ),
-          }),
-        });
+        this.#turnFailed(runtime, turn, event);
         return;
     }
+  }
+
+  /**
+   * 回合失败（`turn.failed`）。因用量上限失败、引擎没报重置时刻、账号最近的用量里也找不到时（T3 Code 80e1e4d，一次运行的第一个
+   * 请求就碰到上限，引擎还没推过用量），先重读账号的用量再记下，额度恢复后自动继续才有重置时刻：读的时候这个会话之后的引擎事件
+   * 先缓冲，读完（或超过 `USAGE_REFRESH_TIMEOUT_MS`）先结算这个回合，再按到达顺序处理缓冲的。
+   */
+  #turnFailed(
+    runtime: SessionRuntime,
+    turn: TurnRuntime,
+    event: TurnFailedEvent,
+    refreshed = false,
+  ): void {
+    const { providerId } = this.#snapshot(runtime).session;
+    const usageLimit =
+      event.usageLimit &&
+      completeUsageLimit(event.usageLimit, this.#autoContinue?.account?.(providerId));
+    if (
+      !refreshed &&
+      usageLimit?.resetsAt === undefined &&
+      event.usageLimit !== undefined &&
+      this.#autoContinue?.refreshUsage !== undefined
+    ) {
+      runtime.holds += 1;
+      void this.#refreshUsage(providerId).then(() => {
+        runtime.held.unshift(() => {
+          if (runtime.turn === turn) this.#turnFailed(runtime, turn, event, true);
+        });
+        this.#release(runtime);
+      });
+      return;
+    }
+    this.#turnEnded(runtime, turn, 'failed', undefined, {
+      category: event.category,
+      message: event.message,
+      ...(event.code !== undefined && { code: event.code }),
+      ...(usageLimit !== undefined && { usageLimit }),
+    });
+  }
+
+  /** 重读账号的用量（`autoContinue.refreshUsage`），最多等 `USAGE_REFRESH_TIMEOUT_MS`；读不到就算了。 */
+  async #refreshUsage(providerId: string): Promise<void> {
+    const refresh = this.#autoContinue?.refreshUsage;
+    if (refresh === undefined) return;
+    const read = Promise.resolve()
+      .then(() => refresh(providerId))
+      .catch((error: unknown) =>
+        this.#onWarning('failed to refresh account usage', {
+          providerId,
+          error: errorText(error),
+        }),
+      );
+    await settleBy(read, Date.now() + USAGE_REFRESH_TIMEOUT_MS);
+  }
+
+  /**
+   * 引擎在重试（retry-budget.ts）：回合里第一条 `turn.retrying` 排上时限，之后的只记下原因、不延长时限，到时 `#retryExpired`。
+   * 模型重新有输出时 `#handle` 清掉它。
+   */
+  #retrying(runtime: SessionRuntime, turn: TurnRuntime, reason: string | undefined): void {
+    if (turn.retry !== undefined) {
+      turn.retry.reason = reason;
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.#retryExpired(runtime, turn).catch(this.#onError);
+    }, this.#retryBudgetMs);
+    timer.unref?.();
+    turn.retry = { timer, reason };
+  }
+
+  /**
+   * 回合停在重试里超过时限：引擎不会自己停，Host 停下它（同用户按停止），结算时记为失败（`#turnEnded`）。最后一次重试是请求太多
+   * （429）、来源又是订阅账号时按用量上限记（`usageLimit`，重置时刻从账号的用量里补，找不到就先重读一次），否则是模型服务的错误。
+   * 用户已经按了停止的不管，照常是取消。
+   */
+  async #retryExpired(runtime: SessionRuntime, turn: TurnRuntime): Promise<void> {
+    const retry = turn.retry;
+    if (retry === undefined || runtime.turn !== turn) return;
+    turn.retry = undefined;
+    const running = () =>
+      !this.#shuttingDown &&
+      !this.#disposed &&
+      runtime.turn === turn &&
+      this.#snapshot(runtime).session.state === 'running';
+    if (!running()) return;
+    const { providerId } = this.#snapshot(runtime).session;
+    const account = this.#autoContinue?.account;
+    let usageLimit: UsageLimit | undefined;
+    if (retryRateLimited(retry.reason) && account?.(providerId) !== undefined) {
+      usageLimit = completeUsageLimit({}, account(providerId));
+      if (usageLimit.resetsAt === undefined && this.#autoContinue?.refreshUsage !== undefined) {
+        await this.#refreshUsage(providerId);
+        if (!running()) return;
+        usageLimit = completeUsageLimit({}, account(providerId));
+      }
+    }
+    turn.retryExpired = {
+      category: 'provider',
+      message: retryExpiredMessage(this.#retryBudgetMs, retry.reason),
+      ...(usageLimit !== undefined && { usageLimit }),
+    };
+    await this.cancel(runtime.id);
   }
 
   /**
@@ -7430,12 +7553,16 @@ export class SessionManager {
   #turnEnded(
     runtime: SessionRuntime,
     turn: TurnRuntime,
-    outcome: TurnOutcome,
+    engineOutcome: TurnOutcome,
     engineStopReason?: string,
-    error?: EngineErrorInfo & { code?: number; usageLimit?: UsageLimit },
+    engineError?: EngineErrorInfo & { code?: number; usageLimit?: UsageLimit },
   ): void {
     const snapshot = this.#snapshot(runtime);
     let state = snapshot.session.state;
+    // 重试超过时限、Host 停下的回合（`#retryExpired`）：取消结束的记为失败，带停下的原因。
+    const expired = engineOutcome !== 'completed' ? turn.retryExpired : undefined;
+    const outcome: TurnOutcome = expired !== undefined ? 'failed' : engineOutcome;
+    const error = engineError ?? expired;
     const inputs: AppendInput[] = [];
     if (error) {
       inputs.push({
@@ -7453,14 +7580,17 @@ export class SessionManager {
       inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
       state = 'running';
     }
-    const finalOutcome = outcome === 'failed' && state === 'cancelling' ? 'cancelled' : outcome;
+    const finalOutcome =
+      outcome === 'failed' && state === 'cancelling' && expired === undefined
+        ? 'cancelled'
+        : outcome;
     inputs.push(
       ...finishTurn(
         turn.turnId,
         turn.openTools,
         finalOutcome,
         this.#turnDuration(runtime),
-        engineStopReason,
+        expired !== undefined ? undefined : engineStopReason,
       ),
       stateChanged(state, 'idle', 'turn_finished'),
       // 待发消息（domain-model §4.6）：没插进去的插话改为排队；回合没完成就暂停（取消过程中加入的除外）。
@@ -7963,6 +8093,8 @@ export class SessionManager {
         const turn = runtime.turn;
         if (turn?.turnId === event.payload.turnId) {
           runtime.turn = undefined;
+          if (turn.retry !== undefined) clearTimeout(turn.retry.timer);
+          turn.retry = undefined;
           turn.finished.resolve();
         }
         this.#reportTask(runtime, event.payload.turnId, event.payload.outcome);

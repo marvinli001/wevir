@@ -1,6 +1,7 @@
 import { mkdirSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  AccountState,
   ApprovalRequest,
   ClientIdentity,
   MessageFrom,
@@ -3089,6 +3090,144 @@ describe('SessionManager：重连进度与额度恢复后自动继续（0.119.0�
       })),
     );
     expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('completed');
+  });
+
+  /** 引擎停在提问上（echo 的 `ask`，之前没有输出）、测试往流里注入事件的会话。 */
+  async function waitingTurn(manager: Partial<SessionManagerOptions>) {
+    const injected = new EventHub<AgentEvent>();
+    const h = setup({ manager });
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      withInjected(subscribe(engineSessionId), injected, engineSessionId),
+    );
+    const id = await create(h);
+    const engineSessionId = h.storage.sessions.get(id)?.engineSessionId as string;
+    const turnId = turnOf(await send(h, id, 'ask'));
+    await vi.waitFor(() => expect(ofType(h, id, 'question.requested')).toHaveLength(1));
+    const retrying = (reason: string) =>
+      injected.emit({ type: 'turn.retrying', engineSessionId, attempt: 1, maxAttempts: 5, reason });
+    return { h, id, turnId, engineSessionId, injected, retrying };
+  }
+
+  it('停在重试里超过时限：Host 停下回合，记为模型服务的错误；后来的重试不延长时限', async () => {
+    const { h, id, turnId, retrying } = await waitingTurn({ retryBudgetMs: 120 });
+    retrying('stream disconnected before completion');
+    await delay(60);
+    retrying('unexpected status 503 Service Unavailable');
+    await delay(30);
+    expect(state(h, id)).toBe('running');
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'turn.finished').map((e) => e.payload)).toEqual([
+      expect.objectContaining({ turnId, outcome: 'failed' }),
+    ]);
+    const errors = ofType(h, id, 'engine.error').map((e) => e.payload);
+    expect(errors).toEqual([
+      {
+        turnId,
+        fatal: false,
+        category: 'provider',
+        message: expect.stringContaining('unexpected status 503'),
+      },
+    ]);
+    expect(transitions(h, id).slice(-2)).toEqual([
+      'running→cancelling:cancel_requested',
+      'cancelling→idle:turn_finished',
+    ]);
+  });
+
+  it('重试之后模型又有输出：时限作废，回合照常进行', async () => {
+    const { h, id, engineSessionId, injected, retrying } = await waitingTurn({
+      retryBudgetMs: 60,
+    });
+    retrying('stream disconnected before completion');
+    injected.emit({
+      type: 'assistant.delta',
+      engineSessionId,
+      attemptId: 'recovered',
+      blockIndex: 0,
+      kind: 'reasoning',
+      text: 'back',
+    });
+    await delay(150);
+    expect(state(h, id)).toBe('running');
+    expect(ofType(h, id, 'engine.error')).toEqual([]);
+    await h.manager.cancel(id);
+    expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('cancelled');
+  });
+
+  it('订阅账号的重试停在 429 上：按用量上限失败，先重读账号的用量补重置时刻并排上自动继续', async () => {
+    const resetsAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    let account: AccountState = {
+      kind: 'chatgpt',
+      status: 'signed_in',
+      rateLimits: { primary: { usedPercent: 80, windowMinutes: 300 } },
+    };
+    const refreshUsage = vi.fn(async () => {
+      account = {
+        ...account,
+        rateLimits: { primary: { usedPercent: 100, windowMinutes: 300, resetsAt } },
+      };
+    });
+    const { h, id, turnId, retrying } = await waitingTurn({
+      retryBudgetMs: 50,
+      autoContinue: { account: () => account, refreshUsage },
+    });
+    retrying('rate_limit (HTTP 429)');
+    await waitForState(h, id, 'idle');
+    expect(refreshUsage).toHaveBeenCalledWith('deepseek-official');
+    expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('failed');
+    expect(ofType(h, id, 'engine.error')[0]?.payload).toMatchObject({
+      turnId,
+      category: 'provider',
+      usageLimit: { resetsAt, windowMinutes: 300 },
+    });
+    expect(snapshot(h, id).session.autoContinue).toEqual({ turnId, resumeAt: expect.any(String) });
+  });
+
+  it('用量上限的失败找不到重置时刻：先重读账号的用量再记下，之后的事件排在它后面', async () => {
+    const resetsAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    let account: AccountState = { kind: 'chatgpt', status: 'signed_in' };
+    const refreshUsage = vi.fn(async () => {
+      await delay(20);
+      account = {
+        ...account,
+        rateLimits: { primary: { usedPercent: 100, windowMinutes: 300, resetsAt } },
+      };
+    });
+    const h = setup({ manager: { autoContinue: { account: () => account, refreshUsage } } });
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation(async function* (engineSessionId) {
+      for await (const event of subscribe(engineSessionId)) {
+        if (event.type !== 'turn.settled') {
+          yield event;
+          continue;
+        }
+        yield {
+          type: 'turn.failed',
+          engineSessionId,
+          category: 'provider',
+          message: 'You have hit your usage limit.',
+          usageLimit: {},
+        } satisfies AgentEvent;
+        yield {
+          type: 'engine.raw',
+          engineSessionId,
+          protocol: 'codex-app-server',
+          method: 'thread/status/changed',
+        } satisfies AgentEvent;
+      }
+    });
+    const id = await create(h);
+    const turnId = turnOf(await send(h, id, 'work'));
+    await waitForState(h, id, 'idle');
+    expect(refreshUsage).toHaveBeenCalledTimes(1);
+    expect(ofType(h, id, 'engine.error')[0]?.payload.usageLimit).toEqual({
+      resetsAt,
+      windowMinutes: 300,
+    });
+    expect(snapshot(h, id).session.autoContinue).toEqual({ turnId, resumeAt: expect.any(String) });
+    const types = all(h, id).map((e) => e.type);
+    expect(types.indexOf('engine.raw')).toBeGreaterThan(types.indexOf('turn.finished'));
   });
 
   it('用量上限：engine.error 带 usageLimit；打开后到点替用户发继续消息，引擎看到原文', async () => {

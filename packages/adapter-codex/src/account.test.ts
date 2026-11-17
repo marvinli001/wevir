@@ -446,6 +446,58 @@ describe('ChatgptAccount', () => {
     expect(states.at(-1)?.rateLimits).toEqual({ primary: { usedPercent: 60, windowMinutes: 300 } });
   });
 
+  it('重读期间到了变了的额度通知：那个额度留通知的，别的用读到的', async () => {
+    let release: ((value: unknown) => void) | undefined;
+    let hold = false;
+    const read = () => ({
+      rateLimitsByLimitId: {
+        codex: {
+          limitId: 'codex',
+          primary: { usedPercent: 90, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+        },
+        spark: {
+          limitId: 'spark',
+          primary: { usedPercent: 10, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+        },
+      },
+    });
+    const { account } = setup({
+      'account/read': signedIn,
+      'account/rateLimits/read': () =>
+        hold
+          ? new Promise((resolve) => {
+              release = resolve;
+            })
+          : read(),
+    });
+    await account.read();
+    hold = true;
+    const refreshing = account.refreshUsage();
+    await settle();
+    // 读的时候主额度用完了（回合碰到上限）：通知带着重置时刻。
+    account.onNotification('account/rateLimits/updated', {
+      rateLimits: {
+        limitId: 'codex',
+        primary: { usedPercent: 100, windowDurationMins: 300, resetsAt: 1_791_957_611 },
+        secondary: null,
+      },
+    });
+    const late = read();
+    late.rateLimitsByLimitId.spark.primary.usedPercent = 20;
+    release?.(late);
+    await refreshing;
+    expect(account.state.rateLimits?.primary).toEqual({
+      usedPercent: 100,
+      windowMinutes: 300,
+      resetsAt: '2026-10-14T06:00:11.000Z',
+    });
+    expect(account.state.rateLimits?.windows?.find((w) => w.scope === 'spark')).toMatchObject({
+      usedPercent: 20,
+    });
+  });
+
   it('与上一条通知相同的窗口是缓存的旧额度，不覆盖重读到的新用量', async () => {
     let percent = 100;
     const { account } = setup({
