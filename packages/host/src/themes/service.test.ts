@@ -254,10 +254,15 @@ describe('Host themes', () => {
     expect(saved.theme).toEqual(theme);
     expect(service.list().activeId).toBeNull();
     const path = join(service.directory, 'lagoon', 'theme.json');
-    const previous = await open(path, 'r');
-    await service.save({ id: 'lagoon', theme: { ...theme, name: 'Changed' } });
-    expect(JSON.parse(await previous.readFile('utf8')).name).toBe('Lagoon');
-    await previous.close();
+    // Windows 的 rename 无法替换仍有打开句柄的目标文件。
+    const previous = process.platform === 'win32' ? undefined : await open(path, 'r');
+    try {
+      await service.save({ id: 'lagoon', theme: { ...theme, name: 'Changed' } });
+      if (previous) expect(JSON.parse(await previous.readFile('utf8')).name).toBe('Lagoon');
+    } finally {
+      await previous?.close();
+    }
+    expect(JSON.parse(await readFile(path, 'utf8')).name).toBe('Changed');
     expect(
       (await readdir(join(service.directory, 'lagoon'))).filter((name) => name.includes('.tmp-')),
     ).toEqual([]);
