@@ -192,19 +192,6 @@ describe.skipIf(binary === undefined)(
       const { adapter, id, events } = await open('auto_review');
       const before = reviewRequests();
       let turn = await run(adapter, id, events, '[cmd:reviewed]');
-      console.log(
-        'DEBUG',
-        JSON.stringify(
-          turn.map((e) => [e.type, 'status' in e ? e.status : '', 'output' in e ? e.output : '']),
-        ),
-        JSON.stringify(
-          mock.requests.map((r) => [
-            r.body.model,
-            JSON.stringify(r.body).includes(REVIEW_PROMPT),
-            JSON.stringify(r.body.input.at(-1)).slice(0, 300),
-          ]),
-        ),
-      );
       expect(reviewRequests()).toBeGreaterThan(before);
       // 审查用的是会话自己的模型：经网关的模型目录里没有 Codex 偏好的审查模型。
       const review = mock.requests.findLast((r) => JSON.stringify(r.body).includes(REVIEW_PROMPT));
@@ -212,7 +199,18 @@ describe.skipIf(binary === undefined)(
       expect(turn.some((e) => e.type === 'approval.requested')).toBe(false);
       expect(turn.find(ofType('tool.finished'))).toMatchObject({ status: 'completed' });
       expect(existsSync(join(outside.dir, 'reviewed'))).toBe(true);
-      // 审查的过程与结论（item/autoApprovalReview/*、guardianWarning）不另出事件。
+      expect(turn).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'engine.notice',
+            detail: expect.objectContaining({ kind: 'approval_review', status: 'inProgress' }),
+          }),
+          expect.objectContaining({
+            type: 'engine.notice',
+            detail: expect.objectContaining({ kind: 'approval_review', status: 'approved' }),
+          }),
+        ]),
+      );
       expect(turn.some((e) => e.type === 'engine.raw')).toBe(false);
 
       turn = await run(adapter, id, events, '[cmd:deny-me]');
@@ -220,6 +218,21 @@ describe.skipIf(binary === undefined)(
       expect(turn.find(ofType('tool.finished'))).toMatchObject({ status: 'failed' });
       expect(existsSync(join(outside.dir, 'deny-me'))).toBe(false);
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled' });
+      const denial = turn
+        .filter(ofType('engine.notice'))
+        .map((event) => event.detail)
+        .find((detail) => detail.kind === 'approval_review' && detail.status === 'denied');
+      expect(denial).toMatchObject({
+        kind: 'approval_review',
+        action: expect.stringContaining('deny-me'),
+      });
+      if (denial?.kind !== 'approval_review') throw new Error('missing denial');
+      await adapter.authorizeDenied(id, denial.reviewId);
+      expect(existsSync(join(outside.dir, 'deny-me'))).toBe(false);
+      await expect(adapter.authorizeDenied(id, denial.reviewId)).resolves.toBe(denial.action);
+      await expect(adapter.authorizeDenied(id, 'fabricated-review')).rejects.toMatchObject({
+        code: 'approval_not_found',
+      });
     });
 
     it('换回请求批准：下一个回合起越界的命令照常请求审批', async () => {

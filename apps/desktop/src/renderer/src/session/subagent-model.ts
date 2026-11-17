@@ -50,6 +50,7 @@ export function effortLabel(effort: string | undefined): string | undefined {
     case 'high':
     case 'xhigh':
     case 'max':
+    case 'ultra':
       return t('subagent.effort', { level: t(`subagent.effort.${effort}`) });
     default:
       return t('subagent.effort', { level: effort });

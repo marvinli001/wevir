@@ -21,8 +21,10 @@ export function useWorkspaceManagement(): { update: boolean; remove: boolean; cr
     update:
       write && view.status === 'connected' && hostSupports(view.hello.features, 'workspace_update'),
     remove: write,
-    // 建项目要挑这台电脑上的文件夹：连着别的电脑上的 Host 时不建。
-    create: write && capabilities().localFiles,
+    create:
+      write &&
+      (capabilities().localFiles ||
+        (view.status === 'connected' && hostSupports(view.hello.features, 'git_workflow'))),
   };
 }
 

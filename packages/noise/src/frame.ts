@@ -6,6 +6,8 @@ import { concatBytes } from './primitives.js';
 export const MAX_FRAGMENT_LENGTH = MAX_MESSAGE_LENGTH - TAG_LENGTH - 1;
 /** 一个应用帧（一个 JSON-RPC 对象）的默认上限，防止对端让这边无限堆积。 */
 export const MAX_FRAME_LENGTH = 4 * 1024 * 1024;
+/** 配对完成后的 RPC：10 MiB 上传的 base64 与 JSON-RPC 信封。 */
+export const MAX_RPC_FRAME_LENGTH = 16 * 1024 * 1024;
 
 const MORE = 1;
 const LAST = 0;

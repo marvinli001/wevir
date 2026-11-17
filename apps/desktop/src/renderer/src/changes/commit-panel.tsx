@@ -3,7 +3,12 @@
 // 上面单独一条警示，勾“一并提交”才能提交；验证记录只显示、不挡提交；提交失败时显示原因与 git 的输出，什么都不回滚。
 // diff 文件头的勾选框是同一套暂存操作（changes-pane.tsx）。
 
-import type { GitCommitOutcome, GitStatusFile, GitVerificationCheck } from '@wevir/protocol';
+import type {
+  GitCommitOutcome,
+  GitStatusFile,
+  GitVerificationCheck,
+  MethodParams,
+} from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ChevronDown,
@@ -39,6 +44,7 @@ import {
   statusLetter,
 } from './commit-model';
 import type { GitState } from './git-data';
+import { GitWorkflowMenu } from './git-workflow';
 
 const SUBMIT_SHORTCUT = IS_MAC ? '⌘↩' : 'Ctrl+↩';
 
@@ -52,11 +58,13 @@ const TONE: Record<CheckTone, { icon: typeof Circle; className: string }> = {
 
 export function CommitPanel({
   git,
+  workflowScope,
   open,
   onOpenChange,
   onReveal,
 }: {
   git: GitState;
+  workflowScope: MethodParams<'git.status'> | undefined;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onReveal: (path: string, staged: boolean) => void;
@@ -92,10 +100,16 @@ export function CommitPanel({
     <section className="shrink-0 px-2 pb-2" data-commit-panel>
       <div className="flex max-h-[min(28rem,60vh)] flex-col rounded-2xl border border-border bg-card shadow-xs">
         <div className="flex h-9 shrink-0 items-center gap-1 pr-1.5 pl-3 text-xs">
-          <GitBranch aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 truncate font-mono text-muted-foreground" data-commit-branch>
-            {status.branch ?? status.head?.slice(0, 7) ?? ''}
-          </span>
+          {workflowScope ? (
+            <GitWorkflowMenu scope={workflowScope} status={status} refresh={git.refresh} />
+          ) : (
+            <>
+              <GitBranch aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate font-mono text-muted-foreground" data-commit-branch>
+                {status.branch ?? status.head?.slice(0, 7) ?? ''}
+              </span>
+            </>
+          )}
           {clean ? (
             <span className="ml-1.5 shrink-0 text-muted-foreground">{t('commit.clean')}</span>
           ) : (

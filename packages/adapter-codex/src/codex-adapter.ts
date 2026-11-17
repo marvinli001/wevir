@@ -44,6 +44,7 @@ import {
   type ProviderModelConfig,
   type ProviderTestResult,
   type ReviewRequest,
+  redactDiagnostics,
   type SessionConfig,
   type TitleRequest,
   type TurnFailedEvent,
@@ -423,11 +424,7 @@ interface CodexSession {
   settingsSynced?: boolean;
 }
 
-/**
- * 审批选项（codex-event-mapping.md §6.6）。`availableDecisions` 是实验字段拿不到，按 Codex 终端界面
- * （tui/src/bottom_pane/approval_overlay.rs 的 `exec_options` / `patch_options`）固定：`optionId` 就是回给 app-server 的
- * 决定；`kind` 以 `allow_` / `reject_` 开头决定批准与否，客户端不认识这些 kind，显示这里的中文 `label`。
- */
+/** 旧版 Codex 没有报告可选决定时采用的命令审批选项。 */
 export const COMMAND_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'accept', label: '允许', kind: 'allow_accept' },
   {
@@ -439,6 +436,54 @@ export const COMMAND_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze
   // 中断回合：用户接着说该怎么做。
   { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel' },
 ]);
+
+/** 保留引擎给出的顺序及对象形式的决定，只把不透明的选项 ID 交给客户端。 */
+export function commandApprovalChoices(available: unknown) {
+  const choices = new Map<string, { option: ApprovalOption; decision: unknown }>();
+  const decisions = available ?? COMMAND_APPROVAL_OPTIONS.map((option) => option.optionId);
+  if (!Array.isArray(decisions)) return choices;
+  for (const [index, decision] of decisions.entries()) {
+    let option: ApprovalOption | undefined;
+    if (typeof decision === 'string') {
+      option = COMMAND_APPROVAL_OPTIONS.find((candidate) => candidate.optionId === decision);
+    } else if (isRecord(decision)) {
+      const prefix = isRecord(decision.acceptWithExecpolicyAmendment)
+        ? decision.acceptWithExecpolicyAmendment.execpolicy_amendment
+        : undefined;
+      const network = isRecord(decision.applyNetworkPolicyAmendment)
+        ? decision.applyNetworkPolicyAmendment.network_policy_amendment
+        : undefined;
+      if (
+        Array.isArray(prefix) &&
+        prefix.length &&
+        prefix.every((token) => typeof token === 'string')
+      ) {
+        const policyTarget = redactDiagnostics(JSON.stringify(prefix));
+        option = {
+          optionId: `codex-policy-${index}`,
+          kind: 'allow_exec_policy',
+          policyTarget,
+          label: `始终允许 ${policyTarget}`,
+        };
+      } else if (
+        isRecord(network) &&
+        typeof network.host === 'string' &&
+        network.host.length > 0 &&
+        (network.action === 'allow' || network.action === 'deny')
+      ) {
+        const allow = network.action === 'allow';
+        option = {
+          optionId: `codex-policy-${index}`,
+          kind: allow ? 'allow_network_policy' : 'reject_always_network',
+          policyTarget: network.host,
+          label: `${allow ? '始终允许' : '始终拒绝'} ${network.host}`,
+        };
+      }
+    }
+    if (option) choices.set(option.optionId, { option: { ...option }, decision });
+  }
+  return choices;
+}
 
 /** 应用级工具的批准（0.30.0）：Codex 的 MCP 批准只有接受、拒绝。 */
 export const MCP_TOOL_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
@@ -1365,6 +1410,31 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
   }
 
+  async authorizeDenied(engineSessionId: string, reviewId: string): Promise<string> {
+    const session = this.#openSession(engineSessionId);
+    const denial = session.mapper.denials.get(reviewId);
+    if (!denial || session.parentId !== undefined || session.permission !== 'auto_review') {
+      throw new AdapterError(
+        'approval_not_found',
+        'This auto-review denial is no longer available.',
+      );
+    }
+    // The RPC records permission in the thread. Repeated clicks share that one admission.
+    denial.authorization ??= this.process
+      .request('thread/approveGuardianDeniedAction', {
+        threadId: session.id,
+        event: denial.event,
+      })
+      .then(
+        () => denial.detail.action,
+        (error: unknown) => {
+          if (error instanceof CodexRpcError) delete denial.authorization;
+          throw engineError(error, 'thread/approveGuardianDeniedAction', this.#logger);
+        },
+      );
+    return denial.authorization;
+  }
+
   /**
    * 代码审查（0.24.0，§4.9）：`review/start`，`delivery: 'inline'`（在会话自己的 thread 上，结果回到它的上下文里）。审查的子 agent
    * 不请求审批（Codex 固定 `never`），它的工具调用照常上报；`enteredReviewMode` / `exitedReviewMode` 不出事件，结果是随后的
@@ -1378,7 +1448,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       target:
         request.target === 'branch'
           ? { type: 'baseBranch', branch: request.baseBranch }
-          : { type: 'uncommittedChanges' },
+          : request.target === 'commit'
+            ? { type: 'commit', sha: request.sha, title: null }
+            : request.target === 'custom'
+              ? { type: 'custom', instructions: request.instructions }
+              : { type: 'uncommittedChanges' },
       delivery: 'inline',
     };
     let response: ReviewStartResponse;
@@ -1621,20 +1695,35 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   /**
-   * 撤回最后一个回合（0.38.0，§6.15）：`thread/revert` 的 `beforeTurnId` 是 thread 最后一个结束的回合（`thread/turns/list`）。
+   * 先用 `thread/turns/list` 核对撤回的起点，再通过一次 `thread/revert` 移除整个后缀。
    * Codex 在 app-server 里重载 thread，订阅不变；之后的 `turn/start` 重新带上会话的设置。
    */
-  async rewind(engineSessionId: string): Promise<void> {
+  async rewind(
+    engineSessionId: string,
+    count = 1,
+    expectedFirstEngineTurnId?: string,
+  ): Promise<void> {
     this.#assertUsable();
     const session = this.#openSession(engineSessionId);
     if (session.parentId !== undefined) throw new AdapterError('invalid_input', '子会话不能撤回');
     if (session.turn !== undefined) throw new AdapterError('session_busy', '回合进行中，不能撤回');
-    const beforeTurnId = await this.#finishedTurnId(engineSessionId, 0);
+    if (!Number.isSafeInteger(count) || count < 1) {
+      throw new AdapterError('invalid_input', 'invalid number of turns to rewind');
+    }
+    const removed = new Set<string>();
+    const beforeTurnId = await this.#finishedTurnId(engineSessionId, count - 1, removed);
+    if (expectedFirstEngineTurnId !== undefined && beforeTurnId !== expectedFirstEngineTurnId) {
+      throw new AdapterError('invalid_input', 'the native turn history has changed');
+    }
     const params: ThreadRevertParams = { threadId: engineSessionId, beforeTurnId };
     try {
       await this.process.request('thread/revert', params);
     } catch (error) {
       throw engineError(error, 'thread/revert', this.#logger);
+    }
+    for (const [reviewId, denial] of session.mapper.denials) {
+      if (typeof denial.event.turn_id === 'string' && removed.has(denial.event.turn_id))
+        session.mapper.denials.delete(reviewId);
     }
     session.lastTurnId = undefined;
     session.settingsSynced = false;
@@ -1644,7 +1733,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * thread 里从后往前数的第 `skip` 个结束的回合（0 是最后一个），跳过进行中的。按页翻 `thread/turns/list`（不带 item）；没有这么多
    * 回合时报 `invalid_input`。
    */
-  async #finishedTurnId(threadId: string, skip: number): Promise<string> {
+  async #finishedTurnId(threadId: string, skip: number, visited?: Set<string>): Promise<string> {
     let remaining = skip;
     let cursor: string | undefined;
     for (;;) {
@@ -1663,6 +1752,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       }
       for (const turn of page.data) {
         if (turn.status === 'inProgress') continue;
+        visited?.add(turn.id);
         if (remaining === 0) return turn.id;
         remaining -= 1;
       }
@@ -2373,7 +2463,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     if (stale) {
       // 用量（只更新累计）与 MCP 服务的启动状态（不出事件）交给映射；按设计忽略的（thread 状态等）照样忽略；其余一律原样保留。
       const events =
-        method === 'thread/tokenUsage/updated' || method === 'mcpServer/startupStatus/updated'
+        method === 'thread/tokenUsage/updated' ||
+        method === 'mcpServer/startupStatus/updated' ||
+        method === 'warning' ||
+        method === 'guardianWarning'
           ? session.mapper.map(method, params, { stale: true })
           : (IGNORED_NOTIFICATIONS as readonly string[]).includes(method)
             ? []
@@ -2709,14 +2802,23 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const params = request.params as
       | CommandExecutionRequestApprovalParams
       | FileChangeRequestApprovalParams;
-    const decline = Promise.resolve({ decision: 'decline' } satisfies ApprovalResponse);
+    const command =
+      isRecord(params) && method === 'item/commandExecution/requestApproval'
+        ? (params as CommandExecutionRequestApprovalParams)
+        : undefined;
+    const choices = command && commandApprovalChoices(command.availableDecisions);
+    const decline = () => {
+      if (!choices || choices.has('decline')) return Promise.resolve({ decision: 'decline' });
+      if (choices.has('cancel')) return Promise.resolve({ decision: 'cancel' });
+      return Promise.reject(new Error('Codex offered no supported rejection'));
+    };
     if (
       !isRecord(params) ||
       typeof params.threadId !== 'string' ||
       typeof params.itemId !== 'string'
     ) {
       this.#warnOnce(`approval_shape:${method}`, 'Codex 的审批请求缺少字段，拒绝', { method });
-      return decline;
+      return decline();
     }
     // 子会话（子 agent 的 thread）的审批与普通会话一样上报，属于子会话（R4，domain-model §5 第 8 条）。
     const session = this.#sessions.get(params.threadId);
@@ -2725,13 +2827,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         method,
         threadId: params.threadId,
       });
-      return decline;
+      return decline();
     }
     if (method === 'item/fileChange/requestApproval' && session.readOnly) {
       this.#warnOnce('role_read_only', '角色不许改文件，拒绝改文件的审批', {
         engineSessionId: session.id,
       });
-      return decline;
+      return decline();
     }
     const turn = session.turn;
     if (turn === undefined || (turn.turnId !== undefined && params.turnId !== turn.turnId)) {
@@ -2739,18 +2841,20 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         engineSessionId: session.id,
         turnId: params.turnId,
       });
-      return decline;
+      return decline();
     }
+    if (choices?.size === 0)
+      return Promise.reject(new Error('Codex offered no supported approval decision'));
     for (const event of session.mapper.approvalPrelude(method, params)) session.hub.emit(event);
     this.#nextApproval += 1;
     const info: PendingApproval = {
       engineSessionId: session.id,
       requestId: `codex-${this.#nextApproval}`,
       toolCallId: params.itemId,
-      options: (method === 'item/commandExecution/requestApproval'
-        ? COMMAND_APPROVAL_OPTIONS
-        : FILE_CHANGE_APPROVAL_OPTIONS
-      ).map((option) => ({ ...option })),
+      options: choices
+        ? [...choices.values()].map(({ option }) => option)
+        : FILE_CHANGE_APPROVAL_OPTIONS.map((option) => ({ ...option })),
+      ...(command?.kind === 'humanCommand' && { humanOnly: true }),
     };
     const amendment = (params as CommandExecutionRequestApprovalParams).proposedExecpolicyAmendment;
     if (
@@ -2762,7 +2866,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       info.proposedPrefix = [...amendment];
     }
     return new Promise<unknown>((reply) => {
-      session.approvals.set(info.requestId, { info, rpcId: request.id, reply });
+      session.approvals.set(info.requestId, {
+        info,
+        rpcId: request.id,
+        reply,
+        ...(choices && { respond: (id: string) => ({ decision: choices.get(id)?.decision }) }),
+      });
       this.#approvalsByRpc.set(request.id, { session, requestId: info.requestId });
       session.hub.emit({ type: 'approval.requested', ...copyApproval(info) });
       // 取消开始之后才到的请求：照常上报，随即结掉；app-server 中断回合时自己收回它。
@@ -3564,9 +3673,9 @@ export function goalKickoffInput(input: AgentInput, objective: string): AgentInp
 
 function userInput(input: AgentInput): UserInput[] {
   return input.content.map((part) =>
-    part.type === 'text'
-      ? { type: 'text', text: part.text, text_elements: [] }
-      : { type: 'localImage', path: part.path },
+    part.type === 'image'
+      ? { type: 'localImage', path: part.path }
+      : { type: 'text', text: part.text, text_elements: [] },
   );
 }
 

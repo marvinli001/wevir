@@ -1,6 +1,12 @@
 import { EventEmitter } from 'node:events';
-import { FrameReader, MAX_FRAME_LENGTH, sealFrame, type TransportCiphers } from '@wevir/noise';
-import { ErrorCode } from '@wevir/protocol';
+import {
+  FrameReader,
+  MAX_FRAME_LENGTH,
+  MAX_RPC_FRAME_LENGTH,
+  sealFrame,
+  type TransportCiphers,
+} from '@wevir/noise';
+import { compareProtocolVersions, ErrorCode } from '@wevir/protocol';
 import type { RawData, WebSocket } from 'ws';
 import type { RpcSocket } from '../rpc-connection.js';
 
@@ -8,8 +14,8 @@ import type { RpcSocket } from '../rpc-connection.js';
  * 握手完成的远程连接上的 JSON-RPC 帧（ADR-0017 §2）：一条 WebSocket 二进制消息是一条 Noise 传输消息，一个 JSON-RPC 对象按
  * `@wevir/noise` 的分片切成一条或几条。交给 `RpcConnection` 的是解密、拼好的文本帧。
  *
- * - 任何一条解密失败、分片标志不对、帧超过 4 MiB，或收到文本消息，都立即断开，不重同步。
- * - 发出的帧超过 4 MiB 时（对端的 FrameReader 也会拒收）：响应换成一条 `INTERNAL_ERROR`，别的帧丢掉并报给 `onError`。
+ * - 任何一条解密失败、分片标志不对、帧超过配对后的 RPC 上限，或收到文本消息，都立即断开，不重同步。
+ * - 发出的帧超过对端版本的上限时（对端的 FrameReader 也会拒收）：响应换成一条 `INTERNAL_ERROR`，别的帧丢掉并报给 `onError`。
  * - 关闭码与 WebSocket 的 ping / pong 在 Noise 之外（ws 协议层），只有码，没有内容。
  */
 export class NoiseRpcSocket extends EventEmitter implements RpcSocket {
@@ -18,12 +24,18 @@ export class NoiseRpcSocket extends EventEmitter implements RpcSocket {
   readonly #reader: FrameReader;
   readonly #onError: (error: unknown) => void;
   #failed = false;
+  #peerFrameLimit = MAX_FRAME_LENGTH;
+
+  setPeerProtocolVersion(version: string): void {
+    this.#peerFrameLimit =
+      compareProtocolVersions(version, '0.199.0') >= 0 ? MAX_RPC_FRAME_LENGTH : MAX_FRAME_LENGTH;
+  }
 
   constructor(ws: WebSocket, ciphers: TransportCiphers, onError: (error: unknown) => void) {
     super();
     this.#ws = ws;
     this.#send = ciphers.send;
-    this.#reader = new FrameReader(ciphers.receive);
+    this.#reader = new FrameReader(ciphers.receive, MAX_RPC_FRAME_LENGTH);
     this.#onError = onError;
     ws.on('ping', () => this.emit('ping'));
     ws.on('pong', () => this.emit('pong'));
@@ -60,7 +72,7 @@ export class NoiseRpcSocket extends EventEmitter implements RpcSocket {
       return;
     }
     let bytes: Uint8Array = Buffer.from(data, 'utf8');
-    if (bytes.length > MAX_FRAME_LENGTH) {
+    if (bytes.length > this.#peerFrameLimit) {
       const replacement = oversizedResponse(data);
       this.#onError(new Error(`a ${bytes.length}-byte frame exceeds the remote frame limit`));
       if (replacement === undefined) {
@@ -69,7 +81,7 @@ export class NoiseRpcSocket extends EventEmitter implements RpcSocket {
       }
       bytes = Buffer.from(replacement, 'utf8');
     }
-    const messages = sealFrame(this.#send, bytes);
+    const messages = sealFrame(this.#send, bytes, this.#peerFrameLimit);
     messages.forEach((message, index) => {
       this.#ws.send(message, { binary: true }, index === messages.length - 1 ? cb : undefined);
     });

@@ -1,8 +1,12 @@
-// 消息下方的操作（0.38.0，照 Codex 桌面端与 T3 Code 的 MessagesTimeline）：回答的“分支到新会话”，最后一条用户消息的“编辑”
-// （撤回最后一个回合，改过的消息照常发出），插话的“回退”（照 Claude 桌面端，撤回插话所在的回合，消息放回输入框）。会话视图按 Host 与会话当前引擎的能力提供，子智能体详情与支线窗格里没有。
+// 消息操作由会话视图按 Host 和当前引擎的能力提供。
 
 import type { UserChatMessage } from '@wevir/client-sdk';
-import type { ProviderProfile, SessionAutoContinue, TurnId } from '@wevir/protocol';
+import type {
+  ProviderProfile,
+  SessionAutoContinue,
+  TurnId,
+  UserContentPart,
+} from '@wevir/protocol';
 import { cn } from 'cn';
 import { Pencil, Split, Undo2 } from 'lucide-react';
 import {
@@ -13,13 +17,16 @@ import {
   useRef,
   useState,
 } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
 import { composerPrefs } from './composer-prefs';
+import { EditContent } from './edit-content';
 import type { ModelChoice } from './model-picker';
 
 export interface MessageActions {
+  authorizeDenied?: (reviewId: string) => Promise<void>;
   routing?: { enabled: boolean };
   retry?: {
     lastTurnId?: TurnId;
@@ -27,10 +34,15 @@ export interface MessageActions {
   };
   /** 从这个回合分支到新会话；会话不能分支时没有。 */
   branch?: (turnId: TurnId) => void;
-  /** 能编辑的用户消息所在的回合：会话最后一个完成的回合，会话空闲、能撤回时才有。 */
+  /** 最后一个可编辑回合。支持历史编辑时，同一引擎段内更早的消息也可编辑。 */
   editTurnId?: TurnId;
+  editFromSeq?: number;
   /** 撤回那个回合、发出改过的消息；成功时 `true`（失败的提示由会话视图显示）。 */
-  submitEdit?: (message: UserChatMessage, text: string) => Promise<boolean>;
+  submitEdit?: (
+    message: UserChatMessage,
+    content: UserContentPart[],
+    latest: TurnId,
+  ) => Promise<boolean>;
   /**
    * 插话的“回退”：撤回插话所在的回合（`session.rewind`，引擎只能整回合撤回），回合开头的消息与插话放回输入框。会话能撤回时就有；
    * `turnId` 同 `editTurnId`，`runningTurnId` 是进行中的回合（它的插话按钮置灰）。失败的提示由会话视图显示。
@@ -143,19 +155,28 @@ export function RewindButton({ turnId, className }: { turnId?: TurnId; className
  */
 export function UserMessageEditor({
   message,
-  initialText,
+  original,
+  editable,
   onDone,
 }: {
   message: UserChatMessage;
-  initialText: string;
+  original: readonly UserContentPart[];
+  editable: boolean;
   onDone(): void;
 }) {
-  const { submitEdit } = useMessageActions();
-  const [text, setText] = useState(initialText);
+  const { submitEdit, editTurnId } = useMessageActions();
+  const appendText = !original.some((part) => part.type === 'text' && !part.pasted);
+  const [content, setContent] = useState<UserContentPart[]>(() =>
+    appendText ? [...original, { type: 'text', text: '' }] : [...original],
+  );
   const [sending, setSending] = useState(false);
+  const [confirmLatest, setConfirmLatest] = useState<TurnId>();
   const ref = useRef<HTMLTextAreaElement>(null);
-  const hasImages = message.parts.some((part) => part.type === 'image');
-  const canSend = !sending && submitEdit !== undefined && (text.trim() !== '' || hasImages);
+  const canSend =
+    editable &&
+    !sending &&
+    submitEdit !== undefined &&
+    content.some((part) => part.type !== 'text' || part.text.trim() !== '');
 
   useLayoutEffect(() => {
     const textarea = ref.current;
@@ -163,21 +184,20 @@ export function UserMessageEditor({
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }, []);
-  // 高度随内容（最多约 12 行，之后滚动）。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 文字变了重新量。
-  useLayoutEffect(() => {
-    const textarea = ref.current;
-    if (!textarea) return;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [text]);
-
-  const send = async () => {
+  const send = async (latest: TurnId) => {
     if (!canSend) return;
     setSending(true);
-    const ok = await submitEdit(message, text.trim());
+    const tail = content.at(-1);
+    const edited =
+      appendText && tail?.type === 'text' && tail.text === '' ? content.slice(0, -1) : content;
+    const ok = await submitEdit(message, edited, latest);
     setSending(false);
     if (ok) onDone();
+  };
+  const requestSend = () => {
+    if (!editTurnId || !canSend) return;
+    if (editTurnId === message.turnId) void send(editTurnId);
+    else setConfirmLatest(editTurnId);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return;
@@ -191,31 +211,46 @@ export function UserMessageEditor({
     const sendKey = composerPrefs.get().sendShortcut === 'enter' ? !event.shiftKey && !mod : mod;
     if (!sendKey) return;
     event.preventDefault();
-    void send();
+    requestSend();
   };
 
   return (
     <div className="w-full max-w-[85%] rounded-xl border border-border bg-card p-2" data-editing>
-      <textarea
-        ref={ref}
-        value={text}
-        aria-label={t('message.edit')}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={onKeyDown}
-        rows={1}
-        className={cn(
-          'block max-h-72 w-full resize-none bg-transparent px-1.5 py-1 text-base break-words outline-none',
-          'placeholder:text-muted-foreground',
-        )}
+      <EditContent
+        content={content}
+        editor={{
+          first: ref,
+          disabled: sending,
+          keyDown: onKeyDown,
+          change: (index, text) =>
+            setContent((current) =>
+              current.map((part, i) => (i === index ? { type: 'text', text } : part)),
+            ),
+        }}
       />
       <div className="mt-1 flex justify-end gap-1.5">
         <Button variant="ghost" size="xs" onClick={onDone} disabled={sending}>
           {t('message.editCancel')}
         </Button>
-        <Button size="xs" onClick={() => void send()} disabled={!canSend}>
+        <Button size="xs" onClick={requestSend} disabled={!canSend}>
           {t('message.editSend')}
         </Button>
       </div>
+      {confirmLatest !== undefined && (
+        <ConfirmDialog
+          open
+          title={t('message.editHistoryTitle')}
+          confirmLabel={t('message.editHistoryConfirm')}
+          onOpenChange={(open) => !open && setConfirmLatest(undefined)}
+          onConfirm={async () => {
+            if (!canSend || editTurnId !== confirmLatest) throw new Error(t('message.editChanged'));
+            await send(confirmLatest);
+          }}
+          failure={(error) => t('message.editFailed', { error })}
+        >
+          {t('message.editHistoryImpact')}
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

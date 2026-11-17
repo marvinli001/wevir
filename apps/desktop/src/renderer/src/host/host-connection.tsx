@@ -17,6 +17,7 @@ import {
 } from 'react';
 import { bindBrowserLibrary, invalidateBrowserLibrary } from '@/data/browser-library';
 import { capabilities, type HostConnectionSource, hostConnectionSource } from '@/platform/platform';
+import { bindComposerDrafts, unbindComposerDrafts } from '@/session/composer-drafts';
 import type { HostProcessStatus } from '../../../shared/desktop-api.js';
 import { describeError } from './error-text';
 
@@ -104,16 +105,21 @@ export function HostConnectionProvider({
       update({ libraryStatus: 'loading' });
       void bindBrowserLibrary(hostId, clientId).then(
         (ready) => {
-          if (generation === libraryGeneration)
-            update({ libraryStatus: ready ? 'ready' : 'failed' });
+          if (generation !== libraryGeneration || disposed) return;
+          if (ready) bindComposerDrafts(hostId, clientId);
+          else unbindComposerDrafts();
+          update({ libraryStatus: ready ? 'ready' : 'failed' });
         },
         () => {
-          if (generation === libraryGeneration) update({ libraryStatus: 'failed' });
+          if (generation !== libraryGeneration || disposed) return;
+          unbindComposerDrafts();
+          update({ libraryStatus: 'failed' });
         },
       );
     };
     const invalidateLibrary = () => {
       libraryGeneration++;
+      unbindComposerDrafts();
       update({ libraryStatus: 'failed' });
       void invalidateBrowserLibrary().catch(() => {});
     };
@@ -147,6 +153,7 @@ export function HostConnectionProvider({
           return;
         }
         client = connected;
+        if (capabilities().localHost) bindComposerDrafts(connected.hello.hostId, identity.clientId);
         update({
           view: { status: 'connected', hello: connected.hello },
           client: connected,

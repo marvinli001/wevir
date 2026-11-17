@@ -159,7 +159,7 @@ export interface HostRpcServerOptions {
    * 收到 `host.shutdown` 并已回 `{}` 之后调用，由进程入口按 ADR-0002 §6 的顺序优雅退出（T2.5）。
    * 不给时只关闭本服务（`close()`）。
    */
-  onShutdownRequest?: (client: ClientIdentity) => void;
+  onShutdownRequest?: (client: ClientIdentity, resumeActiveTurns?: boolean) => void;
   /** Host 自己的错误：方法抛出的非 `HostError`、返回值不合 schema 等。默认打到 stderr。 */
   onError?: (error: unknown) => void;
 }
@@ -250,8 +250,8 @@ export class HostRpcServer {
       get shuttingDown() {
         return server.#shuttingDown;
       },
-      requestShutdown: (client) => {
-        if (options.onShutdownRequest) options.onShutdownRequest(client);
+      requestShutdown: (client, resumeActiveTurns) => {
+        if (options.onShutdownRequest) options.onShutdownRequest(client, resumeActiveTurns);
         else void this.close();
       },
       onError,

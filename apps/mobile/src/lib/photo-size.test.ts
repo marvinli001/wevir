@@ -3,8 +3,8 @@ import { base64Bytes, fitWithin, PHOTO_MAX_EDGE } from './photo-size';
 
 describe('photo size', () => {
   it('scales the long edge down to the limit and keeps the aspect ratio', () => {
-    expect(fitWithin(4032, 3024)).toEqual({ width: PHOTO_MAX_EDGE, height: 1536 });
-    expect(fitWithin(3024, 4032)).toEqual({ width: 1536, height: PHOTO_MAX_EDGE });
+    expect(fitWithin(4032, 3024)).toEqual({ width: PHOTO_MAX_EDGE, height: 1500 });
+    expect(fitWithin(3024, 4032)).toEqual({ width: 1500, height: PHOTO_MAX_EDGE });
     expect(fitWithin(1200, 800)).toEqual({ width: 1200, height: 800 });
     expect(fitWithin(10000, 1)).toEqual({ width: PHOTO_MAX_EDGE, height: 1 });
   });

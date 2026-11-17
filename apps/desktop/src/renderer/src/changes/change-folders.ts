@@ -19,7 +19,10 @@ export function folderParams(
   folder: string | undefined,
   source?: DiffSource,
 ): { folder?: string } {
-  return features && hostSupports(features, 'multi_folder_changes') && source?.kind !== 'turn'
+  return features &&
+    hostSupports(features, 'multi_folder_changes') &&
+    source?.kind !== 'turn' &&
+    source?.kind !== 'session'
     ? { ...(folder !== undefined && { folder }) }
     : {};
 }

@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { t } from '@/i18n';
-import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { formatShortcut, useKeybindings } from '@/lib/shortcuts';
 import type { DisplayPane } from './arrange';
 import { usePaneAccess } from './pane-access';
 import { usePanes } from './pane-controller';
@@ -29,6 +29,7 @@ import type { PaneTab } from './pane-state';
  * （pane-header.tsx）。
  */
 export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContext }) {
+  const bindings = useKeybindings();
   const panes = usePanes();
   const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
@@ -91,7 +92,7 @@ export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContex
         <MoreMenu pane={pane} active={active} />
         <IconButton
           label={t(maximized ? 'pane.restore' : 'pane.maximize')}
-          shortcut={formatShortcut(SHORTCUTS.maximize)}
+          shortcut={formatShortcut(bindings.maximize)}
           size="icon-xs"
           onClick={() => panes.toggleMaximize(pane.id)}
           tooltipSide="bottom"

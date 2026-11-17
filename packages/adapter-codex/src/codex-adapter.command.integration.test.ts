@@ -233,6 +233,24 @@ describe.skipIf(binary === undefined)(
       turn = await finishTurn(events, from);
       expect(JSON.stringify(mock.requests.at(-1)?.body.input)).toContain('main');
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      const sha = execFileSync('git', ['rev-parse', 'HEAD'], {
+        cwd: workspace,
+        encoding: 'utf8',
+      }).trim();
+      for (const target of [
+        { target: 'commit', sha },
+        { target: 'custom', instructions: 'Review timeout handling' },
+      ] as const) {
+        from = events.length;
+        await adapter.review(id, target);
+        expect((await finishTurn(events, from)).at(-1)).toMatchObject({
+          type: 'turn.settled',
+          outcome: 'completed',
+        });
+        expect(JSON.stringify(mock.requests.at(-1)?.body.input)).toContain(
+          target.target === 'commit' ? sha : target.instructions,
+        );
+      }
     });
 
     it('停止回合时结束还在跑的命令：Codex 中断之后不让它接着跑完', async () => {

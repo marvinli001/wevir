@@ -34,11 +34,13 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useWorkbenchSelector } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
+import { OtherApprovalDecisions } from '@/session/approval-decisions';
 import { approvalLayout, optionLabel, presentApproval } from '@/session/approval-model';
 import { imagesOf } from '@/session/composer-images';
 import { formatMessageTime } from '@/session/format';
 import { MessageImages } from '@/session/image-attachments';
 import { MarkdownView } from '@/session/markdown/markdown-view';
+import { MessageFiles } from '@/session/message-files';
 import { AssistantAvatar } from './assistant-avatar';
 import { AssistantComposer } from './assistant-composer';
 import {
@@ -284,6 +286,7 @@ export function AssistantTimeline({
           />
         ))}
         <AssistantComposer
+          key={channel.id}
           client={client}
           channel={channel}
           reply={reply}
@@ -368,6 +371,7 @@ function PostRow({
   const speaker = other === undefined ? channel : assistants.get(other.channelId);
   const avatar = speaker?.assistant?.avatar;
   const images = imagesOf(post.content);
+  const files = post.content.filter((part) => part.type === 'file');
   return (
     <div
       id={post.id}
@@ -439,6 +443,7 @@ function PostRow({
             data-highlighted={highlighted || undefined}
           >
             {images.length > 0 && <MessageImages images={images} />}
+            {files.length > 0 && <MessageFiles files={files} />}
             {post.card?.kind === 'brief' && <BriefCard card={post.card} />}
             {text !== '' &&
               !(post.card?.kind === 'suggestion' && text === post.card.text) &&
@@ -901,7 +906,15 @@ function AssistantApproval({
           </pre>
         </>
       )}
-      <div className="mt-3 flex justify-end gap-2">
+      {outgoing === '' && presentation.target && (
+        <pre
+          data-approval-target
+          className="mt-2 max-h-36 overflow-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap break-all"
+        >
+          {presentation.target}
+        </pre>
+      )}
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
         {layout.reject && (
           <Button
             variant="ghost"
@@ -921,6 +934,11 @@ function AssistantApproval({
             {optionLabel(layout.allow)}
           </Button>
         )}
+        <OtherApprovalDecisions
+          layout={layout}
+          busy={busy}
+          onChoose={(option) => void respond(option.optionId)}
+        />
       </div>
     </section>
   );

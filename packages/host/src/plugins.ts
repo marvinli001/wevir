@@ -438,13 +438,13 @@ export class PluginRegistry {
   }
 
   /** 交给引擎的 skills（0.85.0 调优的档案）：启用的，所属插件停用时不算；不问引擎状态。 */
-  async enabledSkills(): Promise<Skill[]> {
+  async enabledSkills(cwd?: string): Promise<Skill[]> {
     const state = this.#state;
     const off = new Set<string>();
     for (const plugin of state.plugins) {
       for (const skill of plugin.skills) if (!plugin.enabled || !skill.enabled) off.add(skill.path);
     }
-    return (await this.#skills(undefined, state)).filter(
+    return (await this.#skills(cwd, state)).filter(
       (skill) => skill.enabled && !off.has(skill.path),
     );
   }

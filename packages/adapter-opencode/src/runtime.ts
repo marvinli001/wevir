@@ -328,15 +328,13 @@ export class OpenCodeRuntime {
     const sdk = await this.#loadSdk();
     const parentEnv = this.#options.env ?? process.env;
     const appTools = this.#appTools?.();
-    const appToolsPlugin =
-      appTools === undefined
-        ? undefined
-        : appToolsPluginEntry(writeAppToolsPlugin(this.#options.engineDir), appTools);
+    const pluginUrl = writeAppToolsPlugin(this.#options.engineDir);
     const server = await (this.#options.startServer ?? startOpenCodeServer)({
       executable: installation.executablePath,
       env: openCodeEnv(parentEnv, installation.executablePath),
       ledger: this.#ledger,
-      ...(appToolsPlugin !== undefined && { appToolsPlugin }),
+      // 即使没有应用级工具，命令回合仍通过 chat.message 接收本会话的系统规则。
+      appToolsPlugin: appTools ? appToolsPluginEntry(pluginUrl, appTools) : [pluginUrl, {}],
       signal: this.#abort.signal,
       verify: async (url, password) => {
         // T3 的 verifyOpenCodeServerVersion：5 秒内要答 `/global/health`，版本要够新。
@@ -355,7 +353,7 @@ export class OpenCodeRuntime {
       throw new Error('the OpenCode engine has been disposed');
     }
     this.#server = server;
-    this.#serverHasAppTools = appToolsPlugin !== undefined;
+    this.#serverHasAppTools = appTools !== undefined;
     void server.exited.then((exit) => {
       if (this.#server !== server) return;
       this.#server = undefined;

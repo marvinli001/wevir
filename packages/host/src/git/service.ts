@@ -14,12 +14,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
   CodeState,
+  GitBranchExpected,
   GitCommitOutcome,
   GitExpectedState,
   GitFileSide,
   GitStatusFile,
   GitStatusResult,
   GitVerificationSummary,
+  MethodResult,
   VerificationRun,
 } from '@wevir/protocol';
 import { GIT_STATUS_MAX_FILES } from '@wevir/protocol';
@@ -32,8 +34,10 @@ import {
   repoInfo,
   runGit,
 } from '../git-diff.js';
+import { redactDiagnostics } from '../secret-patterns.js';
 import { readCodeState, sameCodeState } from '../verification/code-state.js';
 import { COMMIT_TIMEOUT_MS, diagnoseCommit, runCommit } from './commit.js';
+import { createPullRequest } from './pull-request.js';
 
 /** 读状态时最多数这么多未跟踪文件。 */
 const UNTRACKED_MAX_FILES = 10_000;
@@ -104,6 +108,125 @@ export class GitService {
     } catch {
       return NOT_REPO;
     }
+  }
+
+  async branches(dir: string): Promise<MethodResult<'git.branches'>> {
+    const repo = await openRepo(dir);
+    if (!repo) throw new HostError('INVALID_PARAMS', 'not a git repository', notRepoIssue());
+    const [heads, remotes] = await Promise.all([
+      gitText(repo, ['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads/']),
+      gitText(repo, ['remote']),
+    ]);
+    return {
+      branches: heads.split('\n').filter(Boolean),
+      remotes: remotes.split('\n').filter(Boolean),
+      ...(repo.branch !== undefined && { current: repo.branch }),
+    };
+  }
+
+  async switchBranch(
+    dir: string,
+    branch: string,
+    expected: GitBranchExpected,
+    sessionId?: string,
+  ): Promise<GitStatusResult> {
+    return this.#branchWrite(dir, expected, async (repo) => {
+      const heads = (
+        await gitText(repo, ['for-each-ref', '--format=%(refname:lstrip=2)', 'refs/heads/'])
+      ).split('\n');
+      if (branch.startsWith('-') || !heads.includes(branch))
+        throw gitFailure(['branch'], 'choose an existing local branch');
+      await runGit(repo.cwd, [
+        'switch',
+        '--no-guess',
+        '--no-overwrite-ignore',
+        '--no-recurse-submodules',
+        '--',
+        branch,
+      ]).catch((error) => {
+        throw gitFailure(['branch'], error);
+      });
+      this.#staged.delete(repo.indexPath);
+      return this.status(repo.cwd, sessionId);
+    });
+  }
+
+  async push(
+    dir: string,
+    remote: string,
+    expected: GitBranchExpected,
+    sessionId?: string,
+  ): Promise<GitStatusResult> {
+    return this.#branchWrite(dir, expected, async (repo) => {
+      const head = await assertPublishTarget(repo, remote, expected);
+      // 固定确认时的提交；即使别的 Git 客户端同时提交，也只推这一个 SHA。
+      await runGit(
+        repo.cwd,
+        [
+          '-c',
+          `remote.${remote}.mirror=false`,
+          'push',
+          '--no-force',
+          '--no-follow-tags',
+          '--recurse-submodules=no',
+          '--',
+          remote,
+          `${head.commit}:refs/heads/${head.branch}`,
+        ],
+        {
+          timeoutMs: COMMIT_TIMEOUT_MS,
+          processGroup: true,
+          env: { GIT_ALLOW_PROTOCOL: 'file:git:http:https:ssh' },
+        },
+      ).catch((error) => {
+        throw gitFailure(['remote'], error);
+      });
+      return this.status(repo.cwd, sessionId);
+    });
+  }
+
+  async pullRequest(
+    dir: string,
+    remote: string,
+    expected: GitBranchExpected,
+    input: { title: string; body?: string | undefined; base?: string | undefined },
+  ): Promise<{ url: string }> {
+    return this.#branchWrite(dir, expected, async (repo) => {
+      const head = await assertPublishTarget(repo, remote, expected);
+      const address = (await gitText(repo, ['remote', 'get-url', '--push', '--', remote])).trim();
+      return createPullRequest(repo.cwd, address, head, input);
+    });
+  }
+
+  async #branchWrite<T>(
+    dir: string,
+    expected: GitBranchExpected,
+    apply: (repo: Repo) => Promise<T>,
+  ): Promise<T> {
+    const repo = await openRepo(dir);
+    if (!repo) throw new HostError('INVALID_PARAMS', 'not a git repository', notRepoIssue());
+    return this.#exclusive(repo.indexPath, async () => {
+      const [head, index, current] = await Promise.all([
+        readHead(repo),
+        readIndex(repo),
+        runGit(repo.cwd, [...repo.config, 'symbolic-ref', '--quiet', 'HEAD'], { okCodes: [0, 1] }),
+      ]);
+      const branch =
+        current.code === 0
+          ? current.stdout
+              .toString('utf8')
+              .trim()
+              .replace(/^refs\/heads\//, '')
+          : null;
+      if (head !== expected.head || index.token !== expected.index || branch !== expected.branch) {
+        throw new HostError(
+          'GIT_STATE_CHANGED',
+          'the repository changed since its status was read',
+          { head, index: index.token },
+        );
+      }
+      return apply(repo);
+    });
   }
 
   stage(
@@ -553,6 +676,23 @@ function notRepoIssue() {
   return { issues: [{ path: [] as string[], message: 'not a git repository' }] };
 }
 
+async function assertPublishTarget(
+  repo: Repo,
+  remote: string,
+  expected: GitBranchExpected,
+): Promise<{ branch: string; commit: string }> {
+  if (!expected.branch || !expected.head)
+    throw gitFailure(['expected'], 'publishing requires a branch with a commit');
+  if (
+    remote.startsWith('-') ||
+    remote.includes('=') ||
+    !(await gitText(repo, ['remote'])).split('\n').includes(remote)
+  ) {
+    throw gitFailure(['remote'], 'choose a configured Git remote');
+  }
+  return { branch: expected.branch, commit: expected.head };
+}
+
 /** `git add` / `reset` 失败（路径被忽略、不存在等）：参数问题，带上 git 的说明。 */
 function gitFailure(path: string[], error: unknown): HostError {
   const detail =
@@ -564,5 +704,6 @@ function gitFailure(path: string[], error: unknown): HostError {
       : error instanceof Error
         ? error.message
         : String(error);
-  return new HostError('INVALID_PARAMS', detail, { issues: [{ path, message: detail }] });
+  const message = redactDiagnostics(detail.replace(/(https?:\/\/)[^/\s@]+@/gi, '$1'));
+  return new HostError('INVALID_PARAMS', message, { issues: [{ path, message }] });
 }

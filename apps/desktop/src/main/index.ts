@@ -49,7 +49,12 @@ import { isCleanableCategory, type StorageUsage } from '../shared/storage.js';
 import { isThemeMode, supportsWindowMaterial } from '../shared/theme.js';
 import { isThemeSceneId, isThemeSceneUrl } from '../shared/theme-assets.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
-import { appMenuTemplate, DEFAULT_APP_MENU_LABELS, parseAppMenuLabels } from './app-menu.js';
+import {
+  appMenuTemplate,
+  DEFAULT_APP_MENU_LABELS,
+  parseAppMenuLabels,
+  parseAppMenuShortcuts,
+} from './app-menu.js';
 import { registerBrowserIpc } from './browser/browser-ipc.js';
 import { BROWSER_PARTITION } from './browser/partition.js';
 import { registerComputerIpc } from './computer/computer-ipc.js';
@@ -649,26 +654,37 @@ function run(): void {
   });
   ipcMain.handle(IPC_CHANNELS.installUpdate, async (event): Promise<void> => {
     assertSender(event);
+    const downloaded = updates.state;
+    if (downloaded.phase !== 'downloaded') return;
+    let stoppedForResume = false;
+    const ready = await host.catch(() => undefined);
+    if (ready) {
+      const decision = await confirmActiveQuit(ready.lifecycle);
+      if (decision === 'stay') return;
+      if (decision === 'resume') {
+        await ready.lifecycle.stop(true);
+        stoppedForResume = true;
+      }
+    }
     // 安装更新要关掉窗口再退出；装不了（状态变成 error）时恢复“关窗口只是隐藏”。Windows 上 Host 已经为安装停掉、不能再
     // 拉起（HostLifecycle 停了就不再启动），这时重新打开应用。
     allowClose = true;
-    if (updates.state.phase === 'downloaded') {
-      installingUpdate = true;
-      startInstallTiming(installTimingFile, {
-        from: app.getVersion(),
-        to: updates.state.version,
-        platform: process.platform,
-        clickedAt: Date.now(),
-      });
-    }
+    installingUpdate = true;
+    startInstallTiming(installTimingFile, {
+      from: app.getVersion(),
+      to: downloaded.version,
+      platform: process.platform,
+      clickedAt: Date.now(),
+    });
     await updates.install();
     if (installingUpdate) markInstallTiming(installTimingFile, 'installerAt', Date.now());
     if (updates.state.phase !== 'error') return;
-    if (process.platform === 'win32') {
+    if (process.platform === 'win32' || stoppedForResume) {
       log('error', 'update install failed after the host was stopped; relaunching');
       app.relaunch();
       app.quit();
     } else {
+      installingUpdate = false;
       allowClose = false;
     }
   });
@@ -692,30 +708,73 @@ function run(): void {
   };
   // 右键菜单（context-menu.ts）与应用菜单用同一份文字，所有平台都记下。
   let menuLabels = DEFAULT_APP_MENU_LABELS;
-  const setAppMenu = (labels = DEFAULT_APP_MENU_LABELS) => {
+  async function confirmActiveQuit(lifecycle: HostLifecycle): Promise<'stay' | 'quit' | 'resume'> {
+    const activity = await lifecycle.quitActivity().catch(() => 'unknown' as const);
+    if (activity === 'idle') return 'quit';
+    showMainWindow();
+    const resumable = activity === 'resumable';
+    const options: Electron.MessageBoxOptions = {
+      type: 'question',
+      message: activity === 'unknown' ? menuLabels.quit : menuLabels.activeTurns,
+      detail: resumable
+        ? menuLabels.quitResumeDetail
+        : activity === 'unknown'
+          ? menuLabels.quitUnknown
+          : activity === 'manual'
+            ? menuLabels.quitManual
+            : menuLabels.quitStopsTurns,
+      buttons: [
+        menuLabels.background,
+        resumable ? menuLabels.quitResume : menuLabels.quit,
+        menuLabels.cancelQuit,
+      ],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    };
+    const result =
+      mainWindow && !mainWindow.isDestroyed()
+        ? await dialog.showMessageBox(mainWindow, options)
+        : await dialog.showMessageBox(options);
+    if (result.response === 0) mainWindow?.hide();
+    return result.response === 1 ? (resumable ? 'resume' : 'quit') : 'stay';
+  }
+
+  const setAppMenu = (
+    labels = DEFAULT_APP_MENU_LABELS,
+    shortcuts?: ReturnType<typeof parseAppMenuShortcuts>,
+  ) => {
     menuLabels = labels;
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
-        appMenuTemplate(labels, {
-          openSettings: () => openSettingsFromMenu('general'),
-          checkForUpdates: () => {
-            openSettingsFromMenu('about');
-            void updates.check();
+        appMenuTemplate(
+          labels,
+          {
+            openSettings: () => openSettingsFromMenu('general'),
+            checkForUpdates: () => {
+              openSettingsFromMenu('about');
+              void updates.check();
+            },
+            restoreDefaultTheme: () => {
+              showMainWindow();
+              mainWindow?.webContents.send(IPC_CHANNELS.restoreDefaultTheme);
+            },
           },
-          restoreDefaultTheme: () => {
-            showMainWindow();
-            mainWindow?.webContents.send(IPC_CHANNELS.restoreDefaultTheme);
-          },
-        }),
+          process.platform,
+          shortcuts,
+        ),
       ),
     );
   };
-  ipcMain.handle(IPC_CHANNELS.setAppMenuLabels, async (event, value: unknown): Promise<void> => {
-    assertSender(event);
-    const labels = parseAppMenuLabels(value);
-    if (!labels) throw new Error('app menu labels must all be short strings');
-    setAppMenu(labels);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.setAppMenuLabels,
+    async (event, value: unknown, keys: unknown): Promise<void> => {
+      assertSender(event);
+      const labels = parseAppMenuLabels(value);
+      if (!labels) throw new Error('app menu labels must all be short strings');
+      setAppMenu(labels, parseAppMenuShortcuts(keys));
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.setUpdateChannel, async (event, channel: unknown): Promise<void> => {
     assertSender(event);
     if (channel !== 'stable' && channel !== 'dev') throw new Error('unknown update channel');
@@ -858,24 +917,39 @@ function run(): void {
   app.on('window-all-closed', () => app.quit());
 
   app.on('before-quit', (event) => {
-    allowClose = true;
     if (quitReady) return;
     event.preventDefault();
     if (quitting) return;
     quitting = true;
-    void host
-      .then(({ lifecycle }) => lifecycle.stop())
-      .catch((error: unknown) => log('error', 'failed to stop host', { error: String(error) }))
+    void (async () => {
+      const ready = await host.catch(() => undefined);
+      if (ready) {
+        const decision = allowClose ? 'quit' : await confirmActiveQuit(ready.lifecycle);
+        if (decision === 'stay') return;
+        await ready.lifecycle.stop(decision === 'resume');
+      }
+      allowClose = true;
+      quitReady = true;
+      app.quit();
+    })()
+      .catch((error: unknown) => {
+        log('error', 'failed to stop host', { error: String(error) });
+        dialog.showErrorBox(menuLabels.quitFailed, String(error));
+      })
       .finally(() => {
-        quitReady = true;
-        app.quit();
+        if (!quitReady) quitting = false;
       });
   });
   app.on('will-quit', () => {
     storageUsage.dispose();
     if (installingUpdate) markInstallTiming(installTimingFile, 'quitAt', Date.now());
   });
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => app.quit());
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      allowClose = true;
+      app.quit();
+    });
+  }
 
   void app.whenReady().then(() => {
     if (app.isPackaged) app.setAsDefaultProtocolClient(APP_SCHEME);

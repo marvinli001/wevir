@@ -129,20 +129,22 @@ describe.skipIf(binary === undefined)('ChatGPT 进程（mock 登录服务）', {
       expect(config).toContain('cli_auth_credentials_store = "file"');
       expect(config).not.toContain('WEVIR_GATEWAY_TOKEN');
 
-      // 模型列表来自 ChatGPT 后端（不是 Wevir 的目录），Codex 多出来的推理档位（ultra）不列。
+      // 保留 ChatGPT 后端返回的模型、默认档与全部支持的档位。
       expect(await codex.accounts.models('chatgpt')).toEqual({
         models: [
           {
             id: MOCK_CHATGPT_MODEL,
             displayName: 'Mock GPT',
             supportsImages: true,
-            reasoningEfforts: ['low', 'high'],
+            reasoningEfforts: ['low', 'high', 'ultra'],
+            defaultReasoningEffort: 'low',
           },
           {
             id: 'mock-gpt-mini',
             displayName: 'mock-gpt-mini',
             supportsImages: true,
-            reasoningEfforts: ['low', 'high'],
+            reasoningEfforts: ['low', 'high', 'ultra'],
+            defaultReasoningEffort: 'low',
           },
         ],
         defaultModelId: MOCK_CHATGPT_MODEL,

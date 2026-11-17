@@ -28,7 +28,7 @@ describe('渲染进程的 origin', () => {
   it('开发 CSP：脚本与样式只靠 nonce 放行，不用 unsafe-inline；放行 HMR 与 Host', () => {
     const csp = developmentCsp('abc');
     expect(csp).toContain("script-src 'self' 'nonce-abc' 'wasm-unsafe-eval';");
-    expect(csp).toContain("worker-src 'self';");
+    expect(csp).toContain("worker-src 'self' blob:;");
     expect(csp).toContain("style-src 'self' 'nonce-abc';");
     expect(csp).toContain(
       `connect-src 'self' ws://localhost:${DEV_SERVER_PORT} ws://127.0.0.1:* http://127.0.0.1:*;`,
@@ -37,13 +37,15 @@ describe('渲染进程的 origin', () => {
     expect(csp.replace("'wasm-unsafe-eval'", '')).not.toContain('unsafe');
   });
 
-  it('生产 CSP：样式 nonce 只进 style-src，脚本只有 self 与 WebAssembly；不用 unsafe-inline，worker 只放行 self、不放开 blob', () => {
+  it('生产 CSP：样式 nonce 只进 style-src，脚本只有 self 与 WebAssembly；不用 unsafe-inline，仅 worker 可加载 HEIC 解码器的 blob', () => {
     const csp = productionCsp('abc');
     expect(csp).toContain("style-src 'self' 'nonce-abc';");
     expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval';");
-    expect(csp).toContain("worker-src 'self';");
+    expect(csp).toContain("worker-src 'self' blob:;");
     expect(csp).toContain("default-src 'none';");
-    expect(csp.replace("'wasm-unsafe-eval'", '')).not.toMatch(/unsafe|blob:|child-src/);
+    expect(
+      csp.replace("worker-src 'self' blob:;", '').replace("'wasm-unsafe-eval'", ''),
+    ).not.toMatch(/unsafe|blob:|child-src/);
     expect(productionCsp()).toContain("style-src 'self';");
     // 占位符原样写进 index.html 的 nonce 属性，主进程整串替换：必须是合法的 nonce 字符、不会与页面里别的文字相撞。
     expect(CSP_NONCE_PLACEHOLDER).toMatch(/^[A-Z_]{8,}$/);

@@ -4,6 +4,7 @@
 import { rm } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import type {
+  FileId,
   ImageId,
   MethodResult,
   SessionId,
@@ -89,8 +90,8 @@ export function worktreeRoots(
 function ownedFiles(
   options: SessionDataOptions,
   family: readonly SessionRecord[],
-  imageRefs: ReadonlyMap<string, ReadonlySet<string>>,
-): { paths: string[]; images: ImageId[] } {
+  attachmentRefs: ReadonlyMap<string, ReadonlySet<string>>,
+): { paths: string[]; attachments: Array<FileId | ImageId> } {
   const ids = new Set(family.map((record) => record.id));
   const paths: string[] = [];
   for (const record of family) {
@@ -109,11 +110,12 @@ function ownedFiles(
       paths.push(chatDir);
     }
   }
-  const images: ImageId[] = [];
-  for (const [imageId, sessions] of imageRefs) {
-    if ([...sessions].every((sessionId) => ids.has(sessionId))) images.push(imageId as ImageId);
+  const attachments: Array<FileId | ImageId> = [];
+  for (const [imageId, sessions] of attachmentRefs) {
+    if ([...sessions].every((sessionId) => ids.has(sessionId)))
+      attachments.push(imageId as FileId | ImageId);
   }
-  return { paths, images };
+  return { paths, attachments };
 }
 
 /** 会话挂过的引擎会话：建会话时的与每次接力（`session.handoff`）两端的，最后是当前的。 */
@@ -138,17 +140,17 @@ export async function measureUsage(
   records: readonly SessionRecord[],
 ): Promise<SessionUsage[]> {
   const eventBytes = options.storage.events.payloadBytes();
-  const imageRefs = options.storage.events.imageRefs();
+  const attachmentRefs = options.storage.events.attachmentRefs();
   const limit = fsLimit();
   return Promise.all(
     records.map(async (record): Promise<SessionUsage> => {
       const family = options.storage.sessions.family(record.id);
-      const { paths, images } = ownedFiles(options, family, imageRefs);
-      const imagePaths = (
-        await Promise.all(images.map((imageId) => options.images?.files(imageId) ?? []))
+      const { paths, attachments } = ownedFiles(options, family, attachmentRefs);
+      const attachmentPaths = (
+        await Promise.all(attachments.map((imageId) => options.images?.files(imageId) ?? []))
       ).flat();
       const fileSizes = await Promise.all(
-        [...paths, ...imagePaths].map((path) => sizeOf(path, limit)),
+        [...paths, ...attachmentPaths].map((path) => sizeOf(path, limit)),
       );
       return {
         sessionId: record.id as SessionId,
@@ -291,7 +293,7 @@ export async function deleteSessionData(
   }
 
   // 图片的归属在删行之前算（删了就看不出别的会话引用没引用）。
-  const { paths, images } = ownedFiles(deps, family, storage.events.imageRefs());
+  const { paths, attachments } = ownedFiles(deps, family, storage.events.attachmentRefs());
   storage.transaction(() => {
     deps.events.removingInTransaction(ids);
     storage.sessions.remove(ids);
@@ -303,11 +305,11 @@ export async function deleteSessionData(
       deps.onWarning('删除会话的文件失败', { path, error: String(error) }),
     );
   }
-  for (const imageId of images) {
+  for (const imageId of attachments) {
     await deps.images
       ?.remove(imageId)
       .catch((error: unknown) =>
-        deps.onWarning('删除会话的图片失败', { imageId, error: String(error) }),
+        deps.onWarning('删除会话的附件失败', { imageId, error: String(error) }),
       );
   }
 

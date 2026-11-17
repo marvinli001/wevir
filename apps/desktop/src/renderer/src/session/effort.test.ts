@@ -4,6 +4,8 @@ import { carryEffort } from './effort';
 describe('换模型沿用思考力度', () => {
   it('新模型有这一档就照用', () => {
     expect(carryEffort('max', ['low', 'medium', 'high', 'xhigh', 'max'])).toBe('max');
+    expect(carryEffort('ultra', ['high', 'max', 'ultra'])).toBe('ultra');
+    expect(carryEffort('ultra', ['low', 'high', 'max'])).toBe('max');
   });
 
   it('没有这一档取最接近的，一样近取低的', () => {

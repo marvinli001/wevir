@@ -7,7 +7,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MCP_URL_ELICITATION_TOOL } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
-import type { CodexAdapter } from './codex-adapter.js';
+import {
+  COMMAND_APPROVAL_OPTIONS,
+  type CodexAdapter,
+  commandApprovalChoices,
+} from './codex-adapter.js';
 import {
   collectEvents,
   newAdapter,
@@ -150,18 +154,33 @@ describe('链接 elicitation', () => {
   });
 });
 
-describe('拒绝附言（0.144.0）', () => {
-  it('命令审批的 decline 没有附言字段：选项不标 acceptsMessage，回给 app-server 的只有 decision', async () => {
+describe('命令审批', () => {
+  it('只在引擎省略决定列表时使用旧选项；网络策略决定保留原对象', () => {
+    expect([...commandApprovalChoices(null).values()].map(({ option }) => option)).toEqual(
+      COMMAND_APPROVAL_OPTIONS,
+    );
+    const decision = {
+      applyNetworkPolicyAmendment: {
+        network_policy_amendment: { host: 'docs.example.org', action: 'allow' },
+      },
+    };
+    const choices = commandApprovalChoices(['cancel', decision, 'future-value']);
+    expect([...choices.keys()]).toEqual(['cancel', 'codex-policy-1']);
+    expect(choices.get('codex-policy-1')?.decision).toBe(decision);
+    expect(choices.get('codex-policy-1')?.option.policyTarget).toBe('docs.example.org');
+    expect(commandApprovalChoices([]).size).toBe(0);
+  });
+  it('命令审批的 cancel 没有附言字段：选项不标 acceptsMessage，回给 app-server 的只有 decision', async () => {
     const { adapter, engineSessionId, events, replies } = await start('approval-exec');
     const approval = await waitForEvent(events, ofType('approval.requested'), 'approval.requested');
     expect(approval.options.some((option) => option.acceptsMessage === true)).toBe(false);
     await adapter.respondToApproval(engineSessionId, approval.requestId, {
-      optionId: 'decline',
+      optionId: 'cancel',
       message: 'not this one',
     });
     await waitForEvent(events, ofType('turn.settled'), 'turn.settled');
     expect(replies()).toEqual([
-      { method: 'item/commandExecution/requestApproval', result: { decision: 'decline' } },
+      { method: 'item/commandExecution/requestApproval', result: { decision: 'cancel' } },
     ]);
   });
 });

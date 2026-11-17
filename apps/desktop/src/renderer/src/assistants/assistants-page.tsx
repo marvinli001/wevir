@@ -36,6 +36,7 @@ import { currentLocale, t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
 import { useElementSize } from '@/lib/use-element-size';
 import { paths } from '@/routes/paths';
+import { deleteComposerInputs } from '@/session/composer-drafts';
 import { formatMessageTime } from '@/session/format';
 import { Segmented } from '@/settings/settings-ui';
 import { AssistantAvatar, GroupAvatar } from './assistant-avatar';
@@ -572,6 +573,7 @@ function AssistantPane({
         failure={(reason) => t('assistants.actionFailed', { error: reason })}
         onConfirm={async () => {
           await client.request('channel.delete', { channelId });
+          await deleteComposerInputs([`channel/${channelId}`]);
           navigate(paths.assistants());
         }}
       >
@@ -674,6 +676,7 @@ function GroupPane({
         failure={(reason) => t('assistants.actionFailed', { error: reason })}
         onConfirm={async () => {
           await client.request('channel.delete', { channelId: channel.id });
+          await deleteComposerInputs([`channel/${channel.id}`]);
           navigate(paths.assistants());
         }}
       >

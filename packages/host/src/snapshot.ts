@@ -153,6 +153,7 @@ export interface SessionProjection {
     readonly modelId?: string;
   };
   readonly retryableTurnId?: TurnId;
+  readonly interruptedTurn?: Session['interruptedTurn'];
   /** 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有。 */
   readonly taskBoard?: readonly BoardTask[];
   /** 输入建议（0.53.0）：最近一次 `suggestion.updated`，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件出现后没有。 */
@@ -390,6 +391,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     }
     case 'session.read_only':
+      next.interruptedTurn = undefined;
       next.readOnly = {
         reason: event.payload.reason,
         message: event.payload.message,
@@ -430,6 +432,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     }
     case 'session.handoff': {
+      next.interruptedTurn = undefined;
       if (event.payload.failover === undefined) next.routing = undefined;
       const { from, to, resumed } = event.payload;
       next.rulesCompacted = undefined;
@@ -506,6 +509,13 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     case 'session.state_changed': {
       next.state = event.payload.to;
+      if (next.state === 'cancelling' && event.payload.continuation && projection.activeTurn) {
+        next.interruptedTurn = {
+          turnId: projection.activeTurn.turnId,
+          auto: event.payload.continuation === 'on_restart',
+        };
+      }
+      if (next.state === 'closed') next.interruptedTurn = undefined;
       if (event.payload.reason === 'turn_started' || event.payload.reason === 'resumed') {
         next.lastError = undefined;
       }
@@ -529,6 +539,8 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     }
     case 'turn.rewound':
     case 'turn.undone':
+      if (projection.interruptedTurn?.turnId === event.payload.turnId)
+        next.interruptedTurn = undefined;
       if (projection.retryableTurnId === event.payload.turnId) next.retryableTurnId = undefined;
       if (projection.wrapUp?.turnId === event.payload.turnId) next.wrapUp = undefined;
       break;
@@ -571,6 +583,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
           : undefined;
       if (clientMessageId !== undefined) activeTurn.clientMessageId = clientMessageId;
       next.activeTurn = activeTurn;
+      next.interruptedTurn = undefined;
       next.commandTurnId =
         event.payload.command !== undefined ||
         (event.payload.trigger !== 'goal' &&
@@ -590,6 +603,10 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     }
     case 'turn.finished':
+      next.interruptedTurn = event.payload.continuation && {
+        turnId: event.payload.turnId,
+        auto: event.payload.continuation === 'on_restart',
+      };
       if (event.payload.outcome !== 'failed') next.routing = undefined;
       if (event.payload.outcome !== 'failed') next.retryableTurnId = undefined;
       if (projection.activeTurn?.turnId === event.payload.turnId) next.activeTurn = undefined;
@@ -1085,6 +1102,7 @@ export function toSession(record: SessionRecord, projection: SessionProjection):
   if (projection.subagent) session.subagent = projection.subagent;
   if (projection.engines !== undefined) session.engines = sessionEngines(projection);
   if (projection.goal) session.goal = projection.goal;
+  if (projection.interruptedTurn) session.interruptedTurn = { ...projection.interruptedTurn };
   if (projection.autoContinue) session.autoContinue = { ...projection.autoContinue };
   if (projection.wrapUp) session.wrapUp = { ...projection.wrapUp };
   for (const question of projection.questions.values()) {

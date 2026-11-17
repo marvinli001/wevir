@@ -36,6 +36,7 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   /** 认得 `UserContentPart` 的 `image`；没有时 Host 把事件与结果里的图片换成文本 `[image]`。 */
   userImages: 'user_images',
+  userFiles: 'user_files',
   // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
   /** 认得 `QuestionResolutionReason` 的 `timeout`；没有时 Host 把它降级成 `user`（回答照旧，没有 `answeredBy`）。 */
   questionTimeout: 'question_timeout',
@@ -68,6 +69,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   subscription_kinds: z.boolean().optional(),
   subscription_accounts: z.boolean().optional(),
   user_images: z.boolean().optional(),
+  user_files: z.boolean().optional(),
   question_timeout: z.boolean().optional(),
   approval_rules: z.boolean().optional(),
   approval_timeout: z.boolean().optional(),
@@ -200,6 +202,7 @@ export const HOST_FEATURES = {
    * 审查时 `INVALID_STATE`。
    */
   sessionReview: 'session_review',
+  engineNotices: 'engine_notices',
   /**
    * 会话目标（0.35.0）：`session.setGoal`、`session.updateGoal`、`session.clearGoal`，`session.goal_changed` 事件，`Session.goal`，
    * `turn.started` 的 `trigger`。取决于引擎（Codex 有，看 `engineFeatures` 的 `goals`）；会话所在的引擎没有目标时 `INVALID_STATE`。
@@ -229,6 +232,7 @@ export const HOST_FEATURES = {
    * dsh 没有）；会话所在的引擎或模型不收图片时 `session.send` 回 `INVALID_PARAMS`。
    */
   userImages: 'user_images',
+  userFiles: 'user_files',
   /**
    * 应用级工具（0.30.0，domain-model §3.15）：Host 给每个会话的引擎挂上 `wevir` MCP 服务，agent 能列出、读、新开会话，给别的
    * 会话发消息、等它、停它，并请求界面显示文件、改动或会话（`ui.show` 事件）。会话之间的消息带 `user.message.from`，agent 开出
@@ -281,6 +285,9 @@ export const HOST_FEATURES = {
    * 取决于引擎（看 `engineFeatures` 的 `rewind`）；会话所在的引擎不能撤回时 `INVALID_STATE`。
    */
   sessionRewind: 'session_rewind',
+  sessionRewindHistory: 'session_rewind_history',
+  sessionComposerCatalog: 'session_composer_catalog',
+  sessionRestartContinuation: 'session_restart_continuation',
   /**
    * 撤销与重做（0.51.0，domain-model §3.22）：`session.undo` / `session.redo` 与 `turn.undone` / `turn.redone` 事件。撤销把会话目录里的
    * 文件还原到最后一个回合开始前（靠回合快照，目录要在 git 仓库里），消息记录隐藏这个回合，引擎的上下文里补一条说明。取决于引擎
@@ -383,6 +390,8 @@ export const HOST_FEATURES = {
    * “变更”窗格发起，不是 Agent 的工具。与引擎无关。
    */
   gitCommit: 'git_commit',
+  /** 项目创建与克隆、Git 分支与发布操作、会话快照之间的 diff。 */
+  gitWorkflow: 'git_workflow',
   /**
    * 进程输出（0.69.0）：`process.list`、`process.output`、`process.stop` 与 `process.changed` 通知。客户端看 Agent 起的后台进程与
    * 回合后验证的检查进程、读输出、停止；不是终端，不能输入。有后台进程或回合后验证时声明。
@@ -704,6 +713,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_delete: z.boolean().optional(),
   session_compact: z.boolean().optional(),
   session_review: z.boolean().optional(),
+  engine_notices: z.boolean().optional(),
   session_goals: z.boolean().optional(),
   usage_auto_continue: z.boolean().optional(),
   usage_limit_switch: z.boolean().optional(),
@@ -711,6 +721,7 @@ export const HostFeaturesSchema = z.looseObject({
   turn_retry: z.boolean().optional(),
   session_handoff: z.boolean().optional(),
   user_images: z.boolean().optional(),
+  user_files: z.boolean().optional(),
   app_tools: z.boolean().optional(),
   file_preview: z.boolean().optional(),
   office_preview: z.boolean().optional(),
@@ -721,6 +732,9 @@ export const HostFeaturesSchema = z.looseObject({
   plan_mode: z.boolean().optional(),
   session_branches: z.boolean().optional(),
   session_rewind: z.boolean().optional(),
+  session_rewind_history: z.boolean().optional(),
+  session_composer_catalog: z.boolean().optional(),
+  session_restart_continuation: z.boolean().optional(),
   session_undo: z.boolean().optional(),
   session_recap: z.boolean().optional(),
   session_insights: z.boolean().optional(),
@@ -743,6 +757,7 @@ export const HostFeaturesSchema = z.looseObject({
   rule_files: z.boolean().optional(),
   review_comments: z.boolean().optional(),
   git_commit: z.boolean().optional(),
+  git_workflow: z.boolean().optional(),
   process_output: z.boolean().optional(),
   user_terminal: z.boolean().optional(),
   workspace_readiness: z.boolean().optional(),
@@ -817,6 +832,8 @@ export const PERMISSIONS = [
   'host.manage',
   'workspace.read',
   'workspace.write',
+  /** 使用 Host 的远端凭据推送 Git 分支、创建拉取请求。配对默认不授予。 */
+  'git.publish',
   'provider.read',
   'provider.write',
   'session.read',

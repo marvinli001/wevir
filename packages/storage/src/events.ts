@@ -77,6 +77,7 @@ export interface EventRepository {
    * 事件里引用的消息图片（0.43.0）：图片 ID → 引用它的会话。只看 payload 里 `"imageId":"…"` 的写法（Host 写事件时的 JSON 没有空格）。
    */
   imageRefs(): Map<string, Set<string>>;
+  attachmentRefs(): Map<string, Set<string>>;
 }
 
 export function createEventRepository(db: SqliteDatabase): EventRepository {
@@ -119,7 +120,20 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
     'SELECT session_id, image_id FROM event_image_refs ORDER BY image_id, session_id',
   );
 
+  const withAttachments = db.prepare(`
+    SELECT image_id AS id, session_id AS owner FROM event_image_refs
+    UNION ALL SELECT attachment_id, owner_id FROM user_attachment_refs`);
   return {
+    attachmentRefs() {
+      const refs = new Map<string, Set<string>>();
+      for (const row of withAttachments.all()) {
+        const id = text(row, 'id');
+        const owners = refs.get(id) ?? new Set<string>();
+        owners.add(text(row, 'owner'));
+        refs.set(id, owners);
+      }
+      return refs;
+    },
     insert(event) {
       insert.run({
         sessionId: event.sessionId,

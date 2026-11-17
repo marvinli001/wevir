@@ -8,6 +8,7 @@ import {
   ChannelIdSchema,
   ClientIdentitySchema,
   EnvironmentIdSchema,
+  FileIdSchema,
   ImageIdSchema,
   InsightIdSchema,
   IsoTimeSchema,
@@ -118,6 +119,7 @@ export const ProviderReasoningLevelSchema = z.enum([
   'high',
   'xhigh',
   'max',
+  'ultra',
 ]);
 export type ProviderReasoningLevel = z.infer<typeof ProviderReasoningLevelSchema>;
 
@@ -151,6 +153,7 @@ export const ProviderModelSchema = z.object({
    * 空数组：固定力度，不提供档位选择。
    */
   reasoningEfforts: z.array(ProviderReasoningLevelSchema).optional(),
+  defaultReasoningEffort: ProviderReasoningLevelSchema.optional(),
   /**
    * 快速模式（0.148.0，Host 功能 `fast_mode`）：来源的引擎能用更快的速度档跑这个模型，用量更多（Codex 的 `serviceTier: fast`、Claude 的
    * `fastMode`）。只有订阅来源的模型由 Host 填；省略表示不支持，客户端不显示开关。
@@ -750,11 +753,49 @@ export const UserTextPartSchema = z.object({
 });
 export type UserTextPart = z.infer<typeof UserTextPartSchema>;
 
+export const UserFilePartSchema = z.object({
+  type: z.literal('file'),
+  fileId: FileIdSchema,
+  name: z.string().min(1).max(255),
+  size: z.int().min(0),
+  mimeType: z.string().min(1).max(255).optional(),
+});
+export type UserFilePart = z.infer<typeof UserFilePartSchema>;
 export const UserContentPartSchema = z.discriminatedUnion('type', [
   UserTextPartSchema,
   UserImagePartSchema,
+  UserFilePartSchema,
 ]);
 export type UserContentPart = z.infer<typeof UserContentPartSchema>;
+
+export const MESSAGE_TEXT_MAX_LENGTH = 120_000;
+export const IMAGE_MAX_PER_MESSAGE = 100;
+export const MESSAGE_ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
+
+/** 仅校验新输入。历史事件允许重放当时已接受的消息。 */
+export function messageContentIssue(
+  content: readonly UserContentPart[],
+  checkText = true,
+): string | undefined {
+  let length = 0;
+  let attachments = 0;
+  for (const part of content) {
+    if (part.type === 'text') length += part.text.length;
+    else attachments++;
+  }
+  if (checkText && length > MESSAGE_TEXT_MAX_LENGTH)
+    return `message text exceeds ${MESSAGE_TEXT_MAX_LENGTH} characters`;
+  if (attachments > IMAGE_MAX_PER_MESSAGE)
+    return `a message can carry at most ${IMAGE_MAX_PER_MESSAGE} attachments`;
+  return undefined;
+}
+export const MessageInputSchema = z
+  .array(UserContentPartSchema)
+  .min(1)
+  .superRefine((content, ctx) => {
+    const message = messageContentIssue(content);
+    if (message) ctx.addIssue({ code: 'custom', message });
+  });
 
 // ── ApprovalRequest ───────────────────────────────────────────────────
 
@@ -770,6 +811,7 @@ export type ApprovalStatus = z.infer<typeof ApprovalStatusSchema>;
 export const ApprovalOptionSchema = z.object({
   /** 引擎原样，`approval.respond` 回传它。 */
   optionId: z.string().min(1),
+  policyTarget: z.string().min(1).optional(),
   /** 引擎原样；界面按 `kind` 本地化，未知 `kind` 才显示它。 */
   label: z.string(),
   /** 引擎原样（ACP：allow_once / allow_always / reject_once / reject_always）。 */
@@ -1929,20 +1971,26 @@ export type TurnOutcome = z.infer<typeof TurnOutcomeSchema>;
  * 代码审查看哪些改动（0.24.0，`session.review`）：`uncommitted` 工作树（暂存、未暂存与未跟踪的文件）；`branch` 当前分支对基础分支
  * （Host 找的默认分支，同 `workspace.diff` 的 `branch`）的改动。
  */
-export const ReviewTargetSchema = z.enum(['uncommitted', 'branch']);
+export const ReviewTargetSchema = z.enum(['uncommitted', 'branch', 'commit', 'custom']);
+export const ReviewCommitShaSchema = z.string().regex(/^[0-9a-f]{4,64}$/i);
+export const ReviewInstructionsSchema = z.string().trim().min(1).max(16_000);
 export type ReviewTarget = z.infer<typeof ReviewTargetSchema>;
 
 /**
  * 回合由命令开始、没有用户消息（0.24.0，domain-model §4.7）：`compact` 压缩上下文（`session.compact`），`review` 代码审查
  * （`session.review`；`branch` 时 `baseBranch` 是比较的分支）。
  */
-export const TurnCommandSchema = z.discriminatedUnion('kind', [
+const ReviewCommand = z.object({ kind: z.literal('review') });
+export const TurnCommandSchema = z.union([
   z.object({ kind: z.literal('compact') }),
-  z.object({
-    kind: z.literal('review'),
-    target: ReviewTargetSchema,
-    baseBranch: z.string().min(1).optional(),
-  }),
+  z.discriminatedUnion('target', [
+    ReviewCommand.extend({
+      target: z.enum(['uncommitted', 'branch']),
+      baseBranch: z.string().min(1).optional(),
+    }),
+    ReviewCommand.extend({ target: z.literal('commit'), sha: ReviewCommitShaSchema }),
+    ReviewCommand.extend({ target: z.literal('custom'), instructions: ReviewInstructionsSchema }),
+  ]),
 ]);
 export type TurnCommand = z.infer<typeof TurnCommandSchema>;
 
@@ -2449,6 +2497,7 @@ export const SessionSchema = z.object({
   goal: SessionGoalSchema.optional(),
   /** 额度恢复后自动继续（0.119.0，最近一次 `session.auto_continue`）；没开、已关、已发出或有了新的回合时省略。 */
   autoContinue: SessionAutoContinueSchema.optional(),
+  interruptedTurn: z.object({ turnId: TurnIdSchema, auto: z.boolean() }).optional(),
   /** 最近一次回合收尾（0.128.0，`turn.wrap_up`）；新的回合开始、用户发了消息、那个回合被撤销或撤回时省略。 */
   wrapUp: SessionWrapUpSchema.optional(),
   /** 这个会话当前的来源加载的规则文件（0.68.0，最近一次 `session.rules`）；Host 没记过时省略。 */

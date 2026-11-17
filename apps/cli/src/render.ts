@@ -576,7 +576,9 @@ const pendingFallbackLabel = (reason: PendingFallbackReason): string =>
 /** 用户消息的文本：图片写成“[图片]”（0.28.0）。 */
 function contentText(content: readonly UserContentPart[], separator: string): string {
   return content
-    .map((part) => (part.type === 'text' ? part.text : t('render.image')))
+    .map((part) =>
+      part.type === 'text' ? part.text : part.type === 'file' ? part.name : t('render.image'),
+    )
     .join(separator);
 }
 

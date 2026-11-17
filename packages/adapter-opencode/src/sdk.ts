@@ -11,6 +11,7 @@
 
 import type {
   AssistantMessage,
+  Command,
   Event,
   Message,
   OutputFormat,
@@ -61,6 +62,16 @@ export interface SyncPromptInput {
   parts: Array<{ type: 'text'; text: string }>;
 }
 
+export interface NativeCommandInput {
+  sessionID: string;
+  messageID: string;
+  model: string;
+  command: string;
+  arguments: string;
+  variant?: string;
+  parts: Extract<PromptInput['parts'][number], { type: 'file' }>[];
+}
+
 /** 适配器用到的 opencode 服务器接口（一个客户端对应一个工作目录，`x-opencode-directory`）。 */
 export interface OpenCodeClient {
   health(signal?: AbortSignal): Promise<{ healthy: true; version: string }>;
@@ -90,6 +101,11 @@ export interface OpenCodeClient {
   children(sessionID: string): Promise<Session[]>;
   messages(sessionID: string): Promise<Array<{ info: Message; parts: Part[] }>>;
   status(): Promise<Record<string, SessionStatus>>;
+  commands(signal?: AbortSignal): Promise<Command[]>;
+  command(
+    input: NativeCommandInput,
+    signal: AbortSignal,
+  ): Promise<{ info: AssistantMessage; parts: Part[] }>;
   /** 发出输入，opencode 接受即返回（204），回合经事件流推进。 */
   promptAsync(input: PromptInput, signal?: AbortSignal): Promise<void>;
   /** `noReply` 时返回存下的用户消息，否则返回这一轮最后的 assistant 消息。 */
@@ -121,6 +137,7 @@ export interface OpenCodeSdk {
 
 export type {
   AssistantMessage,
+  Command,
   Event,
   Message,
   OutputFormat,
@@ -215,6 +232,14 @@ export function loadOpenCodeSdk(): Promise<OpenCodeSdk> {
           messages: async (sessionID) =>
             required('session.messages', (await client.session.messages({ sessionID })).data),
           status: async () => required('session.status', (await client.session.status()).data),
+          commands: async (signal) =>
+            required(
+              'command.list',
+              (await client.command.list(undefined, { ...(signal !== undefined && { signal }) }))
+                .data,
+            ),
+          command: async (input, signal) =>
+            required('session.command', (await client.session.command(input, { signal })).data),
           promptAsync: async (body, signal) => {
             await client.session.promptAsync(body, { ...(signal !== undefined && { signal }) });
           },

@@ -203,6 +203,9 @@ export function catalogEntry(
     display_name: model.displayName ?? model.id,
     description: null,
     base_instructions: baseInstructions,
+    ...(model.defaultReasoningEffort !== undefined && {
+      default_reasoning_level: toCodexEffort(model.defaultReasoningEffort),
+    }),
     supported_reasoning_levels: efforts.map((effort) => ({
       effort,
       description: EFFORT_DESCRIPTIONS[effort] ?? effort,

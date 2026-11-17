@@ -1,7 +1,7 @@
 // 附照片：从相册选或拍一张，长边缩到 `PHOTO_MAX_EDGE`、转 JPEG（去掉 EXIF，连同位置），得到 base64 交给 `image.upload`
 // （隧道里走，不用 `fetch`）。缩放的尺寸是纯逻辑（photo-size.ts），选取与压缩用 expo-image-picker / expo-image-manipulator。
 
-import { IMAGE_MAX_BYTES } from '@wevir/protocol';
+import { IMAGE_SEND_MAX_BYTES, MESSAGE_ATTACHMENT_MAX_BYTES } from '@wevir/protocol';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { base64Bytes, fitWithin, JPEG_QUALITY } from './photo-size';
@@ -22,12 +22,18 @@ export class PhotoPermissionError extends Error {
   override readonly name = 'PhotoPermissionError';
 }
 
+export class PhotoBudgetError extends Error {}
+
 export class PhotoTooLargeError extends Error {
   override readonly name = 'PhotoTooLargeError';
 }
 
 /** 选或拍照片；取消时返回空数组。相册一次可选多张（不超过 `limit`）。 */
-export async function pickPhotos(source: PhotoSource, limit: number): Promise<PickedPhoto[]> {
+export async function pickPhotos(
+  source: PhotoSource,
+  limit: number,
+  remainingBytes = MESSAGE_ATTACHMENT_MAX_BYTES,
+): Promise<PickedPhoto[]> {
   if (limit <= 0) return [];
   const options: ImagePicker.ImagePickerOptions = {
     mediaTypes: ['images'],
@@ -46,7 +52,12 @@ export async function pickPhotos(source: PhotoSource, limit: number): Promise<Pi
   }
   if (result.canceled) return [];
   const photos: PickedPhoto[] = [];
-  for (const asset of result.assets.slice(0, limit)) photos.push(await compress(asset));
+  for (const asset of result.assets.slice(0, limit)) {
+    const photo = await compress(asset);
+    remainingBytes -= base64Bytes(photo.data);
+    if (remainingBytes < 0) throw new PhotoBudgetError();
+    photos.push(photo);
+  }
   return photos;
 }
 
@@ -61,7 +72,7 @@ async function compress(asset: ImagePicker.ImagePickerAsset): Promise<PickedPhot
     base64: true,
   });
   const data = saved.base64 ?? '';
-  if (data === '' || base64Bytes(data) > IMAGE_MAX_BYTES)
+  if (data === '' || base64Bytes(data) > IMAGE_SEND_MAX_BYTES)
     throw new PhotoTooLargeError('photo too large');
   return { uri: saved.uri, mimeType: 'image/jpeg', data };
 }

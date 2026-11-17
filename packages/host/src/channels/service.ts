@@ -55,7 +55,6 @@ import type {
   TurnId,
   TurnOutcome,
   UserContentPart,
-  UserImagePart,
   WevirEvent,
 } from '@wevir/protocol';
 import {
@@ -72,6 +71,8 @@ import {
   GROUP_MEMBERS_MIN,
   GROUP_MENTION_DEPTH_MAX,
   GROUP_ROUND_REPLIES_MAX,
+  IMAGE_MAX_PER_MESSAGE,
+  MESSAGE_ATTACHMENT_MAX_BYTES,
 } from '@wevir/protocol';
 import type {
   ChannelPostRecord,
@@ -82,6 +83,7 @@ import type {
 } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
+import type { ImageStore } from '../images.js';
 import { approvalSummary } from '../inbox.js';
 import { redactSecrets } from '../secret-patterns.js';
 import type { UsageRecoveryReport } from '../usage-recovery.js';
@@ -188,7 +190,7 @@ export interface ChannelServiceOptions {
   /** 协调者的 Provider 能不能挂 Wevir 工具；不给时都算能。 */
   canUseAppTools?: (providerId: string) => boolean;
   /** 帖子里的图片在本机的文件（模型看不了图片时写进说明）。 */
-  images?: { path(imageId: UserImagePart['imageId']): Promise<string | undefined> };
+  images?: Pick<ImageStore, 'path'>;
   wakeDelayMs?: number;
   threadUpdateDelayMs?: number;
   now?: () => number;
@@ -1644,24 +1646,47 @@ export class ChannelService {
    * 触发词（见文件头）。
    */
   async #viewable(sessionId: SessionId, content: UserContentPart[]): Promise<UserContentPart[]> {
-    if (!content.some((part) => part.type === 'image')) return content;
-    if (this.#options.sessions.acceptsImages?.(sessionId) !== false) return content;
-    const lines: string[] = [];
+    const attachments = content.filter((part) => part.type !== 'text');
+    if (!attachments.length) return content;
+    const acceptsImages = this.#options.sessions.acceptsImages?.(sessionId) !== false;
     const kept: UserContentPart[] = [];
+    const hiddenImages: string[] = [];
+    const overflow: string[] = [];
+    let count = 0;
+    let bytes = 0;
     for (const part of content) {
-      if (part.type !== 'image') {
+      if (part.type === 'text') {
         kept.push(part);
         continue;
       }
-      const path = await this.#options.images?.path(part.imageId).catch(() => undefined);
-      lines.push(
-        `- ${escapeText(part.name ?? part.mimeType)}${path === undefined ? '' : `: ${escapeText(path)}`}`,
+      const hidden = part.type === 'image' && !acceptsImages;
+      if (
+        !hidden &&
+        count < IMAGE_MAX_PER_MESSAGE &&
+        bytes + part.size <= MESSAGE_ATTACHMENT_MAX_BYTES
+      ) {
+        count++;
+        bytes += part.size;
+        kept.push(part);
+        continue;
+      }
+      const id = part.type === 'image' ? part.imageId : part.fileId;
+      const path = await this.#options.images?.path(id);
+      const label = part.type === 'image' ? (part.name ?? part.mimeType) : part.name;
+      (hidden ? hiddenImages : overflow).push(
+        `- ${escapeText(label)}${path === undefined ? '' : `: ${escapeText(path)}`}`,
       );
     }
-    kept.push({
-      type: 'text',
-      text: `<attached_images count="${lines.length}">\nYour model cannot view images. The files are on this computer; read them another way or have the user describe them.\n${lines.join('\n')}\n</attached_images>`,
-    });
+    if (hiddenImages.length)
+      kept.push({
+        type: 'text',
+        text: `<attached_images count="${hiddenImages.length}">\nYour model cannot view images. The files are on this computer; read them another way or have the user describe them.\n${hiddenImages.join('\n')}\n</attached_images>`,
+      });
+    if (overflow.length)
+      kept.push({
+        type: 'text',
+        text: `<attached_files count="${overflow.length}">\nAdditional attachments from the grouped posts are available on this computer.\n${overflow.join('\n')}\n</attached_files>`,
+      });
     return kept;
   }
 

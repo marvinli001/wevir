@@ -23,6 +23,7 @@ import {
   setDiffsText,
 } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
+import { hostSupports } from '@wevir/client-sdk';
 import type { DiffFile, ReviewComment, Session, SessionId, Workspace } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
@@ -242,9 +243,12 @@ function SessionChanges({
   const prefs = changesPrefs.use();
   const stored = useChangesSelection(sessionId);
   const gitSupported = useGitSupported();
-  // 旧 Host 不认 `staged`：退回“未提交”。
+  const workflowSupported =
+    connectionView.status === 'connected' &&
+    hostSupports(connectionView.hello.features, 'git_workflow');
   const selection =
-    stored.scope.kind === 'staged' && !gitSupported
+    (stored.scope.kind === 'staged' && !gitSupported) ||
+    (stored.scope.kind === 'session' && !workflowSupported)
       ? { ...stored, scope: { kind: 'uncommitted' as const } }
       : stored;
   const transcript = useTranscriptSelector(
@@ -288,18 +292,21 @@ function SessionChanges({
   const directory = multiple
     ? (folders.find((folder) => folder === selection.folder) ?? session?.cwd)
     : undefined;
-  const turnScope = selection.scope.kind === 'turn' || selection.scope.kind === 'latest';
-  const folder = turnScope ? undefined : directory;
+  const snapshotScope =
+    selection.scope.kind === 'turn' ||
+    selection.scope.kind === 'latest' ||
+    selection.scope.kind === 'session';
+  const folder = snapshotScope ? undefined : directory;
   const additional = folder !== undefined && folder !== session?.cwd;
   const attach = useAttachToSession(session);
   const sessionState = transcript?.state;
   const activeTurnId = transcript?.activeTurnId;
   // 回合开始、结束时重读：改动多半刚发生。
-  const refreshKey = `${sessionState ?? ''}:${activeTurnId ?? ''}`;
+  const refreshKey = `${sessionState ?? ''}:${activeTurnId ?? ''}:${turnIds.at(-1) ?? ''}`;
   const checkpoints = useCheckpoints(sessionId, refreshKey);
   // 暂存与提交（0.67.0）：暂存状态变了（索引或 HEAD）时 diff 一起重读。
   const git = useGitStatus(workspaceId, sessionId, refreshKey, folder);
-  const gitKey = `${git.status?.head ?? ''}:${git.status?.index ?? ''}`;
+  const gitKey = `${git.status?.branch ?? ''}:${git.status?.head ?? ''}:${git.status?.index ?? ''}`;
   const numbers = useMemo(() => new Map(turnIds.map((id, index) => [id, index + 1])), [turnIds]);
   const turns = useMemo(
     () => turnOptions(checkpoints ?? [], numbers, messages),
@@ -653,7 +660,11 @@ function SessionChanges({
   } else if (!result.repo) {
     body = <Note>{t('changes.notRepo')}</Note>;
   } else if (result.unavailable !== undefined) {
-    body = <Note>{t('changes.noCheckpoint')}</Note>;
+    body = (
+      <Note>
+        {t(source?.kind === 'session' ? 'changes.noSessionCheckpoint' : 'changes.noCheckpoint')}
+      </Note>
+    );
   } else if (!hasFiles) {
     body = <Note>{t('changes.empty')}</Note>;
   } else if (renderable?.kind === 'raw') {
@@ -706,9 +717,10 @@ function SessionChanges({
             turns={turns}
             label={scopeLabel(selection.scope, turns)}
             staged={gitSupported}
+            sessionScope={workflowSupported}
             stats={hasFiles ? stats : undefined}
           />
-          {multiple && !turnScope && folders.length > 1 && directory !== undefined && (
+          {multiple && !snapshotScope && folders.length > 1 && directory !== undefined && (
             <FolderMenu
               folders={folders}
               folder={directory}
@@ -805,6 +817,13 @@ function SessionChanges({
           <CommitPanel
             key={`${sessionId}:${folder ?? session?.cwd ?? ''}`}
             git={git}
+            workflowScope={
+              workflowSupported &&
+              connectionView.status === 'connected' &&
+              connectionView.hello.permissions.includes('workspace.write')
+                ? { workspaceId, sessionId, ...(folder !== undefined && { folder }) }
+                : undefined
+            }
             open={prefs.commit}
             onOpenChange={(open) => changesPrefs.set((current) => ({ ...current, commit: open }))}
             onReveal={(path, inIndex) =>
@@ -888,6 +907,7 @@ function ScopeMenu({
   turns,
   label,
   staged,
+  sessionScope,
   stats,
 }: {
   sessionId: SessionId;
@@ -896,6 +916,7 @@ function ScopeMenu({
   label: string;
   /** Host 有 `git_commit`：多一项“已暂存”。 */
   staged: boolean;
+  sessionScope: boolean;
   /** 有改动时按钮里写 +N −M（照 Codex）。 */
   stats: { added: number; removed: number } | undefined;
 }) {
@@ -906,7 +927,13 @@ function ScopeMenu({
     if (!sameScope(next, scope)) selectScope(sessionId, next);
   };
   const pick = (value: unknown) => {
-    if (value === 'uncommitted' || value === 'staged' || value === 'branch' || value === 'latest') {
+    if (
+      value === 'uncommitted' ||
+      value === 'staged' ||
+      value === 'branch' ||
+      value === 'latest' ||
+      value === 'session'
+    ) {
       choose({ kind: value });
     }
   };
@@ -928,6 +955,11 @@ function ScopeMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
         <DropdownMenuRadioGroup value={top} onValueChange={pick}>
+          {sessionScope && (
+            <DropdownMenuRadioItem value="session" closeOnClick>
+              {t('changes.scope.session')}
+            </DropdownMenuRadioItem>
+          )}
           <DropdownMenuRadioItem value="latest" closeOnClick disabled={turns.length === 0}>
             {t('changes.scope.latest')}
           </DropdownMenuRadioItem>

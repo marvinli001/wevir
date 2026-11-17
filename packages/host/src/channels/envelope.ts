@@ -64,7 +64,9 @@ function attr(value: string): string {
 /** 帖子的文字（图片记作 `[image]`）。 */
 export function postText(post: Pick<ChannelPost, 'content'>): string {
   return post.content
-    .map((part) => (part.type === 'text' ? part.text : '[image]'))
+    .map((part) =>
+      part.type === 'text' ? part.text : part.type === 'file' ? `[file: ${part.name}]` : '[image]',
+    )
     .join('\n')
     .trim();
 }
@@ -271,9 +273,7 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
   parts.push(threadsBlock(input.threads));
   if (input.digest !== undefined && input.digest !== '') parts.push(input.digest);
   parts.push(`</channel_wake id="${id}">`);
-  const images = input.posts.flatMap((post) =>
-    post.content.filter((part) => part.type === 'image'),
-  );
+  const images = input.posts.flatMap((post) => post.content.filter((part) => part.type !== 'text'));
   return [{ type: 'text', text: parts.join('\n') }, ...images];
 }
 
@@ -352,7 +352,7 @@ export function relayEnvelope(
     parts.push(`<note author="coordinator">${escapeText(note.trim())}</note>`);
   }
   parts.push(`</channel_relay id="${id}">`);
-  const images = cited.flatMap((post) => post.content.filter((part) => part.type === 'image'));
+  const images = cited.flatMap((post) => post.content.filter((part) => part.type !== 'text'));
   return [{ type: 'text', text: parts.join('\n') }, ...images];
 }
 
@@ -389,8 +389,6 @@ export function groupWakeEnvelope(
     ...input.posts.map(postBlock),
     `</group_wake id="${id}">`,
   ];
-  const images = input.posts.flatMap((post) =>
-    post.content.filter((part) => part.type === 'image'),
-  );
+  const images = input.posts.flatMap((post) => post.content.filter((part) => part.type !== 'text'));
   return [{ type: 'text', text: parts.join('\n') }, ...images];
 }

@@ -1,5 +1,5 @@
 import { hostSupports } from '@wevir/client-sdk';
-import type { PendingDelivery, UserImagePart } from '@wevir/protocol';
+import type { PendingDelivery, SessionId } from '@wevir/protocol';
 import { Plus } from 'lucide-react';
 import { useMemo } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
@@ -14,8 +14,11 @@ import { onboardingDone } from '@/onboarding/onboarding-state';
 import { needsWelcome } from '@/onboarding/welcome-model';
 import { useChatsSupported } from '@/projects/chats';
 import { openCreateProject } from '@/projects/create-project';
-import { Composer, setDraft } from '@/session/composer';
+import { Composer } from '@/session/composer';
+import { draftFor, finishComposerSend } from '@/session/composer-drafts';
+import type { ComposerAttachmentPart } from '@/session/composer-images';
 import { EnvironmentBar } from '@/session/environment-bar';
+import { engineFeaturesOf } from '@/session/handoff-model';
 import { useAcceptsImages } from '@/session/image-attachments';
 import { ModelPicker } from '@/session/model-picker';
 import { NewSessionHero, NewSessionLayout } from '@/session/new-session';
@@ -101,18 +104,20 @@ function Home({
   const send = async (
     text: string,
     _delivery?: PendingDelivery,
-    images?: readonly UserImagePart[],
-  ): Promise<boolean> => {
+    images?: readonly ComposerAttachmentPart[],
+  ): Promise<SessionId | false> => {
     const mode = plan.mode;
-    const done = (started: boolean) => {
+    const done = (started: SessionId | false) => {
       if (started && plan.active) plan.set(false);
       return started;
     };
     if (workspace || chats) return done(await start(text, undefined, images, mode));
     if (!manage.create) return false;
+    const sentDraft = draftFor(HOME_DRAFT).get().draft;
     openCreateProject({
       onCreated: async (created) => {
-        if (done(await start(text, created.id, images, mode))) setDraft(HOME_DRAFT, '');
+        const id = done(await start(text, created.id, images, mode));
+        if (id) await finishComposerSend(HOME_DRAFT, sentDraft, id);
       },
     });
     return false;
@@ -198,11 +203,24 @@ function Home({
             }
             model={
               providers &&
-              choice && <ModelPicker providers={providers} value={choice} onChange={choose} />
+              choice && (
+                <ModelPicker
+                  effortShortcuts
+                  providers={providers}
+                  value={choice}
+                  onChange={choose}
+                />
+              )
             }
             onSend={send}
             onStop={() => {}}
             autoFocus
+            allowDraftSkills={
+              view.status === 'connected' &&
+              !!choice &&
+              engineFeaturesOf(view.hello.engineFeatures, providers ?? [], choice.providerId)
+                ?.skills === true
+            }
             commands={commands}
             {...(planCommand && { plan: planCommand })}
             {...(fileScope && { fileScope })}

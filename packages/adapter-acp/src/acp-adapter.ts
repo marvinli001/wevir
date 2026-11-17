@@ -7,7 +7,9 @@
 // 0351dbb09204c464bc556c2cfa1b48ceab0d3b21；建会话后总是写一次模型（`alwaysSetModel`）参考同一文件
 // e9e934bb3db7b13c8d09f103a59f317935e0bd72；没有动静的回合超时（`promptInactivityTimeoutMs`）参考同一文件
 // 3f905cac2e4dd968684298673546aacca3323b1d（MIT，Copyright (c) 2026 T3 Tools Inc.）。
+
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import {
   type ContentBlock,
   type CreateElicitationRequest,
@@ -18,6 +20,7 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
+import type { EngineComposerCommand } from '@wevir/runtime-adapter';
 import {
   AdapterError,
   type AgentEvent,
@@ -176,6 +179,7 @@ export interface AcpSessionSetup {
 }
 
 interface AcpSession {
+  commands: EngineComposerCommand[];
   readonly id: string;
   readonly cwd: string;
   /** open：挂在当前引擎进程上；closed：已 close；detached：进程退出后脱开，要 resume。 */
@@ -279,6 +283,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
    * 被回收的进程上（`busy`）。
    */
   #activating = 0;
+  readonly #activatingCommands = new Map<string, EngineComposerCommand[]>();
 
   constructor(options: AcpAdapterOptions<P>) {
     const { engine } = options;
@@ -407,6 +412,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       };
     } finally {
       this.#activating -= 1;
+      if (!this.#activating) this.#activatingCommands.clear();
     }
   }
 
@@ -491,22 +497,46 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       };
     } finally {
       this.#activating -= 1;
+      if (!this.#activating) this.#activatingCommands.clear();
     }
   }
 
-  /** `session/prompt` 的内容块：文本，之后是图片（0.28.0，读文件发 base64）。 */
+  /** 文本、图片与引擎支持的嵌入资源。 */
   #promptBlocks(input: AgentInput): ContentBlock[] | Promise<ContentBlock[]> {
     const texts: ContentBlock[] = [];
-    const images: Promise<ContentBlock>[] = [];
+    const attachments: Promise<ContentBlock>[] = [];
     for (const part of input.content) {
       if (part.type === 'text') {
         texts.push({ type: 'text', text: part.text });
         continue;
       }
+      if (part.type === 'file') {
+        if (
+          this.process.initializeResponse?.agentCapabilities?.promptCapabilities
+            ?.embeddedContext === true
+        ) {
+          const uri = pathToFileURL(part.path).href;
+          const mimeType = part.mimeType;
+          attachments.push(
+            readFile(part.path).then(
+              (bytes): ContentBlock => ({
+                type: 'resource',
+                resource:
+                  mimeType === 'text/plain'
+                    ? { uri, mimeType, text: bytes.toString('utf8') }
+                    : { uri, mimeType, blob: bytes.toString('base64') },
+              }),
+            ),
+          );
+        } else {
+          texts.push({ type: 'text', text: part.text });
+        }
+        continue;
+      }
       if (this.acceptsImages === undefined) {
         throw new AdapterError('invalid_input', `${this.engine.name} 不收图片`);
       }
-      images.push(
+      attachments.push(
         readFile(part.path).then((bytes) => ({
           type: 'image',
           mimeType: part.mimeType,
@@ -515,8 +545,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       );
     }
     // 只有文本时同步返回：`send` 在发出 `session/prompt` 之前不让出事件循环（取消与回合结束的先后靠它）。
-    if (images.length === 0) return texts;
-    return Promise.all(images).then((blocks) => [...texts, ...blocks]);
+    if (attachments.length === 0) return texts;
+    return Promise.all(attachments).then((blocks) => [...texts, ...blocks]);
   }
 
   subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
@@ -986,6 +1016,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   }
 
   /** 会话最近的 `configOptions`（子类在 `applyRoute` 之后按新模型设别的选项时读，Antigravity：思考档位）。 */
+  async listCommands(engineSessionId: string): Promise<EngineComposerCommand[]> {
+    return this.#session(engineSessionId).commands;
+  }
+
   protected sessionConfigOptions(engineSessionId: string): unknown {
     return this.#openSession(engineSessionId).configOptions;
   }
@@ -1062,6 +1096,33 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       return;
     }
     const session = this.#sessions.get(params.sessionId);
+    if (
+      params.update.sessionUpdate === 'available_commands_update' &&
+      Array.isArray(params.update.availableCommands)
+    ) {
+      const commands = params.update.availableCommands.flatMap((entry): EngineComposerCommand[] => {
+        if (
+          !isRecord(entry) ||
+          typeof entry.name !== 'string' ||
+          !entry.name.trim() ||
+          /\s/.test(entry.name)
+        )
+          return [];
+        return [
+          {
+            name: entry.name,
+            ...(typeof entry.description === 'string' && { description: entry.description }),
+            ...(isRecord(entry.input) &&
+              typeof entry.input.hint === 'string' && { argumentHint: entry.input.hint }),
+          },
+        ];
+      });
+      if (session?.status === 'open') session.commands = commands;
+      else if (this.#activating > 0 && this.#activatingCommands.size < 128) {
+        this.#activatingCommands.set(params.sessionId, commands);
+        return;
+      }
+    }
     if (session?.status !== 'open') {
       this.#warnOnce(
         `acp:unknown_session:${params.sessionId}`,
@@ -1651,6 +1712,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       deniedTools: new Set(deniedTools),
       toolCalls: new Map(),
       openRequests: 0,
+      commands: this.#activatingCommands.get(id) ?? [],
     });
   }
 

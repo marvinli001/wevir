@@ -84,6 +84,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.trigger;
     case 'engine.error':
       return event.payload.category;
+    case 'engine.notice':
+      return event.payload.detail.kind;
     case 'engine.raw':
       return event.payload.method;
     case 'subagent.started':

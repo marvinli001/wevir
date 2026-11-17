@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { formatShortcut, matchesShortcut, SHORTCUTS } from './shortcuts';
+import {
+  formatShortcut,
+  getShortcut,
+  matchesShortcut,
+  menuAccelerator,
+  SHORTCUTS,
+  setShortcut,
+  shortcutConflict,
+  shortcutFromEvent,
+  shortcutOverrides,
+} from './shortcuts';
 
 const key = (
   code: string,
@@ -35,6 +45,23 @@ describe('matchesShortcut', () => {
 });
 
 describe('formatShortcut', () => {
+  it('记录按键、检查冲突并恢复当前设置，原生菜单使用同一按键', () => {
+    const assigned = shortcutFromEvent(key('KeyL', { meta: true, alt: true }), true);
+    expect(assigned).toEqual({ code: 'KeyL', mod: true, alt: true });
+    expect(shortcutFromEvent(key('KeyL'), true)).toBeUndefined();
+    expect(shortcutFromEvent(key('KeyQ', { meta: true }), true)).toBeUndefined();
+    const initial = shortcutOverrides.get();
+    try {
+      if (!assigned) throw new Error('missing binding');
+      setShortcut('previousSession', assigned);
+      expect(shortcutConflict('nextSession', assigned, true)).toBe('previousSession');
+      expect(menuAccelerator(getShortcut('previousSession'))).toBe('CommandOrControl+Alt+L');
+      setShortcut('previousSession', SHORTCUTS.previousSession);
+      expect(shortcutOverrides.get().previousSession).toBeUndefined();
+    } finally {
+      shortcutOverrides.set(initial);
+    }
+  });
   it.each([true, false])(
     'declares the native theme recovery shortcut without an application conflict (mac=%s)',
     (mac) => {

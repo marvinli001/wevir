@@ -35,6 +35,7 @@ import { describe, useCan, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import { platformApi } from '@/platform/platform';
+import { OtherApprovalDecisions } from './approval-decisions';
 import {
   type ApprovalLayout,
   type ApprovalScope,
@@ -43,6 +44,7 @@ import {
   approvalScope,
   decidedHere,
   elicitationLink,
+  optionLabel,
   presentApproval,
   resolutionText,
 } from './approval-model';
@@ -207,8 +209,8 @@ function useApprovalScope(
 
 /**
  * 一个审批（U13 起照 Claude Code 的权限提示）：一句问话做标题，下面是 Agent 给的理由、所需权限（警示色）与放在代码块里的
- * 目标（命令全文或路径），写文件再附内容预览；底部只有两个按钮（U15）：左边“拒绝”（1、Esc），右边“允许”（2、⌘↵，主按钮），
- * 取哪个选项见 approval-model.ts 的 `approvalLayout`。快捷键在焦点在卡片里、或不在任何输入框里时生效；卡片出现时把焦点
+ * 目标（命令全文或路径），写文件再附内容预览。单次拒绝与允许可用快捷键，其他引擎选项在菜单中。
+ * 快捷键在焦点在卡片里、或不在任何输入框里时生效；卡片出现时把焦点
  * 拿过来，除非用户正在输入框里打字。拒绝旁的“附言”（0.144.0，Tab）在卡片里展开一行输入框：写了字再拒绝（回车或按钮）就把
  * 这段话随拒绝交给 Agent，Esc 收起。
  */
@@ -287,7 +289,7 @@ function ApprovalCard({
       if (scope && scope !== card) return;
       // 附言输入框里打字不触发快捷键（它自己处理回车与 Esc）。
       if (isEditable(target)) return;
-      if (document.querySelector('[role="dialog"]')) return;
+      if (target?.closest('[role="menu"]') || document.querySelector('[role="dialog"]')) return;
       // Tab 只在焦点在卡片本身时展开附言，焦点在卡片里的按钮上时照常移动焦点。
       if (canNote && target === card && event.key === 'Tab' && !hasModifier(event)) {
         event.preventDefault();
@@ -323,7 +325,7 @@ function ApprovalCard({
         onClick={() => (primary ? onRespond(option.optionId) : reject())}
         className="h-8 gap-1.5 pr-1.5 pl-3"
       >
-        {t(primary ? 'approval.allow' : 'approval.reject')}
+        {optionLabel(option)}
         <span className="flex gap-0.5">
           <Kbd primary={primary}>{layout.numbered.indexOf(option) + 1}</Kbd>
           {primary ? <Kbd primary>{IS_MAC ? '⌘↵' : 'Ctrl ↵'}</Kbd> : <Kbd>Esc</Kbd>}
@@ -445,7 +447,18 @@ function ApprovalCard({
             <Kbd>Tab</Kbd>
           </Button>
         )}
-        <span className="ml-auto flex min-w-0 items-center gap-2">
+        <span className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <OtherApprovalDecisions
+            layout={layout}
+            busy={busy}
+            onChoose={(option) =>
+              onRespond(
+                option.optionId,
+                undefined,
+                option.category === 'reject' && noting ? note.trim() || undefined : undefined,
+              )
+            }
+          />
           {always && (
             <DropdownMenu>
               <DropdownMenuTrigger

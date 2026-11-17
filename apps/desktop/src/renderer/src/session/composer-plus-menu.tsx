@@ -1,7 +1,7 @@
 // 输入框左下角的“+”（U33，照 Codex 桌面端的“添加”菜单）：图片（0.28.0，系统的选择框）、添加文件和文件夹（系统的选择框，
 // 插入成 @ 提及）、提及文件、斜杠命令（输入框为空时），以及页面标为 `plus` 的命令（有二级菜单的是子菜单）。
 
-import { AtSign, Check, ImagePlus, Paperclip, Plus } from 'lucide-react';
+import { AtSign, BookOpen, Check, Folder, History, ImagePlus, Paperclip, Plus } from 'lucide-react';
 import { SlashIcon } from '@/components/command-icons';
 import {
   DropdownMenu,
@@ -28,6 +28,9 @@ export function ComposerPlusMenu({
   canCommand,
   onAttach,
   onAttachImages,
+  onHistory,
+  onSkill,
+  onPaths,
   onMention,
   onCommand,
   onRun,
@@ -46,6 +49,9 @@ export function ComposerPlusMenu({
   onAttach: () => void;
   /** 系统的选择框选图片。 */
   onAttachImages: () => void;
+  onHistory: () => void;
+  onSkill?: (() => void) | undefined;
+  onPaths?: (() => void) | undefined;
   onMention: () => void;
   onCommand: () => void;
   /** 选了一条没有二级菜单的命令（执行或插入文字由输入框处理）。 */
@@ -83,6 +89,12 @@ export function ComposerPlusMenu({
           {canAttachFiles && (
             <DropdownMenuItem onClick={onAttach} data-action="attach-files">
               <Paperclip />
+              {t('composer.uploadFiles')}
+            </DropdownMenuItem>
+          )}
+          {onPaths && (
+            <DropdownMenuItem onClick={onPaths} data-action="attach-paths">
+              <Folder />
               {t('composer.attachFiles')}
             </DropdownMenuItem>
           )}
@@ -92,6 +104,12 @@ export function ComposerPlusMenu({
               {t('composer.mentionFile')}
             </DropdownMenuItem>
           )}
+          {onSkill && (
+            <DropdownMenuItem onClick={onSkill} data-action="mention-skill">
+              <BookOpen />
+              {t('rail.context.cat.skills')}
+            </DropdownMenuItem>
+          )}
           {canCommand && (
             <DropdownMenuItem onClick={onCommand} data-action="open-commands">
               <SlashIcon />
@@ -99,6 +117,11 @@ export function ComposerPlusMenu({
             </DropdownMenuItem>
           )}
         </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onHistory} data-action="prompt-history">
+          <History />
+          {t('composer.history')}
+        </DropdownMenuItem>
         {listed.length > 0 && <DropdownMenuSeparator />}
         {listed.map((command) => {
           const Icon = command.icon;

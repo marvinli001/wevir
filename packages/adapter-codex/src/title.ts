@@ -16,7 +16,7 @@ import { isRecord } from './mapping.js';
 // 推理档位都取这个模型最低的一档。
 
 /** Wevir 推理档位从低到高（protocol `ProviderReasoningLevel`）。 */
-const EFFORT_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+const EFFORT_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
 
 /** 模型支持的最低推理档位，换成 Codex 的值（`off` → `none`）；模型不推理时 undefined。 */
 export function lowestEffort(model: ProviderModelConfig): string | undefined {

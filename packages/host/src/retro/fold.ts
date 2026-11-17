@@ -173,7 +173,9 @@ export function clipText(text: string, max: number): string {
 
 function contentText(content: readonly UserContentPart[]): string {
   return content
-    .map((part) => (part.type === 'text' ? part.text : '[image]'))
+    .map((part) =>
+      part.type === 'text' ? part.text : part.type === 'file' ? `[file: ${part.name}]` : '[image]',
+    )
     .join('\n')
     .trim();
 }

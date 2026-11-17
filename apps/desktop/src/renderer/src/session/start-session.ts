@@ -8,7 +8,7 @@ import type {
   PermissionMode,
   ProviderProfile,
   Session,
-  UserImagePart,
+  SessionId,
   WorkspaceId,
 } from '@wevir/protocol';
 import { useCallback, useEffect, useState } from 'react';
@@ -19,7 +19,7 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
-import { messageContent } from './composer-images';
+import { type ComposerAttachmentPart, messageContent } from './composer-images';
 import { expandPastes } from './composer-pastes';
 import { fastParam } from './fast-mode';
 import { parseGoalCommand } from './goal-command';
@@ -33,7 +33,7 @@ export async function sendText(
   sessionId: Session['id'],
   text: string,
   delivery?: PendingDelivery,
-  images?: readonly UserImagePart[],
+  images?: readonly ComposerAttachmentPart[],
   /** 协作模式（0.36.0）；只在 Host 与引擎有计划模式时给。 */
   collaborationMode?: CollaborationMode,
   /** 审批改道（0.144.0）：有未决审批时拒绝最早的那条，这条消息作为附言；只在 Host 有 `approval_messages` 时给。 */
@@ -187,9 +187,9 @@ export function useStartSession(
     async (
       text: string,
       target: WorkspaceId | undefined = workspaceId,
-      images?: readonly UserImagePart[],
+      images?: readonly ComposerAttachmentPart[],
       collaborationMode?: CollaborationMode,
-    ): Promise<boolean> => {
+    ): Promise<SessionId | false> => {
       const workspaceId = target;
       if (!client || !choice) return false;
       if (!workspaceId && !chats) return false;
@@ -240,7 +240,7 @@ export function useStartSession(
       if (collaborationMode !== undefined) setPlanMode(session.id, collaborationMode === 'plan');
       onCreated?.(session);
       navigate(paths.session(session.workspaceId, session.id));
-      return true;
+      return session.id;
     },
     [
       client,

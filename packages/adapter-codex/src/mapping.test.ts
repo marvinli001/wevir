@@ -951,15 +951,61 @@ describe('映射的边界情况', () => {
     ).toEqual([]);
   });
 
-  it('回合之外的 MCP 服务启动状态不出事件，起不来的也一样', () => {
+  it('网络审批在工具卡上显示请求的协议和主机', () => {
     const mapper = new CodexEventMapper(id);
-    const status = (name: string, value: string) => ({ threadId: id, name, status: value });
-    for (const params of [status('playwright', 'starting'), status('playwright', 'failed')]) {
-      expect(mapper.map('mcpServer/startupStatus/updated', params, { stale: true })).toEqual([]);
-    }
+    const params = {
+      threadId: id,
+      turnId,
+      itemId: 'net',
+      networkApprovalContext: { protocol: 'https', host: 'docs.example.org' },
+    };
+    expect(mapper.approvalPrelude('item/commandExecution/requestApproval', params)).toMatchObject([
+      { type: 'tool.started', display: { kind: 'fetch', summary: 'https://docs.example.org' } },
+    ]);
+    expect(mapper.approvalPrelude('item/commandExecution/requestApproval', params)).toMatchObject([
+      { type: 'tool.updated', display: { url: 'https://docs.example.org' } },
+    ]);
+    expect(mapper.map('warning', { threadId: id, message: 'api_key=dummy-value' })).toMatchObject([
+      {
+        type: 'engine.notice',
+        detail: { kind: 'warning', message: expect.not.stringContaining('dummy-value') },
+      },
+    ]);
     expect(
-      mapper.map('mcpServer/startupStatus/updated', status('playwright', 'failed')),
-    ).toMatchObject([{ type: 'engine.raw', method: 'mcpServer/startupStatus/updated' }]);
+      mapper.map('model/safetyBuffering/updated', {
+        threadId: id,
+        turnId,
+        model: 'gpt',
+        showBufferingUi: false,
+      }),
+    ).toMatchObject([
+      { type: 'engine.notice', detail: { kind: 'output_buffering', model: 'gpt', active: false } },
+    ]);
+  });
+
+  it('MCP 启动失败在回合内外都可见，空闲会话忽略启动进度', () => {
+    const mapper = new CodexEventMapper(id);
+    expect(
+      mapper.map(
+        'mcpServer/startupStatus/updated',
+        { name: 'playwright', status: 'starting' },
+        { stale: true },
+      ),
+    ).toEqual([]);
+    for (const stale of [true, false]) {
+      expect(
+        mapper.map(
+          'mcpServer/startupStatus/updated',
+          { name: 'playwright', status: 'failed', error: 'ENOENT' },
+          { stale },
+        ),
+      ).toMatchObject([
+        {
+          type: 'engine.notice',
+          detail: { kind: 'mcp_failed', server: 'playwright', message: 'ENOENT' },
+        },
+      ]);
+    }
   });
 
   it('contextCompaction（0.24.0）：开始与完成各一个事件，compact 开的回合是 manual，其余是 auto', () => {

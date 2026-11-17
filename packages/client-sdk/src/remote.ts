@@ -15,6 +15,8 @@ import {
   FrameReader,
   type HandshakeState,
   type KeyPair,
+  MAX_FRAME_LENGTH,
+  MAX_RPC_FRAME_LENGTH,
   NoiseError,
   PAIRING_PROTOCOL,
   RECONNECT_PROTOCOL,
@@ -25,6 +27,7 @@ import {
 } from '@wevir/noise';
 import {
   type ClientIdentity,
+  compareProtocolVersions,
   type DevicePlatform,
   normalizePairingCode,
   PAIRING_WINDOW_MS,
@@ -440,7 +443,7 @@ class NoiseTunnel {
         this.#onHandshakeClose = undefined;
         this.#finishing = false;
         this.#phase = 'ready';
-        this.#reader = new FrameReader(this.#ciphers.receive);
+        this.#reader = new FrameReader(this.#ciphers.receive, MAX_RPC_FRAME_LENGTH);
         this.host = host;
         resolve(host);
       };
@@ -459,10 +462,15 @@ class NoiseTunnel {
       queueMicrotask(() => handlers.onClose(info));
     }
     const send = (this.#ciphers as TransportCiphers).send;
+    const maxFrameLength =
+      this.host && compareProtocolVersions(this.host.protocolVersion, '0.199.0') >= 0
+        ? MAX_RPC_FRAME_LENGTH
+        : MAX_FRAME_LENGTH;
     return {
       send: (text) => {
         if (this.#phase !== 'ready') return;
-        for (const message of sealFrame(send, encoder.encode(text))) this.#link.send(message);
+        for (const message of sealFrame(send, encoder.encode(text), maxFrameLength))
+          this.#link.send(message);
       },
       close: (code, reason) => this.#link.close(code, reason),
     };

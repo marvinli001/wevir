@@ -4,7 +4,11 @@
 // 只拼模板，不碰 Electron 的运行时（index.ts 用 Menu.buildFromTemplate 装上），单元测试直接检查模板。
 
 import type { MenuItemConstructorOptions } from 'electron';
-import { APP_MENU_LABEL_KEYS, type AppMenuLabels } from '../shared/desktop-api.js';
+import {
+  APP_MENU_LABEL_KEYS,
+  type AppMenuLabels,
+  type AppMenuShortcuts,
+} from '../shared/desktop-api.js';
 
 export const DEFAULT_APP_MENU_LABELS: AppMenuLabels = {
   about: 'About Wevir',
@@ -15,6 +19,18 @@ export const DEFAULT_APP_MENU_LABELS: AppMenuLabels = {
   hideOthers: 'Hide Others',
   showAll: 'Show All',
   quit: 'Quit Wevir',
+  activeTurns: 'Work is in progress',
+  background: 'Continue in Background',
+  quitResume: 'Quit and Resume on Restart',
+  quitResumeDetail:
+    'Eligible turns resume on restart. Turns waiting for approval or input need to be continued manually.',
+  quitStopsTurns: 'Quitting interrupts active turns.',
+  quitManual:
+    'Quitting interrupts active turns. Eligible turns can be continued manually after restart.',
+  quitUnknown: 'Turn status is unavailable. Quitting may interrupt active turns.',
+  cancelQuit: 'Cancel',
+  quitFailed: 'Could not prepare the Host to quit',
+
   file: 'File',
   closeWindow: 'Close Window',
   edit: 'Edit',
@@ -42,7 +58,21 @@ export const DEFAULT_APP_MENU_LABELS: AppMenuLabels = {
   bringAllToFront: 'Bring All to Front',
 };
 
-const MAX_LABEL = 100;
+const MAX_LABEL = 240;
+
+export function parseAppMenuShortcuts(value: unknown): AppMenuShortcuts | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const { settings, restoreDefaultTheme } = value as Partial<AppMenuShortcuts>;
+  const valid = (key: unknown): key is string =>
+    typeof key === 'string' &&
+    key.length < 80 &&
+    /^(?:(?:CommandOrControl|Control|Shift|Alt)\+){0,4}(?:[A-Z0-9,.;'=`/\\[\]-]|F(?:[1-9]|1[0-9]|2[0-4])|Up|Down|Left|Right|Tab|Space|Enter|Home|End|PageUp|PageDown|Backspace|Delete|Insert)$/.test(
+      key,
+    );
+  return valid(settings) && valid(restoreDefaultTheme)
+    ? { settings, restoreDefaultTheme }
+    : undefined;
+}
 
 /** 渲染进程送来的菜单文字：每一项都是非空、不太长的字符串，多余的键不收。 */
 export function parseAppMenuLabels(value: unknown): AppMenuLabels | undefined {
@@ -51,7 +81,15 @@ export function parseAppMenuLabels(value: unknown): AppMenuLabels | undefined {
   const labels: Partial<AppMenuLabels> = {};
   for (const key of APP_MENU_LABEL_KEYS) {
     const text = input[key];
-    if (typeof text !== 'string' || text.trim() === '' || text.length > MAX_LABEL) return undefined;
+    if (
+      typeof text !== 'string' ||
+      text.trim() === '' ||
+      text.length >
+        (key === 'quitResumeDetail' || key === 'quitUnknown' || key === 'quitManual'
+          ? MAX_LABEL
+          : 100)
+    )
+      return undefined;
     labels[key] = text;
   }
   return labels as AppMenuLabels;
@@ -67,6 +105,7 @@ export function appMenuTemplate(
   labels: AppMenuLabels,
   actions: AppMenuActions,
   platform: NodeJS.Platform = process.platform,
+  shortcuts?: AppMenuShortcuts,
 ): MenuItemConstructorOptions[] {
   return [
     ...(platform === 'darwin'
@@ -79,7 +118,7 @@ export function appMenuTemplate(
               // ⌘, 由渲染进程的快捷键处理（routes/router.tsx），菜单只显示它，不另外注册，免得同一次按键跳两次。
               {
                 label: labels.settings,
-                accelerator: 'Command+,',
+                accelerator: shortcuts?.settings ?? 'Command+,',
                 registerAccelerator: false,
                 click: actions.openSettings,
               },
@@ -123,7 +162,7 @@ export function appMenuTemplate(
         {
           id: 'restore-default-theme',
           label: labels.restoreDefaultTheme,
-          accelerator: 'CommandOrControl+Alt+Shift+0',
+          accelerator: shortcuts?.restoreDefaultTheme ?? 'CommandOrControl+Alt+Shift+0',
           click: actions.restoreDefaultTheme,
         },
         { type: 'separator' },

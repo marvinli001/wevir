@@ -13,6 +13,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   AssistantMessage,
+  Command,
   Event,
   Message,
   OpenCodeClient,
@@ -154,6 +155,8 @@ interface FakeSessionState {
 export class FakeOpenCode implements OpenCodeSdk {
   readonly sessions = new Map<string, FakeSessionState>();
   readonly calls: Array<{ method: string; args: unknown[] }> = [];
+  commands: Command[] = [];
+  runCommand?: OpenCodeClient['command'];
   /** 每个回合用哪份录音（按提示词选第一份；测试可以换）。 */
   readonly recordings = loadRecordings();
   /** 回放两条事件之间的间隔（毫秒）。 */
@@ -298,6 +301,12 @@ export class FakeOpenCode implements OpenCodeSdk {
           .map((state) => state.info);
       },
       messages: async () => [],
+      commands: async () => this.commands,
+      command: async (body, signal) => {
+        record('command', body);
+        if (!this.runCommand) throw notFound('command');
+        return this.runCommand(body, signal);
+      },
       status: async () => {
         record('status');
         return Object.fromEntries(

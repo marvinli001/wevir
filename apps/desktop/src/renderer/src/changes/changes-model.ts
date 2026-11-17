@@ -17,6 +17,7 @@ export type ChangesScope =
   | { kind: 'uncommitted' }
   | { kind: 'staged' }
   | { kind: 'branch' }
+  | { kind: 'session' }
   | { kind: 'latest' }
   | { kind: 'turn'; turnId: TurnId };
 
@@ -121,6 +122,7 @@ export function resolveSource(
     case 'uncommitted':
     case 'staged':
     case 'branch':
+    case 'session':
       return { kind: scope.kind };
     case 'turn':
       return { kind: 'turn', turnId: scope.turnId };
@@ -146,6 +148,8 @@ export function scopeLabel(scope: ChangesScope, turns: readonly TurnOption[]): s
       return t('changes.scope.staged');
     case 'branch':
       return t('changes.scope.branch');
+    case 'session':
+      return t('changes.scope.session');
     case 'latest':
       return t('changes.scope.latest');
     case 'turn': {

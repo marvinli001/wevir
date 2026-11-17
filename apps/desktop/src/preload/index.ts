@@ -94,7 +94,8 @@ const api: DesktopApi = {
   closeNotifications: (tag) => ipcRenderer.invoke(IPC_CHANNELS.closeNotifications, tag),
   setBadgeCount: (count) => ipcRenderer.invoke(IPC_CHANNELS.setBadgeCount, count),
   setTrayLabels: (labels) => ipcRenderer.invoke(IPC_CHANNELS.setTrayLabels, labels),
-  setAppMenuLabels: (labels) => ipcRenderer.invoke(IPC_CHANNELS.setAppMenuLabels, labels),
+  setAppMenuLabels: (labels, shortcuts) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setAppMenuLabels, labels, shortcuts),
   onRestoreDefaultTheme: (listener) => {
     const handler = () => listener();
     ipcRenderer.on(IPC_CHANNELS.restoreDefaultTheme, handler);

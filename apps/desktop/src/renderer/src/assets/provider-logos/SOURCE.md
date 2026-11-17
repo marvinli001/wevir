@@ -9,6 +9,10 @@
 | `openai.svg` | OpenAI | `a595df6b423920c67a7f8f73c063e4bfb72d415948097b6cac063a2366bb5186` |
 | `anthropic.svg` | Anthropic | `e833fdfa7e7187a86a05b870925067556a506dcd4239089aed73e1e58c9366a3` |
 | `gemini-color.svg` | Google AI Studio | `8ab0a9bafec11f7e69bcb9fc4ffd8f1bc927d1ddcbbb6ff36dee5ae8b5a9d602` |
+| `meta-color.svg` | Meta Llama | `adf9f2c1a646ccd3a37ca8c2e7e5985d64630cd633f4b95fba393d1d44e0578c` |
+| `mistral-color.svg` | Mistral AI | `722f74b289d95486b43662fe24fa883b333701296f618406cd0ed502299170b6` |
+| `cohere-color.svg` | Cohere | `84d0ee3cbe66f030e5a18cb2c86da9166ab2137c7a98781693bb1fbf31e392b9` |
+| `nova-color.svg` | Amazon Nova | `9dbe0c8d3c82dce1491b783300b27c0ece48f183504344dcdef0244efcde43e7` |
 | `azure-color.svg` | Azure OpenAI / Azure Claude | `abc639d094593943c1b201270f4903c74d02d2e26acf26abf592a29c222c5181` |
 | `bedrock-color.svg` | Amazon Bedrock | `a149a5678ce2b5d821759aabca7b815867027a8231a76723b3673580e8177a60` |
 | `vertexai-color.svg` | Google Vertex AI | `40f8bb6f7aca8d80ce2b0bd0d976e8e3ddeada3719758d262ea20075c11ad764` |

@@ -221,7 +221,7 @@ interface EchoSession {
   hub: EventHub<AgentEvent>;
   turn?: EchoTurn;
   turnCount: number;
-  /** 每个回合的输入（`recall` 关键词写出来）；`fork` 分支时带过去，`rewind` 去掉最后一个（0.38.0）。 */
+  /** 每个回合的输入（`recall` 关键词写出来）；`fork` 分支时带过去，`rewind` 移除选中的后缀。 */
   history: string[];
   /** `injectNote` 补进来、还没用上的说明（U23），下一个回合的回复末尾写出来。 */
   notes: string[];
@@ -416,7 +416,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     const text =
       request.target === 'branch'
         ? `Review the changes against ${request.baseBranch}`
-        : 'Review the uncommitted changes';
+        : request.target === 'commit'
+          ? `Review commit ${request.sha}`
+          : request.target === 'custom'
+            ? request.instructions
+            : 'Review the uncommitted changes';
     turn.done = this.#runTurn(session, turn, text);
   }
 
@@ -691,16 +695,24 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     return this.#describe(session);
   }
 
-  /** 撤回最后一个回合（0.38.0）：忘掉它的输入。 */
-  async rewind(engineSessionId: string): Promise<void> {
+  async rewind(
+    engineSessionId: string,
+    count = 1,
+    expectedFirstEngineTurnId?: string,
+  ): Promise<void> {
     this.#assertUsable();
     const session = this.#openSession(engineSessionId);
     if (session.parentId !== undefined || session.side) {
       throw new AdapterError('invalid_input', 'this session cannot be rewound');
     }
     if (session.turn) throw new AdapterError('session_busy', 'a turn is running');
-    if (session.history.length === 0) throw new AdapterError('invalid_input', 'no turn to rewind');
-    session.history.pop();
+    if (!Number.isSafeInteger(count) || count < 1 || count > session.history.length) {
+      throw new AdapterError('invalid_input', 'invalid number of turns to rewind');
+    }
+    if (expectedFirstEngineTurnId !== undefined) {
+      throw new AdapterError('invalid_input', 'echo has no bound engine turn IDs');
+    }
+    session.history.splice(session.history.length - count);
   }
 
   async injectNote(engineSessionId: string, text: string): Promise<void> {
@@ -1594,6 +1606,6 @@ export * from './echo-accounts.js';
 /** 回复用的输入文本：图片写成 `[image: <文件名或类型>]`（0.28.0）。 */
 function inputText(input: AgentInput): string {
   return input.content
-    .map((part) => (part.type === 'text' ? part.text : `[image: ${part.name ?? part.mimeType}]`))
+    .map((part) => (part.type === 'image' ? `[image: ${part.name ?? part.mimeType}]` : part.text))
     .join('\n');
 }

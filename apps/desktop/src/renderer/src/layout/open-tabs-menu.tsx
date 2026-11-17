@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { t } from '@/i18n';
-import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { formatShortcut, useKeybindings } from '@/lib/shortcuts';
 import { usePaneAccess } from './pane-access';
 import { usePanes } from './pane-controller';
 import { openableKinds } from './pane-kinds';
@@ -32,6 +32,7 @@ export function OpenTabsMenu({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const bindings = useKeybindings();
   const panes = usePanes();
   if (!panes) return null;
   const count = tabCount(panes.scope);
@@ -47,7 +48,7 @@ export function OpenTabsMenu({
         render={
           <IconButton
             label={t('layout.openTabsCount', { count })}
-            shortcut={formatShortcut(SHORTCUTS.openTabs)}
+            shortcut={formatShortcut(bindings.openTabs)}
             tooltipSide="bottom"
           >
             <span

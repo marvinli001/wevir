@@ -197,10 +197,19 @@ export interface SessionItemLabels {
 
 /** 用户消息的文字，图片写成 `[图片]`。 */
 
-function userText(parts: readonly { type: string; text?: string }[], imageLabel: string): string {
+function userText(
+  parts: readonly { type: string; text?: string; file?: { name: string }; name?: string }[],
+  imageLabel: string,
+): string {
   return parts
     .map((part) =>
-      part.type === 'text' ? (part.text ?? '') : part.type === 'image' ? `[${imageLabel}]` : '',
+      part.type === 'text'
+        ? (part.text ?? '')
+        : part.type === 'image'
+          ? `[${imageLabel}]`
+          : part.type === 'file'
+            ? (part.file?.name ?? part.name ?? '')
+            : '',
     )
     .filter((part) => part !== '')
     .join('\n\n')
@@ -551,6 +560,43 @@ function noticeLine(
   notice: Exclude<ChatPartOf<'notice'>['notice'], { kind: 'handoff' | 'configured' }>,
 ): SessionItem {
   switch (notice.kind) {
+    case 'engine': {
+      const { detail } = notice;
+      if (detail.kind === 'warning')
+        return { kind: 'line', key, icon: 'info', text: detail.message };
+      if (detail.kind === 'mcp_failed')
+        return {
+          kind: 'line',
+          key,
+          icon: 'failed',
+          text: t('notice.mcpFailed', { server: detail.server }),
+          ...(detail.message && { detail: detail.message }),
+        };
+      if (detail.kind === 'output_buffering')
+        return {
+          kind: 'line',
+          key,
+          icon: 'info',
+          text: t('notice.buffering'),
+          target: detail.model,
+        };
+      const status = {
+        inProgress: 'opinion.running',
+        approved: 'inbox.result.approved',
+        denied: 'inbox.result.denied',
+        aborted: 'inbox.result.cancelled',
+        timedOut: 'inbox.result.expired',
+        userApproved: 'inbox.result.approved',
+      } as const;
+      return {
+        kind: 'line',
+        key,
+        icon: detail.status === 'denied' ? 'failed' : 'info',
+        text: t(status[detail.status]),
+        target: detail.action,
+        ...(detail.rationale && { detail: detail.rationale }),
+      };
+    }
     case 'context':
       return {
         kind: 'line',

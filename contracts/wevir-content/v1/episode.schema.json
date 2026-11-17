@@ -185,6 +185,17 @@
                           "properties": {
                             "kind": {
                               "type": "string",
+                              "const": "session"
+                            }
+                          },
+                          "required": ["kind"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
                               "const": "staged"
                             }
                           },
@@ -456,6 +467,17 @@
                             "properties": {
                               "kind": {
                                 "type": "string",
+                                "const": "session"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
                                 "const": "staged"
                               }
                             },
@@ -682,6 +704,17 @@
                             "properties": {
                               "kind": {
                                 "type": "string",
+                                "const": "session"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
                                 "const": "staged"
                               }
                             },
@@ -901,6 +934,17 @@
                               }
                             },
                             "required": ["kind", "turnId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "session"
+                              }
+                            },
+                            "required": ["kind"],
                             "additionalProperties": false
                           },
                           {
@@ -1291,6 +1335,17 @@
                             "properties": {
                               "kind": {
                                 "type": "string",
+                                "const": "session"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
                                 "const": "staged"
                               }
                             },
@@ -1516,6 +1571,17 @@
                             "properties": {
                               "kind": {
                                 "type": "string",
+                                "const": "session"
+                              }
+                            },
+                            "required": ["kind"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
                                 "const": "staged"
                               }
                             },
@@ -1730,6 +1796,17 @@
                               }
                             },
                             "required": ["kind", "turnId"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "const": "session"
+                              }
+                            },
+                            "required": ["kind"],
                             "additionalProperties": false
                           },
                           {
@@ -2092,6 +2169,17 @@
                               "properties": {
                                 "kind": {
                                   "type": "string",
+                                  "const": "session"
+                                }
+                              },
+                              "required": ["kind"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string",
                                   "const": "staged"
                                 }
                               },
@@ -2298,6 +2386,17 @@
                                   }
                                 },
                                 "required": ["kind", "turnId"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "session"
+                                  }
+                                },
+                                "required": ["kind"],
                                 "additionalProperties": false
                               },
                               {
@@ -2564,6 +2663,17 @@
                                   }
                                 },
                                 "required": ["kind", "turnId"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "kind": {
+                                    "type": "string",
+                                    "const": "session"
+                                  }
+                                },
+                                "required": ["kind"],
                                 "additionalProperties": false
                               },
                               {

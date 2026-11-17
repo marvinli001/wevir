@@ -97,6 +97,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly generateTitle?: AgentRuntimeAdapter['generateTitle'];
   readonly compact?: AgentRuntimeAdapter['compact'];
   readonly review?: AgentRuntimeAdapter['review'];
+  readonly authorizeDenied?: AgentRuntimeAdapter['authorizeDenied'];
   readonly startGoal?: AgentRuntimeAdapter['startGoal'];
   readonly updateGoal?: AgentRuntimeAdapter['updateGoal'];
   readonly clearGoal?: AgentRuntimeAdapter['clearGoal'];
@@ -198,7 +199,8 @@ export class EngineRouter implements AgentRuntimeAdapter {
       };
     }
     if (adapters.some((adapter) => adapter.rewind !== undefined)) {
-      this.rewind = async (id) => this.#method(id, 'rewind').rewind(id);
+      this.rewind = async (id, count, expectedFirstEngineTurnId) =>
+        this.#method(id, 'rewind').rewind(id, count, expectedFirstEngineTurnId);
     }
     if (adapters.some((adapter) => adapter.injectNote !== undefined)) {
       this.injectNote = async (id, text) => this.#method(id, 'injectNote').injectNote(id, text);
@@ -263,6 +265,10 @@ export class EngineRouter implements AgentRuntimeAdapter {
     }
     if (adapters.some((adapter) => adapter.compact !== undefined)) {
       this.compact = async (id) => this.#method(id, 'compact').compact(id);
+    }
+    if (adapters.some((adapter) => adapter.authorizeDenied !== undefined)) {
+      this.authorizeDenied = async (id, reviewId) =>
+        this.#method(id, 'authorizeDenied').authorizeDenied(id, reviewId);
     }
     if (adapters.some((adapter) => adapter.review !== undefined)) {
       this.review = async (id, request: ReviewRequest) =>
@@ -432,6 +438,10 @@ export class EngineRouter implements AgentRuntimeAdapter {
   async reloadPlugins(): Promise<void> {
     await Promise.all(this.#routes.map((route) => route.adapter.reloadPlugins?.()));
   }
+  async listCommands(engineSessionId: string) {
+    return (await this.#forSession(engineSessionId).adapter.listCommands?.(engineSessionId)) ?? [];
+  }
+
   async listConnectorStatus() {
     return (
       await Promise.all(
@@ -617,6 +627,7 @@ type OptionalMethod =
   | 'formatAsyncAnswer'
   | 'generateTitle'
   | 'compact'
+  | 'authorizeDenied'
   | 'review'
   | 'startGoal'
   | 'updateGoal'

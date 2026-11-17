@@ -61,7 +61,7 @@ export function readAsDataUrl(file: Blob): Promise<string> {
   });
 }
 
-/** 传给 Host（已读成 data URL）；发出去的消息里直接用本地的这份显示，不再读回来。 */
+/** 传给 Host。返回的引用指向 Host 规范化后的字节。 */
 export async function uploadImage(
   client: WevirClient,
   dataUrl: string,
@@ -73,7 +73,6 @@ export async function uploadImage(
     data: base64Of(dataUrl),
     ...(name !== undefined && name !== '' && { name: name.slice(0, 255) }),
   });
-  remember(image.imageId, Promise.resolve(`data:${image.mimeType};base64,${base64Of(dataUrl)}`));
   return image;
 }
 
@@ -156,7 +155,7 @@ export function ComposerThumb({
   onRemove,
   onOpen,
 }: {
-  src: string;
+  src: string | undefined;
   name?: string;
   uploading: boolean;
   onRemove: () => void;
@@ -167,6 +166,7 @@ export function ComposerThumb({
       <button
         type="button"
         onClick={onOpen}
+        disabled={!src}
         aria-label={name ?? t('image.preview')}
         className="size-full overflow-hidden rounded-xl border border-border bg-muted outline-none focus-visible:focus-field"
       >

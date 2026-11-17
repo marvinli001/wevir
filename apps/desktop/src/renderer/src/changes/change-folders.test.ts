@@ -49,6 +49,9 @@ describe('目录请求与缓存', () => {
     const sessionId = 'ses_one' as SessionId;
     expect(folderParams({ multi_folder_changes: true }, '/api', turn)).toEqual({});
     expect(sourceKey(sessionId, turn, '/app')).toBe(sourceKey(sessionId, turn, '/api'));
+    const session = { kind: 'session' as const };
+    expect(folderParams({ multi_folder_changes: true }, '/api', session)).toEqual({});
+    expect(sourceKey(sessionId, session, '/app')).toBe(sourceKey(sessionId, session, '/api'));
     for (const kind of ['uncommitted', 'staged', 'branch'] as const) {
       expect(sourceKey(sessionId, { kind }, '/app')).not.toBe(
         sourceKey(sessionId, { kind }, '/api'),

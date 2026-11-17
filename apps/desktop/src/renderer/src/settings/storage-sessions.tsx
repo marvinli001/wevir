@@ -19,6 +19,7 @@ import { currentLocale, t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import { platformApi } from '@/platform/platform';
 import { workspaceLabel } from '@/projects/chats';
+import { deleteComposerInputs } from '@/session/composer-drafts';
 import { formatFileSize } from '@/session/shared-files-model';
 import { EmptyList, LIST_CARD, type Notice, NoticeBanner, SettingsRow } from './settings-ui';
 import { archivedChatRows, deleteChats, worktreeRows } from './storage-model';
@@ -130,6 +131,7 @@ export function SessionStorageCard({
       describeDeleteError,
     );
     if (outcome.deleted.length === 0 && outcome.failed[0]) throw new Error(outcome.failed[0].error);
+    await deleteComposerInputs(outcome.deleted);
     const freed = chosen
       .filter((row) => outcome.deleted.includes(row.session.id as SessionId))
       .reduce((sum, row) => sum + row.bytes, 0);

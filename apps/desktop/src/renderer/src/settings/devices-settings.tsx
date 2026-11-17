@@ -64,6 +64,7 @@ import {
 const RISK_BODY: Partial<Record<Permission, PlainMessageKey>> = {
   'terminal.write': 'settings.devices.grantBody.terminal',
   'policy.write': 'settings.devices.grantBody.policy',
+  'git.publish': 'settings.devices.gitPublishScope',
 };
 
 /**
@@ -438,6 +439,9 @@ export function DevicesSettings() {
                 key={device.id}
                 device={device}
                 pushSupported={pushSupported}
+                gitWorkflow={
+                  view.status === 'connected' && hostSupports(view.hello.features, 'git_workflow')
+                }
                 onPush={(enabled) => void setPush(device, enabled)}
                 onToggle={(permission, granted) => toggle(device, permission, granted)}
                 onRemove={() => setRemoving(device)}
@@ -687,12 +691,14 @@ function WebUrlRow({
 function DeviceRow({
   device,
   pushSupported,
+  gitWorkflow,
   onPush,
   onToggle,
   onRemove,
 }: {
   device: Device;
   pushSupported: boolean;
+  gitWorkflow: boolean;
   onPush: (enabled: boolean) => void;
   onToggle: (permission: Permission, granted: boolean) => void;
   onRemove: () => void;
@@ -728,7 +734,9 @@ function DeviceRow({
           {t('settings.devices.permissions', { count: device.permissions.length })}
         </PopoverTrigger>
         <PopoverContent align="end" className="w-64 gap-1 p-1.5">
-          {DEVICE_PERMISSION_ORDER.map((permission) => (
+          {DEVICE_PERMISSION_ORDER.filter(
+            (permission) => permission !== 'git.publish' || gitWorkflow,
+          ).map((permission) => (
             <label
               key={permission}
               className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2 text-sm hover:bg-muted"

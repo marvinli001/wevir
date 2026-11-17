@@ -19,6 +19,7 @@ import {
   parseWebClientUrl,
   pushStatusKey,
   RELAY_URL_PLACEHOLDER,
+  RISKY_DEVICE_PERMISSIONS,
   relayChoice,
   relayForWeb,
   relayStatusText,
@@ -72,6 +73,8 @@ describe('设备页', () => {
   });
 
   it('勾选权限：按词表顺序、不重复', () => {
+    expect(RISKY_DEVICE_PERMISSIONS.has('git.publish')).toBe(true);
+    expect(togglePermission(['workspace.write'], 'git.publish', true)).toContain('git.publish');
     expect(togglePermission(['session.read'], 'terminal.write', true)).toEqual([
       'session.read',
       'terminal.write',

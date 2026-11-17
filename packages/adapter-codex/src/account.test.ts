@@ -621,12 +621,18 @@ describe('accountModels（model/list → Wevir 的模型）', () => {
       ]),
     ).toEqual({
       models: [
-        { id: 'gpt-6-astra', displayName: 'GPT-6-Astra', reasoningEfforts: ['low', 'high'] },
+        {
+          id: 'gpt-6-astra',
+          displayName: 'GPT-6-Astra',
+          defaultReasoningEffort: 'low',
+          reasoningEfforts: ['low', 'high'],
+        },
         {
           id: 'gpt-6.1-sol',
           displayName: 'GPT-6.1-Sol',
           supportsImages: true,
-          reasoningEfforts: ['off', 'xhigh'],
+          reasoningEfforts: ['off', 'xhigh', 'ultra'],
+          defaultReasoningEffort: 'low',
         },
       ],
       defaultModelId: 'gpt-6.1-sol',

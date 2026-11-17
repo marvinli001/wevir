@@ -1,4 +1,4 @@
-// 审批（codex-event-mapping.md §6.6）：真实 codex-app-server + 网关 + mock 模型。命令与补丁的审批请求 → 固定选项的
+// 审批（codex-event-mapping.md §6.6）：真实 codex-app-server + 网关 + mock 模型。命令与补丁的审批请求 → 引擎提供选项的
 // approval.requested，请求之前补上理由（tool.updated）；各个决定的结果；本会话同意之后同一命令不再问；“告诉它换个做法”
 // 中断回合；审批挂起时取消的 serverRequest/resolved 在回合结算之后才到，不产生多余的事件或告警。二进制不在时跳过。
 
@@ -6,11 +6,7 @@ import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import {
-  COMMAND_APPROVAL_OPTIONS,
-  type CodexAdapter,
-  FILE_CHANGE_APPROVAL_OPTIONS,
-} from './codex-adapter.js';
+import { type CodexAdapter, FILE_CHANGE_APPROVAL_OPTIONS } from './codex-adapter.js';
 import { escalatedCommand } from './test-fixtures/contract.js';
 import {
   codexBinaryOrSkip,
@@ -118,10 +114,14 @@ describe.skipIf(binary === undefined)(
       dirs.cleanup();
     });
 
-    it('命令：先有工具与理由，再是四个固定选项；同意后在沙箱外执行，回合正常结束', async () => {
+    it('命令：先有工具与理由，再是引擎给出的选项；同意后在沙箱外执行，回合正常结束', async () => {
       const { adapter, id, events } = await open();
       const { from, request } = await requestApproval(adapter, id, events, '[cmd:accept]');
-      expect(request.options).toEqual(COMMAND_APPROVAL_OPTIONS);
+      expect(request.options.map((option) => option.optionId)).toEqual([
+        'accept',
+        'codex-policy-1',
+        'cancel',
+      ]);
       // Codex 的 proposedExecpolicyAmendment 原样转给 Host（模型没给 prefix_rule，是整条命令）。
       expect(request.proposedPrefix).toEqual(['touch', expect.stringContaining('accept')]);
       const before = events.slice(from, events.indexOf(request));
@@ -157,29 +157,24 @@ describe.skipIf(binary === undefined)(
       expect(turn.some((e) => e.type === 'approval.cancelled')).toBe(false);
     });
 
-    it('命令：不运行并继续（decline）→ 工具失败、回合继续；告诉它换个做法（cancel）→ 回合以取消结算', async () => {
+    it('只允许 app-server 给出的选项，用户可以取消回合', async () => {
       const { adapter, id, events } = await open();
-      let { from, request } = await requestApproval(adapter, id, events, '[cmd:decline]');
-      await adapter.respondToApproval(id, request.requestId, { optionId: 'decline' });
-      let turn = await finishTurn(events, from);
-      expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-      expect(turn.find(ofType('tool.finished'))).toMatchObject({ status: 'failed' });
-      expect(turn.some((e) => e.type === 'assistant.message')).toBe(true);
-      expect(existsSync(join(outside.dir, 'decline'))).toBe(false);
-
-      ({ from, request } = await requestApproval(adapter, id, events, '[cmd:cancel]'));
+      const { from, request } = await requestApproval(adapter, id, events, '[cmd:cancel]');
+      await expect(
+        adapter.respondToApproval(id, request.requestId, { optionId: 'decline' }),
+      ).rejects.toMatchObject({ code: 'invalid_option' });
       await adapter.respondToApproval(id, request.requestId, { optionId: 'cancel' });
-      turn = await finishTurn(events, from);
+      const turn = await finishTurn(events, from);
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
       expect(turn.find(ofType('tool.finished'))).toMatchObject({ status: 'failed' });
       expect(turn.some((e) => e.type === 'assistant.message')).toBe(false);
       expect(existsSync(join(outside.dir, 'cancel'))).toBe(false);
     });
 
-    it('命令：本会话同意之后，同一个命令不再请求审批', async () => {
+    it('命令：精确回传引擎给出的前缀规则，同一个命令不再请求审批', async () => {
       const { adapter, id, events } = await open();
       const { from, request } = await requestApproval(adapter, id, events, '[cmd:session]');
-      await adapter.respondToApproval(id, request.requestId, { optionId: 'acceptForSession' });
+      await adapter.respondToApproval(id, request.requestId, { optionId: 'codex-policy-1' });
       await finishTurn(events, from);
       rmSync(join(outside.dir, 'session'), { force: true });
       const again = await runTurn(adapter, id, '[cmd:session]', events);

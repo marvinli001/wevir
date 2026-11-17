@@ -174,6 +174,93 @@ describe('session.compact / session.review', () => {
     expect(events.at(-1)?.payload).toMatchObject({ outcome: 'completed' });
   });
 
+  it('空闲时只授权所选动作一次，并在原计划模式开一个重试回合', async () => {
+    const authorizeDenied = vi.fn(async () => 'git status');
+    const env = setup(Object.assign(new EchoAdapter({ stepDelayMs: 0 }), { authorizeDenied }));
+    const { id: sessionId } = await env.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'mock',
+      permissionMode: 'auto_review',
+    });
+    const { turnId } = await env.manager.send(
+      { sessionId, content: [{ type: 'text', text: 'Review status' }], collaborationMode: 'plan' },
+      identity,
+    );
+    await idle(env, sessionId);
+    const reviewId = 'thread-1/turn-1/r1';
+    const detail = {
+      kind: 'approval_review',
+      status: 'denied',
+      action: 'git status',
+      reviewId,
+    } as const;
+    env.events.append(sessionId, {
+      type: 'engine.notice',
+      source: 'engine',
+      payload: { detail, turnId },
+    });
+    const authorize = () =>
+      env.methods['approval.authorizeDenied']({ sessionId, reviewId }, context);
+    await Promise.all([authorize(), authorize()]);
+    await idle(env, sessionId);
+    expect(authorizeDenied).toHaveBeenCalledTimes(1);
+    const messages = env.events.readTypes(sessionId, ['user.message']);
+    expect(messages).toHaveLength(2);
+    expect(messages[1]?.payload).toMatchObject({
+      sentBy: identity,
+      collaborationMode: 'plan',
+      content: [
+        {
+          type: 'text',
+          text: expect.stringContaining(JSON.stringify({ reviewId, action: 'git status' })),
+        },
+      ],
+    });
+    expect(env.events.readTypes(sessionId, ['engine.notice']).at(-1)?.payload).toMatchObject({
+      decidedBy: identity,
+      detail: { status: 'userApproved', reviewId },
+    });
+    await expect(
+      env.methods['approval.authorizeDenied']({ sessionId, reviewId: 'unknown' }, context),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    const expired = { ...detail, reviewId: 'r2' };
+    env.events.append(sessionId, {
+      type: 'engine.notice',
+      source: 'engine',
+      payload: { detail: expired, turnId },
+    });
+    if (!turnId || messages[1]?.type !== 'user.message') throw new Error('missing retry turn');
+    await env.manager.rewind({ sessionId, turnId: messages[1].payload.turnId });
+    await env.manager.rewind({ sessionId, turnId });
+    await expect(
+      env.methods['approval.authorizeDenied']({ sessionId, reviewId: expired.reviewId }, context),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect(authorizeDenied).toHaveBeenCalledTimes(1);
+  });
+
+  it('指定提交的短 SHA 在会话目录内解析；自定义审查使用输入的说明', async () => {
+    const env = setup();
+    initRepo(env.workspaceDir);
+    const sessionId = await newSession(env);
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: env.workspaceDir,
+      encoding: 'utf8',
+    }).trim();
+    for (const target of [
+      { target: 'commit', sha: sha.slice(0, 8) },
+      { target: 'custom', instructions: 'Check retries.' },
+    ] as const) {
+      const { turnId } = await env.methods['session.review']({ sessionId, ...target }, context);
+      await idle(env, sessionId);
+      expect(turnEvents(env, sessionId, turnId)[0]?.payload).toMatchObject({
+        command: target.target === 'commit' ? { target: 'commit', sha } : target,
+      });
+    }
+    await expect(
+      env.methods['session.review']({ sessionId, target: 'commit', sha: '000000000000' }, context),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+
   it('审查结果里的发现（0.83.0）：按审查的范围存成批注，在回合里写 review.findings', async () => {
     /** 审查回合的回答之后报一组发现（Codex 的适配器从审查结果的文字拆出来）。 */
     class ReviewingEcho extends EchoAdapter {

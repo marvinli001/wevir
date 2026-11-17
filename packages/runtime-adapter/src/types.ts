@@ -380,6 +380,15 @@ export interface AgentTextInput {
   text: string;
 }
 
+export interface AgentFileInput {
+  type: 'file';
+  path: string;
+  name: string;
+  mimeType: string;
+  /** 没有文档部件的引擎使用这段文字：文件名与路径，文本文件还带有界的正文。 */
+  text: string;
+}
+
 /** 与 @wevir/protocol 的 `UserImageMimeType` 同形。 */
 export type AgentImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
 
@@ -399,7 +408,7 @@ export interface AgentImageInput {
 /** 一次 `send` 的用户输入。 */
 export interface AgentInput {
   /** 至少一段；图片（0.28.0）在 `acceptsImages` 之后才会有。 */
-  content: Array<AgentTextInput | AgentImageInput>;
+  content: Array<AgentTextInput | AgentImageInput | AgentFileInput>;
   /**
    * 这个回合的协作模式（0.36.0）；省略表示 `default`。只有声明了 `planMode` 的适配器会收到 `plan`，而且只在 `send` 里（插话
    * 沿用回合的模式）。模式按回合给：上一个回合是 `plan`、这次省略，就回到默认模式。
@@ -407,11 +416,21 @@ export interface AgentInput {
   collaborationMode?: CollaborationMode;
 }
 
+export interface EngineComposerCommand {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+}
+
 /**
  * `review` 的请求（0.24.0）：`uncommitted` 看工作树（暂存、未暂存与未跟踪的文件），`branch` 看当前分支对 `baseBranch` 的改动
  * （Host 找的默认分支）。
  */
-export type ReviewRequest = { target: 'uncommitted' } | { target: 'branch'; baseBranch: string };
+export type ReviewRequest =
+  | { target: 'uncommitted' }
+  | { target: 'branch'; baseBranch: string }
+  | { target: 'commit'; sha: string }
+  | { target: 'custom'; instructions: string };
 
 /** Host 在开始回合之前问引擎会不会的可选方法（`supports`）；`startGoal` 代表会话目标的几个方法（0.35.0）。 */
 export type SessionCommandMethod = 'compact' | 'review' | 'startGoal';
@@ -486,6 +505,8 @@ export interface TitleUsage {
 export interface ApprovalOption {
   /** `respondToApproval` 回传它，如 dsh 的 `allow-once`。 */
   optionId: string;
+  /** 持久审批策略涵盖的命令前缀或主机。 */
+  policyTarget?: string;
   /** 如 dsh 的 "Allow once"；界面按 `kind` 本地化。 */
   label: string;
   /** ACP：allow_once / allow_always / reject_once / reject_always。以 `allow` 开头才算批准。 */
@@ -518,6 +539,8 @@ export interface PendingApproval {
   fullAccessOverride?: 'ask_rule' | 'provider_check';
   /** 引擎禁止为这次请求建立长期授权规则。 */
   suppressAlwaysAllowRule?: boolean;
+  /** 引擎要求每次由用户亲自决定。 */
+  humanOnly?: boolean;
   /**
    * 引擎提议的“以后这个前缀不再问”（Codex 的 `proposedExecpolicyAmendment`，按词）。只是给 Host 提议审批规则作参考
    * （domain-model §3.35），Host 自己判断用不用；没有时省略。
@@ -626,8 +649,9 @@ export interface ProviderModelConfig {
   contextWindowSettings?: { default: number; max: number; override?: number };
   maxTokens?: number;
   supportsImages?: boolean;
-  /** 推理档位（off / minimal / low / medium / high / xhigh / max）；空数组表示不推理。 */
+  /** 推理档位（off / minimal / low / medium / high / xhigh / max / ultra）；空数组表示不推理。 */
   reasoningEfforts?: string[];
+  defaultReasoningEffort?: string;
   /** 快速模式（0.148.0）：引擎能以更快的速度档跑这个模型。省略表示不支持。 */
   supportsFast?: boolean;
   /** 引擎默认就用快速档跑它（0.148.0，Codex 目录的 `defaultServiceTier`）。 */

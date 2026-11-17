@@ -204,7 +204,7 @@ export interface ConnectionHost {
   /** 服务正在优雅退出：新请求一律 `HOST_SHUTTING_DOWN`。 */
   readonly shuttingDown: boolean;
   /** `host.shutdown` 的响应发出之后调用。 */
-  requestShutdown(client: ClientIdentity): void;
+  requestShutdown(client: ClientIdentity, resumeActiveTurns?: boolean): void;
   onError(error: unknown): void;
 }
 
@@ -259,6 +259,7 @@ interface Subscription {
  */
 export interface RpcSocket {
   readonly bufferedAmount: number;
+  setPeerProtocolVersion?(version: string): void;
   on(event: 'message', listener: (data: RawData, isBinary: boolean) => void): unknown;
   on(event: 'ping' | 'pong', listener: () => void): unknown;
   on(event: 'close', listener: () => void): unknown;
@@ -520,6 +521,7 @@ export class RpcConnection {
     };
     this.#capabilities = hello.capabilities;
     this.#protocolVersion = negotiation.protocolVersion;
+    this.#ws.setPeerProtocolVersion?.(this.#protocolVersion);
     this.#eventEncodingKey = JSON.stringify([this.#protocolVersion, this.#capabilities]);
     this.#grant = remoteGrant ?? this.#host.testConnectionGrant?.(this.#client) ?? LOCAL_GRANT;
     this.#permissions = new Set(this.#grant.permissions);
@@ -631,7 +633,11 @@ export class RpcConnection {
         this.#respond(id, method, {});
         return;
       case 'host.shutdown':
-        if (this.#respond(id, method, {})) this.#host.requestShutdown(client);
+        if (this.#respond(id, method, {}))
+          this.#host.requestShutdown(
+            client,
+            (params as MethodParams<'host.shutdown'>).resumeActiveTurns,
+          );
         return;
       case 'events.subscribe':
         this.#subscribe(id, params as MethodParams<'events.subscribe'>);
@@ -1240,7 +1246,7 @@ export class RpcConnection {
           'channel.posted',
           channelNotificationForClient(
             'channel.posted',
-            { subscriptionId, post: message.post },
+            { subscriptionId, post: postAttachmentsForClient(message.post, this.#capabilities) },
             version,
           ),
         );
@@ -1249,7 +1255,15 @@ export class RpcConnection {
           'channel.updated',
           channelNotificationForClient(
             'channel.updated',
-            { subscriptionId, ...message.update },
+            {
+              subscriptionId,
+              ...message.update,
+              ...(message.update.posts && {
+                posts: message.update.posts.map((post) =>
+                  postAttachmentsForClient(post, this.#capabilities),
+                ),
+              }),
+            },
             version,
           ),
         );
@@ -1277,7 +1291,7 @@ export class RpcConnection {
           'channel.posted',
           channelNotificationForClient(
             'channel.posted',
-            { subscriptionId, post },
+            { subscriptionId, post: postAttachmentsForClient(post, this.#capabilities) },
             this.#protocolVersion,
           ),
         );
@@ -1716,6 +1730,16 @@ export function adaptEventForClient(
   capabilities: ClientCapabilities,
   protocolVersion: string = PROTOCOL_VERSION,
 ): WevirEvent {
+  // COMPAT(reviewTargets): added in 0.199.0, remove gate after 2027-06-01
+  if (
+    event.type === 'turn.started' &&
+    event.payload.command?.kind === 'review' &&
+    (event.payload.command.target === 'commit' || event.payload.command.target === 'custom') &&
+    compareProtocolVersions(protocolVersion, '0.199.0') < 0
+  ) {
+    const { command: _command, ...payload } = event.payload;
+    event = { ...event, payload };
+  }
   if (
     compareProtocolVersions(protocolVersion, '0.172.0') < 0 &&
     event.type === 'session.read_only' &&
@@ -1729,39 +1753,29 @@ export function adaptEventForClient(
   ) {
     return { ...event, payload: { ...event.payload, reason: 'engine_session_incompatible' } };
   }
-  // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
-  if (capabilities.user_images !== true) {
+  // COMPAT(userFiles): added in 0.199.0, remove gate after 2027-06-01
+  if (!capabilities.user_images || !capabilities.user_files) {
     switch (event.type) {
       case 'user.message':
-        if (hasImage(event.payload.content)) {
-          return {
-            ...event,
-            payload: { ...event.payload, content: withoutImages(event.payload.content) },
-          };
-        }
+      case 'user.steered': {
+        const content = contentForClient(event.payload.content, capabilities);
+        if (content !== event.payload.content)
+          return { ...event, payload: { ...event.payload, content } } as WevirEvent;
         break;
-      case 'user.steered':
-        if (hasImage(event.payload.content)) {
-          return {
-            ...event,
-            payload: { ...event.payload, content: withoutImages(event.payload.content) },
-          };
-        }
+      }
+      case 'turn.started': {
+        if (!event.payload.input) break;
+        const input = contentForClient(event.payload.input, capabilities);
+        if (input !== event.payload.input)
+          return { ...event, payload: { ...event.payload, input } };
         break;
-      case 'turn.started':
-        if (event.payload.input !== undefined && hasImage(event.payload.input)) {
-          return {
-            ...event,
-            payload: { ...event.payload, input: withoutImages(event.payload.input) },
-          };
-        }
-        break;
+      }
       case 'pending.added':
-      case 'pending.updated':
-        if (hasImage(event.payload.pending.content)) {
-          return { ...event, payload: { pending: pendingWithoutImages(event.payload.pending) } };
-        }
+      case 'pending.updated': {
+        const pending = pendingForClient(event.payload.pending, capabilities);
+        if (pending !== event.payload.pending) return { ...event, payload: { pending } };
         break;
+      }
     }
   }
   // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
@@ -1859,7 +1873,39 @@ export function adaptResultForClient(
   protocolVersion: string = PROTOCOL_VERSION,
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
-  let value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  let value =
+    capabilities.user_images && capabilities.user_files
+      ? result
+      : resultWithAttachmentsForClient(method, result, capabilities);
+  // COMPAT(ultraEffort): added in 0.199.0, remove gate after 2027-06-01
+  if (compareProtocolVersions(protocolVersion, '0.199.0') < 0) {
+    if (method === 'provider.list') {
+      const list = value as MethodResult<'provider.list'>;
+      value = {
+        ...list,
+        providers: list.providers.map((provider) => ({
+          ...provider,
+          models: provider.models.map(modelBeforeUltra),
+        })),
+      };
+    } else if (
+      method === 'provider.upsert' ||
+      method === 'provider.setEnabled' ||
+      method === 'account.setModelContextWindow'
+    ) {
+      const item = value as MethodResult<'provider.upsert'>;
+      value = {
+        ...item,
+        provider: { ...item.provider, models: item.provider.models.map(modelBeforeUltra) },
+      };
+    } else if (method === 'provider.discoverModels') {
+      const list = value as MethodResult<'provider.discoverModels'>;
+      value = {
+        ...list,
+        models: list.models.map((item) => ({ ...item, model: modelBeforeUltra(item.model) })),
+      };
+    }
+  }
   if (compareProtocolVersions(protocolVersion, '0.172.0') < 0) {
     if (method === 'session.list') {
       const list = value as MethodResult<'session.list'>;
@@ -1945,6 +1991,16 @@ export function adaptResultForClient(
     );
   }
   return adaptKindsAndTitles(method, value, capabilities, protocolVersion);
+}
+
+function modelBeforeUltra(
+  model: MethodResult<'provider.list'>['providers'][number]['models'][number],
+) {
+  if (!model.reasoningEfforts?.includes('ultra')) return model;
+  return {
+    ...model,
+    reasoningEfforts: model.reasoningEfforts.filter((effort) => effort !== 'ultra'),
+  };
 }
 
 /** 助理规矩的三种说明（`acted`、`handed_off`、`blocked`）进协议的版本：更早的客户端认不出，帖子去掉卡片、只留文字。 */
@@ -2085,42 +2141,88 @@ function adaptKindsAndTitles(
 }
 
 /** 没声明 `user_images` 的连接：结果里待发消息的图片换成文本（0.28.0）。 */
-function resultWithoutImages(method: MethodName, result: unknown): unknown {
+function resultWithAttachmentsForClient(
+  method: MethodName,
+  result: unknown,
+  capabilities: ClientCapabilities,
+): unknown {
   switch (method) {
     case 'session.get': {
       const value = result as MethodResult<'session.get'>;
-      if (!value.pendingMessages?.some((pending) => hasImage(pending.content))) return result;
-      return { ...value, pendingMessages: value.pendingMessages.map(pendingWithoutImages) };
+      return value.pendingMessages
+        ? {
+            ...value,
+            pendingMessages: value.pendingMessages.map((pending) =>
+              pendingForClient(pending, capabilities),
+            ),
+          }
+        : result;
     }
     case 'pending.update':
     case 'pending.cancel': {
       const value = result as MethodResult<'pending.update'>;
-      if (!hasImage(value.pending.content)) return result;
-      return { ...value, pending: pendingWithoutImages(value.pending) };
+      return { ...value, pending: pendingForClient(value.pending, capabilities) };
     }
     case 'pending.resume': {
       const value = result as MethodResult<'pending.resume'>;
-      if (!value.pendingMessages.some((pending) => hasImage(pending.content))) return result;
-      return { ...value, pendingMessages: value.pendingMessages.map(pendingWithoutImages) };
+      return {
+        ...value,
+        pendingMessages: value.pendingMessages.map((pending) =>
+          pendingForClient(pending, capabilities),
+        ),
+      };
+    }
+    case 'channel.posts': {
+      const value = result as MethodResult<'channel.posts'>;
+      return {
+        ...value,
+        posts: value.posts.map((post) => postAttachmentsForClient(post, capabilities)),
+      };
+    }
+    case 'channel.post':
+    case 'channel.react': {
+      const value = result as MethodResult<'channel.post'>;
+      return { ...value, post: postAttachmentsForClient(value.post, capabilities) };
     }
     default:
       return result;
   }
 }
 
-function hasImage(content: readonly UserContentPart[]): boolean {
-  return content.some((part) => part.type === 'image');
+function contentForClient(
+  content: UserContentPart[],
+  capabilities: ClientCapabilities,
+): UserContentPart[] {
+  if (
+    !content.some(
+      (p) =>
+        (p.type === 'image' && !capabilities.user_images) ||
+        (p.type === 'file' && !capabilities.user_files),
+    )
+  )
+    return content;
+  return content.map((p) => {
+    if (p.type === 'image' && !capabilities.user_images) return { type: 'text', text: '[image]' };
+    if (p.type === 'file' && !capabilities.user_files)
+      return { type: 'text', text: `[file: ${p.name}]` };
+    return p;
+  });
 }
 
-/** 图片换成文本 `[image]`，段数不变（`content` 至少一段）。 */
-function withoutImages(content: readonly UserContentPart[]): UserContentPart[] {
-  return content.map((part) => (part.type === 'image' ? { type: 'text', text: '[image]' } : part));
+function pendingForClient(
+  pending: PendingMessage,
+  capabilities: ClientCapabilities,
+): PendingMessage {
+  const content = contentForClient(pending.content, capabilities);
+  return content === pending.content ? pending : { ...pending, content };
 }
 
-function pendingWithoutImages(pending: PendingMessage): PendingMessage {
-  return hasImage(pending.content)
-    ? { ...pending, content: withoutImages(pending.content) }
-    : pending;
+function postAttachmentsForClient(
+  post: ChannelPost,
+  capabilities: ClientCapabilities,
+): ChannelPost {
+  const content = contentForClient(post.content, capabilities);
+  return content === post.content ? post : { ...post, content };
 }
 
 function adaptSession(session: Session): Session {

@@ -8,7 +8,6 @@ import {
 import type { PendingMessage, ProviderProfile, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
-  ArrowLeftRight,
   ChevronDown,
   CircleAlert,
   FoldVertical,
@@ -16,7 +15,6 @@ import {
   MessagesSquare,
   Reply,
   RotateCw,
-  Route,
   ScanSearch,
   SquareTerminal,
   Wrench,
@@ -33,25 +31,29 @@ import { sourceOf } from '@/data/sources';
 import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
+import { modelLogo } from '@/settings/model-logo';
 import { providerLogo } from '@/settings/provider-catalog';
 import { ContextReceipt } from './context-receipt';
 import { CopyButton } from './copy-button';
+import { EngineNoticeView } from './engine-notice-view';
 import { FindingsCard } from './findings-card';
 import { useTranscriptSessionId } from './fold-state';
 import { formatMessageTime } from './format';
 import { GeneratedImage } from './generated-image';
 import { GuardrailPart } from './guardrail-part';
 import { HandoffDetailDialog } from './handoff-detail';
-import { type HandoffNoticeOf, handoffTransition, modelLabel } from './handoff-model';
+import { type ConfigurationNoticeOf, type HandoffNoticeOf, modelLabel } from './handoff-model';
 import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { EditButton, RewindButton, UserMessageEditor, useMessageActions } from './message-actions';
+import { MessageFiles } from './message-files';
 import { effortLabel } from './model-picker';
 import { OpinionCard, OpinionQuote } from './opinion-card';
 import { MessagePastes } from './pasted-text';
 import { pendingText, processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
+import { reviewTargetLabel } from './review-target-dialog';
 import { SessionLink, useSessionEntry } from './session-link';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
@@ -92,25 +94,33 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
   const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
   const text = texts.join('\n');
-  // 粘贴的段落（0.90.0）照 Codex 画成气泡上方的胶囊，气泡里只有用户自己写的；复制与编辑仍用全文。
+  // 阅读时分组显示附件与粘贴，编辑时用原始部件顺序。
   const segments = message.parts.find((part) => part.type === 'text')?.segments;
   const pastes = segments?.flatMap((segment) => (segment.pasted ? [segment.text] : [])) ?? [];
   const own = segments
     ? segments.flatMap((segment) => (segment.pasted ? [] : [segment.text])).join('\n')
     : text;
   const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
-  // 编辑（0.38.0）：只有会话最后一个完成的回合的用户消息，插话不算。
+  const files = message.parts.flatMap((part) => (part.type === 'file' ? [part.file] : []));
   const editable =
-    actions.editTurnId === message.turnId &&
+    (actions.editTurnId === message.turnId ||
+      (actions.editFromSeq !== undefined && message.seqRange[0] >= actions.editFromSeq)) &&
     actions.submitEdit !== undefined &&
+    message.content !== undefined &&
     !message.steered &&
+    !message.fromParentAgent &&
+    message.command === undefined &&
     message.trigger === undefined &&
     message.from === undefined;
-  if (editing && editable) {
+  if (editing && message.content) {
     return (
       <div className="flex flex-col items-end" data-message-role="user">
-        {images.length > 0 && <MessageImages images={images} className="mb-1.5" />}
-        <UserMessageEditor message={message} initialText={text} onDone={() => setEditing(false)} />
+        <UserMessageEditor
+          message={message}
+          original={message.content}
+          editable={editable}
+          onDone={() => setEditing(false)}
+        />
       </div>
     );
   }
@@ -118,6 +128,7 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   return (
     <div className="group/user flex flex-col items-end" data-message-role="user">
       {/* 粘贴与图片（0.28.0）在文字上方，同 Codex 与 Claude Code 桌面端。 */}
+      <MessageFiles files={files} />
       {pastes.length > 0 && (
         <MessagePastes
           texts={pastes}
@@ -154,10 +165,10 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
         </span>
       )}
       {/* 悬停时消息下方靠右出现时间、“复制”（U36）、最后一条消息的“编辑”（0.38.0）与插话的“回退”，照 Codex 与 Claude 桌面端。 */}
-      {texts.length > 0 && (
+      {(texts.length > 0 || editable || message.steered) && (
         <GlideGroup className="mt-1 flex h-6 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-within:opacity-100">
           <MessageTime ts={message.ts} />
-          <CopyButton text={text} className="text-muted-foreground" />
+          {text && <CopyButton text={text} className="text-muted-foreground" />}
           {editable && (
             <EditButton onClick={() => setEditing(true)} className="text-muted-foreground" />
           )}
@@ -183,12 +194,14 @@ export function PendingSteerMessage({ message }: { message: PendingMessage }) {
     .flatMap((part) => (part.type === 'text' && !part.pasted ? [part.text] : []))
     .join('\n');
   const images = message.content.flatMap((part) => (part.type === 'image' ? [part] : []));
+  const files = message.content.filter((part) => part.type === 'file');
   return (
     <div
       className="flex flex-col items-end animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
       data-message-role="user"
       data-pending-steer={message.id}
     >
+      <MessageFiles files={files} />
       {pastes.length > 0 && (
         <MessagePastes
           texts={pastes}
@@ -474,11 +487,7 @@ function CommandMessage({ command }: { command: TurnCommand }) {
   const label =
     command.kind === 'compact'
       ? t('command.compact')
-      : `${t('command.review')} · ${
-          command.target === 'branch' && command.baseBranch !== undefined
-            ? t('review.branch', { branch: command.baseBranch })
-            : t('review.uncommitted')
-        }`;
+      : `${t('command.review')} · ${reviewTargetLabel(command)}`;
   return (
     <div className="flex flex-col items-end" data-message-role="user" data-command={command.kind}>
       <div className="flex max-w-[85%] min-w-0 items-center gap-2 rounded-xl bg-muted px-3.5 py-2 text-base">
@@ -798,9 +807,10 @@ function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
 
 function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
   const { notice } = part;
+  if (notice.kind === 'engine') return <EngineNoticeView detail={notice.detail} />;
   if (notice.kind === 'context') return <ContextReceipt receipt={notice.receipt} />;
-  if (notice.kind === 'handoff') return <HandoffNotice notice={notice} />;
-  if (notice.kind === 'configured') return <ConfigurationNotice notice={notice} />;
+  if (notice.kind === 'handoff' || notice.kind === 'configured')
+    return <ModelSwitchNotice notice={notice} />;
   if (notice.kind === 'resumed' && notice.contextPack)
     return (
       <div className="my-0.5 flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted-foreground">
@@ -828,127 +838,62 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
 
 const NO_PROVIDERS: readonly ProviderProfile[] = [];
 
-function ConfigurationNotice({
-  notice,
-}: {
-  notice: Extract<ChatPartOf<'notice'>['notice'], { kind: 'configured' }>;
-}) {
+function ModelSwitchNotice({ notice }: { notice: ConfigurationNoticeOf | HandoffNoticeOf }) {
   const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
   const accounts = useAccounts();
   const [open, setOpen] = useState(false);
-  const { from, to } = notice;
-  const model = providers
-    .find((provider) => provider.id === to.providerId)
-    ?.models.find((candidate) => candidate.id === to.modelId);
-  const configuration = [
-    model?.displayName ?? to.modelId,
-    to.reasoningEffort !== undefined || from.reasoningEffort !== to.reasoningEffort
-      ? effortLabel(to.reasoningEffort)
-      : undefined,
-    to.fast === true
-      ? t('model.fast.label')
-      : from.fast === true
-        ? t('model.speed.standard')
-        : undefined,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  if (notice.reason !== 'usage_limit') {
-    return (
-      <p
-        className="my-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
-        data-testid="configuration-notice"
-      >
-        <ArrowLeftRight aria-hidden className="size-3.5 shrink-0" />
-        {t('notice.handoff', { model: configuration })}
-      </p>
-    );
-  }
+  const to = notice.kind === 'configured' ? notice.to : notice;
+  const from =
+    notice.kind === 'configured'
+      ? notice.from
+      : { providerId: notice.fromProviderId, modelId: notice.fromModelId };
+  const provider = providers.find((candidate) => candidate.id === to.providerId);
+  const model = provider?.models.find((candidate) => candidate.id === to.modelId);
+  const name = model?.displayName ?? to.modelId;
   const target = modelLabel(providers, to.providerId, to.modelId, accounts);
   const origin = modelLabel(providers, from.providerId, from.modelId, accounts);
-  const label = [
+  const hint = [
     t('handoff.transition', { from: origin, to: target }),
-    configuration,
+    notice.kind === 'configured' &&
+      notice.to.reasoningEffort &&
+      effortLabel(notice.to.reasoningEffort),
+    notice.kind === 'configured' && notice.to.fast && t('model.fast.label'),
     notice.at && formatMessageTime(notice.at, currentLocale()),
   ]
     .filter(Boolean)
-    .join('\n');
+    .join(' · ');
   return (
-    <div className="my-3 flex justify-center">
-      <Hint label={label}>
+    <div className="flex min-w-0 justify-center">
+      <Hint label={hint}>
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded-md bg-running/10 px-2 py-1 text-xs text-running outline-none hover:bg-running/15 focus-visible:focus-ring"
+          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded px-1 py-0.5 text-[11px] leading-4 text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
+          aria-label={hint}
           onClick={() => setOpen(true)}
-          data-testid="handoff-notice"
-          data-reason={notice.reason}
+          data-testid={
+            notice.kind === 'configured' && !notice.reason
+              ? 'configuration-notice'
+              : 'handoff-notice'
+          }
           data-provider={to.providerId}
+          data-delivery={notice.kind === 'handoff' ? notice.delivery.status : undefined}
+          data-reason={notice.reason}
         >
-          <Route aria-hidden className="size-3.5" />
-          {handoffTransition(providers, from.providerId, to.providerId, accounts)}
+          <ProviderLogo
+            logo={
+              modelLogo(model ?? { id: to.modelId }) ??
+              (provider && (sourceOf(provider)?.logo ?? providerLogo(provider)))
+            }
+            fallback={name}
+            className="size-3"
+          />
+          <span className="truncate">{name}</span>
         </button>
       </Hint>
       <HandoffDetailDialog
         notice={notice}
         target={target}
         from={origin}
-        open={open}
-        onOpenChange={setOpen}
-      />
-    </div>
-  );
-}
-
-/** 来源切换芯片；悬停看模型与时刻，点击查看接力详情。 */
-function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
-  const providers = useWorkbenchProviders() ?? NO_PROVIDERS;
-  const accounts = useAccounts();
-  const [open, setOpen] = useState(false);
-  const provider = providers.find((candidate) => candidate.id === notice.providerId);
-  const source = provider && sourceOf(provider);
-  const label = modelLabel(providers, notice.providerId, notice.modelId, accounts);
-  const origin = modelLabel(providers, notice.fromProviderId, notice.fromModelId, accounts);
-  const hint = [
-    t('handoff.transition', { from: origin, to: label }),
-    notice.at && formatMessageTime(notice.at, currentLocale()),
-  ]
-    .filter(Boolean)
-    .join('\n');
-  return (
-    <div className="my-0.5 flex flex-wrap items-center justify-center gap-1">
-      <Hint label={hint}>
-        <button
-          type="button"
-          className={cn(
-            'flex items-center gap-1.5 rounded-md px-2 py-1 text-xs outline-none focus-visible:focus-ring',
-            notice.reason === 'usage_limit'
-              ? 'bg-running/10 text-running hover:bg-running/15'
-              : 'bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground',
-          )}
-          onClick={() => setOpen(true)}
-          data-testid="handoff-notice"
-          data-provider={notice.providerId}
-          data-delivery={notice.delivery.status}
-          data-reason={notice.reason}
-        >
-          {notice.reason === 'usage_limit' && <Route aria-hidden className="size-3.5" />}
-          {provider ? (
-            <ProviderLogo
-              logo={source?.logo ?? providerLogo(provider)}
-              fallback={label}
-              className="size-3.5"
-            />
-          ) : (
-            <ArrowLeftRight aria-hidden className="size-3.5" />
-          )}
-          {handoffTransition(providers, notice.fromProviderId, notice.providerId, accounts)}
-        </button>
-      </Hint>
-      {notice.contextPack && <ContextReceipt receipt={notice.contextPack} inline />}
-      <HandoffDetailDialog
-        notice={notice}
-        target={label}
-        from={modelLabel(providers, notice.fromProviderId, notice.fromModelId, accounts)}
         open={open}
         onOpenChange={setOpen}
       />

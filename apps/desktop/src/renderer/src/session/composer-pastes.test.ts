@@ -6,11 +6,9 @@ import {
   lineCount,
   PASTE_MIN_LENGTH,
   PASTE_MIN_LINES,
-  pasteOf,
   pastePreview,
-  registerPaste,
   textParts,
-  withPastes,
+  withDraftPastes,
 } from './composer-pastes';
 
 describe('粘贴的大段文字', () => {
@@ -21,59 +19,35 @@ describe('粘贴的大段文字', () => {
     expect(lineCount('a\r\nb\nc')).toBe(3);
   });
 
-  it('占位符拆成标 pasted 的一段，前后自己写的各成一段；没有占位符时原样一段', () => {
-    const log = 'Error: ENOENT\n    at open (node:fs)';
-    const token = registerPaste(log);
-    expect(token).toMatch(/^\[.+#\d+.+\]$/);
-    expect(textParts(`为什么失败：\n${token}\n修一下`)).toEqual([
-      { type: 'text', text: '为什么失败：' },
-      { type: 'text', text: log, pasted: true },
-      { type: 'text', text: '修一下' },
+  it('粘贴块按顺序交给 Host，正文中的字面量保留', () => {
+    const blocks = [
+      { key: crypto.randomUUID(), text: 'Error: ENOENT\n  at open (node:fs)' },
+      { key: crypto.randomUUID(), text: 'second paste' },
+    ];
+    const body = withDraftPastes(blocks, '检查原因');
+    expect(textParts(body)).toEqual([
+      ...blocks.map((part) => ({ type: 'text', text: part.text, pasted: true })),
+      { type: 'text', text: '检查原因' },
     ]);
-    expect(textParts(token)).toEqual([{ type: 'text', text: log, pasted: true }]);
+    expect(expandPastes(body)).toBe(`${blocks.map((part) => part.text).join('\n')}\n检查原因`);
     expect(textParts('  普通的话 ')).toEqual([{ type: 'text', text: '  普通的话 ' }]);
     expect(textParts('')).toEqual([]);
   });
-
-  it('多个占位符按出现的顺序；改坏的占位符当普通文字', () => {
-    const a = registerPaste('A');
-    const b = registerPaste('B');
-    expect(textParts(`${b} 和 ${a}`)).toEqual([
-      { type: 'text', text: 'B', pasted: true },
-      { type: 'text', text: '和' },
-      { type: 'text', text: 'A', pasted: true },
-    ]);
-    const broken = a.slice(0, -1);
-    expect(textParts(broken)).toEqual([{ type: 'text', text: broken }]);
-  });
-
-  it('expandPastes 换回原文；messageContent 用它拆段，图片在后', () => {
-    const token = registerPaste('body');
-    expect(expandPastes(`/goal ${token}`)).toBe('/goal body');
+  it('宿主只收到解析后的正文与图片，未登记的标记视为普通文字', () => {
+    const blocks = [{ key: crypto.randomUUID(), text: 'details' }];
     const image = {
       type: 'image' as const,
-      imageId: 'img_x' as never,
+      imageId: 'img_x' as const,
       mimeType: 'image/png' as const,
       size: 1,
     };
-    expect(messageContent(`看 ${token}`, [image])).toEqual([
-      { type: 'text', text: '看' },
-      { type: 'text', text: 'body', pasted: true },
+    expect(messageContent(withDraftPastes(blocks, ''), [image])).toEqual([
+      { type: 'text', text: 'details', pasted: true },
       image,
     ]);
-  });
-
-  it('附件条里的粘贴排在文字前面，发出去各成一段', () => {
-    const a = registerPaste('第一段\n日志');
-    const b = registerPaste('第二段');
-    expect(pasteOf(a)).toBe('第一段\n日志');
-    expect(withPastes([a, b], '看看哪里失败')).toBe(`${a}\n${b}\n看看哪里失败`);
-    expect(withPastes([a], '')).toBe(a);
-    expect(textParts(withPastes([a, b], '看看哪里失败'))).toEqual([
-      { type: 'text', text: '第一段\n日志', pasted: true },
-      { type: 'text', text: '第二段', pasted: true },
-      { type: 'text', text: '看看哪里失败' },
-    ]);
+    const literal = '\u2063[wevir-paste:missing]\u2063';
+    expect(textParts(literal)).toEqual([{ type: 'text', text: literal }]);
+    expect(expandPastes(literal)).toBe(literal);
   });
 
   it('标题取原文开头，空白折成一个空格', () => {

@@ -244,15 +244,19 @@ export function runAdapterContract<A extends AgentRuntimeAdapter>(
       expect(await adapter.listPendingApprovals(session.id)).toEqual([]);
     });
 
-    it.skipIf(!caps.approvals)('审批：选拒绝后工具失败，回合仍正常结束', async () => {
+    it.skipIf(!caps.approvals)('审批：工具依所选拒绝项结束，取消项中断回合', async () => {
       const adapter = await newAdapter();
       const session = await openSession(adapter);
       const { from, request } = await startApprovalTurn(adapter, session);
+      const rejected = pickOption(request, 'reject');
       await adapter.respondToApproval(session.id, request.requestId, {
-        optionId: pickOption(request, 'reject').optionId,
+        optionId: rejected.optionId,
       });
       const turn = await finishTurn(session, from);
-      expect(turn.terminal).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      expect(turn.terminal).toMatchObject({
+        type: 'turn.settled',
+        outcome: rejected.kind === 'reject_cancel' ? 'cancelled' : 'completed',
+      });
       expect(toolFinished(turn.events, request.toolCallId)?.status).toBe('failed');
       expect(await adapter.listPendingApprovals(session.id)).toEqual([]);
     });

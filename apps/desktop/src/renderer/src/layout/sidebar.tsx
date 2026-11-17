@@ -55,7 +55,7 @@ import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
-import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { formatShortcut, useKeybindings } from '@/lib/shortcuts';
 import { platformSlots } from '@/platform/platform';
 import { pluginsAvailability } from '@/plugins/plugins-model';
 import { workspaceLabel } from '@/projects/chats';
@@ -102,6 +102,7 @@ const SESSIONS_SHOWN = 5;
  * 显示，断线时只有窗口右下角的连接通知（host/connection-toast.tsx）。
  */
 export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNode }) {
+  const bindings = useKeybindings();
   const location = useLocation();
   // Host 有 `plugins` 功能才有“插件”入口（0.42.0）；断线重连期间 client 还在，入口不闪。
   const { client } = useHostConnection();
@@ -145,7 +146,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
             <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             <span className="flex-1">{t('sidebar.search')}</span>
             <kbd className="font-sans text-xs text-muted-foreground opacity-0 group-hover/search:opacity-100 group-focus-visible/search:opacity-100">
-              {formatShortcut(SHORTCUTS.search)}
+              {formatShortcut(bindings.search)}
             </kbd>
           </button>
         )}

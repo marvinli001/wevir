@@ -30,6 +30,22 @@ function fixture() {
 }
 
 describe('session chrome selection', () => {
+  it('中断回合及其前面的消息不可撤回，新回合仍可编辑', () => {
+    const f = fixture();
+    f.apply('turn.finished', { turnId, outcome: 'interrupted', durationMs: 3 });
+    f.apply('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    const interrupted = f.chrome();
+    expect(interrupted?.lastInterruptedTurn).toBe(turnId);
+    expect(interrupted?.editFromSeq).toBeGreaterThan(3);
+    const next = 'trn_next' as TurnId;
+    f.apply('turn.started', { turnId: next });
+    f.apply('turn.finished', { turnId: next, outcome: 'completed', durationMs: 2 });
+    expect(f.chrome()).toMatchObject({
+      turnId: next,
+      lastInterruptedTurn: turnId,
+      editFromSeq: interrupted?.editFromSeq,
+    });
+  });
   it('正文更新不刷新输入框，回合结束仍更新', () => {
     const f = fixture();
     const before = f.chrome();

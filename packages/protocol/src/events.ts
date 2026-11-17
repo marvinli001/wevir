@@ -112,6 +112,25 @@ export type StateChangeReason = z.infer<typeof StateChangeReasonSchema>;
 export const ToolFinishStatusSchema = z.enum(['completed', 'failed', 'cancelled', 'unknown']);
 export type ToolFinishStatus = z.infer<typeof ToolFinishStatusSchema>;
 
+export const EngineNoticeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('warning'), message: z.string().min(1) }),
+  z.object({
+    kind: z.literal('mcp_failed'),
+    server: z.string().min(1),
+    message: z.string().optional(),
+  }),
+  z.object({ kind: z.literal('output_buffering'), model: z.string(), active: z.boolean() }),
+  z.object({
+    kind: z.literal('approval_review'),
+    reviewId: z.string().min(1),
+    action: z.string().min(1),
+    status: z.enum(['inProgress', 'approved', 'denied', 'timedOut', 'aborted', 'userApproved']),
+    riskLevel: z.string().optional(),
+    rationale: z.string().optional(),
+  }),
+]);
+export type EngineNotice = z.infer<typeof EngineNoticeSchema>;
+
 /** 每种事件的 payload。键就是事件的 `type`。 */
 export const EventPayloadSchemas = {
   'session.created': z.object({
@@ -266,6 +285,7 @@ export const EventPayloadSchemas = {
     from: SessionStateSchema,
     to: SessionStateSchema,
     reason: StateChangeReasonSchema,
+    continuation: z.enum(['manual', 'on_restart']).optional(),
   }),
   'user.message': z.object({
     turnId: TurnIdSchema,
@@ -304,6 +324,7 @@ export const EventPayloadSchemas = {
   }),
   'turn.finished': z.object({
     turnId: TurnIdSchema,
+    continuation: z.enum(['manual', 'on_restart']).optional(),
     outcome: TurnOutcomeSchema,
     /** 引擎原值。 */
     engineStopReason: z.string().optional(),
@@ -478,6 +499,11 @@ export const EventPayloadSchemas = {
     fatal: z.boolean(),
     /** 回合因订阅账号的用量上限失败（0.119.0）；其他失败省略。 */
     usageLimit: UsageLimitSchema.optional(),
+  }),
+  'engine.notice': z.object({
+    detail: EngineNoticeSchema,
+    decidedBy: ClientIdentitySchema.optional(),
+    turnId: TurnIdSchema.optional(),
   }),
   'engine.raw': z.object({
     /**
@@ -735,6 +761,7 @@ export const UsageUpdatedEventSchema = eventSchema('usage.updated');
 export const ContextCompactingEventSchema = eventSchema('context.compacting');
 export const ContextCompactedEventSchema = eventSchema('context.compacted');
 export const EngineErrorEventSchema = eventSchema('engine.error');
+export const EngineNoticeEventSchema = eventSchema('engine.notice');
 export const EngineRawEventSchema = eventSchema('engine.raw');
 export const SubagentStartedEventSchema = eventSchema('subagent.started');
 export const SubagentUpdatedEventSchema = eventSchema('subagent.updated');
@@ -801,6 +828,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   ContextCompactedEventSchema,
   EngineErrorEventSchema,
   EngineRawEventSchema,
+  EngineNoticeEventSchema,
   SubagentStartedEventSchema,
   SubagentUpdatedEventSchema,
   TasksSuggestedEventSchema,

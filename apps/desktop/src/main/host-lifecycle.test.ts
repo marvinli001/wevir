@@ -600,6 +600,53 @@ function phases(statuses: readonly HostProcessStatus[]): string[] {
 }
 
 describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
+  it('未打开的活动会话计入退出确认，只有拥有的 Host 在确认后记录重启续作', async () => {
+    const home = join(tempDir, 'home');
+    const { lifecycle: owner } = lifecycle(home);
+    const first = await owner.start();
+    expect(first.ownership.kind).toBe('owned');
+    expect(await owner.quitActivity()).toBe('idle');
+
+    const sender = await connect(owner);
+    const sessionId = await createSession(sender);
+    const { turnId } = await sender.request('session.send', {
+      sessionId,
+      content: [{ type: 'text', text: `slow ${'background task '.repeat(160)}` }],
+    });
+    sender.close();
+    expect(await owner.quitActivity()).toBe('resumable');
+
+    const { lifecycle: attached } = lifecycle(home);
+    expect((await attached.start()).ownership).toMatchObject({
+      kind: 'attached',
+      pid: first.ownership.pid,
+    });
+    expect(await attached.quitActivity()).toBe('idle');
+    await attached.stop(true);
+    expect(isProcessAlive(first.ownership.pid)).toBe(true);
+    expect(await owner.quitActivity()).toBe('resumable');
+
+    await owner.stop(true);
+    expect(isProcessAlive(first.ownership.pid)).toBe(false);
+    const { lifecycle: reopened } = lifecycle(home);
+    expect((await reopened.start()).ownership.kind).toBe('owned');
+    const observer = await connect(reopened);
+    const events: WevirEvent[] = [];
+    for await (const item of observer.subscribe(sessionId)) {
+      if (item.type !== 'event') continue;
+      events.push(item.event);
+      // 新进程的 Echo 没有旧引擎会话。Host 主动尝试续作后记录 session_lost。
+      if (item.event.type === 'session.read_only') break;
+    }
+    expect(
+      events.find((event) => event.type === 'turn.finished' && event.payload.turnId === turnId),
+    ).toMatchObject({ payload: { outcome: 'cancelled', continuation: 'on_restart' } });
+    expect(events.at(-1)).toMatchObject({
+      type: 'session.read_only',
+      payload: { reason: 'engine_session_not_found' },
+    });
+  }, 30_000);
+
   it('拥有的 Host 在流式输出中途被 SIGKILL：确认旧进程已退出后重新拉起；客户端重连后按 seq 补齐，投影与从头回放一致', async () => {
     const home = join(tempDir, 'home');
     const {

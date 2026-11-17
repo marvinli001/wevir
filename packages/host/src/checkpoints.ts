@@ -23,6 +23,7 @@ import type {
   FilesRestore,
   SessionCheckpointsResult,
   TurnCheckpoint,
+  WevirEvent,
   WorkspaceDiffResult,
 } from '@wevir/protocol';
 import {
@@ -86,6 +87,41 @@ export function canRetryFullFsync(stderr: string): boolean {
 }
 
 type Stage = 'before' | 'after' | 'undone' | 'redone-from';
+
+interface CheckpointRange {
+  first: string;
+  last: string;
+  end: Stage | 'live';
+}
+
+/** 回退消息不动文件。撤销成功时文件回到 before，重做还原的是撤销前另存的 undone。 */
+export function sessionCheckpointRange(
+  events: readonly WevirEvent[],
+  forkedThrough?: string,
+): CheckpointRange | undefined {
+  let range: CheckpointRange | undefined;
+  for (const event of events) {
+    if (event.type === 'turn.started') {
+      range = {
+        first: range?.first ?? event.payload.turnId,
+        last: event.payload.turnId,
+        end: 'live',
+      };
+    } else if (event.type === 'turn.finished') {
+      if (event.payload.turnId === forkedThrough) range = undefined;
+      else if (range?.last === event.payload.turnId) range.end = 'after';
+    } else if (
+      (event.type === 'turn.undone' || event.type === 'turn.redone') &&
+      range &&
+      event.payload.files &&
+      event.payload.files.status !== 'unavailable'
+    ) {
+      range.last = event.payload.turnId;
+      range.end = event.type === 'turn.undone' ? 'before' : 'undone';
+    }
+  }
+  return range;
+}
 
 export function checkpointRef(sessionId: string, turnId: string, stage: Stage): string {
   return `${CHECKPOINT_REF_PREFIX}/${sessionId}/${turnId}/${stage}`;
@@ -181,33 +217,64 @@ export class TurnCheckpoints {
 
   /** `workspace.diff` 的 `turn`：回合前后的快照之间；还没有回合后的快照时对现在的工作树（`live`）。 */
   async diff(sessionId: string, cwd: string, turnId: string): Promise<WorkspaceDiffResult> {
+    return this.#rangeDiff(sessionId, cwd, { first: turnId, last: turnId, end: 'after' }, false);
+  }
+
+  async sessionDiff(
+    sessionId: string,
+    cwd: string,
+    range: CheckpointRange | undefined,
+  ): Promise<WorkspaceDiffResult> {
+    if (!range)
+      return (await repoInfo(cwd)) ? { repo: true, unavailable: 'no_checkpoint' } : { repo: false };
+    return this.#rangeDiff(sessionId, cwd, range, true);
+  }
+
+  async #rangeDiff(
+    sessionId: string,
+    cwd: string,
+    range: CheckpointRange,
+    wholeSession: boolean,
+  ): Promise<WorkspaceDiffResult> {
     await this.settled(sessionId);
-    return shared(`turn\0${cwd}\0${sessionId}\0${turnId}`, async () => {
-      const repo = await repoInfo(cwd);
-      if (!repo) return { repo: false };
-      try {
-        const [before, after] = await Promise.all([
-          resolveRef(repo, checkpointRef(sessionId, turnId, 'before')),
-          resolveRef(repo, checkpointRef(sessionId, turnId, 'after')),
-        ]);
-        if (before === undefined) return { repo: true, unavailable: 'no_checkpoint' };
-        const authored = after === undefined ? null : await listAuthoredPaths(repo, before, after);
-        const diff = await readRange(repo, {
-          from: before,
-          ...(after !== undefined && { to: after }),
-          ...(authored !== null && { keep: (entry) => !isGitImport(entry, authored) }),
-        });
-        return {
-          repo: true,
-          base: before,
-          ...(repo.branch !== undefined && { branch: repo.branch }),
-          ...(after === undefined ? { live: true as const } : { head: after }),
-          ...diff,
-        };
-      } catch {
-        return { repo: false };
-      }
-    });
+    return shared(
+      `range\0${cwd}\0${sessionId}\0${range.first}\0${range.last}\0${range.end}\0${wholeSession}`,
+      async () => {
+        const repo = await repoInfo(cwd);
+        if (!repo) return { repo: false };
+        try {
+          const [turnBefore, after] = await Promise.all([
+            resolveRef(repo, checkpointRef(sessionId, range.first, 'before')),
+            range.end === 'live'
+              ? undefined
+              : resolveRef(repo, checkpointRef(sessionId, range.last, range.end)),
+          ]);
+          const before =
+            turnBefore ??
+            (wholeSession
+              ? await resolveRef(repo, baselineRef(sessionId, range.first))
+              : undefined);
+          if (!before || (wholeSession && range.end !== 'live' && !after))
+            return { repo: true, unavailable: 'no_checkpoint' };
+          const authored =
+            after === undefined ? null : await listAuthoredPaths(repo, before, after);
+          const diff = await readRange(repo, {
+            from: before,
+            ...(after !== undefined && { to: after }),
+            ...(authored !== null && { keep: (entry) => !isGitImport(entry, authored) }),
+          });
+          return {
+            repo: true,
+            base: before,
+            ...(repo.branch !== undefined && { branch: repo.branch }),
+            ...(after === undefined ? { live: true as const } : { head: after }),
+            ...diff,
+          };
+        } catch {
+          return { repo: false };
+        }
+      },
+    );
   }
 
   /**
@@ -908,13 +975,24 @@ async function deleteRefs(repo: RepoInfo, refs: readonly string[]): Promise<void
   });
 }
 
-/** 一个会话的快照多于 `maxTurns` 个回合时，删最早的（回合 ID 是 ULID，按字典序就是按时间）。 */
+function baselineRef(sessionId: string, turnId: string): string {
+  return `${CHECKPOINT_REF_PREFIX}/${sessionId}/baseline/${turnId}`;
+}
+
+/** 只保留最近的回合与会话起点；回合 ID 是 ULID，字典序就是创建顺序。 */
 async function pruneSession(repo: RepoInfo, sessionId: string, maxTurns: number): Promise<void> {
   const refs = await listRefs(repo, `${CHECKPOINT_REF_PREFIX}/${sessionId}/`);
-  const turns = [...new Set(refs.map((ref) => ref.split('/').at(-2) ?? ''))].sort();
+  const turnRefs = refs.filter((ref) => !ref.includes('/baseline/'));
+  const turns = [...new Set(turnRefs.map((ref) => ref.split('/').at(-2) ?? ''))].sort();
   const drop = new Set(turns.slice(0, Math.max(0, turns.length - maxTurns)));
+  const first = turns[0];
+  if (first && drop.has(first) && turnRefs.length === refs.length) {
+    const before = await resolveRef(repo, checkpointRef(sessionId, first, 'before'));
+    if (before)
+      await runGit(repo.cwd, [...repo.config, 'update-ref', baselineRef(sessionId, first), before]);
+  }
   await deleteRefs(
     repo,
-    refs.filter((ref) => drop.has(ref.split('/').at(-2) ?? '')),
+    turnRefs.filter((ref) => drop.has(ref.split('/').at(-2) ?? '')),
   );
 }

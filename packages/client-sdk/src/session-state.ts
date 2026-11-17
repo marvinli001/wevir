@@ -44,6 +44,7 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
   }
   switch (event.type) {
     case 'session.read_only':
+      delete next.interruptedTurn;
       next.readOnly = {
         reason: event.payload.reason,
         message: event.payload.message,
@@ -82,6 +83,7 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
     }
     case 'turn.rewound':
     case 'turn.undone':
+      if (session.interruptedTurn?.turnId === event.payload.turnId) delete next.interruptedTurn;
       if (session.wrapUp?.turnId === event.payload.turnId) delete next.wrapUp;
       break;
     case 'user.steered':
@@ -95,6 +97,7 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       delete next.awaitingInput;
       break;
     case 'session.handoff': {
+      delete next.interruptedTurn;
       // 0.25.0：之后的回合由新来源的引擎会话跑；`engines` 的 seenSeq 要读会话才知道，这里不推导。
       const { to } = event.payload;
       next.providerId = to.providerId;
@@ -144,6 +147,13 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       break;
     case 'session.state_changed': {
       next.state = event.payload.to;
+      if (next.state === 'cancelling' && event.payload.continuation && session.activeTurn) {
+        next.interruptedTurn = {
+          turnId: session.activeTurn.turnId,
+          auto: event.payload.continuation === 'on_restart',
+        };
+      }
+      if (next.state === 'closed') delete next.interruptedTurn;
       if (event.payload.reason === 'turn_started' || event.payload.reason === 'resumed') {
         delete next.lastError;
       }
@@ -162,6 +172,7 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       delete next.wrapUp;
       break;
     case 'turn.started':
+      delete next.interruptedTurn;
       next.activeTurn = { turnId: event.payload.turnId, startedAt: event.ts };
       delete next.autoContinue;
       delete next.wrapUp;
@@ -171,6 +182,12 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       }
       break;
     case 'turn.finished':
+      if (event.payload.continuation)
+        next.interruptedTurn = {
+          turnId: event.payload.turnId,
+          auto: event.payload.continuation === 'on_restart',
+        };
+      else delete next.interruptedTurn;
       if (session.activeTurn?.turnId === event.payload.turnId) delete next.activeTurn;
       if (session.subagent !== undefined) {
         next.subagent = {

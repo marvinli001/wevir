@@ -4,6 +4,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { isTurnTerminal } from '@wevir/runtime-adapter';
 import { DEFAULT_CONTRACT_PROMPTS } from '@wevir/runtime-adapter/contract';
@@ -126,6 +127,53 @@ function interceptSteer(h: FakeHarness, options: { gate?: Promise<void>; swallow
 }
 
 describe('OpenCodeAdapter（假 opencode）', () => {
+  it('目录命令使用原生 POST，取消会终止仍在等待的请求；请求失败只结算一次', async () => {
+    const h = setup();
+    h.fake.commands = [
+      {
+        name: 'notes',
+        description: 'Collect notes',
+        template: 'Collect $ARGUMENTS',
+        hints: ['$ARGUMENTS'],
+      },
+    ];
+    const { id, log } = await openSession(h, { reasoningEffort: 'high' });
+    expect(await h.adapter.listCommands(id)).toEqual([
+      { name: 'notes', description: 'Collect notes', argumentHint: '$ARGUMENTS' },
+    ]);
+    let pending: AbortSignal | undefined;
+    h.fake.runCommand = (_input, signal) =>
+      new Promise((_, reject) => {
+        pending = signal;
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    await h.adapter.send(id, text('/notes first\nsecond'));
+    expect(calls(h, 'promptAsync')).toHaveLength(0);
+    expect(calls(h, 'command')[0]?.[0]).toMatchObject({
+      command: 'notes',
+      arguments: 'first\nsecond',
+      model: MODEL,
+      variant: 'high',
+    });
+    await expect(h.adapter.steer(id, 'steer-1', text('/notes later'))).rejects.toMatchObject({
+      code: 'steer_rejected',
+    });
+    await h.adapter.cancel(id);
+    await log.terminal();
+    expect(pending?.aborted).toBe(true);
+    expect(log.events.filter(isTurnTerminal)).toMatchObject([
+      { type: 'turn.settled', outcome: 'cancelled' },
+    ]);
+    h.fake.runCommand = async () => {
+      throw new Error('unknown command after reload');
+    };
+    await h.adapter.send(id, text('/notes'));
+    await log.until((items) => items.some((event) => event.type === 'turn.failed'), '命令失败');
+    expect(log.events.filter(isTurnTerminal)).toHaveLength(2);
+    h.fake.commands = [];
+    await expect(h.adapter.send(id, text('/notes'))).rejects.toThrow('no longer available');
+    expect(calls(h, 'promptAsync')).toHaveLength(0);
+  });
   it('建会话：带权限模式的规则集，引擎版本是服务器的版本', async () => {
     const h = setup();
     const { session } = await openSession(h, { permissionMode: 'full_access' });
@@ -153,6 +201,31 @@ describe('OpenCodeAdapter（假 opencode）', () => {
     });
     expect(calls(h, 'createSession')[0]?.[0]).toEqual({
       permission: [...permissionRules('full_access'), ...engineToolRules(['edit'])],
+    });
+  });
+
+  it('文件附件走 OpenCode 的原生 file 部件', async () => {
+    const h = setup();
+    const { id, log } = await openSession(h);
+    const uri = new URL('../package.json', import.meta.url);
+    await h.adapter.send(id, {
+      content: [
+        { type: 'text', text: 'Say hello' },
+        {
+          type: 'file',
+          path: fileURLToPath(uri),
+          name: 'package.json',
+          mimeType: 'text/plain',
+          text: 'preview',
+        },
+      ],
+    });
+    await log.terminal();
+    expect(calls(h, 'promptAsync')[0]?.[0]).toMatchObject({
+      parts: [
+        { type: 'text', text: 'Say hello' },
+        { type: 'file', mime: 'text/plain', filename: 'package.json', url: uri.href },
+      ],
     });
   });
 

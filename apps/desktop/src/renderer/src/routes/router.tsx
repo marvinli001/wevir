@@ -14,12 +14,14 @@ import { GroupDialog } from '@/assistants/group-dialog';
 import { AutomationDialog } from '@/automations/automation-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
+import { useWorkbenchStore } from '@/data/workbench-data';
+import { adjacentSession } from '@/data/workbench-model';
 import { EnvironmentDialog } from '@/environments/environment-dialog';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { WorkbenchLayout } from '@/layout/workbench-layout';
 import { useHistoryNav, useTrackHistory } from '@/lib/history-nav';
-import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { getShortcut, matchesShortcut } from '@/lib/shortcuts';
 import { platformApi } from '@/platform/platform';
 import { ArchiveProjectDialog } from '@/projects/archive-project-dialog';
 import { CreateProjectDialog } from '@/projects/create-project';
@@ -120,25 +122,39 @@ function AppRoot() {
   const navigate = useNavigate();
   const location = useLocation();
   const matches = useMatches();
+  const workbench = useWorkbenchStore();
   const workspaceId = matches.map((match) => match.params.workspaceId).find(Boolean);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.defaultPrevented) return;
-      if (matchesShortcut(event, SHORTCUTS.back) && history.canBack) {
+      const previous = matchesShortcut(event, getShortcut('previousSession'));
+      if (previous || matchesShortcut(event, getShortcut('nextSession'))) {
+        if (document.querySelector('[role="dialog"][data-open]')) return;
+        const data = workbench?.get();
+        if (data?.status !== 'ready') return;
+        const currentSession = router.state.matches.at(-1)?.params.sessionId;
+        const target = adjacentSession(data.workspaces, currentSession, previous ? -1 : 1);
+        if (target) {
+          event.preventDefault();
+          navigate(paths.session(target.workspaceId, target.id));
+        }
+        return;
+      }
+      if (matchesShortcut(event, getShortcut('back')) && history.canBack) {
         event.preventDefault();
         history.back();
-      } else if (matchesShortcut(event, SHORTCUTS.forward) && history.canForward) {
+      } else if (matchesShortcut(event, getShortcut('forward')) && history.canForward) {
         event.preventDefault();
         history.forward();
-      } else if (matchesShortcut(event, SHORTCUTS.newSession)) {
+      } else if (matchesShortcut(event, getShortcut('newSession'))) {
         // U35：在项目里时开这个项目的草稿页，否则回首页。
         event.preventDefault();
         navigate(workspaceId ? paths.draft(workspaceId) : paths.home());
-      } else if (matchesShortcut(event, SHORTCUTS.search)) {
+      } else if (matchesShortcut(event, getShortcut('search'))) {
         // 0.77.0：会话全文搜索；再按一次关上。
         event.preventDefault();
         searchOpen.set((open) => !open);
-      } else if (matchesShortcut(event, SHORTCUTS.settings)) {
+      } else if (matchesShortcut(event, getShortcut('settings'))) {
         event.preventDefault();
         if (!location.pathname.startsWith(ROUTE_PATTERNS.settings)) {
           navigate(paths.settings(), { state: { from: location } });
@@ -158,7 +174,7 @@ function AppRoot() {
       window.removeEventListener('keydown', onKeyDown);
       offOpenSettings?.();
     };
-  }, [history, navigate, location, workspaceId]);
+  }, [history, navigate, location, workspaceId, workbench]);
   return (
     <>
       <Outlet />

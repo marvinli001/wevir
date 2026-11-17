@@ -41,7 +41,10 @@ const lastCheckpoints = new LruMap<SessionId, readonly TurnCheckpoint[]>(64);
 export function sourceKey(sessionId: SessionId, source: DiffSource, folder?: string): string {
   const key =
     source.kind === 'turn' ? `${sessionId}:turn:${source.turnId}` : `${sessionId}:${source.kind}`;
-  return folderCacheKey(key, source.kind === 'turn' ? undefined : folder);
+  return folderCacheKey(
+    key,
+    source.kind === 'turn' || source.kind === 'session' ? undefined : folder,
+  );
 }
 
 export interface DiffState {

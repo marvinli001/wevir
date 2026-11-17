@@ -134,6 +134,38 @@ describe('user_images', () => {
     updatedAt: T0,
   };
 
+  it('0.198 客户端可以读取新审查回合与含 ultra 的模型目录', () => {
+    const event: WevirEventOf<'turn.started'> = {
+      ...message,
+      type: 'turn.started',
+      payload: { turnId: 'trn_1', command: { kind: 'review', target: 'commit', sha: 'abcd' } },
+    };
+    const before = adaptEventForClient(event, {}, '0.198.0');
+    expect(before.payload).toEqual({ turnId: 'trn_1' });
+    expect(adaptEventForClient(event, {}, '0.199.0')).toBe(event);
+    const model = {
+      id: 'gpt-mock',
+      reasoningEfforts: ['low', 'ultra'],
+      defaultReasoningEffort: 'ultra',
+    };
+    const value = { providers: [{ id: 'mock', kind: 'openai-compatible', models: [model] }] };
+    expect(adaptResultForClient('provider.list', value, {}, '0.198.0')).toMatchObject({
+      providers: [{ models: [{ reasoningEfforts: ['low'] }] }],
+    });
+    expect(adaptResultForClient('provider.list', value, {}, '0.199.0')).toMatchObject(value);
+  });
+
+  it('文件能力独立于图片能力，按文件名降级，旧客户端可回放同一条混合消息', () => {
+    const file = { type: 'file', fileId: 'file_1', name: 'report.pdf', size: 8 } as const;
+    const mixed = { ...message, payload: { ...message.payload, content: [image, file] } };
+    expect(adaptEventForClient(mixed, { user_images: true })).toMatchObject({
+      payload: { content: [image, { type: 'text', text: '[file: report.pdf]' }] },
+    });
+    expect(adaptEventForClient(mixed, { user_files: true })).toMatchObject({
+      payload: { content: [{ type: 'text', text: '[image]' }, file] },
+    });
+  });
+
   it('事件：user.message、user.steered、turn.started 的输入、pending.*', () => {
     expect(adaptEventForClient(message, { user_images: true })).toBe(message);
     expect(adaptEventForClient(message, {})).toEqual({

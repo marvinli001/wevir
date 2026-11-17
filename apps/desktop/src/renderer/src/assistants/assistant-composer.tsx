@@ -1,50 +1,27 @@
-// 助理与群的输入框（0.120.0；0.133.0 群里打 @ 选成员；0.135.0 图片、文件、听写与停止）：一行，单行时输入框与左右的按钮同高
-// （32px），文字和按钮在同一条中线上，四周留白相同。图片、文件、听写与主按钮都用会话输入框的那一套（session/）：图片先传给 Host
-// （`image.upload`）再放进帖子；文件插入成 @ 提及（绝对路径，助理不在哪个项目里）；听写在麦克风按钮上按住或点一下，录音时这一行换成
-// 录音条。协调者（群里是成员）在回、输入框空着时主按钮是停止（`channel.stop`），Esc 同。
-
 import type { WevirClient } from '@wevir/client-sdk';
 import { hostSupports } from '@wevir/client-sdk';
-import type { Channel, ChannelPost, UserImageMimeType } from '@wevir/protocol';
+import { type Channel, type ChannelPost, MESSAGE_TEXT_MAX_LENGTH } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Reply, X } from 'lucide-react';
-import {
-  type ClipboardEvent,
-  type DragEvent,
-  type KeyboardEvent,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { Textarea } from '@/components/ui/textarea';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
-import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
-import { capabilities, platformApi } from '@/platform/platform';
+import { getShortcut, matchesShortcut } from '@/lib/shortcuts';
 import { paths } from '@/routes/paths';
-import { rejectionText } from '@/session/composer';
 import { ComposerButton } from '@/session/composer-button';
-import {
-  COMPOSER_IMAGE_ACCEPT,
-  type ComposerImage,
-  dragHasFiles,
-  messageContent,
-  pickImages,
-  splitFiles,
-} from '@/session/composer-images';
+import { draftIssue, finishComposerSend, hasDraft, textLength } from '@/session/composer-drafts';
+import { messageContent } from '@/session/composer-images';
+import { useComposerInput } from '@/session/composer-input';
+import { uploadDraft } from '@/session/composer-media';
+import { withDraftPastes } from '@/session/composer-pastes';
 import { ComposerPlusMenu } from '@/session/composer-plus-menu';
 import { composerPrefs } from '@/session/composer-prefs';
 import { mentionText } from '@/session/composer-trigger';
 import { DictationBar, DictationButton } from '@/session/dictation-button';
 import { insertDictation } from '@/session/dictation-model';
-import {
-  ComposerThumb,
-  ImagePreview,
-  readAsDataUrl,
-  uploadImage,
-} from '@/session/image-attachments';
 import { composerKeyAction } from '@/session/pending-model';
 import { useDictation } from '@/session/use-dictation';
 import { AssistantAvatar } from './assistant-avatar';
@@ -80,19 +57,25 @@ export function AssistantComposer({
   /** 帖子能带图片：Host 收下帖子里的图片（0.135.0）。协调者的模型看不了时 Host 换成说明，这里不再按模型挡。 */
   const imagesEnabled =
     supported && features !== undefined && hostSupports(features, 'user_images');
-  /** 路径指这台电脑上的文件（外壳的 `localFiles`）：选择框与拖放带文件。 */
-  const localFiles = supported && capabilities().localFiles;
-  const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const sendInFlight = useRef(false);
   const [caret, setCaret] = useState(0);
   const [picked, setPicked] = useState(0);
-  const [images, setImages] = useState<ComposerImage[]>([]);
-  const [imageError, setImageError] = useState<string>();
-  const [dragging, setDragging] = useState(false);
-  const [preview, setPreview] = useState<ComposerImage>();
   const [stopping, setStopping] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  const draftKey = `channel/${channel.id}`;
+  const pathsRef = useRef<(paths: readonly string[]) => void>(() => {});
+  const input = useComposerInput(
+    draftKey,
+    client,
+    imagesEnabled,
+    !supported,
+    (paths) => pathsRef.current(paths),
+    () => inputRef.current?.focus(),
+  );
+  const { draft, setText, onHistoryKey, dragging, onDrop, onDragOver, onDragLeave, onPaste } =
+    input;
+  const text = draft.text;
   const query = members.length > 0 ? mentionQuery(text, caret) : undefined;
   const choices =
     query === undefined
@@ -101,43 +84,44 @@ export function AssistantComposer({
           member.title.toLowerCase().startsWith(query.query.toLowerCase()),
         );
   const group = channel.kind === 'group';
-  const uploading = images.some((image) => image.part === undefined);
-  const hasContent = text.trim() !== '' || images.length > 0;
+  const hasContent = hasDraft(draft);
   const action = composerAction({ channel, supported, hasContent });
   useEffect(() => {
     if (reply !== undefined) inputRef.current?.focus();
   }, [reply]);
 
-  // 换了助理：草稿不带过去。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 只跟着频道。
-  useEffect(() => {
-    setText('');
-    setImages([]);
-    setImageError(undefined);
-  }, [channel.id]);
-
   const send = async () => {
     const body = text.trim();
-    if (!hasContent || busy || uploading) return;
+    if (
+      !supported ||
+      !hasContent ||
+      sendInFlight.current ||
+      input.adding ||
+      input.failedAttachment ||
+      draftIssue(draft)
+    )
+      return;
+    sendInFlight.current = true;
     setBusy(true);
     try {
       const mentions = mentionedIn(body, members);
-      const parts = images.flatMap((image) => (image.part === undefined ? [] : [image.part]));
+      const parts = await uploadDraft(client, draft.attachments);
       const { post } = await client.request('channel.post', {
         channelId: channel.id,
-        content: messageContent(body, parts),
+        content: messageContent(withDraftPastes(draft.pastes, body), parts),
         clientPostId: crypto.randomUUID(),
         ...(reply !== undefined && { replyTo: reply.id }),
         ...(mentions.length > 0 && { mentions }),
       });
-      setText('');
-      setImages([]);
-      setImageError(undefined);
+      await finishComposerSend(draftKey, draft);
+      input.setError(undefined);
+      input.resetHistory();
       onPosted(post);
       onCancelReply();
     } catch (reason) {
       onError(t('assistants.postFailed', { error: describe(reason) }));
     } finally {
+      sendInFlight.current = false;
       setBusy(false);
     }
   };
@@ -155,36 +139,6 @@ export function AssistantComposer({
   };
 
   // ── 图片与文件 ──────────────────────────────────────────────────────
-
-  /** 粘贴、拖进来或选好的图片：先显示缩略图，再传给 Host。 */
-  const addImages = (files: readonly File[], named: boolean) => {
-    if (!imagesEnabled) return;
-    const chosen = pickImages(files, images.length);
-    setImageError(chosen.rejected && rejectionText(chosen.rejected));
-    for (const { file, mimeType } of chosen.accepted) {
-      const key = crypto.randomUUID();
-      const name = named ? file.name : undefined;
-      void addImage(key, file, mimeType, name);
-    }
-  };
-
-  const addImage = async (key: string, file: File, mimeType: UserImageMimeType, name?: string) => {
-    try {
-      const dataUrl = await readAsDataUrl(file);
-      setImages((current) => [...current, { key, dataUrl, ...(name !== undefined && { name }) }]);
-      const part = await uploadImage(client, dataUrl, mimeType, name);
-      setImages((current) =>
-        current.map((image) => (image.key === key ? { ...image, part } : image)),
-      );
-    } catch (error) {
-      setImages((current) => current.filter((image) => image.key !== key));
-      setImageError(
-        t('composer.imageUploadFailed', {
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      );
-    }
-  };
 
   /** 在光标处插入（前面不是空白时先补一个空格）。 */
   const insertAtCaret = (snippet: string) => {
@@ -204,54 +158,7 @@ export function AssistantComposer({
   const insertPaths = (chosen: readonly string[]) =>
     insertAtCaret(`${chosen.map(mentionText).join(' ')} `);
 
-  /** 粘贴或拖进来的文件：图片上传，其余的插入成 @ 提及；取不到路径的提示格式不支持。 */
-  const addFiles = (files: readonly File[], named: boolean) => {
-    const { images: chosen, others } = splitFiles(files, imagesEnabled);
-    const resolved = others.map((file) => ({
-      file,
-      path: localFiles ? platformApi().getPathForFile(file) : '',
-    }));
-    if (chosen.length > 0) addImages(chosen, named);
-    const unresolved = resolved.find((entry) => entry.path === '');
-    if (unresolved) setImageError(t('composer.imageUnsupported', { name: unresolved.file.name }));
-    else if (chosen.length === 0) setImageError(undefined);
-    const found = resolved.flatMap((entry) => (entry.path === '' ? [] : [entry.path]));
-    if (found.length > 0) insertPaths(found);
-  };
-
-  const attachPaths = async () => {
-    const chosen = await platformApi()
-      .selectPaths()
-      .catch(() => []);
-    if (chosen.length === 0) inputRef.current?.focus();
-    else insertPaths(chosen);
-  };
-
-  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(event.clipboardData.files);
-    if (files.length === 0 || !(imagesEnabled || localFiles)) return;
-    event.preventDefault();
-    // 截图粘贴进来的文件都叫 image.png，不带名字。
-    addFiles(files, false);
-  };
-
-  const canDrop = imagesEnabled || localFiles;
-  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!canDrop || !dragHasFiles(Array.from(event.dataTransfer.types))) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-    setDragging(true);
-  };
-  const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-    setDragging(false);
-  };
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    setDragging(false);
-    if (!canDrop || event.dataTransfer.files.length === 0) return;
-    event.preventDefault();
-    addFiles(Array.from(event.dataTransfer.files), true);
-  };
+  pathsRef.current = insertPaths;
 
   // ── 听写 ────────────────────────────────────────────────────────────
   const navigate = useNavigate();
@@ -343,7 +250,7 @@ export function AssistantComposer({
   const { sendShortcut } = composerPrefs.use();
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
-    if (canDictate && matchesShortcut(event, SHORTCUTS.dictation)) {
+    if (canDictate && matchesShortcut(event, getShortcut('dictation'))) {
       event.preventDefault();
       if (!event.repeat) dictation.press();
       return;
@@ -361,6 +268,10 @@ export function AssistantComposer({
         if (member !== undefined) mention(member);
         return;
       }
+    }
+    if (onHistoryKey(event)) {
+      event.preventDefault();
+      return;
     }
     const key = composerKeyAction(
       {
@@ -381,15 +292,8 @@ export function AssistantComposer({
   /** ⌘⇧D 松开（D 或任一修饰键，macOS 按着 ⌘ 时 D 的 keyup 不一定来）结束。 */
   const onKeyUp = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (
-      [
-        'KeyD',
-        'MetaLeft',
-        'MetaRight',
-        'ControlLeft',
-        'ControlRight',
-        'ShiftLeft',
-        'ShiftRight',
-      ].includes(event.code)
+      event.code === getShortcut('dictation').code ||
+      /^(?:Meta|Control|Shift|Alt)(?:Left|Right)$/.test(event.code)
     ) {
       dictation.release();
     }
@@ -474,36 +378,15 @@ export function AssistantComposer({
             )}
           </div>
         )}
-        {(images.length > 0 || imageError) && (
-          <div className="flex flex-col gap-1.5 px-1 pt-1">
-            {images.length > 0 && (
-              <div className="flex flex-wrap gap-2" data-testid="composer-images">
-                {images.map((image) => (
-                  <ComposerThumb
-                    key={image.key}
-                    src={image.dataUrl}
-                    {...(image.name !== undefined && { name: image.name })}
-                    uploading={image.part === undefined}
-                    onRemove={() => {
-                      setImages((current) => current.filter((entry) => entry.key !== image.key));
-                      setImageError(undefined);
-                      inputRef.current?.focus();
-                    }}
-                    onOpen={() => setPreview(image)}
-                  />
-                ))}
-              </div>
-            )}
-            {imageError && (
-              <p
-                role="alert"
-                className="text-xs text-destructive"
-                data-testid="composer-image-error"
-              >
-                {imageError}
-              </p>
-            )}
-          </div>
+        {input.strip}
+        {input.error && (
+          <p
+            role="alert"
+            className="px-2 text-xs text-destructive"
+            data-testid="composer-image-error"
+          >
+            {input.error}
+          </p>
         )}
         {/* 单行时输入框与两边的按钮同高（32px），文字和按钮在同一条中线上。 */}
         <div className="flex flex-wrap items-end gap-1 @min-[15rem]:flex-nowrap">
@@ -511,17 +394,19 @@ export function AssistantComposer({
             <DictationBar dictation={dictation} />
           ) : (
             <>
-              {(imagesEnabled || localFiles) && (
+              {supported && (
                 <div className="flex h-8 shrink-0 items-center">
                   <ComposerPlusMenu
                     commands={[]}
                     disabled={false}
                     canMention={false}
-                    canAttachFiles={localFiles}
+                    canAttachFiles={input.canAttach}
+                    onHistory={input.onHistory}
+                    onPaths={input.onPaths}
                     canAttachImages={imagesEnabled}
                     canCommand={false}
-                    onAttach={() => void attachPaths()}
-                    onAttachImages={() => imageInputRef.current?.click()}
+                    onAttach={input.onAttach}
+                    onAttachImages={input.onImages}
                     onMention={() => {}}
                     onCommand={() => {}}
                     onRun={() => {}}
@@ -532,8 +417,10 @@ export function AssistantComposer({
               <Textarea
                 ref={inputRef}
                 value={text}
+                maxLength={Math.max(0, MESSAGE_TEXT_MAX_LENGTH - (textLength(draft) - text.length))}
                 onChange={(event) => {
                   setText(event.target.value);
+                  input.resetHistory();
                   setCaret(event.target.selectionStart);
                   setPicked(0);
                   dictation.clearError();
@@ -570,33 +457,18 @@ export function AssistantComposer({
               <ComposerButton
                 action={action}
                 loading={busy}
-                disabled={action === 'stop' ? stopping : !hasContent || uploading}
+                disabled={
+                  action === 'stop'
+                    ? stopping
+                    : !hasContent || input.adding || !!input.failedAttachment || !!draftIssue(draft)
+                }
                 onClick={() => void (action === 'stop' ? stop() : send())}
               />
             )}
           </div>
         </div>
       </div>
-      {imagesEnabled && (
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept={COMPOSER_IMAGE_ACCEPT}
-          multiple
-          hidden
-          data-testid="composer-image-input"
-          onChange={(event) => {
-            addImages(Array.from(event.target.files ?? []), true);
-            event.target.value = '';
-            inputRef.current?.focus();
-          }}
-        />
-      )}
-      <ImagePreview
-        src={preview?.dataUrl}
-        {...(preview?.name !== undefined && { name: preview.name })}
-        onClose={() => setPreview(undefined)}
-      />
+      {input.picker}
     </div>
   );
 }

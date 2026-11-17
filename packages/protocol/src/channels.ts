@@ -28,6 +28,7 @@ import {
   ApprovalRequestSchema,
   BoardTaskSchema,
   BoardTaskStatusSchema,
+  MessageInputSchema,
   SharedFileSchema,
   UserContentPartSchema,
 } from './entities.js';
@@ -495,7 +496,7 @@ export const ChannelUnsubscribeParamsSchema = z.object({ subscriptionId: Subscri
 export const ChannelPostParamsSchema = z.object({
   channelId: ChannelIdSchema,
   replyTo: ChannelPostIdSchema.optional(),
-  content: z.array(UserContentPartSchema).min(1),
+  content: MessageInputSchema,
   mentions: z.array(ChannelIdSchema).max(GROUP_MEMBERS_MAX).optional(),
   clientPostId: z.string().min(1).max(128).optional(),
 });

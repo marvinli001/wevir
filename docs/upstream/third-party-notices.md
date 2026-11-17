@@ -46,7 +46,11 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 | `@noble/curves`、`@noble/ciphers`、`@noble/hashes` | 2.4.0、2.4.0、2.4.0 | MIT | Copyright (c) 2022 Paul Miller (https://paulmillr.com) | `@wevir/noise`（远程访问的 Noise 握手；Host 用上它之后随 Host 的 bundle 进安装包） |
 | `quickjs-emscripten-core`、`@jitl/quickjs-ffi-types`、`@jitl/quickjs-wasmfile-release-sync` | 0.32.0 | MIT | quickjs-emscripten copyright (c) 2019-2024 Jake Teton-Landis；wasm 里的 QuickJS：Copyright (c) 2017-2021 Fabrice Bellard、Copyright (c) 2017-2021 Charlie Gordon（两段都在 `@jitl/quickjs-wasmfile-release-sync` 的 `LICENSE`） | `@wevir/host`，browser_run 的脚本沙箱；wasm 文件按包的原样放在安装包的 Host 依赖里（`ON_DISK_PACKAGES`） |
 
+`sharp` 0.35.5（Apache-2.0）及目标平台的 Node-API 绑定用于 Host 处理图片输入。预编译的 libvips 8.18.7（LGPL-3.0-or-later）及依赖采用 sharp-libvips 1.3.4 的官方构建。各组件的版本、许可证与版权声明随平台包的 README、versions.json 与许可证文件保留，源码及构建方法见 [sharp-libvips v1.3.4](https://github.com/lovell/sharp-libvips/tree/v1.3.4) 与 [libvips v8.18.7](https://github.com/libvips/libvips/releases/tag/v8.18.7)。
+
 ### 2.2 打进桌面端产物的库
+
+HEIC 附件使用 [heic-to 1.6.7](https://github.com/hoppergee/heic-to/tree/v1.6.7) 的 CSP 构建，按需加载。源包许可、GPLv3 正文、libheif 1.23.7 与 libde265 1.0.16 的源码地址随桌面和 Web 渲染器的 `legal/heic-to.txt` 分发。
 
 从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`；U3 加了 libraries.dev 的 6 个动效库与 `three`；0.20.0 加了 `@pierre/diffs`、`shiki`；0.32.0 加了 `mermaid`、`katex`、`marked-katex-extension`、`htmlparser2`，见表末），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
 

@@ -19,7 +19,7 @@ import type {
   SessionId,
   SubagentSummary,
   TurnId,
-  UserImagePart,
+  UserContentPart,
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ListChecks, TriangleAlert } from 'lucide-react';
@@ -68,9 +68,13 @@ import {
   restoreDraft,
   setDraft,
 } from './composer';
+import { useComposerScope } from './composer-drafts';
+import type { ComposerAttachmentPart } from './composer-images';
 import { expandPastes } from './composer-pastes';
 import { ContextMeter } from './context-meter';
 import { type DraftOrigin, draftOrigin, newSessionDraftKey } from './draft-origin';
+import { type SavedEdit, saveEdit, sendSavedEdit } from './edit-recovery';
+import { EditRecoveryPanel } from './edit-recovery-panel';
 import { EnvironmentBar } from './environment-bar';
 import { fastParam } from './fast-mode';
 import { FromHistoryDialog } from './from-history-dialog';
@@ -101,6 +105,7 @@ import { RecapCard } from './recap-card';
 import { recapEnabled } from './recap-model';
 import { useSessionRecap } from './recap-store';
 import { RecoveryPanel } from './recovery-panel';
+import { ReviewTargetDialog } from './review-target-dialog';
 import type { QuoteActions } from './selection-toolbar';
 import { sameSessionChrome, sessionChrome } from './session-chrome';
 import { btwQuestion, openSide, startSide } from './side-session';
@@ -188,6 +193,7 @@ export function SessionView({
   );
   const transcriptRef = useRef<TranscriptViewHandle>(undefined);
   const [notice, setNotice] = useState<string>();
+  const [reviewTarget, setReviewTarget] = useState<'commit' | 'custom'>();
   const [fromHistoryOpen, setFromHistoryOpen] = useState(false);
   const fromHistorySupported =
     view.status === 'connected' && hostSupports(view.hello.features, 'session_from_history');
@@ -326,7 +332,7 @@ export function SessionView({
     async (
       text: string,
       delivery: PendingDelivery | undefined,
-      images: readonly UserImagePart[] | undefined,
+      images: readonly ComposerAttachmentPart[] | undefined,
       mode: CollaborationMode | undefined,
     ): Promise<boolean> => {
       if (!client) return false;
@@ -387,7 +393,7 @@ export function SessionView({
     [client, session.id, sessionState, sideEnabled, panes, goalsEnabled, goal, runGoal, redirect],
   );
   const send = useCallback(
-    (text: string, delivery?: PendingDelivery, images?: readonly UserImagePart[]) =>
+    (text: string, delivery?: PendingDelivery, images?: readonly ComposerAttachmentPart[]) =>
       deliver(text, delivery, images, planEnabled ? plan.mode : undefined),
     [deliver, planEnabled, plan.mode],
   );
@@ -448,7 +454,11 @@ export function SessionView({
     session.parentSessionId === undefined &&
     !session.side;
   const branchEnabled = messageActionsEnabled && branchSupported(view.hello.features, engine);
-  const rewindEnabled = messageActionsEnabled && rewindSupported(view.hello.features, engine);
+  const rewindEnabled =
+    messageActionsEnabled &&
+    client.can('session.write') &&
+    rewindSupported(view.hello.features, engine);
+  const editHistory = rewindEnabled && hostSupports(view.hello.features, 'session_rewind_history');
   const branchFrom = useCallback(
     async (turnId: TurnId) => {
       if (!client) return;
@@ -469,12 +479,31 @@ export function SessionView({
     },
     [client, session.id, sessionState, store, navigate],
   );
+  const editScope = useComposerScope();
+  const [editingHistory, setEditingHistory] = useState(false);
   const submitEdit = useCallback(
-    async (message: UserChatMessage, text: string): Promise<boolean> => {
-      if (!client) return false;
+    async (
+      message: UserChatMessage,
+      content: UserContentPart[],
+      latest: TurnId,
+    ): Promise<boolean> => {
+      if (!client || !editScope) return false;
+      setEditingHistory(true);
       setNotice(undefined);
       try {
-        await client.request('session.rewind', { sessionId: session.id, turnId: message.turnId });
+        const saved: SavedEdit = {
+          sessionId: session.id,
+          turnId: message.turnId,
+          latest,
+          history: editHistory,
+          content,
+          clientMessageId: crypto.randomUUID(),
+          ...(planEnabled && message.collaborationMode === 'plan' && { collaborationMode: 'plan' }),
+        };
+        await saveEdit(editScope, saved);
+        await sendSavedEdit(client, editScope, saved, true);
+        transcriptRef.current?.jumpToLatest('auto');
+        return true;
       } catch (error) {
         setNotice(
           isRpcError(error, 'SESSION_BUSY')
@@ -482,26 +511,11 @@ export function SessionView({
             : t('message.editFailed', { error: describe(error) }),
         );
         return false;
+      } finally {
+        setEditingHistory(false);
       }
-      const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
-      try {
-        await sendText(
-          client,
-          session.id,
-          text,
-          undefined,
-          images,
-          planEnabled && message.collaborationMode === 'plan' ? 'plan' : undefined,
-        );
-        transcriptRef.current?.jumpToLatest('auto');
-      } catch (error) {
-        // 回合已经撤回了：改过的文字放回输入框，用户再发一次。
-        restoreDraft(session.id, text);
-        setNotice(sendError(error));
-      }
-      return true;
     },
-    [client, session.id, planEnabled],
+    [client, session.id, planEnabled, editHistory, editScope],
   );
   // 插话的“回退”：撤回插话所在的回合，回合开头的消息与插话追加回输入框。
   const rewindTurn = useCallback(
@@ -527,7 +541,11 @@ export function SessionView({
   // 最后一个回合之后换过来源（0.25.0）：Host 不让编辑那个回合；额度用完的卡片比的是那个回合用的模型。
   const handoff = state?.handoff;
   const editTurnId =
-    rewindEnabled && sessionState === 'idle' && transcript !== undefined && handoff === undefined
+    rewindEnabled &&
+    sessionState === 'idle' &&
+    state?.caughtUp &&
+    handoff === undefined &&
+    state.turnId !== state.lastInterruptedTurn
       ? state?.turnId
       : undefined;
   const rewindRunningTurnId =
@@ -568,11 +586,18 @@ export function SessionView({
       : undefined;
   const autoContinueArmed = transcript?.autoContinue;
   const retryEnabled = messageActionsEnabled && hostSupports(view.hello.features, 'turn_retry');
-  const retryTurnId =
-    retryEnabled &&
+  const interrupted =
+    messageActionsEnabled &&
+    client.can('session.write') &&
+    hostSupports(view.hello.features, 'session_restart_continuation') &&
     sessionState === 'idle' &&
-    transcript !== undefined &&
-    state?.lastOutcome === 'failed'
+    state?.caughtUp &&
+    session.interruptedTurn?.turnId === state.turnId
+      ? session.interruptedTurn
+      : undefined;
+  const [continuing, setContinuing] = useState(false);
+  const retryTurnId =
+    retryEnabled && sessionState === 'idle' && state?.lastOutcome === 'failed'
       ? state?.turnId
       : undefined;
   const retryTurn = useCallback(
@@ -645,11 +670,28 @@ export function SessionView({
     view.hello.permissions.includes('provider.read') &&
     view.hello.permissions.includes('session.read');
   const routingEnabled = settings.routing?.enabled === true;
+  const engineNotices =
+    view.status === 'connected' && hostSupports(view.hello.features, 'engine_notices');
+  const canAuthorize =
+    messageActionsEnabled &&
+    engineNotices &&
+    client.can('session.write') &&
+    session.permissionMode === 'auto_review' &&
+    sessionState !== 'closed';
+  const authorizeDenied = useCallback(
+    async (reviewId: string) => {
+      if (client)
+        await client.request('approval.authorizeDenied', { sessionId: session.id, reviewId });
+    },
+    [client, session.id],
+  );
   const messageActions = useMemo<MessageActions>(
     () => ({
+      ...(canAuthorize && { authorizeDenied }),
       ...(routingAvailable && { routing: { enabled: routingEnabled } }),
       ...(branchEnabled && { branch: (turnId: TurnId) => void branchFrom(turnId) }),
-      ...(editTurnId !== undefined && { editTurnId, submitEdit }),
+      ...(editTurnId !== undefined && editScope && { editTurnId, submitEdit }),
+      ...(editTurnId !== undefined && editHistory && { editFromSeq: state?.editFromSeq ?? 0 }),
       ...(rewindEnabled && {
         rewind: {
           ...(editTurnId !== undefined && { turnId: editTurnId }),
@@ -684,6 +726,8 @@ export function SessionView({
       }),
     }),
     [
+      canAuthorize,
+      authorizeDenied,
       routingAvailable,
       routingEnabled,
       messageActionsEnabled,
@@ -692,6 +736,9 @@ export function SessionView({
       branchEnabled,
       branchFrom,
       editTurnId,
+      editHistory,
+      editScope,
+      state?.editFromSeq,
       submitEdit,
       rewindEnabled,
       rewindRunningTurnId,
@@ -844,10 +891,13 @@ export function SessionView({
   const onReview = useMemo(
     () =>
       client && canReview
-        ? (target: ReviewTarget) =>
-            void runCommand(() =>
-              client.request('session.review', { sessionId: session.id, target }),
-            )
+        ? (target: ReviewTarget) => {
+            if (target === 'commit' || target === 'custom') setReviewTarget(target);
+            else
+              void runCommand(() =>
+                client.request('session.review', { sessionId: session.id, target }),
+              );
+          }
         : undefined,
     [canReview, runCommand, client, session.id],
   );
@@ -960,7 +1010,7 @@ export function SessionView({
     ...(onRename && { onRename }),
     ...(onArchive && { onArchive }),
     ...(onCompact && { onCompact }),
-    ...(onReview && { onReview }),
+    ...(onReview && { onReview, extendedReview: engineNotices }),
     ...(onSecondOpinion && { onSecondOpinion }),
     ...(onUndo && { onUndo }),
     ...(onRedo && { onRedo }),
@@ -1055,10 +1105,14 @@ export function SessionView({
           busy={isBusy(sessionState)}
           {...(onCompact && { onCompact })}
         />
-        <SessionModelPicker session={session} onError={setNotice} />
+        <SessionModelPicker
+          session={session}
+          effortShortcuts={variant === 'main'}
+          onError={setNotice}
+        />
       </>
     ),
-    [session, providers, sessionState, onCompact],
+    [session, providers, sessionState, onCompact, variant],
   );
   const composerLeading = useMemo(
     () => <SessionPermissionPicker session={session} onError={setNotice} />,
@@ -1067,6 +1121,18 @@ export function SessionView({
 
   return (
     <div className="flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth">
+      {reviewTarget && client && (
+        <ReviewTargetDialog
+          target={reviewTarget}
+          onClose={() => setReviewTarget(undefined)}
+          onSubmit={async (details) => {
+            if (sessionState === 'error' || sessionState === 'closed')
+              await client.request('session.resume', { sessionId: session.id });
+            await client.request('session.review', { sessionId: session.id, ...details });
+            transcriptRef.current?.jumpToLatest('auto');
+          }}
+        />
+      )}
       {fromHistoryOpen && (
         <FromHistoryDialog
           key={session.id}
@@ -1148,6 +1214,47 @@ export function SessionView({
               onFromHistory={startFromHistory}
               fromHistorySupported={fromHistorySupported}
             />
+            {editScope && variant === 'main' && (
+              <EditRecoveryPanel
+                key={JSON.stringify([editScope, session.id])}
+                scope={editScope}
+                sessionId={session.id}
+                client={client}
+                sending={editingHistory}
+                canSend={
+                  messageActionsEnabled &&
+                  client.can('session.write') &&
+                  sessionState === 'idle' &&
+                  state?.caughtUp === true
+                }
+                canRewind={editTurnId !== undefined}
+                fromSeq={state?.editFromSeq ?? 0}
+                read={readTranscript}
+              />
+            )}
+            {interrupted && (
+              <div
+                className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-muted/60 px-3 py-1.5 text-sm"
+                data-interrupted-turn={interrupted.turnId}
+              >
+                <span className="text-soft-foreground">{t('message.turnInterrupted')}</span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={continuing}
+                  onClick={async () => {
+                    setContinuing(true);
+                    try {
+                      await retryTurn(interrupted.turnId);
+                    } finally {
+                      setContinuing(false);
+                    }
+                  }}
+                >
+                  {t('engineError.continue')}
+                </Button>
+              </div>
+            )}
             {session.origin?.kind === 'history' && session.origin.via !== undefined && (
               <p
                 className="mb-2 text-xs text-muted-foreground"
@@ -1196,6 +1303,7 @@ export function SessionView({
             key={session.id}
             draftKey={session.id}
             sessionId={session.id}
+            catalogProviderId={session.providerId}
             state={sessionState}
             disabled={!client || readOnly !== undefined}
             disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
@@ -1286,9 +1394,11 @@ function PlanReadyBanner({ title }: { title: string | null }) {
  */
 function SessionModelPicker({
   session,
+  effortShortcuts,
   onError,
 }: {
   session: Session;
+  effortShortcuts: boolean;
   onError: (message: string) => void;
 }) {
   const { client, view } = useHostConnection();
@@ -1332,6 +1442,7 @@ function SessionModelPicker({
         providers={providers}
         value={value}
         lockProvider
+        effortShortcuts={effortShortcuts}
         {...(switchable && { switchable })}
         readOnly={!supported || !client || session.readOnly !== undefined}
         onChange={(next) => {
@@ -1481,7 +1592,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const draftKey = newSessionDraftKey(workspaceId);
   const plan = usePlanControl(draftKey, providers ?? NO_PROVIDERS, choice?.providerId);
   const startWithPlan = useCallback(
-    async (text: string, images?: readonly UserImagePart[]) => {
+    async (text: string, images?: readonly ComposerAttachmentPart[]) => {
       const started = await send(text, undefined, images, plan.mode);
       if (started && plan.active) plan.set(false);
       return started;
@@ -1599,10 +1710,23 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             }
             model={
               providers &&
-              choice && <ModelPicker providers={providers} value={choice} onChange={choose} />
+              choice && (
+                <ModelPicker
+                  effortShortcuts
+                  providers={providers}
+                  value={choice}
+                  onChange={choose}
+                />
+              )
             }
             onStop={() => {}}
             autoFocus
+            allowDraftSkills={
+              view.status === 'connected' &&
+              !!choice &&
+              engineFeaturesOf(view.hello.engineFeatures, providers ?? [], choice.providerId)
+                ?.skills === true
+            }
             commands={commands}
             {...(fileScope && { fileScope })}
             tray={

@@ -174,6 +174,7 @@ describe('范围', () => {
   it('来源：最近一回合是最新的有快照的回合，没有时没有来源', () => {
     expect(resolveSource({ kind: 'uncommitted' }, turns)).toEqual({ kind: 'uncommitted' });
     expect(resolveSource({ kind: 'branch' }, turns)).toEqual({ kind: 'branch' });
+    expect(resolveSource({ kind: 'session' }, turns)).toEqual({ kind: 'session' });
     expect(resolveSource({ kind: 'latest' }, turns)).toEqual({ kind: 'turn', turnId: T2 });
     expect(resolveSource({ kind: 'turn', turnId: T1 }, turns)).toEqual({
       kind: 'turn',
@@ -185,6 +186,7 @@ describe('范围', () => {
   it('按钮上的字：最新的回合写“最近一回合”', () => {
     expect(scopeLabel({ kind: 'uncommitted' }, turns)).toBe('未提交');
     expect(scopeLabel({ kind: 'branch' }, turns)).toBe('本分支');
+    expect(scopeLabel({ kind: 'session' }, turns)).toBe('整个会话');
     expect(scopeLabel({ kind: 'latest' }, turns)).toBe('最近一回合');
     expect(scopeLabel({ kind: 'turn', turnId: T2 }, turns)).toBe('最近一回合');
     expect(scopeLabel({ kind: 'turn', turnId: T1 }, turns)).toBe('第 1 回合');

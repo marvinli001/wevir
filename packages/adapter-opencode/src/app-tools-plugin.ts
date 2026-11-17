@@ -27,14 +27,25 @@ export function appToolsPluginSource(zodUrl: string): string {
 // SPDX-License-Identifier: Apache-2.0
 // 改写自 getpaseo/paseo（https://github.com/getpaseo/paseo）的 bridge-plugin.mjs，Copyright (c) 2025-present Mohamed Boudra，由 Wevir 修改。
 import { z } from ${JSON.stringify(zodUrl)};
+import { readFile, unlink } from 'node:fs/promises';
 
 const SESSION_HEADER = ${JSON.stringify(APP_TOOLS_ENGINE_SESSION_HEADER)};
 const DISPATCH = new Set(${JSON.stringify([APP_TOOLS_CALL_READONLY, APP_TOOLS_CALL])});
 
 export default async function wevirAppTools(_input, options) {
+  const hooks = {
+    async 'chat.message'({ sessionID, messageID }, { message }) {
+      if (typeof messageID !== 'string' || !/^msg_[A-Za-z0-9]+WevirRules$/.test(messageID)) return;
+      const file = new URL('../command-rules/' + messageID + '.json', import.meta.url);
+      const record = JSON.parse(await readFile(file, 'utf8'));
+      if (record.sessionID !== sessionID || typeof record.system !== 'string') throw new Error('OpenCode command rules do not match this session');
+      message.system = [message.system, record.system].filter(Boolean).join('\\n\\n');
+      await unlink(file);
+    }
+  };
   const url = options?.url;
   const token = options?.token;
-  if (typeof url !== 'string' || typeof token !== 'string') return {};
+  if (typeof url !== 'string' || typeof token !== 'string') return hooks;
   const noApproval = new Set(Array.isArray(options.noApproval) ? options.noApproval : []);
   let nextId = 1;
   const rpc = async (method, params, sessionID, signal) => {
@@ -62,7 +73,7 @@ export default async function wevirAppTools(_input, options) {
     listed = await rpc('tools/list', {});
   } catch (error) {
     console.error('[wevir-app-tools] could not list the Wevir tools:', error instanceof Error ? error.message : String(error));
-    return {};
+    return hooks;
   }
   const tool = {};
   for (const definition of Array.isArray(listed.tools) ? listed.tools : []) {
@@ -86,7 +97,7 @@ export default async function wevirAppTools(_input, options) {
       },
     };
   }
-  return { tool };
+  return { ...hooks, tool };
 }
 
 function resultText(result) {

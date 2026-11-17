@@ -1,5 +1,5 @@
 // 分支到新会话与撤回（0.38.0，codex-event-mapping.md §6.15）：真实 codex-app-server + 网关 + mock 模型。`fork` 的 branch 分出
-// 持久化的 thread，只带到去掉最后几个回合之前；`rewind` 用 `thread/revert` 撤回最后一个回合。看模型收到的请求里有哪些回合。
+// 持久化的 thread，只带到去掉最后几个回合之前；`rewind` 用一次 `thread/revert` 撤回后缀。看模型收到的请求里有哪些回合。
 // 二进制不在时跳过。
 
 import type { AgentEvent } from '@wevir/runtime-adapter';
@@ -142,15 +142,19 @@ describe.skipIf(binary === undefined)(
       await finishTurn(events, from);
     });
 
-    it('撤回最后一个回合：下一个回合的请求里没有它；可以连着撤回；换进程恢复之后也能撤回', async () => {
+    it('按原生 ID 核对后撤回多个回合；默认只撤回最后一个，进程恢复之后也能撤回', async () => {
       const { adapter, id, config, events, home } = await open();
       await run(adapter, id, events, '保留 KILO');
-      await run(adapter, id, events, '撤掉 LIMA');
-      await adapter.rewind(id);
+      const middle = await run(adapter, id, events, '撤掉 LIMA');
+      const bound = middle.find((event) => event.type === 'turn.bound');
+      expect(bound).toBeDefined();
+      await run(adapter, id, events, '一并撤掉 UNIFORM');
+      await adapter.rewind(id, 2, bound?.engineTurnId);
       await run(adapter, id, events, '改过 MIKE');
       const input = inputWith('改过 MIKE');
       expect(input).toContain('KILO');
       expect(input).not.toContain('LIMA');
+      expect(input).not.toContain('UNIFORM');
 
       await adapter.rewind(id);
       await run(adapter, id, events, '再改 NOVEMBER');
@@ -178,6 +182,12 @@ describe.skipIf(binary === undefined)(
       const { adapter, id, config, events } = await open();
       await expect(adapter.rewind(id)).rejects.toMatchObject({ code: 'invalid_input' });
       await run(adapter, id, events, '唯一 PAPA');
+      for (const count of [0, -1, 1.5, 2, Number.MAX_SAFE_INTEGER + 1]) {
+        await expect(adapter.rewind(id, count)).rejects.toMatchObject({ code: 'invalid_input' });
+      }
+      await expect(adapter.rewind(id, 1, 'unknown-turn-id')).rejects.toMatchObject({
+        code: 'invalid_input',
+      });
       await expect(
         adapter.fork(id, config, { kind: 'branch', dropTurns: 1 }),
       ).rejects.toMatchObject({ code: 'invalid_input' });
@@ -185,6 +195,7 @@ describe.skipIf(binary === undefined)(
       await adapter.send(id, { content: [{ type: 'text', text: '[slow] 进行中 QUEBEC' }] });
       await expect(adapter.rewind(id)).rejects.toMatchObject({ code: 'session_busy' });
       await finishTurn(events, from);
+      expect(inputWith('进行中 QUEBEC')).toContain('PAPA');
     });
   },
 );

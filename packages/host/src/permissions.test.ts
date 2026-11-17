@@ -39,3 +39,15 @@ describe('restored workspace permissions', () => {
     ).toEqual(['host.manage']);
   });
 });
+
+it('requires policy.write for persistent Codex policy changes', () => {
+  const granted = new Set(['session.write']);
+  for (const [optionId, expected] of [
+    ['accept', []],
+    ['codex-policy-1', ['policy.write']],
+  ] as const) {
+    expect(
+      missingParamPermissions('approval.respond', { approvalId: 'apr_test', optionId }, granted),
+    ).toEqual(expected);
+  }
+});

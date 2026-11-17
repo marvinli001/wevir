@@ -7,9 +7,9 @@ let cacheGeneration = 0;
 let authorizationGeneration = 0;
 const cleared = new Set<() => void>();
 const epoch = '1970-01-01T00:00:00.000Z';
-function database() {
+export function browserLibraryDatabase() {
   opened ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('wevir-derived-library', 2);
+    const request = indexedDB.open('wevir-derived-library', 3);
     let failed = false;
     const unavailable = () => {
       failed = true;
@@ -18,7 +18,10 @@ function database() {
     };
     const timeout = setTimeout(unavailable, 5000);
     request.onblocked = unavailable;
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
+      if (!request.result.objectStoreNames.contains('composer'))
+        request.result.createObjectStore('composer');
+      if (event.oldVersion >= 2) return;
       const store = request.result.objectStoreNames.contains('records')
         ? (request.transaction as IDBTransaction).objectStore('records')
         : request.result.createObjectStore('records');
@@ -59,7 +62,7 @@ async function transaction<T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
-  const db = await database();
+  const db = await browserLibraryDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('records', mode);
     const request = run(tx.objectStore('records'));
@@ -69,7 +72,7 @@ async function transaction<T>(
   });
 }
 async function records() {
-  const db = await database();
+  const db = await browserLibraryDatabase();
   return new Promise<{ rows: unknown[]; keys: IDBValidKey[] }>((resolve, reject) => {
     const tx = db.transaction('records'),
       store = tx.objectStore('records');
@@ -95,7 +98,7 @@ async function remove(keys: readonly IDBValidKey[]) {
     });
 }
 async function prune() {
-  const db = await database();
+  const db = await browserLibraryDatabase();
   const stale = await new Promise<IDBValidKey[]>((resolve, reject) => {
     const tx = db.transaction('records'),
       cursor = tx.objectStore('records').index('savedAt').openKeyCursor(null, 'prev');
@@ -163,7 +166,14 @@ export async function browserConversations(): Promise<OfflineConversation[]> {
 export async function clearBrowserLibrary() {
   cacheGeneration++;
   await browserDrafts.drain();
-  await transaction('readwrite', (store) => store.clear());
+  const db = await browserLibraryDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(['records', 'composer'], 'readwrite');
+    tx.objectStore('records').clear();
+    tx.objectStore('composer').clear();
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error);
+  });
   for (const listener of cleared) listener();
 }
 export function watchBrowserLibrary(listener: () => void) {

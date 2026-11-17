@@ -10,12 +10,13 @@ import {
   MethodSchemas,
   type VerificationRun,
 } from '@wevir/protocol';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { isHostError } from '../errors.js';
 import { readStaged, readUncommitted } from '../git-diff.js';
 import { useTempDir } from '../test-utils.js';
 import { readCodeState } from '../verification/code-state.js';
 import { parseTrace2 } from './commit.js';
+import { createProjectDirectory } from './project.js';
 import { GitService, type GitVerificationSource, summarize } from './service.js';
 
 const tempDir = useTempDir();
@@ -87,6 +88,124 @@ const fileOf = (status: GitStatusResult, path: string) =>
   status.files?.find((file) => file.path === path);
 
 const head = (dir: string) => sh(dir, 'rev-parse', 'HEAD').trim();
+
+describe('Git branch and publish operations', () => {
+  it('checks the branch even when both refs point to the same commit, and preserves conflicting edits', async () => {
+    const dir = repo();
+    sh(dir, 'branch', 'topic/fix');
+    const git = new GitService();
+    const expected = { ...expectedOf(await git.status(dir)), branch: 'main' };
+    expect(await git.branches(dir)).toEqual({
+      current: 'main',
+      branches: ['main', 'topic/fix'],
+      remotes: [],
+    });
+    expect((await git.switchBranch(dir, 'topic/fix', expected)).branch).toBe('topic/fix');
+    await stateChanged(git.switchBranch(dir, 'main', expected));
+    write(dir, 'a.txt', 'committed on topic');
+    sh(dir, 'commit', '-qam', 'topic');
+    sh(dir, 'switch', '-q', 'main');
+    write(dir, 'a.txt', 'my edits');
+    await expect(git.switchBranch(dir, 'topic/fix', expected)).rejects.toThrow(/overwritten/);
+    expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('my edits');
+    expect(sh(dir, 'branch', '--show-current').trim()).toBe('main');
+  });
+
+  it('pushes only the confirmed branch and refuses divergent history', async () => {
+    const dir = repo(),
+      bare = join(tempDir(), 'remote.git');
+    sh(dir, 'init', '-q', '--bare', bare);
+    sh(dir, 'remote', 'add', 'origin', bare);
+    sh(dir, 'branch', 'other');
+    sh(dir, 'tag', 'release');
+    sh(dir, 'config', 'remote.origin.mirror', 'true');
+    const git = new GitService();
+    const expected = { ...expectedOf(await git.status(dir)), branch: 'main' };
+    await git.push(dir, 'origin', expected);
+    expect(sh(bare, 'for-each-ref', '--format=%(refname)')).toBe('refs/heads/main\n');
+    expect(sh(bare, 'rev-parse', 'refs/heads/main').trim()).toBe(expected.head);
+    write(dir, 'a.txt', 'new commit');
+    sh(dir, 'commit', '-qam', 'next');
+    await stateChanged(git.push(dir, 'origin', expected));
+    await git.push(dir, 'origin', { ...expectedOf(await git.status(dir)), branch: 'main' });
+    const published = head(dir);
+    sh(dir, 'reset', '-q', '--hard', 'HEAD~1');
+    await expect(git.push(dir, 'origin', expected)).rejects.toThrow();
+    expect(sh(bare, 'rev-parse', 'refs/heads/main').trim()).toBe(published);
+    await expect(git.push(dir, bare, expected)).rejects.toThrow(/configured Git remote/);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'creates a PR for the published SHA through gh and preserves the body',
+    async () => {
+      const dir = repo(),
+        bin = join(tempDir(), 'bin');
+      mkdirSync(bin);
+      sh(dir, 'remote', 'add', 'origin', 'git@github.com:owner/repo.git');
+      const gh = join(bin, 'gh');
+      writeFileSync(
+        gh,
+        `#!/bin/sh
+if [ "$1" = api ]; then git rev-parse HEAD; exit; fi
+if [ "$1 $2 $3 $4 $5 $6" != "pr create --repo github.com/owner/repo --head main" ]; then exit 1; fi
+cat > .git/pr-body
+echo https://github.com/owner/repo/pull/42
+`,
+      );
+      chmodSync(gh, 0o755);
+      vi.stubEnv('PATH', `${bin}:${process.env.PATH}`);
+      try {
+        const git = new GitService();
+        const expected = { ...expectedOf(await git.status(dir)), branch: 'main' };
+        const body = 'one\ntwo\n';
+        expect(
+          await git.pullRequest(dir, 'origin', expected, {
+            title: 'Changes',
+            body,
+            base: 'develop',
+          }),
+        ).toEqual({ url: 'https://github.com/owner/repo/pull/42' });
+        expect(readFileSync(join(dir, '.git', 'pr-body'), 'utf8')).toBe(body);
+        sh(dir, 'remote', 'set-url', 'origin', 'ssh://git@example.test/owner/repo.git');
+        await expect(
+          git.pullRequest(dir, 'origin', expected, { title: 'Changes' }),
+        ).rejects.toThrow(/GitHub repository/);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it('clones a real repository through SSH and never replaces an existing target', async () => {
+    const source = repo(),
+      parent = tempDir();
+    const ssh = join(parent, 'local-ssh.cjs');
+    // SSH 的传输端换成临时仓库的 upload-pack，不接触用户的密钥或网络。
+    writeFileSync(
+      ssh,
+      `const {spawnSync}=require('node:child_process');process.exit(spawnSync('git',['upload-pack',${JSON.stringify(source)}],{stdio:'inherit'}).status ?? 1)`,
+    );
+    sh(parent, 'config', '--global', 'core.sshCommand', `"${process.execPath}" "${ssh}"`);
+    sh(parent, 'config', '--global', 'ssh.variant', 'ssh');
+    try {
+      const copy = await createProjectDirectory(
+        parent,
+        'copy',
+        'ssh://git@example.test/owner/repo.git',
+      );
+      expect(head(copy)).toBe(head(source));
+      expect(readFileSync(join(copy, 'a.txt'), 'utf8')).toBe('a1\n');
+      await expect(createProjectDirectory(parent, 'copy')).rejects.toThrow(/already exists/);
+      await expect(createProjectDirectory(parent, '../outside')).rejects.toThrow(/directory name/);
+      await expect(createProjectDirectory(parent, 'unsafe', source)).rejects.toThrow(
+        /HTTPS or SSH/,
+      );
+    } finally {
+      sh(parent, 'config', '--global', '--unset', 'core.sshCommand');
+      sh(parent, 'config', '--global', '--unset', 'ssh.variant');
+    }
+  });
+});
 
 const validStatus = (status: unknown) =>
   expect(MethodSchemas['git.status'].result.safeParse(status).error?.issues).toBeUndefined();

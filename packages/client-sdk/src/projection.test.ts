@@ -1049,6 +1049,41 @@ describe('TranscriptProjection：会话级事件', () => {
     ]);
   });
 
+  it('运行提示默认可见；首个文本清除等待状态，用户授权更新原审查记录', () => {
+    const { list, add, turn } = events();
+    add('engine.notice', { detail: { kind: 'mcp_failed', server: 'docs', message: 'ENOENT' } });
+    turn();
+    const denied = {
+      kind: 'approval_review',
+      reviewId: 'r1',
+      action: 'git status',
+      status: 'denied',
+    } as const;
+    add('engine.notice', { turnId: TURN, detail: { ...denied, status: 'inProgress' } });
+    add('engine.notice', { turnId: TURN, detail: denied });
+    add('engine.notice', {
+      turnId: TURN,
+      detail: { kind: 'output_buffering', active: true, model: 'gpt' },
+    });
+    expect(assistantParts(list)).toHaveLength(2);
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 0,
+      kind: 'text',
+      text: 'Ready',
+    });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 180 });
+    add('engine.notice', { detail: { ...denied, status: 'userApproved' } });
+    const notices = projectTranscript(list)
+      .messages.flatMap((message) => message.parts)
+      .filter((part) => part.type === 'notice');
+    expect(notices).toMatchObject([
+      { notice: { detail: { kind: 'mcp_failed', server: 'docs' } } },
+      { notice: { detail: { kind: 'approval_review', reviewId: 'r1', status: 'userApproved' } } },
+    ]);
+  });
+
   it('engine.raw 只在 includeRaw 时投影，放进进行中的回合', () => {
     const { list, add, turn } = events();
     turn();

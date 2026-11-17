@@ -22,6 +22,7 @@ import {
   SyncSharedFilesMetadataSchema,
   type SyncStreamRef,
   SyncWorkspaceMetadataSchema,
+  UserFilePartSchema,
   UserImagePartSchema,
   type WevirEvent,
   WevirEventSchema,
@@ -753,11 +754,17 @@ export class SyncMaterials {
       }
     }
     const metadata = body.metadata as { schema?: string; part?: unknown } | undefined;
-    if (op.entityType === 'artifact' && metadata?.schema === 'wevir-image/1') {
-      const part = UserImagePartSchema.parse(metadata.part);
+    if (
+      op.entityType === 'artifact' &&
+      (metadata?.schema === 'wevir-image/1' || metadata?.schema === 'wevir-file/1')
+    ) {
+      const part =
+        metadata.schema === 'wevir-file/1'
+          ? UserFilePartSchema.parse(metadata.part)
+          : UserImagePartSchema.parse(metadata.part);
       if (
         body.files.length !== 1 ||
-        body.name !== part.imageId ||
+        body.name !== (part.type === 'image' ? part.imageId : part.fileId) ||
         !(await this.#images.importSynced(part, resolve(root, body.files[0]?.path as string)))
       )
         throw new ZuvRequestError('INTEGRITY_FAILED');

@@ -142,6 +142,29 @@ describe('TurnCheckpoints', () => {
     });
   });
 
+  it('整个会话用首回合前到末回合后的快照，裁剪后仍保留起点', async () => {
+    const dir = repo();
+    const { service } = checkpoints({ maxTurns: 1 });
+    writeFileSync(join(dir, 'initial.md'), 'already here');
+    await service.beforeTurn(SID, dir, T1);
+    writeFileSync(join(dir, 'first.md'), 'first change');
+    service.afterTurn(SID, dir, T1);
+    await service.beforeTurn(SID, dir, T2);
+    writeFileSync(join(dir, 'second.md'), 'second change');
+    expect(await service.sessionDiff(SID, dir, { first: T1, last: T2, end: 'live' })).toMatchObject(
+      { live: true, fileCount: 2 },
+    );
+    service.afterTurn(SID, dir, T2);
+    await service.settled(SID);
+    writeFileSync(join(dir, 'external.md'), 'later edit');
+    const diff = await service.sessionDiff(SID, dir, { first: T1, last: T2, end: 'after' });
+    expect(diff.files?.map((file) => file.path)).toEqual(['first.md', 'second.md']);
+    expect((await service.list(SID, dir)).turns.map((turn) => turn.turnId)).toEqual([T2]);
+    expect(
+      (await service.sessionDiff(SID, dir, { first: T1, last: T3, end: 'after' })).unavailable,
+    ).toBe('no_checkpoint');
+  });
+
   it('回合里 pull 带进来的文件不算，回合自己的提交算', async () => {
     const dir = repo();
     // 上游早就有的提交（提交时间在回合开始之前）。
@@ -331,6 +354,12 @@ describe('SessionManager 与方法', () => {
       turns: [{ turnId, fileCount: 0, added: 0, removed: 0 }],
     });
     expect(refs(workspaceDir)).toHaveLength(2);
+    expect(
+      await methods['workspace.diff'](
+        { workspaceId: 'ws_1', sessionId, source: { kind: 'session' } },
+        context,
+      ),
+    ).toMatchObject({ repo: true, fileCount: 0, head: expect.any(String) });
     await expect(
       methods['workspace.diff'](
         { workspaceId: 'ws_1', source: { kind: 'turn', turnId: turnId as TurnId } },
@@ -340,6 +369,43 @@ describe('SessionManager 与方法', () => {
 
     await manager.close(sessionId);
     await vi.waitFor(() => expect(refs(workspaceDir)).toEqual([]));
+  });
+
+  it('空项目登记新子目录；配对设备在已登记源目录内创建项目', async () => {
+    const { methods, workspaceDir } = setup();
+    const remote = { ...context, principal: { kind: 'device' as const, deviceId: 'paired' } };
+    await expect(
+      methods['workspace.create']({ parentPath: tempDir(), name: 'elsewhere' }, remote),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    const added = await methods['workspace.create'](
+      { parentPath: workspaceDir, name: 'notes' },
+      remote,
+    );
+    expect(added).toMatchObject({
+      created: true,
+      workspace: { rootPath: join(workspaceDir, 'notes'), displayName: 'notes' },
+    });
+    expect(await methods['workspace.list']({}, context)).toMatchObject({
+      workspaces: expect.arrayContaining([added.workspace]),
+    });
+  });
+
+  it('配对设备不能经仓库内的子项目切换未登记的整个仓库', async () => {
+    const { methods, workspaceDir } = setup();
+    const sub = join(workspaceDir, 'sub');
+    mkdirSync(sub);
+    const { workspace } = await methods['workspace.add']({ rootPath: sub }, context);
+    await methods['workspace.remove']({ workspaceId: 'ws_1' }, context);
+    await expect(
+      methods['git.switchBranch'](
+        {
+          workspaceId: workspace.id,
+          branch: 'main',
+          expected: { head: null, index: '0'.repeat(64), branch: null },
+        },
+        { ...context, principal: { kind: 'device', deviceId: 'paired' } },
+      ),
+    ).rejects.toThrow('register the repository root');
   });
 
   it('uncommitted、branch 与 diffFile；路径不许往上走', async () => {

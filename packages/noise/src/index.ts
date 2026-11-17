@@ -3,7 +3,13 @@
 export type { CipherState } from './cipher-state.js';
 export { MAX_MESSAGE_LENGTH, MAX_NONCE } from './cipher-state.js';
 export { NoiseError, type NoiseErrorCode } from './errors.js';
-export { FrameReader, MAX_FRAGMENT_LENGTH, MAX_FRAME_LENGTH, sealFrame } from './frame.js';
+export {
+  FrameReader,
+  MAX_FRAGMENT_LENGTH,
+  MAX_FRAME_LENGTH,
+  MAX_RPC_FRAME_LENGTH,
+  sealFrame,
+} from './frame.js';
 export {
   createHandshake,
   type HandshakeOptions,

@@ -2,6 +2,7 @@ import type { Session, Workspace } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { dismissWrapUpCard } from './dismissed-wrap-ups';
 import {
+  adjacentSession,
   chatsOf,
   groupByStatus,
   groupSessions,
@@ -18,6 +19,32 @@ import {
 } from './workbench-model';
 
 const NOW = '2026-10-13T00:00:00.000Z';
+
+it('前后会话跨项目循环并跳过归档、助理和子会话', () => {
+  const project = workspace('ws_a'),
+    other = workspace('ws_b');
+  const first = session('ses_a', project.id),
+    last = session('ses_b', other.id);
+  const list = [
+    {
+      workspace: project,
+      sessions: [
+        first,
+        session('ses_arch', project.id, { archivedAt: NOW }),
+        session('ses_child', project.id, { parentSessionId: first.id }),
+      ],
+    },
+    {
+      workspace: { ...other, kind: 'assistant' as const },
+      sessions: [session('ses_assist', other.id)],
+    },
+    { workspace: other, sessions: [last] },
+  ];
+  expect(adjacentSession(list, first.id, 1)).toBe(last);
+  expect(adjacentSession(list, first.id, -1)).toBe(last);
+  expect(adjacentSession(list, undefined, 1)).toBe(first);
+  expect(adjacentSession([], undefined, -1)).toBeUndefined();
+});
 
 function workspace(id: `ws_${string}`): Workspace {
   return { id, rootPath: `/tmp/${id}`, displayName: id, createdAt: NOW, updatedAt: NOW };

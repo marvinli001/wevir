@@ -150,6 +150,63 @@ function requestFor(needle: string, from = 0): number {
 }
 
 describe.skipIf(!ENABLED)('OpenCodeAdapter（真实 opencode + 假模型）', { timeout: 60_000 }, () => {
+  it('目录命令在原会话执行，保留系统规则并在 HTTP 完成前完成审批', async () => {
+    if (!model) throw new Error('mock model not started');
+    const env = isolatedOpenCodeEnv(root, model.baseUrl);
+    const adapter = new OpenCodeAdapter({
+      home: join(root, 'home-command'),
+      env: {
+        ...env,
+        ...(BIN && { [OPENCODE_BIN_ENV]: BIN }),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({
+          ...JSON.parse(env.OPENCODE_CONFIG_CONTENT as string),
+          command: {
+            fixture: {
+              description: 'Fixture command',
+              template: `${DEFAULT_CONTRACT_PROMPTS.approval} $ARGUMENTS`,
+            },
+          },
+        }),
+      },
+    });
+    try {
+      const rule = 'Wevir command session rule';
+      const { engineSessionId: id } = await adapter.createSession({
+        cwd: workspace,
+        providerId: 'opencode',
+        modelId: MODEL,
+        permissionMode: 'on_request',
+        ruleInstructions: rule,
+      });
+      expect(await adapter.listCommands(id)).toContainEqual({
+        name: 'fixture',
+        description: 'Fixture command',
+        argumentHint: '$ARGUMENTS',
+      });
+      const log = watch(adapter, id),
+        from = model.requests.length;
+      await adapter.send(id, text('/fixture argument-marker'));
+      await log.until((items) => items.some((event) => event.type === 'approval.requested'));
+      const approval = log.events.find((item) => item.type === 'approval.requested');
+      if (!approval) throw new Error('missing approval');
+      const option = approval.options.find((item) => item.kind?.startsWith('allow'));
+      if (!option) throw new Error('missing approval option');
+      await adapter.respondToApproval(id, approval.requestId, { optionId: option.optionId });
+      await log.until((items) => items.some(isTurnTerminal));
+      expect(log.events.filter(isTurnTerminal)).toMatchObject([
+        { type: 'turn.settled', outcome: 'completed' },
+      ]);
+      const request = model.requests[requestFor('argument-marker', from)];
+      expect(JSON.stringify(request?.messages?.filter((msg) => msg.role === 'system'))).toContain(
+        rule,
+      );
+      expect(JSON.stringify(request?.messages?.filter((msg) => msg.role === 'user'))).toContain(
+        DEFAULT_CONTRACT_PROMPTS.approval,
+      );
+    } finally {
+      await adapter.dispose();
+    }
+  });
   it('标题：经 StructuredOutput 交出 JSON，说明接在系统提示后面', async () => {
     const adapter = newAdapter('home-title');
     try {

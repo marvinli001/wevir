@@ -7,6 +7,7 @@ import bedrock from '@/assets/provider-logos/bedrock-color.svg';
 import claude from '@/assets/provider-logos/claude-color.svg';
 import codebuddy from '@/assets/provider-logos/codebuddy-color.svg';
 import codex from '@/assets/provider-logos/codex-color.svg';
+import cohere from '@/assets/provider-logos/cohere-color.svg';
 import cursor from '@/assets/provider-logos/cursor.svg';
 import deepseek from '@/assets/provider-logos/deepseek-color.svg';
 import devin from '@/assets/provider-logos/devin-color.svg';
@@ -18,7 +19,10 @@ import groq from '@/assets/provider-logos/groq.svg';
 import kimi from '@/assets/provider-logos/kimi-color.svg';
 import kimiLight from '@/assets/provider-logos/kimi-color-light.svg';
 import kiro from '@/assets/provider-logos/kiro-color.svg';
+import meta from '@/assets/provider-logos/meta-color.svg';
 import minimax from '@/assets/provider-logos/minimax-color.svg';
+import mistral from '@/assets/provider-logos/mistral-color.svg';
+import nova from '@/assets/provider-logos/nova-color.svg';
 import ollama from '@/assets/provider-logos/ollama.svg';
 import openai from '@/assets/provider-logos/openai.svg';
 import opencode from '@/assets/provider-logos/opencode.svg';
@@ -46,6 +50,10 @@ interface LogoEntry {
  * （原图有为深色底画的白色部分）。
  */
 const LOGOS = {
+  meta: { src: meta, mono: false },
+  mistral: { src: mistral, mono: false },
+  cohere: { src: cohere, mono: false },
+  nova: { src: nova, mono: false },
   openai: { src: openai, mono: true },
   anthropic: { src: anthropic, mono: true },
   gemini: { src: gemini, mono: false },

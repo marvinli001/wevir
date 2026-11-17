@@ -50,8 +50,8 @@ export interface ChatgptAccountOptions {
   codexHome?: string;
 }
 
-/** Wevir 的推理档位（protocol `ProviderReasoningLevel`）；Codex 多出来的（如 `ultra`）不列。 */
-const WEVIR_EFFORTS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+/** 同 protocol 的 ProviderReasoningLevel。 */
+const WEVIR_EFFORTS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 
 /** 主额度的 `limitId`；其余的是某些模型单独的额度（Codex 的 `additional_rate_limits`）。 */
 const MAIN_LIMIT = 'codex';
@@ -552,6 +552,8 @@ export function accountModels(data: readonly CodexModel[]): AccountModels {
     if (Array.isArray(model.inputModalities) && model.inputModalities.includes('image')) {
       entry.supportsImages = true;
     }
+    const defaultEffort = fromCodexEffort(model.defaultReasoningEffort);
+    if (WEVIR_EFFORTS.has(defaultEffort)) entry.defaultReasoningEffort = defaultEffort;
     if (Array.isArray(model.supportedReasoningEfforts)) {
       entry.reasoningEfforts = model.supportedReasoningEfforts
         .map((option) => fromCodexEffort(String(option?.reasoningEffort)))

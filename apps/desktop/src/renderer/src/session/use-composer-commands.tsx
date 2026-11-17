@@ -37,6 +37,7 @@ import { useCan } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import type { PaneController } from '@/layout/pane-controller';
 import { paths } from '@/routes/paths';
+import { modelLogo } from '@/settings/model-logo';
 import { providerLogo } from '@/settings/provider-catalog';
 import type { ComposerCommand, ComposerCommandItem } from './composer-commands';
 import { composerPrefs, toggleContextMeter } from './composer-prefs';
@@ -76,12 +77,18 @@ function modelCommand(
         const group = source
           ? sourceTitle(candidate, accounts, t(source.name))
           : candidate.displayName;
-        const logo = source?.logo ?? providerLogo(candidate);
+        const sourceLogo = source?.logo ?? providerLogo(candidate);
         return modelsOf(candidate).map<ComposerCommandItem>((model) => ({
           id: `${candidate.id}/${model.id}`,
           label: model.displayName ?? model.id,
           detail: group,
-          icon: <ProviderLogo logo={logo} fallback={group} className="size-4" />,
+          icon: (
+            <ProviderLogo
+              logo={modelLogo(model) ?? sourceLogo}
+              fallback={model.displayName ?? model.id}
+              className="size-4"
+            />
+          ),
           checked: candidate.id === value.providerId && model.id === value.modelId,
           run: () => {
             if (candidate.id === value.providerId && model.id === value.modelId) return;
@@ -111,12 +118,15 @@ function effortCommand(
     name: 'effort',
     label: t('command.effort'),
     icon: Brain,
-    detail: effortLabel(value.reasoningEffort),
+    detail: effortLabel(value.reasoningEffort ?? model?.defaultReasoningEffort),
     plus: true,
     items: () => [
       {
         id: 'default',
-        label: effortLabel(undefined),
+        label:
+          model?.defaultReasoningEffort === undefined
+            ? effortLabel(undefined)
+            : t('model.effort.defaultLevel', { level: effortLabel(model.defaultReasoningEffort) }),
         checked: value.reasoningEffort === undefined,
         run: () => {
           const { reasoningEffort: _cleared, ...rest } = value;
@@ -241,6 +251,7 @@ export interface SessionCommandOptions {
   /** Host 能压缩上下文、审查代码（0.24.0）、会话当前的引擎会（0.27.0）且会话可写时给。 */
   onCompact?: () => void;
   onReview?: (target: ReviewTarget) => void;
+  extendedReview?: boolean;
   /** 第二意见（0.75.0）：Host 声明 `second_opinion`、顶层会话且可写时给。 */
   onSecondOpinion?: (choice: ModelChoice) => void;
   /** 会话能撤销与重做（0.51.0）且可写时给；`onRedo` 只在有撤销的回合可重做时给。 */
@@ -278,12 +289,18 @@ function secondOpinionCommand(
         const group = source
           ? sourceTitle(candidate, accounts, t(source.name))
           : candidate.displayName;
-        const logo = source?.logo ?? providerLogo(candidate);
+        const sourceLogo = source?.logo ?? providerLogo(candidate);
         return modelsOf(candidate).map<ComposerCommandItem>((model) => ({
           id: `${candidate.id}/${model.id}`,
           label: model.displayName ?? model.id,
           detail: group,
-          icon: <ProviderLogo logo={logo} fallback={group} className="size-4" />,
+          icon: (
+            <ProviderLogo
+              logo={modelLogo(model) ?? sourceLogo}
+              fallback={model.displayName ?? model.id}
+              className="size-4"
+            />
+          ),
           run: () => onPick({ providerId: candidate.id, modelId: model.id }),
         }));
       });
@@ -319,6 +336,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onArchive,
     onCompact,
     onReview,
+    extendedReview,
     onSecondOpinion,
     onUndo,
     onRedo,
@@ -369,6 +387,12 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
         items: () => [
           { id: 'uncommitted', label: t('review.uncommitted'), run: () => onReview('uncommitted') },
           { id: 'branch', label: t('review.baseBranch'), run: () => onReview('branch') },
+          ...(extendedReview
+            ? [
+                { id: 'commit', label: t('review.commit'), run: () => onReview('commit') },
+                { id: 'custom', label: t('review.custom'), run: () => onReview('custom') },
+              ]
+            : []),
         ],
       });
     }
@@ -389,6 +413,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onArchive,
     onCompact,
     onReview,
+    extendedReview,
     onSecondOpinion,
     onUndo,
     onRedo,

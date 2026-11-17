@@ -354,6 +354,8 @@ interface Applied {
 }
 
 interface RootSession extends Owner {
+  commands?: import('@wevir/runtime-adapter').EngineComposerCommand[];
+  terminalCommands?: ReadonlySet<string>;
   kind: 'root';
   config: SessionConfig;
   open: boolean;
@@ -511,7 +513,7 @@ export function claudeProposedPlan(input: unknown): string | undefined {
 
 function textOf(input: AgentInput): string {
   return input.content
-    .flatMap((part) => (part.type === 'text' && part.text !== '' ? [part.text] : []))
+    .flatMap((part) => (part.type !== 'image' && part.text !== '' ? [part.text] : []))
     .join('\n\n');
 }
 
@@ -522,31 +524,38 @@ type UserContent = SDKUserMessage['message']['content'];
  * makeClaudeUserMessageWithAttachments），文本在后。
  */
 async function userContent(text: string, input: AgentInput): Promise<UserContent> {
-  const images = await readImages(input);
-  if (images.length === 0) return text;
-  return text === '' ? images : [...images, { type: 'text' as const, text }];
+  const blocks: Exclude<UserContent, string> = [];
+  for (const part of input.content) {
+    if (part.type === 'image') {
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: part.mimeType,
+          data: (await readFile(part.path)).toString('base64'),
+        },
+      });
+    } else if (part.type === 'file' && part.mimeType === 'application/pdf') {
+      blocks.push({
+        type: 'document',
+        title: part.name,
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: (await readFile(part.path)).toString('base64'),
+        },
+      });
+    }
+  }
+  if (blocks.length === 0) return text;
+  if (text) blocks.push({ type: 'text', text });
+  return blocks;
 }
 
-function hasImages(input: AgentInput): boolean {
-  return input.content.some((part) => part.type === 'image');
-}
-
-function readImages(input: AgentInput) {
-  return Promise.all(
-    input.content.flatMap((part) =>
-      part.type === 'image'
-        ? [
-            readFile(part.path).then((bytes) => ({
-              type: 'image' as const,
-              source: {
-                type: 'base64' as const,
-                media_type: part.mimeType,
-                data: bytes.toString('base64'),
-              },
-            })),
-          ]
-        : [],
-    ),
+function hasMedia(input: AgentInput): boolean {
+  return input.content.some(
+    (part) =>
+      part.type === 'image' || (part.type === 'file' && part.mimeType === 'application/pdf'),
   );
 }
 
@@ -840,6 +849,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     return this.#engineSession(session);
   }
 
+  async listCommands(engineSessionId: string) {
+    const session = this.#sessions.get(engineSessionId);
+    return session?.kind === 'root' ? (session.commands ?? []) : [];
+  }
+
   subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
     this.#ensureAlive();
     const session = this.#sessions.get(engineSessionId);
@@ -856,7 +870,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     this.#ensureAlive();
     const session = this.#root(engineSessionId, 'send');
     const text = textOf(input);
-    if (text === '' && !hasImages(input)) {
+    if (text === '' && !hasMedia(input)) {
       throw new AdapterError('invalid_input', 'the message is empty');
     }
     if (session.turn !== undefined) {
@@ -933,7 +947,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       if (boundary) session.sideNotePending = false;
       // 只有文本时不让出事件循环（取消与回合的先后靠它）。
       const content =
-        input !== undefined && hasImages(input) ? await userContent(prompt, input) : prompt;
+        input !== undefined && hasMedia(input) ? await userContent(prompt, input) : prompt;
       live.input.push(this.#userMessage(content, { uuid: turn.promptUuid }));
       turn.live = live;
       session.persisted = true;
@@ -950,7 +964,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     if (text === '' && !input.content.some((part) => part.type === 'image')) {
       throw new AdapterError('invalid_input', 'the message is empty');
     }
-    const content = hasImages(input) ? await userContent(text, input) : text;
+    const content = hasMedia(input) ? await userContent(text, input) : text;
     const turn = session.turn;
     const live = session.live;
     if (turn === undefined || turn.settled || turn.cancelRequested || live === undefined) {
@@ -2122,7 +2136,17 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         return;
       }
       case 'system':
+        if (message.subtype === 'commands_changed') {
+          session.commands = message.commands
+            .filter(({ name }) => !session.terminalCommands?.has(name))
+            .map(({ name, description, argumentHint }) => ({ name, description, argumentHint }));
+          return;
+        }
         if (message.subtype === 'init') {
+          session.terminalCommands = new Set(message.terminal_slash_commands);
+          session.commands = (message.slash_commands ?? [])
+            .filter((name) => !session.terminalCommands?.has(name))
+            .map((name) => ({ name }));
           // 以第一个 `init` 为准（T3 598298c）：进程实际的权限模式，之后的回合不再按请求的那个去改。
           if (!live.receivedInit) {
             live.receivedInit = true;

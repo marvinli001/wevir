@@ -2594,6 +2594,10 @@ export const eventPayloads: PayloadSamples = {
     },
     invalid: { category: 'missing_credentials', message: 'x' },
   },
+  'engine.notice': {
+    valid: { turnId: ids.turn, detail: { kind: 'warning', message: 'Server warning' } },
+    invalid: { detail: { kind: 'warning' } },
+  },
   'engine.raw': {
     valid: {
       protocol: 'acp',
@@ -4507,7 +4511,17 @@ export const methodSamples: MethodSamples = {
     },
   },
   'host.ping': { params: empty, result: empty },
-  'host.shutdown': { params: empty, result: empty },
+  'host.activity': {
+    params: empty,
+    result: {
+      valid: [{ activeTurns: 2, resumableTurns: 1 }],
+      invalid: [{ activeTurns: -1, resumableTurns: 0 }],
+    },
+  },
+  'host.shutdown': {
+    params: { valid: [{}, { resumeActiveTurns: true }], invalid: [{ resumeActiveTurns: 'yes' }] },
+    result: empty,
+  },
   'themes.list': {
     params: empty,
     result: {
@@ -4985,6 +4999,20 @@ export const methodSamples: MethodSamples = {
   'workspace.remove': {
     params: { valid: [{ workspaceId: ids.workspace }], invalid: [{ workspaceId: ids.session }] },
     result: empty,
+  },
+  'workspace.create': {
+    params: {
+      valid: [
+        { parentPath: '/projects', name: 'notes' },
+        {
+          parentPath: '/projects',
+          name: 'wevir',
+          repositoryUrl: 'https://github.com/wevir-labs/wevir.git',
+        },
+      ],
+      invalid: [{ name: 'missing-parent' }, { parentPath: '/projects', name: '' }],
+    },
+    result: { valid: [{ workspace, created: true }], invalid: [{ workspace }] },
   },
   'workspace.update': {
     params: {
@@ -6573,9 +6601,19 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
     result: { valid: [{ session }], invalid: [{}] },
   },
+  'session.composerCatalog': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: {
+      valid: [{ skills: [{ name: 'design' }], commands: [{ name: 'usage' }] }],
+      invalid: [{ skills: [] }],
+    },
+  },
   'session.rewind': {
     params: {
-      valid: [{ sessionId: ids.session, turnId: ids.turn }],
+      valid: [
+        { sessionId: ids.session, turnId: ids.turn },
+        { sessionId: ids.session, turnId: ids.turn, through: true, expectedLatestTurnId: ids.turn },
+      ],
       invalid: [{ sessionId: ids.session }],
     },
     result: { valid: [{ seq: 12 }], invalid: [{}] },
@@ -6785,6 +6823,8 @@ export const methodSamples: MethodSamples = {
       valid: [
         { sessionId: ids.session, target: 'uncommitted' },
         { sessionId: ids.session, target: 'branch' },
+        { sessionId: ids.session, target: 'commit', sha: 'a12be45' },
+        { sessionId: ids.session, target: 'custom', instructions: 'Check error handling.' },
       ],
       invalid: [{ sessionId: ids.session }, { sessionId: ids.session, target: 'commit' }],
     },
@@ -7094,6 +7134,36 @@ export const methodSamples: MethodSamples = {
       ],
     },
     result: { valid: [{ pending: pendingHeld }], invalid: [{ pending: { id: ids.pending } }] },
+  },
+  'file.upload': {
+    params: {
+      valid: [
+        { name: 'notes.txt', data: 'b2s=', mimeType: 'text/plain' },
+        { name: 'empty.txt', data: '' },
+      ],
+      invalid: [{ name: '', data: 'b2s=' }],
+    },
+    result: {
+      valid: [
+        {
+          file: {
+            type: 'file',
+            fileId: 'file_1',
+            size: 2,
+            name: 'notes.txt',
+            mimeType: 'text/plain',
+          },
+        },
+      ],
+      invalid: [{ file: { type: 'file', fileId: '../notes', size: 2, name: 'notes.txt' } }],
+    },
+  },
+  'file.read': {
+    params: { valid: [{ fileId: 'file_1', offset: 0 }], invalid: [{ fileId: ids.image }] },
+    result: {
+      valid: [{ fileId: 'file_1', size: 0, offset: 0, data: '' }],
+      invalid: [{ fileId: 'file_1', offset: -1, size: 5, data: '' }],
+    },
   },
   'image.upload': {
     params: {
@@ -7952,6 +8022,58 @@ export const methodSamples: MethodSamples = {
         { outcome: { kind: 'committed', commit: SHA2 }, status: gitStatusSample },
         { outcome: { kind: 'failed', reason: '' }, status: gitStatusSample },
       ],
+    },
+  },
+  'git.branches': {
+    params: { valid: [{ workspaceId: ids.workspace }], invalid: [{}] },
+    result: {
+      valid: [{ branches: ['main'], remotes: ['origin'], current: 'main' }],
+      invalid: [{ branches: ['main'] }],
+    },
+  },
+  'git.switchBranch': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          branch: 'feature',
+          expected: { head: SHA1, index: INDEX_TOKEN, branch: 'main' },
+        },
+      ],
+      invalid: [{ workspaceId: ids.workspace, branch: 'feature' }],
+    },
+    result: { valid: [{ status: gitStatusSample }], invalid: [{}] },
+  },
+  'git.push': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          remote: 'origin',
+          expected: { head: SHA1, index: INDEX_TOKEN, branch: 'main' },
+        },
+      ],
+      invalid: [{ workspaceId: ids.workspace, remote: 'origin' }],
+    },
+    result: { valid: [{ status: gitStatusSample }], invalid: [{}] },
+  },
+  'git.createPullRequest': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          remote: 'origin',
+          title: 'Fix diff',
+          body: 'Changes',
+          base: 'main',
+          expected: { head: SHA1, index: INDEX_TOKEN, branch: 'fix' },
+        },
+      ],
+      invalid: [{ workspaceId: ids.workspace, remote: 'origin' }],
+    },
+    result: {
+      valid: [{ url: 'https://github.com/wevir-labs/wevir/pull/1' }],
+      invalid: [{ url: 'not a URL' }],
     },
   },
   'process.list': {
@@ -9216,6 +9338,13 @@ export const methodSamples: MethodSamples = {
     params: {
       valid: [{ itemId: `turn_failed:${ids.turn}` }, { itemId: `automation:${ids.automationRun}` }],
       invalid: [{}, { itemId: '' }, { itemId: 'turn failed' }],
+    },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'approval.authorizeDenied': {
+    params: {
+      valid: [{ sessionId: ids.session, reviewId: 'review-1' }],
+      invalid: [{ sessionId: ids.session }],
     },
     result: { valid: [{}], invalid: [null] },
   },

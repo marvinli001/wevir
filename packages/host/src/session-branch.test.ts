@@ -4,6 +4,7 @@
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId, TurnId, WevirEvent } from '@wevir/protocol';
+import type { AgentEvent } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -198,6 +199,25 @@ describe('session.fork 分支（0.38.0）', () => {
   });
 });
 
+it('returns only the skill names and native commands available to the active composer', async () => {
+  class CatalogAdapter extends EchoAdapter {
+    override readonly skills = true;
+    async listCommands() {
+      return [{ name: 'usage', argumentHint: '[period]' }];
+    }
+  }
+  const h = setup(new CatalogAdapter());
+  const sessionId = await h.create();
+  const skills = vi
+    .fn()
+    .mockResolvedValue([{ name: 'style', description: 'UI', path: '/private/SKILL.md' }]);
+  await expect(h.manager.composerCatalog(sessionId, skills)).resolves.toEqual({
+    skills: [{ name: 'style', description: 'UI' }],
+    commands: [{ name: 'usage', argumentHint: '[period]' }],
+  });
+  expect(skills).toHaveBeenCalledOnce();
+});
+
 describe('session.rewind（0.38.0）', () => {
   it('撤回最后一个回合：写 turn.rewound，引擎不再记得它；只能撤回最后一个', async () => {
     const h = setup();
@@ -235,6 +255,132 @@ describe('session.rewind（0.38.0）', () => {
     await h.settle(branch.id);
     expect(h.answer(branch.id)).toBe('Echo: recall\n\nHistory: one');
     expect(h.errors).toEqual([]);
+  });
+
+  it('editing an earlier turn checks the visible tip and removes the suffix from engine history', async () => {
+    const h = setup();
+    const sessionId = await h.create();
+    for (const text of ['one', 'two', 'three']) {
+      await h.send(sessionId, text);
+      await h.settle(sessionId);
+    }
+    const [, middle, last] = turnIds(h.all(sessionId));
+    const rewind = vi.spyOn(h.adapter, 'rewind');
+    const edit = { sessionId, turnId: middle as TurnId, through: true as const };
+    await expect(
+      h.manager.rewind({ ...edit, expectedLatestTurnId: middle as TurnId }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await h.manager.rewind({ ...edit, expectedLatestTurnId: last as TurnId });
+    expect(rewind).toHaveBeenCalledTimes(1);
+    expect(rewind).toHaveBeenCalledWith(expect.any(String), 2, undefined);
+    expect(
+      h
+        .all(sessionId)
+        .filter((event) => event.type === 'turn.rewound')
+        .map((event) => event.payload.turnId),
+    ).toEqual([last, middle]);
+    await h.send(sessionId, 'replacement, recall');
+    await h.settle(sessionId);
+    expect(h.answer(sessionId)).toBe('Echo: replacement, recall\n\nHistory: one');
+  });
+
+  it('refuses rewind and branch boundaries that include an interrupted turn never admitted by the engine', async () => {
+    const h = setup();
+    const sessionId = await h.create();
+    await h.send(sessionId, 'A');
+    await h.settle(sessionId);
+    vi.spyOn(h.adapter, 'send').mockRejectedValueOnce(new Error('engine rejected turn/start'));
+    await h.send(sessionId, 'B');
+    expect(h.events.snapshot(sessionId)?.session.state).toBe('error');
+    await h.manager.resume(sessionId);
+    await h.send(sessionId, 'C');
+    await h.settle(sessionId);
+    const [first, missing, last] = turnIds(h.all(sessionId));
+    const rewind = vi.spyOn(h.adapter, 'rewind');
+    await expect(
+      h.manager.rewind({
+        sessionId,
+        turnId: missing as TurnId,
+        through: true,
+        expectedLatestTurnId: last as TurnId,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect(rewind).not.toHaveBeenCalled();
+    expect(h.all(sessionId).some((e) => e.type === 'turn.rewound')).toBe(false);
+    const fork = vi.spyOn(h.adapter, 'fork');
+    for (const turnId of [first, missing]) {
+      await expect(h.manager.fork({ sessionId, turnId: turnId as TurnId })).rejects.toMatchObject({
+        code: 'INVALID_STATE',
+      });
+    }
+    expect(fork).not.toHaveBeenCalled();
+    const branch = await h.manager.fork({ sessionId, turnId: last as TurnId });
+    await h.send(branch.id, 'recall');
+    await h.settle(branch.id);
+    expect(h.answer(branch.id)).toBe('Echo: recall\n\nHistory: A | C');
+    await h.send(sessionId, 'recall');
+    await h.settle(sessionId);
+    expect(h.answer(sessionId)).toBe('Echo: recall\n\nHistory: A | C');
+  });
+
+  it('keeps the whole visible suffix if the native rewind fails', async () => {
+    const h = setup();
+    const sessionId = await h.create();
+    for (const text of ['A', 'B', 'C']) {
+      await h.send(sessionId, text);
+      await h.settle(sessionId);
+    }
+    const [, middle, last] = turnIds(h.all(sessionId));
+    vi.spyOn(h.adapter, 'rewind').mockRejectedValueOnce(new Error('engine busy'));
+    await expect(
+      h.manager.rewind({
+        sessionId,
+        turnId: middle as TurnId,
+        through: true,
+        expectedLatestTurnId: last as TurnId,
+      }),
+    ).rejects.toMatchObject({ code: 'ENGINE_ERROR' });
+    expect(h.all(sessionId).some((e) => e.type === 'turn.rewound')).toBe(false);
+    await h.send(sessionId, 'recall');
+    await h.settle(sessionId);
+    expect(h.answer(sessionId)).toBe('Echo: recall\n\nHistory: A | B | C');
+  });
+
+  it('rewinds an interrupted turn confirmed in native history together with its successors', async () => {
+    class BoundEcho extends EchoAdapter {
+      override async *subscribe(engineSessionId: string): AsyncGenerator<AgentEvent> {
+        for await (const event of super.subscribe(engineSessionId)) {
+          if (event.type === 'engine.exited') {
+            yield { type: 'turn.bound', engineSessionId, engineTurnId: 'B' };
+          }
+          yield event;
+        }
+      }
+      override async rewind(id: string, count = 1, first?: string) {
+        expect(first).toBe('B');
+        await super.rewind(id, count);
+      }
+    }
+    const h = setup(new BoundEcho({ stepDelayMs: 1 }));
+    const sessionId = await h.create();
+    await h.send(sessionId, 'A');
+    await h.settle(sessionId);
+    await h.send(sessionId, 'slow B');
+    await h.adapter.simulateEngineExit();
+    await vi.waitFor(() => expect(h.events.snapshot(sessionId)?.session.state).toBe('error'));
+    await h.manager.resume(sessionId);
+    await h.send(sessionId, 'C');
+    await h.settle(sessionId);
+    const [, middle, last] = turnIds(h.all(sessionId));
+    await h.manager.rewind({
+      sessionId,
+      turnId: middle as TurnId,
+      through: true,
+      expectedLatestTurnId: last as TurnId,
+    });
+    await h.send(sessionId, 'recall');
+    await h.settle(sessionId);
+    expect(h.answer(sessionId)).toBe('Echo: recall\n\nHistory: A');
   });
 
   it('回合进行中 SESSION_BUSY；支线不能撤回', async () => {

@@ -500,7 +500,9 @@ export function withHandoffContext(
 /** 用户消息的文字；图片（0.28.0）写成 `[image]`。 */
 function contentText(content: readonly UserContentPart[]): string {
   return content
-    .map((part) => (part.type === 'text' ? part.text : '[image]'))
+    .map((part) =>
+      part.type === 'text' ? part.text : part.type === 'file' ? `[file: ${part.name}]` : '[image]',
+    )
     .join('\n')
     .trim();
 }

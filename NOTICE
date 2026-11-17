@@ -659,7 +659,7 @@ WorkerPoolManager.js 与 worker/types.d.ts 增加 initialPoolSize：按任务需
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-12. opencode（代码智能：语言服务器）
+12. opencode（代码智能与原生命令的参数展开）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/sst/opencode（现为 https://github.com/anomalyco/opencode）
 来源提交：e3c4eb242585dcd77be1a867391b7c25fd47ce52（tag v1.19.3）
@@ -668,6 +668,8 @@ WorkerPoolManager.js 与 worker/types.d.ts 增加 initialPoolSize：按任务需
 
 移植的文件（左边是 Wevir 文件，右边是 opencode 的来源路径），均由 Wevir 修改，修改说明在各文件头：
 
+  packages/adapter-opencode/src/native-commands.ts
+      <- packages/opencode/src/session/prompt.ts、packages/opencode/src/config/markdown.ts
   packages/host/src/lsp/servers.ts
       <- packages/opencode/src/lsp/server.ts、packages/opencode/src/lsp/language.ts
   packages/host/src/lsp/client.ts
@@ -813,6 +815,23 @@ modules，Wevir 改用 CSS 过渡与自己的令牌重写，修改说明在各�
       <- registry/components/button/button.tsx、button.module.css（primary 变体、按压、图标换场与加载）
 
 许可证全文见文末“MIT License”。
+
+
+19. sharp 与 libvips（Host 的输入图片处理）
+------------------------------------------------------------------------------------------------
+Host 使用 sharp 0.35.5（Apache-2.0，Copyright 2013 Lovell Fuller and others）。
+对应源码：https://github.com/lovell/sharp/tree/v0.35.5
+
+Host 同时分发 sharp-libvips 1.3.4 的原版动态库（libvips 8.18.7，LGPL-3.0-or-later）。
+对应源码及构建配方：https://github.com/lovell/sharp-libvips/tree/v1.3.4
+libvips 源码：https://github.com/libvips/libvips/tree/v8.18.7
+GPLv3 与 LGPLv3 全文在 Host 的 licenses/sharp-libvips/；平台包的 README 与 versions.json 列出各库及其版本和许可证。
+
+20. heic-to（输入图片的 HEIC 解码）
+
+桌面和 Web 渲染器采用 heic-to 1.6.7 的 CSP 构建（Hopper Gee，LGPL-3.0），其中包括 libheif 和 libde265。
+渲染器内 legal/heic-to.txt 含完整许可文本、对应版本的源码及构建说明。
+
 
 
 MIT License

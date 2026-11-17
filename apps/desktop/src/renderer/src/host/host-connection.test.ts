@@ -19,6 +19,7 @@ vi.mock('@wevir/client-sdk', async (original) => ({
 vi.mock('@/data/browser-library', () => ({
   bindBrowserLibrary: h.bind,
   invalidateBrowserLibrary: h.invalidate,
+  watchBrowserLibrary: vi.fn(),
 }));
 vi.mock('@/platform/platform', () => ({ capabilities: () => ({ localHost: false }) }));
 vi.mock('./error-text', () => ({ describeError: (error: Error) => error.message }));

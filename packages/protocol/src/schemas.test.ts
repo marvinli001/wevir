@@ -1796,6 +1796,30 @@ const standaloneCases: Case[] = [
     invalid: ['image/svg+xml', 'image/bmp', 'image/heic'],
   },
   {
+    name: 'UserFilePart',
+    schema: protocol.UserFilePartSchema,
+    valid: [{ type: 'file', fileId: 'file_1', name: 'data.json', size: 0 }],
+    invalid: [{ type: 'file', fileId: ids.image, name: 'bad', size: 1 }],
+  },
+  {
+    name: 'MessageInput',
+    schema: protocol.MessageInputSchema,
+    valid: [[{ type: 'text', text: 'one' }, imagePart]],
+    invalid: [
+      [],
+      [
+        { type: 'text', text: 'a'.repeat(80_000) },
+        { type: 'text', text: 'b'.repeat(40_001), pasted: true },
+      ],
+    ],
+  },
+  {
+    name: 'FileId',
+    schema: protocol.FileIdSchema,
+    valid: ['file_1'],
+    invalid: ['file_../bad', ids.image],
+  },
+  {
     name: 'UserImagePart',
     schema: UserImagePartSchema,
     valid: [imagePart, { type: 'image', imageId: ids.image, mimeType: 'image/gif', size: 1 }],
@@ -3125,7 +3149,30 @@ const standaloneCases: Case[] = [
     invalid: ['restarted'],
   },
   { name: 'TurnOutcome', schema: TurnOutcomeSchema, valid: ['interrupted'], invalid: ['aborted'] },
-  { name: 'ReviewTarget', schema: ReviewTargetSchema, valid: ['branch'], invalid: ['commit'] },
+  {
+    name: 'ReviewCommitSha',
+    schema: protocol.ReviewCommitShaSchema,
+    valid: ['a12be45'],
+    invalid: ['HEAD', '--all'],
+  },
+  {
+    name: 'ReviewInstructions',
+    schema: protocol.ReviewInstructionsSchema,
+    valid: ['Check retries'],
+    invalid: ['   '],
+  },
+  {
+    name: 'EngineNotice',
+    schema: protocol.EngineNoticeSchema,
+    valid: [{ kind: 'warning', message: 'Offline' }],
+    invalid: [{ kind: 'approval_review', status: 'denied' }],
+  },
+  {
+    name: 'ReviewTarget',
+    schema: ReviewTargetSchema,
+    valid: ['branch', 'commit', 'custom'],
+    invalid: ['tag'],
+  },
   { name: 'TurnTrigger', schema: TurnTriggerSchema, valid: ['goal'], invalid: ['plan'] },
   {
     name: 'GoalStatus',
@@ -3182,7 +3229,12 @@ const standaloneCases: Case[] = [
     name: 'TurnCommand',
     schema: TurnCommandSchema,
     valid: [{ kind: 'compact' }, { kind: 'review', target: 'uncommitted' }],
-    invalid: [{ kind: 'init' }, { kind: 'review', target: 'branch', baseBranch: '' }],
+    invalid: [
+      { kind: 'init' },
+      { kind: 'review', target: 'branch', baseBranch: '' },
+      { kind: 'review', target: 'commit' },
+      { kind: 'review', target: 'custom', instructions: ' ' },
+    ],
   },
   {
     name: 'SessionCommand',

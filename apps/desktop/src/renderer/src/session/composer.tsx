@@ -1,17 +1,14 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import {
-  IMAGE_MAX_PER_MESSAGE,
+  MESSAGE_TEXT_MAX_LENGTH,
   type PendingDelivery,
   type SessionId,
   type SessionState,
   type UserImageMimeType,
-  type UserImagePart,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronDown, Folder, ListChecks, X } from 'lucide-react';
+import { BookOpen, ChevronDown, Folder, ListChecks, X } from 'lucide-react';
 import {
-  type ClipboardEvent,
-  type DragEvent,
   type KeyboardEvent,
   memo,
   type ReactNode,
@@ -35,13 +32,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { toRelativePath } from '@/files/file-path';
 import { type FileScope, useFileSearch, useFilesSupported } from '@/files/files-data';
 import { Beam } from '@/fx/beam';
-import { useHostConnection } from '@/host/host-connection';
+import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
-import { IS_MAC, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
-import { capabilities, platformApi } from '@/platform/platform';
+import { getShortcut, IS_MAC, matchesShortcut } from '@/lib/shortcuts';
 import { paths } from '@/routes/paths';
 import { type ComposerAction, ComposerButton } from './composer-button';
+import { useComposerCatalog } from './composer-catalog';
 import {
   type ComposerCommand,
   type ComposerCommandItem,
@@ -51,25 +48,25 @@ import {
   slashMenuState,
 } from './composer-commands';
 import {
-  COMPOSER_IMAGE_ACCEPT,
-  type ComposerImage,
-  dragHasFiles,
-  type ImageRejection,
-  pickImages,
-  splitFiles,
-} from './composer-images';
+  type DraftAttachment,
+  draftFor,
+  draftIssue,
+  finishComposerSend,
+  hasDraft,
+  textLength,
+} from './composer-drafts';
+import type { ComposerAttachmentPart } from './composer-images';
+import { useComposerInput } from './composer-input';
+import { prepareImage, uploadAttachment, uploadDraft } from './composer-media';
 import { ComposerMenu, type MenuEntry, menuOptionId } from './composer-menu';
-import { isLargePaste, pasteOf, registerPaste, withPastes } from './composer-pastes';
+import { withDraftPastes } from './composer-pastes';
 import { ComposerPlusMenu } from './composer-plus-menu';
 import { composerPrefs } from './composer-prefs';
 import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
 import { DeliverySwitch } from './delivery-switch';
 import { DictationBar, DictationButton } from './dictation-button';
 import { insertDictation } from './dictation-model';
-import { ComposerThumb, ImagePreview, readAsDataUrl, uploadImage } from './image-attachments';
-import { AttachmentStrip, ComposerPasteChip, PastedTextPreview } from './pasted-text';
 import { composerKeyAction, otherDelivery } from './pending-model';
-import { caretOnFirstLine, caretOnLastLine, promptAt, rememberPrompt } from './prompt-history';
 import { ghostText, isAcceptKey } from './prompt-suggestion';
 import { appendQuote } from './selection-model';
 import { useDictation } from './use-dictation';
@@ -89,86 +86,56 @@ export interface ComposerPlan {
   followUp?: { onImplement: () => void; onImplementInNew?: () => void };
 }
 
-/** 未发送的草稿按会话留在内存里，切走再切回来还在（不持久化）。 */
-const drafts = new Map<string, string>();
-
-/** 草稿里粘贴的大段文字（附件条里的占位符，composer-pastes.ts），同样按会话留在内存里。 */
-const pasteDrafts = new Map<string, string[]>();
-
-/** 草稿里的图片（0.28.0），同样按会话留在内存里。 */
-const imageDrafts = new Map<string, ComposerImage[]>();
-const imageListeners = new Map<string, Set<(images: ComposerImage[]) => void>>();
-
-/** 改一个草稿的图片，挂着的输入框跟着刷新（图片传完时可能已经换了会话，草稿表照样更新）。 */
-function updateImageDraft(
-  draftKey: string,
-  update: (current: ComposerImage[]) => ComposerImage[],
-): void {
-  const next = update(imageDrafts.get(draftKey) ?? []);
-  if (next.length > 0) imageDrafts.set(draftKey, next);
-  else imageDrafts.delete(draftKey);
-  for (const listener of imageListeners.get(draftKey) ?? []) listener(next);
-}
-
-/**
- * 从输入框以外放进一张图片（模拟器窗格的标注，0.122.0）：先显示缩略图，再传给 Host，不发送。一条消息的图片满了时抛出，传失败时
- * 拿掉缩略图再抛出。
- */
+/** 模拟器的标注也按输入框的像素和字节限制处理。 */
 export async function attachDraftImage(
   draftKey: string,
   client: WevirClient,
   image: { dataUrl: string; mimeType: UserImageMimeType; name?: string },
-): Promise<void> {
-  if ((imageDrafts.get(draftKey)?.length ?? 0) >= IMAGE_MAX_PER_MESSAGE) {
-    throw new Error(t('composer.imageLimit', { count: IMAGE_MAX_PER_MESSAGE }));
-  }
-  const key = crypto.randomUUID();
-  const { dataUrl, mimeType, name } = image;
-  updateImageDraft(draftKey, (current) => [
-    ...current,
-    { key, dataUrl, ...(name !== undefined && { name }) },
-  ]);
-  try {
-    const part = await uploadImage(client, dataUrl, mimeType, name);
-    updateImageDraft(draftKey, (current) =>
-      current.map((entry) => (entry.key === key ? { ...entry, part } : entry)),
-    );
-  } catch (error) {
-    updateImageDraft(draftKey, (current) => current.filter((entry) => entry.key !== key));
-    throw error;
-  }
+) {
+  const store = draftFor(draftKey);
+  await store.loaded;
+  const raw = Uint8Array.from(atob(image.dataUrl.slice(image.dataUrl.indexOf(',') + 1)), (ch) =>
+    ch.charCodeAt(0),
+  );
+  const item = await prepareImage(
+    new Blob([raw], { type: image.mimeType }),
+    image.mimeType,
+    image.name,
+  );
+  const current = store.get().draft;
+  const candidate = { ...current, attachments: [...current.attachments, item] };
+  const issue = draftIssue(candidate);
+  if (issue) throw new Error(issue);
+  store.edit(() => candidate);
+  await uploadAttachment(client, item);
 }
 
-/** 没收下的图片的提示（助理的输入框也用）。 */
-export function rejectionText(rejected: { reason: ImageRejection; name: string }): string {
-  if (rejected.reason === 'limit')
-    return t('composer.imageLimit', { count: IMAGE_MAX_PER_MESSAGE });
-  return rejected.reason === 'too_large'
-    ? t('composer.imageTooLarge', { name: rejected.name })
-    : t('composer.imageUnsupported', { name: rejected.name });
+export function restoreDraft(
+  draftKey: string,
+  text: string,
+  append = false,
+  parts: readonly ComposerAttachmentPart[] = [],
+  pasted: readonly string[] = [],
+) {
+  draftFor(draftKey).edit((draft) => {
+    const attachments: DraftAttachment[] = parts.map((part) => ({
+      key: crypto.randomUUID(),
+      kind: part.type,
+      size: part.size,
+      ...(part.name && { name: part.name }),
+      part,
+    }));
+    return {
+      ...draft,
+      text:
+        draft.text.trim() === '' ? text : append ? `${draft.text.trimEnd()}\n${text}` : draft.text,
+      attachments: [...draft.attachments, ...attachments],
+      pastes: [...draft.pastes, ...pasted.map((text) => ({ key: crypto.randomUUID(), text }))],
+    };
+  });
 }
-
-/** 挂着的输入框：`restoreDraft` 放回来的文字。 */
-const textListeners = new Map<string, Set<(text: string, append: boolean) => void>>();
-
-/**
- * 把一段文字放回输入框（0.38.0：编辑过的消息撤回了回合却没发出去）：输入框空着时直接显示，否则留作草稿。`append`（回退插话、删除
- * 排队的消息）时输入框有字也不丢：另起一行接在后面。
- */
-export function restoreDraft(draftKey: string, text: string, append = false): void {
-  drafts.set(draftKey, withRestored(drafts.get(draftKey) ?? '', text, append));
-  for (const listener of textListeners.get(draftKey) ?? []) listener(text, append);
-}
-
-function withRestored(current: string, text: string, append: boolean): string {
-  if (current.trim() === '') return text;
-  return append ? `${current.replace(/\s+$/, '')}\n${text}` : current;
-}
-
-/** 预先放一份草稿（基于历史新建会话，T5.5）：下次打开这个输入框时显示。 */
-export function setDraft(draftKey: string, text: string): void {
-  if (text) drafts.set(draftKey, text);
-  else drafts.delete(draftKey);
+export function setDraft(draftKey: string, text: string) {
+  draftFor(draftKey).edit((draft) => ({ ...draft, text }));
 }
 
 /** 挂着的输入框：`insertQuote` 追加引用。 */
@@ -186,9 +153,10 @@ export function insertQuote(draftKey: string, selected: string): void {
     listener(selected);
     return;
   }
-  const next = appendQuote(drafts.get(draftKey) ?? '', selected);
-  if (!next) return;
-  drafts.set(draftKey, next.text);
+  draftFor(draftKey).edit((draft) => ({
+    ...draft,
+    text: appendQuote(draft.text, selected)?.text ?? draft.text,
+  }));
   focusOnOpen.add(draftKey);
 }
 
@@ -205,16 +173,17 @@ export function insertMention(draftKey: string, path: string): void {
     listener(path);
     return;
   }
-  const current = drafts.get(draftKey) ?? '';
-  const separator = current === '' || /\s$/.test(current) ? '' : ' ';
-  drafts.set(draftKey, `${current}${separator}${mentionText(path)} `);
+  draftFor(draftKey).edit((draft) => ({
+    ...draft,
+    text: `${draft.text}${draft.text && !/\s$/.test(draft.text) ? ' ' : ''}${mentionText(path)} `,
+  }));
   focusOnOpen.add(draftKey);
 }
 
 /**
  * 输入框：Enter 发送、Shift+Enter 换行、输入法合成期间不发送（openwork-notes §3.7）。回合进行中（R11）：给了
  * `busyDelivery`（Host 支持待发消息）时照常可以发，Enter 与发送键按 `busyDelivery`（“回合进行中按回车”的设置），Tab 用
- * 另一种；没给时不允许再发送（旧 Host 会回 SESSION_BUSY）。`onSend` 返回 true 表示已发出，清空输入框；失败时保留文字。
+ * 另一种；没给时不允许再发送（旧 Host 会回 SESSION_BUSY）。`onSend` 返回 true 或新会话 ID 表示已发出，清空输入框；失败时保留文字。
  *
  * U3 起照方向稿 A 静器（维护者 2026-10-14 定）：右下角是圆形的金属按钮，有字时发送，回合进行中没有字（或不能再发）时
  * 变成停止（金属淡到 0.55），Esc 也可以停止；回合进行中按钮左边是“插话 | 排队”切换（改的就是那项 Host 设置）。回合
@@ -230,9 +199,7 @@ export function insertMention(draftKey: string, path: string): void {
  * 文件（`fileScope` 的目录里按名字找），上下键选、回车或 Tab 确定、Esc 收起；底栏最左边是“+”菜单（文件和文件夹、提及文件、
  * 命令与页面标为 `plus` 的命令）。
  *
- * 0.28.0 起照 Codex 桌面端、Claude Code 桌面端与 T3 Code 带图片（`acceptImages` 时）：粘贴、拖进输入框或从“+”菜单的
- * “图片”选，立即传给 Host，缩略图排在文字上方（右上角移除，点开看大图）；传完之前不能发送，只有图片也能发。
- * 不是图片的文件（或模型不收图片时的任何文件）粘贴、拖进来都插入成 @ 提及，没选目录时用绝对路径。
+ * 图片与文件可粘贴、拖放或从“+”菜单选择。输入历史、附件和未发出的文字按会话存在 IndexedDB。
  *
  * 0.36.0 起有计划模式（`plan`，见 `ComposerPlan`）。
  *
@@ -257,7 +224,9 @@ export const Composer = memo(function Composer({
   autoFocus = false,
   variant = 'session',
   placeholder,
-  commands,
+  commands: localCommands,
+  allowDraftSkills = false,
+  catalogProviderId,
   fileScope,
   acceptImages = false,
   plan,
@@ -281,12 +250,12 @@ export const Composer = memo(function Composer({
   busyDelivery?: PendingDelivery;
   /** 改“回合进行中按回车”（Host 设置）；给了才显示切换。 */
   onBusyDeliveryChange?: (delivery: PendingDelivery) => void;
-  /** 回合进行中发出时带上方式；空闲时不带。`images` 是已传给 Host 的图片（0.28.0）。 */
+  /** 新会话发送成功时返回其 ID，首条消息写入该会话的输入历史。 */
   onSend: (
     text: string,
     delivery?: PendingDelivery,
-    images?: readonly UserImagePart[],
-  ) => Promise<boolean>;
+    attachments?: readonly ComposerAttachmentPart[],
+  ) => Promise<boolean | SessionId>;
   onStop: () => void;
   autoFocus?: boolean;
   variant?: 'session' | 'home';
@@ -294,6 +263,8 @@ export const Composer = memo(function Composer({
   placeholder?: string;
   /** 斜杠命令（U33）；省略时没有斜杠菜单。 */
   commands?: readonly ComposerCommand[];
+  allowDraftSkills?: boolean;
+  catalogProviderId?: string;
   /** @ 提及与“文件和文件夹”的目录（U33）；省略时没有。 */
   fileScope?: FileScope;
   /** 能带图片（0.28.0，`useAcceptsImages`）：Host 支持、模型收图片。 */
@@ -313,8 +284,8 @@ export const Composer = memo(function Composer({
    */
   redirect?: boolean;
 }) {
-  const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(false);
+  const sendInFlight = useRef(false);
   const [focused, setFocused] = useState(false);
   const home = variant === 'home';
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -323,29 +294,28 @@ export const Composer = memo(function Composer({
 
   // ── 图片（0.28.0） ──────────────────────────────────────────────────
   const { client } = useHostConnection();
-  const [images, setImagesState] = useState<ComposerImage[]>(() => imageDrafts.get(draftKey) ?? []);
-  const [imageError, setImageError] = useState<string>();
-  const [dragging, setDragging] = useState(false);
-  const [preview, setPreview] = useState<ComposerImage>();
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const listeners = imageListeners.get(draftKey) ?? new Set();
-    imageListeners.set(draftKey, listeners);
-    listeners.add(setImagesState);
-    return () => {
-      listeners.delete(setImagesState);
-    };
-  }, [draftKey]);
-  useEffect(() => {
-    const listeners = textListeners.get(draftKey) ?? new Set();
-    textListeners.set(draftKey, listeners);
-    const restore = (restored: string, append: boolean) =>
-      setText((current) => withRestored(current, restored, append));
-    listeners.add(restore);
-    return () => {
-      listeners.delete(restore);
-    };
-  }, [draftKey]);
+  const pathsToInsert = useRef<(paths: readonly string[]) => void>(() => {});
+  const input = useComposerInput(
+    draftKey,
+    client,
+    acceptImages && !disabled,
+    disabled,
+    (paths) => pathsToInsert.current(paths),
+    () => textareaRef.current?.focus(),
+    fileScope?.root,
+  );
+  const {
+    draft,
+    setText,
+    resetHistory,
+    onHistoryKey,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+    onPaste,
+    dragging,
+  } = input;
+  const { text, attachments, pastes } = draft;
   // 消息里选中文字的“添加到对话”：追加引用、聚焦、光标放到末尾。
   const latestText = useRef(text);
   latestText.current = text;
@@ -357,137 +327,28 @@ export const Composer = memo(function Composer({
       setText(next.text);
       setCursor(next.cursor);
       pendingCursor.current = next.cursor;
-      setHistoryIndex(-1);
+      resetHistory();
     };
     quoteListeners.set(draftKey, quote);
     return () => {
       if (quoteListeners.get(draftKey) === quote) quoteListeners.delete(draftKey);
     };
-  }, [draftKey]);
-  const updateImages = (update: (current: ComposerImage[]) => ComposerImage[]) =>
-    updateImageDraft(draftKey, update);
-  // ── 粘贴的大段文字 ──────────────────────────────────────────────────
-  const [pastes, setPastes] = useState<string[]>(() => pasteDrafts.get(draftKey) ?? []);
-  const [openPaste, setOpenPaste] = useState<string>();
-  useEffect(() => {
-    if (pastes.length > 0) pasteDrafts.set(draftKey, pastes);
-    else pasteDrafts.delete(draftKey);
-  }, [draftKey, pastes]);
-  const removePaste = (token: string) => {
-    setPastes((current) => current.filter((entry) => entry !== token));
-    textareaRef.current?.focus();
-  };
-  const uploading = images.some((image) => image.part === undefined);
+  }, [draftKey, setText, resetHistory]);
   const imagesEnabled = acceptImages && client !== undefined && !disabled;
-  const hasContent = text.trim() !== '' || images.length > 0 || pastes.length > 0;
-  const canSend = (!busy || pendingEnabled) && !disabled && !sending && !uploading && hasContent;
-  // 计划给出之后，输入框空着时按发送就是“实施”（0.36.0）。
+  const hasContent = hasDraft(draft);
+  const issue =
+    draftIssue(draft) ??
+    input.failedAttachment ??
+    (attachments.some((file) => file.kind === 'image') && !acceptImages
+      ? t('composer.modelNoImages')
+      : undefined);
+  const canSend =
+    (!busy || pendingEnabled) && !disabled && !sending && !input.adding && !issue && hasContent;
   const followUp = !busy ? plan?.followUp : undefined;
   const implementReady =
-    followUp !== undefined && !hasContent && !disabled && !sending && !uploading;
-
-  useEffect(() => setDraft(draftKey, text), [draftKey, text]);
-
-  /** 粘贴、拖进来或选好的文件：挑出能发的图片，先显示缩略图，再传给 Host。 */
-  const addImages = (files: readonly File[], named: boolean) => {
-    if (!imagesEnabled || !client) return;
-    const picked = pickImages(files, images.length);
-    setImageError(picked.rejected && rejectionText(picked.rejected));
-    for (const { file, mimeType } of picked.accepted) {
-      const key = crypto.randomUUID();
-      const name = named ? file.name : undefined;
-      void readAsDataUrl(file)
-        .then(async (dataUrl) => {
-          updateImages((current) => [
-            ...current,
-            { key, dataUrl, ...(name !== undefined && { name }) },
-          ]);
-          const part = await uploadImage(client, dataUrl, mimeType, name);
-          updateImages((current) =>
-            current.map((image) => (image.key === key ? { ...image, part } : image)),
-          );
-        })
-        .catch((error: unknown) => {
-          updateImages((current) => current.filter((image) => image.key !== key));
-          setImageError(
-            t('composer.imageUploadFailed', {
-              error: error instanceof Error ? error.message : String(error),
-            }),
-          );
-        });
-    }
-  };
-
-  /**
-   * 粘贴或拖进来的文件：图片照旧上传，其余的插入成 @ 提及（目录里的用相对路径）。取不到路径的（连着别的电脑上的 Host、剪贴板里
-   * 只有图像数据）当图片处理，不能发时提示格式不支持。
-   */
-  const addFiles = (files: readonly File[], named: boolean) => {
-    const { images: picked, others } = splitFiles(files, imagesEnabled);
-    const resolved = others.map((file) => ({
-      file,
-      path: localFiles ? platformApi().getPathForFile(file) : '',
-    }));
-    if (picked.length > 0) addImages(picked, named);
-    const unresolved = resolved.find((entry) => entry.path === '');
-    if (unresolved) setImageError(t('composer.imageUnsupported', { name: unresolved.file.name }));
-    else if (picked.length === 0) setImageError(undefined);
-    const paths = resolved.flatMap((entry) => (entry.path === '' ? [] : [entry.path]));
-    if (paths.length > 0) insertPaths(paths);
-  };
-
-  const removeImage = (key: string) => {
-    updateImages((current) => current.filter((image) => image.key !== key));
-    setImageError(undefined);
-    textareaRef.current?.focus();
-  };
-
-  /**
-   * 粘贴：剪贴板里有图片时当图片加进来（同 T3 Code：有文件就不粘贴文字）；一大段文字（0.90.0，composer-pastes.ts）放进附件条，
-   * 发出时作为单独标 `pasted` 的一段。
-   */
-  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(event.clipboardData.files);
-    if (files.length > 0 && (imagesEnabled || localFiles)) {
-      event.preventDefault();
-      // 截图粘贴进来的文件都叫 image.png，不带名字。
-      addFiles(files, false);
-      return;
-    }
-    const pasted = event.clipboardData.getData('text/plain');
-    if (files.length > 0 || !isLargePaste(pasted)) return;
-    event.preventDefault();
-    const token = registerPaste(pasted);
-    setPastes((current) => [...current, token]);
-    setHistoryIndex(-1);
-  };
-
-  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!(imagesEnabled || localFiles) || !dragHasFiles(Array.from(event.dataTransfer.types)))
-      return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-    setDragging(true);
-  };
-
-  const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
-    // 移到子元素上也会触发：只有离开整个输入框才算。
-    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-    setDragging(false);
-  };
-
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    setDragging(false);
-    if (!(imagesEnabled || localFiles) || event.dataTransfer.files.length === 0) return;
-    event.preventDefault();
-    addFiles(Array.from(event.dataTransfer.files), true);
-    textareaRef.current?.focus();
-  };
-
+    followUp !== undefined && !hasContent && !disabled && !sending && !input.adding;
   // ── 斜杠命令与 @ 提及（U33） ────────────────────────────────────────
   const listId = useId();
-  /** 正在翻的历史（U36）：-1 表示没在翻。 */
-  const [historyIndex, setHistoryIndex] = useState(-1);
   const { sendShortcut } = composerPrefs.use();
   const [cursor, setCursor] = useState(() => text.length);
   /** 下一次渲染后要放的光标（菜单替换了文字）。 */
@@ -497,20 +358,40 @@ export const Composer = memo(function Composer({
   const [active, setActive] = useState(0);
   const filesSupported = useFilesSupported();
   const canMention = fileScope !== undefined && filesSupported;
-  /** 路径指这台电脑上的文件（外壳的 `localFiles`）：没选目录也能用选择框与拖放带文件。 */
-  const localFiles = capabilities().localFiles && !disabled;
+  const skillToken = detectMentionTrigger(text, cursor, '$');
+  const catalog = useComposerCatalog(
+    client,
+    sessionId,
+    allowDraftSkills,
+    catalogProviderId,
+    focused && !disabled && (!!skillToken || text.trimStart().startsWith('/')),
+    localCommands,
+  );
+  const commands = catalog.commands;
+  const skill = catalog.available ? skillToken : null;
+  const skillMatches = useMemo(
+    () =>
+      skill === null
+        ? []
+        : catalog.skills.filter((item) =>
+            item.name.toLowerCase().includes(skill.query.toLowerCase()),
+          ),
+    [skill, catalog.skills],
+  );
   const slash =
     commands && commands.length > 0 ? slashMenuState(text, cursor, commands) : undefined;
   const mention = !slash && canMention ? detectMentionTrigger(text, cursor) : null;
   const menuKey = slash
     ? `slash:${slash.level}:${slash.command?.name ?? ''}:${slash.rangeStart}`
-    : mention
-      ? `mention:${mention.rangeStart}`
-      : undefined;
+    : skill
+      ? `skill:${skill.rangeStart}`
+      : mention
+        ? `mention:${mention.rangeStart}`
+        : undefined;
   const menuOpen = menuKey !== undefined && menuKey !== dismissed && focused && !disabled;
   const ghost = ghostText(suggestion, {
     text,
-    imageCount: images.length + pastes.length,
+    imageCount: attachments.length + pastes.length,
     menuOpen,
   });
   const ghostId = useId();
@@ -523,7 +404,7 @@ export const Composer = memo(function Composer({
     menuOpen && mention ? mention.query : undefined,
     { limit: 30 },
   );
-  const query = slash?.query ?? mention?.query ?? '';
+  const query = slash?.query ?? skill?.query ?? mention?.query ?? '';
 
   const slashLevel = slash?.level;
   const slashCommand = slash?.command;
@@ -543,7 +424,7 @@ export const Composer = memo(function Composer({
           icon: <Icon />,
           label: command.label,
           ...(command.detail !== undefined && { detail: command.detail }),
-          hint: `/${command.name}`,
+          ...(command.label !== `/${command.name}` && { hint: `/${command.name}` }),
           nested: command.items !== undefined,
           ...(command.checked && { checked: true }),
         };
@@ -559,6 +440,13 @@ export const Composer = memo(function Composer({
         ...(item.disabled && { disabled: true }),
       }));
     }
+    if (skill)
+      return skillMatches.map((entry) => ({
+        key: entry.name,
+        icon: <BookOpen />,
+        label: `$${entry.name}`,
+        ...(entry.description && { detail: entry.description }),
+      }));
     if (mention) {
       return mentionSearch.entries.map((entry) => {
         const { name, dir } = splitPath(entry.path);
@@ -567,7 +455,7 @@ export const Composer = memo(function Composer({
       });
     }
     return [];
-  }, [slash?.level, slashResults, mention, mentionSearch.entries]);
+  }, [slash?.level, slashResults, mention, mentionSearch.entries, skill, skillMatches]);
 
   // 换了触发或查询：高亮回到第一项；二级菜单刚打开时停在当前选中的那项（一级里打勾的是开着的开关，如 `/status`，不跳过去）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只跟着触发与查询。
@@ -605,7 +493,7 @@ export const Composer = memo(function Composer({
       setText(next.text);
       setCursor(next.cursor);
       pendingCursor.current = next.cursor;
-      setHistoryIndex(-1);
+      resetHistory();
     },
   });
   const dictating = dictation.phase === 'starting' || dictation.phase === 'recording';
@@ -635,21 +523,14 @@ export const Composer = memo(function Composer({
 
   /** ⌘⇧D：按下开始，松开（D 或任一修饰键，macOS 按着 ⌘ 时 D 的 keyup 不一定来）结束。 */
   const onDictationKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (!canDictate || !matchesShortcut(event, SHORTCUTS.dictation)) return false;
+    if (!canDictate || !matchesShortcut(event, getShortcut('dictation'))) return false;
     if (!event.repeat) dictation.press();
     return true;
   };
   const onKeyUp = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (
-      [
-        'KeyD',
-        'MetaLeft',
-        'MetaRight',
-        'ControlLeft',
-        'ControlRight',
-        'ShiftLeft',
-        'ShiftRight',
-      ].includes(event.code)
+      event.code === getShortcut('dictation').code ||
+      /^(?:Meta|Control|Alt|Shift)(?:Left|Right)$/.test(event.code)
     ) {
       dictation.release();
     }
@@ -690,6 +571,11 @@ export const Composer = memo(function Composer({
       item.run();
       return;
     }
+    if (skill) {
+      const entry = skillMatches[index];
+      if (entry) replaceRange(skill.rangeStart, skill.rangeEnd, `$${entry.name} `);
+      return;
+    }
     if (mention) {
       const entry = mentionSearch.entries[index];
       if (!entry) return;
@@ -705,6 +591,7 @@ export const Composer = memo(function Composer({
     insertAtCursor(`${mentions.join(' ')} `);
   };
 
+  pathsToInsert.current = insertPaths;
   const insertPathsRef = useRef(insertPaths);
   insertPathsRef.current = insertPaths;
   useEffect(() => {
@@ -717,18 +604,6 @@ export const Composer = memo(function Composer({
       if (mentionListeners.get(draftKey) === mention) mentionListeners.delete(draftKey);
     };
   }, [draftKey]);
-
-  /** “+”菜单的“文件和文件夹”：系统的选择框，选中的插入成 @ 提及。 */
-  const attachPaths = async () => {
-    const chosen = await platformApi()
-      .selectPaths(fileScope?.root)
-      .catch(() => []);
-    if (chosen.length === 0) {
-      textareaRef.current?.focus();
-      return;
-    }
-    insertPaths(chosen);
-  };
 
   /** 菜单开着时的按键：返回 true 表示已处理。 */
   const onMenuKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
@@ -792,48 +667,27 @@ export const Composer = memo(function Composer({
       followUp.onImplement();
       return;
     }
-    if (!canSend) return;
+    if (!canSend || sendInFlight.current) return;
+    sendInFlight.current = true;
     setSending(true);
-    const sent = text.trim();
-    const sentImages = images;
-    const sentPastes = pastes;
+    const sent = draft;
     try {
-      // 等待期间可能已经输入了下一条（回合进行中接着发是常事）：只清掉发出去的那条。
-      const parts = sentImages.flatMap((image) => (image.part ? [image.part] : []));
-      if (await onSend(withPastes(sentPastes, sent), busy ? delivery : undefined, parts)) {
-        if (sent !== '') rememberPrompt(sent);
-        setHistoryIndex(-1);
-        setText((current) => (current.trim() === sent ? '' : current));
-        setPastes((current) => current.filter((token) => !sentPastes.includes(token)));
-        const keys = new Set(sentImages.map((image) => image.key));
-        updateImages((current) => current.filter((image) => !keys.has(image.key)));
-        setImageError(undefined);
+      const parts = await uploadDraft(client, sent.attachments);
+      const body = withDraftPastes(sent.pastes, sent.text.trim());
+      const result = await onSend(body, busy ? delivery : undefined, parts);
+      if (result) {
+        if (input.store !== draftFor(draftKey)) return;
+        await finishComposerSend(draftKey, sent, typeof result === 'string' ? result : undefined);
+        resetHistory();
+        input.setError(undefined);
       }
+    } catch (error) {
+      input.setError(t('composer.attachmentUploadFailed', { error: describe(error) }));
     } finally {
+      sendInFlight.current = false;
       setSending(false);
       textareaRef.current?.focus();
     }
-  };
-
-  /** ↑ / ↓ 翻发过的消息（U36）：输入框为空、或正在翻且光标在首行 / 末行时。 */
-  const onHistoryKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false;
-    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return false;
-    const caret = event.currentTarget.selectionStart;
-    if (event.key === 'ArrowUp') {
-      const browsing = historyIndex >= 0;
-      if (!(text === '' || (browsing && caretOnFirstLine(text, caret)))) return false;
-      const next = promptAt(historyIndex + 1);
-      if (next === undefined) return browsing;
-      setHistoryIndex(historyIndex + 1);
-      replaceRange(0, text.length, next);
-      return true;
-    }
-    if (historyIndex < 0 || !caretOnLastLine(text, caret)) return false;
-    const next = historyIndex === 0 ? '' : (promptAt(historyIndex - 1) ?? '');
-    setHistoryIndex(historyIndex - 1);
-    replaceRange(0, text.length, next);
-    return true;
   };
 
   /** 接受输入建议：填进输入框（光标在末尾），不直接发送，用户可以改。 */
@@ -902,7 +756,13 @@ export const Composer = memo(function Composer({
       {menuOpen && (entries.length > 0 || slash !== undefined || !mentionSearch.pending) && (
         <ComposerMenu
           listId={listId}
-          label={mention ? t('composer.mentionFile') : t('composer.commands')}
+          label={
+            skill
+              ? t('rail.context.cat.skills')
+              : mention
+                ? t('composer.mentionFile')
+                : t('composer.commands')
+          }
           entries={entries}
           active={active}
           {...(slash?.level === 'items' &&
@@ -910,7 +770,16 @@ export const Composer = memo(function Composer({
               title: slash.command.label,
               onBack: () => replaceRange(slash.rangeStart, slash.rangeEnd, '/'),
             })}
-          empty={mention ? t('files.noMatches') : t('composer.noCommands')}
+          empty={
+            mention
+              ? t('files.noMatches')
+              : (catalog.error ??
+                (catalog.loading
+                  ? t('common.loading')
+                  : skill
+                    ? t('search.empty')
+                    : t('composer.noCommands')))
+          }
           onActive={setActive}
           onSelect={selectEntry}
         />
@@ -961,45 +830,25 @@ export const Composer = memo(function Composer({
               )}
             </div>
           )}
-          {(images.length > 0 || pastes.length > 0) && (
-            <AttachmentStrip count={images.length + pastes.length}>
-              {pastes.map((token) => (
-                <ComposerPasteChip
-                  key={token}
-                  text={pasteOf(token) ?? token}
-                  onOpen={() => setOpenPaste(pasteOf(token) ?? token)}
-                  onRemove={() => removePaste(token)}
-                />
-              ))}
-              {images.map((image) => (
-                <ComposerThumb
-                  key={image.key}
-                  src={image.dataUrl}
-                  {...(image.name !== undefined && { name: image.name })}
-                  uploading={image.part === undefined}
-                  onRemove={() => removeImage(image.key)}
-                  onOpen={() => setPreview(image)}
-                />
-              ))}
-            </AttachmentStrip>
-          )}
-          {imageError && (
+          {input.strip}
+          {(issue || input.error) && (
             <p
               role="alert"
               className="px-4 pt-1.5 text-xs text-destructive"
               data-testid="composer-image-error"
             >
-              {imageError}
+              {issue ?? input.error}
             </p>
           )}
           <div className="relative">
             <Textarea
               ref={textareaRef}
               value={text}
+              maxLength={Math.max(0, MESSAGE_TEXT_MAX_LENGTH - (textLength(draft) - text.length))}
               onChange={(event) => {
                 setText(event.target.value);
                 setCursor(event.target.selectionStart);
-                setHistoryIndex(-1);
+                resetHistory();
                 dictation.clearError();
               }}
               onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
@@ -1062,22 +911,25 @@ export const Composer = memo(function Composer({
             ) : (
               <>
                 <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
-                  {(canMention || localFiles || imagesEnabled || (commands?.length ?? 0) > 0) && (
+                  {
                     <ComposerPlusMenu
                       commands={commands ?? []}
                       disabled={disabled}
                       canMention={canMention}
-                      canAttachFiles={localFiles}
+                      canAttachFiles={input.canAttach}
+                      onHistory={input.onHistory}
+                      onSkill={catalog.available ? () => insertAtCursor('$') : undefined}
+                      onPaths={input.onPaths}
                       canAttachImages={imagesEnabled}
-                      onAttachImages={() => imageInputRef.current?.click()}
+                      onAttachImages={input.onImages}
                       canCommand={(commands?.length ?? 0) > 0 && text.trim() === ''}
-                      onAttach={() => void attachPaths()}
+                      onAttach={input.onAttach}
                       onMention={() => insertAtCursor('@')}
                       onCommand={() => replaceRange(0, text.length, '/')}
                       onRun={(command) => runCommand(command)}
                       onClosed={() => window.setTimeout(() => textareaRef.current?.focus(), 0)}
                     />
-                  )}
+                  }
                   {leading}
                   {plan?.active && (
                     <PlanChip
@@ -1127,27 +979,7 @@ export const Composer = memo(function Composer({
           </div>
         </div>
       </div>
-      {imagesEnabled && (
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept={COMPOSER_IMAGE_ACCEPT}
-          multiple
-          hidden
-          data-testid="composer-image-input"
-          onChange={(event) => {
-            addImages(Array.from(event.target.files ?? []), true);
-            event.target.value = '';
-            textareaRef.current?.focus();
-          }}
-        />
-      )}
-      <ImagePreview
-        src={preview?.dataUrl}
-        {...(preview?.name !== undefined && { name: preview.name })}
-        onClose={() => setPreview(undefined)}
-      />
-      <PastedTextPreview text={openPaste} onClose={() => setOpenPaste(undefined)} />
+      {input.picker}
     </div>
   );
 });

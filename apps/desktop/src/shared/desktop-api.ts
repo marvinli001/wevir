@@ -152,6 +152,15 @@ export const APP_MENU_LABEL_KEYS = [
   'hideOthers',
   'showAll',
   'quit',
+  'activeTurns',
+  'background',
+  'quitResume',
+  'quitResumeDetail',
+  'quitStopsTurns',
+  'quitManual',
+  'quitUnknown',
+  'cancelQuit',
+  'quitFailed',
   'file',
   'closeWindow',
   'edit',
@@ -178,6 +187,11 @@ export const APP_MENU_LABEL_KEYS = [
   'zoom',
   'bringAllToFront',
 ] as const;
+
+export interface AppMenuShortcuts {
+  settings: string;
+  restoreDefaultTheme: string;
+}
 
 export type AppMenuLabels = Record<(typeof APP_MENU_LABEL_KEYS)[number], string>;
 
@@ -436,7 +450,7 @@ export interface DesktopApi {
    */
   setTrayLabels(labels: { open: string; quit: string }): Promise<void>;
   /** 原生应用菜单的文字，按界面语言（main/app-menu.ts）。 */
-  setAppMenuLabels(labels: AppMenuLabels): Promise<void>;
+  setAppMenuLabels(labels: AppMenuLabels, shortcuts?: AppMenuShortcuts): Promise<void>;
   /** 订阅应用菜单的“设置…”与“检查更新…”：主进程已显示窗口，渲染进程跳到对应的设置页。返回取消订阅的函数。 */
   onOpenSettings(listener: (tab: MenuSettingsTab) => void): () => void;
   onRestoreDefaultTheme(listener: () => void): () => void;

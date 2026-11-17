@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { access, mkdir, realpath, stat } from 'node:fs/promises';
-import { basename, isAbsolute } from 'node:path';
+import { basename, isAbsolute, relative, sep } from 'node:path';
 import type {
   ClientCapabilities,
   ClientIdentity,
@@ -21,8 +21,8 @@ import type {
 } from '@wevir/protocol';
 import {
   DEFAULT_REMOTE_SETTINGS,
-  IMAGE_MAX_PER_MESSAGE,
   isOutputStyle,
+  messageContentIssue,
   resolveProviderModels,
   SyncStatusSchema,
   ZUV_API_PROVIDER_ID,
@@ -41,7 +41,7 @@ import type { AutomationService } from './automations/service.js';
 import type { AssistantFolders } from './channels/assistants.js';
 import type { ChannelService } from './channels/service.js';
 import type { ChatFolders } from './chats.js';
-import type { TurnCheckpoints } from './checkpoints.js';
+import { sessionCheckpointRange, type TurnCheckpoints } from './checkpoints.js';
 import type { ContextSearch } from './context-search.js';
 import {
   readVariables,
@@ -56,6 +56,7 @@ import type { EventStore } from './event-store.js';
 import type { ExternalImport } from './external-import/service.js';
 import { type FileUrls, isServablePath } from './file-urls.js';
 import { FileReadRejected, readFileChunk } from './files-read.js';
+import { createProjectDirectory } from './git/project.js';
 import type { GitService } from './git/service.js';
 import {
   isSafeRelativePath,
@@ -63,6 +64,7 @@ import {
   readDiffFile,
   readStaged,
   readUncommitted,
+  repoInfo,
 } from './git-diff.js';
 import { readGitStatus } from './git-status.js';
 import type { GuardrailService } from './guardrails/service.js';
@@ -409,6 +411,32 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       ['folder'],
       'folder is not a source directory of this workspace or session',
     );
+  };
+  const inProjectFolder = (directory: string) =>
+    storage.workspaces.list().some(
+      (workspace) =>
+        !options.chats?.isChats(workspace) &&
+        !options.assistants?.isAssistant(workspace) &&
+        [workspace.rootPath, ...(workspace.extraFolders ?? [])].some((root) => {
+          const path = relative(root, directory);
+          return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path);
+        }),
+    );
+  const repositoryDirectory = async (
+    scope: MethodParams<'git.branches'>,
+    context: RequestContext,
+  ) => {
+    const target = await changeDirectory(scope.workspaceId, scope.sessionId, scope.folder);
+    if (context.principal?.kind === 'device') {
+      const repo = await repoInfo(target.dir);
+      if (repo && repo.toplevel !== target.dir && !inProjectFolder(repo.toplevel)) {
+        throw invalidParams(
+          ['workspaceId'],
+          'register the repository root for repository-wide Git operations',
+        );
+      }
+    }
+    return target;
   };
   /**
    * 目录里的一个文件（`workspace.fileUrl` 与 `files.read` 共用的检查）：路径相对、`/` 分隔、没有空段、`.` 与 `..`，目录同
@@ -791,6 +819,24 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const { record, created } = await addWorkspace(options, params);
       return { workspace: toWorkspace(record), created };
     },
+    'workspace.create': async ({ parentPath, name, repositoryUrl }, context) => {
+      const parent = await resolveWorkspacePath(parentPath);
+      if (options.chats?.owns(parent) || options.assistants?.owns(parent)) {
+        throw invalidParams(
+          ['parentPath'],
+          'choose a project folder outside the Wevir data directory',
+        );
+      }
+      if (context.principal?.kind === 'device' && !inProjectFolder(parent)) {
+        throw invalidParams(
+          ['parentPath'],
+          'a paired device can create a project inside a registered source folder',
+        );
+      }
+      const rootPath = await createProjectDirectory(parent, name, repositoryUrl);
+      const { record, created } = await addWorkspace(options, { rootPath });
+      return { workspace: toWorkspace(record), created };
+    },
 
     'workspace.remove': async ({ workspaceId }) => {
       const workspace = storage.workspaces.get(workspaceId);
@@ -922,11 +968,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     // 0.20.0：改动的 diff。`turn` 要给会话，读这个会话目录里的快照。
     'workspace.diff': async ({ workspaceId, sessionId, folder, source }) => {
-      if (source.kind === 'turn' && folder !== undefined) {
-        throw invalidParams(['folder'], 'a turn diff does not accept folder');
+      const snapshot = source.kind === 'turn' || source.kind === 'session';
+      if (snapshot && folder !== undefined) {
+        throw invalidParams(['folder'], `a ${source.kind} diff does not accept folder`);
       }
-      if (source.kind === 'turn' && sessionId === undefined) {
-        throw invalidParams(['sessionId'], 'a turn diff needs sessionId');
+      if (snapshot && sessionId === undefined) {
+        throw invalidParams(['sessionId'], `a ${source.kind} diff needs sessionId`);
       }
       const { dir } = await changeDirectory(workspaceId, sessionId, folder);
       if (source.kind === 'uncommitted') return readUncommitted(dir);
@@ -934,6 +981,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (source.kind === 'staged') return readStaged(dir);
       if (!options.checkpoints || sessionId === undefined) {
         return { repo: true, unavailable: 'no_checkpoint' };
+      }
+      if (source.kind === 'session') {
+        const range = sessionCheckpointRange(
+          events.readTypes(sessionId, [
+            'turn.started',
+            'turn.finished',
+            'turn.undone',
+            'turn.redone',
+          ]),
+          storage.sessions.get(sessionId)?.forkedFrom?.turnId,
+        );
+        return options.checkpoints.sessionDiff(sessionId, dir, range);
       }
       return options.checkpoints.diff(sessionId, dir, source.turnId);
     },
@@ -1536,6 +1595,16 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       };
     },
 
+    'host.activity': () => sessions.quitActivity(),
+
+    'session.composerCatalog': async ({ sessionId }) => {
+      assertSessionVisible(storage, sessionId);
+      return sessions.composerCatalog(
+        sessionId,
+        (cwd) => options.plugins?.enabledSkills(cwd) ?? Promise.resolve([]),
+      );
+    },
+
     'session.get': ({ sessionId }) => {
       assertSessionVisible(storage, sessionId);
       const snapshot = events.snapshot(sessionId);
@@ -1625,7 +1694,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     // 0.24.0：由命令开始的回合，没有 user.message（domain-model §4.7）。
     'session.compact': ({ sessionId }) => sessions.compact(sessionId),
 
-    'session.review': ({ sessionId, target }) => sessions.review(sessionId, target),
+    'session.review': (params) => sessions.review(params),
 
     // 0.75.0：第二意见。
     'session.secondOpinion': ({ sessionId, focus, ...request }, { client }) =>
@@ -1660,6 +1729,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       pendingMessages: await sessions.resumePending(sessionId),
     }),
 
+    'file.upload': async (params) => ({ file: await imageStore().uploadFile(params) }),
+    'file.read': (params) => imageStore().readFile(params),
     'image.upload': async (params) => ({ image: await imageStore().upload(params) }),
 
     'image.read': (params) => imageStore().read(params),
@@ -2215,6 +2286,34 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         target.sessionId,
       );
     },
+    'git.branches': async ({ workspaceId, sessionId, folder }) =>
+      gitService().branches((await changeDirectory(workspaceId, sessionId, folder)).dir),
+    'git.switchBranch': async (params, context) => {
+      const target = await repositoryDirectory(params, context);
+      return {
+        status: await gitService().switchBranch(
+          target.dir,
+          params.branch,
+          params.expected,
+          target.sessionId,
+        ),
+      };
+    },
+    'git.push': async (params, context) => {
+      const target = await repositoryDirectory(params, context);
+      return {
+        status: await gitService().push(
+          target.dir,
+          params.remote,
+          params.expected,
+          target.sessionId,
+        ),
+      };
+    },
+    'git.createPullRequest': async (params, context) => {
+      const target = await repositoryDirectory(params, context);
+      return gitService().pullRequest(target.dir, params.remote, params.expected, params);
+    },
     'lsp.status': async ({ workspaceId, sessionId, refresh }) =>
       lspStatus().status(await gitDirectory(workspaceId, sessionId), refresh === true),
     'lsp.restart': async ({ workspaceId, sessionId, serverId, root }) => ({
@@ -2380,14 +2479,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'channel.posts': (params) => channels().posts(params),
     // 帖子里的图片（0.135.0 起助理的输入框能带）：换成 Host 记下的、挪出暂存区，同 `session.send`。
     'channel.post': async (params, { client }) => {
-      const images = params.content.filter((part) => part.type === 'image').length;
-      if (images > IMAGE_MAX_PER_MESSAGE) {
-        throw invalidParams(
-          ['content'],
-          `a post can carry at most ${IMAGE_MAX_PER_MESSAGE} images`,
-        );
-      }
-      const content = images === 0 ? params.content : await imageStore().keep(params.content);
+      const issue = messageContentIssue(params.content);
+      if (issue) throw invalidParams(['content'], issue);
+      const content = params.content.some((part) => part.type !== 'text')
+        ? await imageStore().keep(params.content)
+        : params.content;
       return { post: channels().post({ ...params, content }, client) };
     },
     'channel.react': (params) => ({ post: channels().react(params, 'user') }),
@@ -2449,6 +2545,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'question.respond': (params, { client }) => sessions.respondToQuestion(params, client),
 
+    'approval.authorizeDenied': async ({ sessionId, reviewId }, { client }) => {
+      await sessions.authorizeDenied(sessionId, reviewId, client);
+      return {};
+    },
     'approval.respond': async (params, { client, capabilities }) => {
       try {
         return await sessions.respondToApproval(params, client);

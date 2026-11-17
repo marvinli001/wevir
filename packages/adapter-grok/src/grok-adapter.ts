@@ -402,6 +402,10 @@ export class GrokAdapter implements AgentRuntimeAdapter {
     return this.#withVersion(engine, session);
   }
 
+  async listCommands(engineSessionId: string) {
+    return (await this.#sessions.get(engineSessionId)?.host?.listCommands(engineSessionId)) ?? [];
+  }
+
   subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
     this.#assertUsable();
     const session = this.#session(engineSessionId);

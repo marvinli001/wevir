@@ -48,6 +48,16 @@ const codex: ApprovalScope = { roots: ['/repo'], sandboxed: true };
 const claude: ApprovalScope = { roots: ['/repo', '/wt/repo-feature'], sandboxed: false };
 
 describe('presentApproval（acp-event-mapping.md §5.5）', () => {
+  it('Codex 的网络审批显示协议和主机', () => {
+    const request = approval({
+      toolName: 'commandExecution',
+      display: { kind: 'fetch', url: 'https://registry.npmjs.org' },
+    });
+    expect(presentApproval(request, codex)).toEqual({
+      title: '允许网络连接？',
+      target: 'https://registry.npmjs.org',
+    });
+  });
   it('命令目录只在不同于会话目录时显示，未提供时沿用会话目录', () => {
     const request = approval({
       toolName: 'commandExecution',
@@ -269,11 +279,35 @@ describe('approvalLayout（U13）', () => {
     { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel', category: 'reject' },
   ] as const;
 
-  it('只有拒绝与允许：Codex 的拒绝取“拒绝并停止”，允许取只允许这一次', () => {
+  it('快捷键保留单次允许与拒绝，菜单保留其余决策', () => {
     const layout = approvalLayout(codex);
     expect(layout.reject?.optionId).toBe('cancel');
     expect(layout.allow?.optionId).toBe('accept');
     expect(layout.numbered.map((o) => o.optionId)).toEqual(['cancel', 'accept']);
+    expect(layout.alternatives.map((o) => o.optionId)).toEqual(['acceptForSession', 'decline']);
+  });
+
+  it('引擎只提供持久网络策略时，不把它绑定到允许或拒绝快捷键', () => {
+    const options = [
+      {
+        kind: 'allow_network_policy',
+        category: 'allow',
+        optionId: 'policy-0',
+        label: 'Allow host',
+      },
+      {
+        kind: 'reject_always_network',
+        category: 'reject',
+        optionId: 'policy-1',
+        label: 'Deny host',
+      },
+    ] as const;
+    expect(approvalLayout(options)).toEqual({
+      allow: undefined,
+      reject: undefined,
+      numbered: [],
+      alternatives: options,
+    });
   });
 
   it('ACP 的选项：第一个拒绝类与第一个允许类', () => {
@@ -284,6 +318,23 @@ describe('approvalLayout（U13）', () => {
 
 describe('选项与处理者', () => {
   it('认识的选项本地化，不认识的显示引擎给的 label', () => {
+    expect(
+      optionLabel({
+        kind: 'allow_network_policy',
+        label: 'allow',
+        policyTarget: 'registry.example',
+      }),
+    ).toBe('始终允许连接 registry.example');
+    expect(
+      optionLabel({
+        kind: 'reject_always_network',
+        label: 'deny',
+        policyTarget: 'registry.example',
+      }),
+    ).toBe('始终拒绝连接 registry.example');
+    expect(
+      optionLabel({ kind: 'allow_exec_policy', label: 'allow', policyTarget: 'git status' }),
+    ).toBe('始终允许命令前缀 git status');
     expect(optionLabel({ kind: 'allow_once', label: 'Allow once' })).toBe('允许一次');
     expect(optionLabel({ kind: 'reject_once', label: 'Reject' })).toBe('拒绝');
     expect(optionLabel({ kind: 'allow_for_session', label: 'Allow for session' })).toBe(

@@ -203,6 +203,10 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return this.#forSession(engineSessionId).compact(engineSessionId);
   }
 
+  authorizeDenied(engineSessionId: string, reviewId: string): Promise<string> {
+    return this.#forSession(engineSessionId).authorizeDenied(engineSessionId, reviewId);
+  }
+
   review(engineSessionId: string, request: ReviewRequest): Promise<void> {
     return this.#forSession(engineSessionId).review(engineSessionId, request);
   }
@@ -254,8 +258,16 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return session;
   }
 
-  rewind(engineSessionId: string): Promise<void> {
-    return this.#forSession(engineSessionId).rewind(engineSessionId);
+  rewind(
+    engineSessionId: string,
+    count?: number,
+    expectedFirstEngineTurnId?: string,
+  ): Promise<void> {
+    return this.#forSession(engineSessionId).rewind(
+      engineSessionId,
+      count,
+      expectedFirstEngineTurnId,
+    );
   }
 
   injectNote(engineSessionId: string, text: string): Promise<void> {

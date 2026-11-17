@@ -4,7 +4,7 @@ import type { Ref } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { t } from '@/i18n';
 import { useHistoryNav } from '@/lib/history-nav';
-import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { formatShortcut, useKeybindings } from '@/lib/shortcuts';
 
 /**
  * 窗口左上角紧跟红绿灯的一组按钮（U5，照 Codex 桌面端）：后退、前进，工作台里还有侧栏开关。宽度固定是
@@ -19,13 +19,14 @@ export function WindowControls({
   onBack?: () => void;
   className?: string;
 }) {
+  const bindings = useKeybindings();
   const history = useHistoryNav();
   const canBack = history.canBack || onBack !== undefined;
   return (
     <div className={cn('flex items-center gap-0.5', className)}>
       <IconButton
         label={t('layout.back')}
-        shortcut={formatShortcut(SHORTCUTS.back)}
+        shortcut={formatShortcut(bindings.back)}
         disabled={!canBack}
         onClick={() => (history.canBack ? history.back() : onBack?.())}
         tooltipSide="bottom"
@@ -35,7 +36,7 @@ export function WindowControls({
       </IconButton>
       <IconButton
         label={t('layout.forward')}
-        shortcut={formatShortcut(SHORTCUTS.forward)}
+        shortcut={formatShortcut(bindings.forward)}
         disabled={!history.canForward}
         onClick={history.forward}
         tooltipSide="bottom"
@@ -47,7 +48,7 @@ export function WindowControls({
         <IconButton
           ref={sidebar.ref}
           label={t(sidebar.open ? 'layout.collapseSidebar' : 'layout.expandSidebar')}
-          shortcut={formatShortcut(SHORTCUTS.toggleSidebar)}
+          shortcut={formatShortcut(bindings.toggleSidebar)}
           aria-pressed={sidebar.open}
           onClick={sidebar.onToggle}
           tooltipSide="bottom"

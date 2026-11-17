@@ -267,6 +267,33 @@ describe('多目录数据', () => {
     });
   });
 
+  it('整个会话的 diff 只用会话快照，选择过附加目录也不发送 folder', async () => {
+    const read = () =>
+      useWorkspaceDiff(
+        workspaceId,
+        sessionId,
+        { kind: 'session' },
+        {
+          refreshKey: 0,
+          live: false,
+          folder: '/api',
+        },
+      );
+    render(read);
+    await settle();
+    expect(render(read).result?.patch).toBe('main');
+    expect(host.request.mock.calls).toEqual([
+      [
+        'workspace.diff',
+        {
+          workspaceId,
+          sessionId,
+          source: { kind: 'session' },
+        },
+      ],
+    ]);
+  });
+
   it('上一个目录的慢写结果不会覆盖新目录状态', async () => {
     let folder = '/slow';
     const read = () => useGitStatus(workspaceId, sessionId, 0, folder);

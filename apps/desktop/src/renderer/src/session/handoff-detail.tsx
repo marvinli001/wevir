@@ -4,13 +4,16 @@ import { cn } from 'cn';
 import { useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
+import { ContextReceipt } from './context-receipt';
 import { CopyButton } from './copy-button';
+import { formatMessageTime } from './format';
 import {
   type ConfigurationNoticeOf,
   type HandoffNoticeOf,
   handoffDetailRows,
 } from './handoff-model';
+import { effortLabel } from './model-picker';
 
 const TONE = {
   success: 'text-success',
@@ -40,6 +43,29 @@ export function HandoffDetailDialog({
   const rows = [
     { key: 'target', label: t('handoff.detail.target'), value: target },
     { key: 'from', label: t('handoff.detail.from'), value: from },
+    ...(notice.kind === 'configured'
+      ? [
+          {
+            key: 'effort',
+            label: t('model.effort.label'),
+            value: effortLabel(notice.to.reasoningEffort),
+          },
+          {
+            key: 'speed',
+            label: t('handoff.detail.speed'),
+            value: t(notice.to.fast ? 'model.fast.label' : 'model.speed.standard'),
+          },
+        ]
+      : []),
+    ...(notice.at
+      ? [
+          {
+            key: 'at',
+            label: t('handoff.detail.at'),
+            value: formatMessageTime(notice.at, currentLocale()),
+          },
+        ]
+      : []),
     ...handoffDetailRows(notice, providers, accounts),
   ];
   return (
@@ -67,6 +93,7 @@ export function HandoffDetailDialog({
             </div>
           ))}
         </dl>
+        {notice.contextPack && <ContextReceipt receipt={notice.contextPack} inline />}
         {context !== undefined && (
           <div className="grid gap-1.5">
             <div className="flex items-center justify-between">

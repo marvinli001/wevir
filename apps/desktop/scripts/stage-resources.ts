@@ -116,6 +116,7 @@ export const EXCLUDED_PACKAGES: readonly string[] = [
  *   Claude Agent SDK 的 peer；
  * - `sherpa-onnx-node`：原生模块（听写的本机识别，Host 的可选依赖）。它的 `addon.js` 按 `../sherpa-onnx-<平台>-<架构>/` 找原生包，
  *   deploy 按 `--os` / `--cpu` 只装目标平台的那一个（约 33 MB，含 onnxruntime）；没有这个平台的原生包时 Host 只有 Provider 的转写。
+ * - `sharp`：图片上传用的 Node-API 模块，从 `@img/sharp-<平台>` 加载绑定与 libvips。
  * - `@jitl/quickjs-wasmfile-release-sync`：browser_run 的 QuickJS 沙箱，按 `import.meta.url` 找包里的 `emscripten-module.wasm`
  *   （约 0.5 MB）；Host 用 `import()` 加载它，`quickjs-emscripten-core` 打进 bundle。
  */
@@ -124,6 +125,7 @@ export const ON_DISK_PACKAGES: readonly string[] = [
   '@anthropic-ai/claude-agent-sdk',
   'zod',
   'sherpa-onnx-node',
+  'sharp',
   '@jitl/quickjs-wasmfile-release-sync',
 ];
 
@@ -610,9 +612,14 @@ export async function stageHost(
     recursive: true,
   });
   writeBundleManifest(dir);
-  const removed = pruneDependencies(dir, EXCLUDED_PACKAGES);
+  // Electron 和 CLI 的 Linux Node 都用 glibc；跨平台 deploy 也会解出 sharp 的 musl 变体。
+  const excluded =
+    os === 'linux'
+      ? [...EXCLUDED_PACKAGES, `@img/sharp-linuxmusl-${cpu}`, `@img/sharp-libvips-linuxmusl-${cpu}`]
+      : EXCLUDED_PACKAGES;
+  const removed = pruneDependencies(dir, excluded);
   const files = pruneUnusedFiles(dir);
-  checkHostTree(dir, EXCLUDED_PACKAGES);
+  checkHostTree(dir, excluded);
   const pty = trimNodePty(dir, os, cpu);
   console.log(
     `resources/host：bundle ${chunks.length} 个文件（${chunks.join('、')}），node_modules 只留 ` +

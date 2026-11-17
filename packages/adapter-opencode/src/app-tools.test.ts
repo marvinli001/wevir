@@ -321,10 +321,10 @@ describe('插件', () => {
       hooks.tool?.wevir_session_create?.execute({ prompt: 'go' }, context('ses_stranger').value),
     ).rejects.toThrow('does not belong to Wevir');
     // Host 不在：不挂工具，插件照样加载。
-    expect(await loadPlugin({ url: 'http://127.0.0.1:9/mcp', token: 't', noApproval: [] })).toEqual(
-      {},
-    );
-    expect(await loadPlugin({})).toEqual({});
+    expect(
+      (await loadPlugin({ url: 'http://127.0.0.1:9/mcp', token: 't', noApproval: [] })).tool,
+    ).toBeUndefined();
+    expect((await loadPlugin({})).tool).toBeUndefined();
   });
 });
 
@@ -358,7 +358,7 @@ describe('适配器', () => {
     const h = harness;
     await h.adapter.accounts.read('opencode');
     expect(h.fake.starts).toBe(1);
-    expect(h.fake.startOptions[0]?.appToolsPlugin).toBeUndefined();
+    expect(h.fake.startOptions[0]?.appToolsPlugin?.[1]).toEqual({});
     h.adapter.bindEngineAppTools(() => ({ url: 'http://127.0.0.1:1/mcp', token: 't' }));
     await h.adapter.accounts.read('opencode', { refresh: true });
     expect(h.fake.starts).toBe(2);
@@ -428,7 +428,7 @@ describe('适配器', () => {
     const h = harness;
     h.adapter.bindEngineAppTools(() => undefined);
     await h.adapter.accounts.read('opencode');
-    expect(h.fake.startOptions[0]?.appToolsPlugin).toBeUndefined();
+    expect(h.fake.startOptions[0]?.appToolsPlugin?.[1]).toEqual({});
   });
 });
 

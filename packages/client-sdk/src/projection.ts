@@ -29,6 +29,7 @@ import type {
   ContextPackReceipt,
   EngineErrorCategory,
   EngineErrorInfo,
+  EngineNotice,
   GuardrailBlocked,
   HandoffNoteRef,
   HandoffOmittedRange,
@@ -77,6 +78,7 @@ import type {
   Usage,
   UsageLimit,
   UserContentPart,
+  UserFilePart,
   UserImagePart,
   VerificationRun,
   VerificationRunId,
@@ -117,12 +119,14 @@ type NoticeRouting = {
 
 /** 不属于任何回合的会话级提示（引擎会话恢复、只读、关闭）。 */
 export type SessionNotice =
+  | { kind: 'engine'; detail: EngineNotice }
   | { kind: 'context'; receipt: ContextPackReceipt }
   | { kind: 'resumed'; engineVersion?: string; contextPack?: ContextPackReceipt }
   | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string }
   | { kind: 'closed' }
   | ({
       kind: 'configured';
+      contextPack?: ContextPackReceipt;
       from: ModelConfiguration;
       to: ModelConfiguration;
       at?: IsoTime;
@@ -194,6 +198,7 @@ export type ChatPart =
   | ({ type: 'reasoning' } & StreamPartFields & ReasoningTiming)
   /** 用户消息里的一张图片（0.28.0），在文本之后，按发送时的顺序。 */
   | { type: 'image'; key: string; image: UserImagePart }
+  | { type: 'file'; key: string; file: UserFilePart }
   | {
       type: 'tool';
       key: string;
@@ -368,6 +373,8 @@ export interface TranscriptEngineSegment extends TurnEngine {
 }
 
 export interface UserChatMessage extends MessageBase {
+  /** 原始部件保留粘贴标记和附件顺序，供编辑重发。 */
+  content?: readonly UserContentPart[];
   role: 'user';
   turnId: TurnId;
   engine?: TurnEngine;
@@ -541,6 +548,7 @@ export interface TranscriptProjectionOptions {
 }
 
 interface MutableMessage {
+  content?: readonly UserContentPart[];
   role: ChatMessage['role'];
   id: string;
   turnId?: TurnId;
@@ -605,6 +613,8 @@ export class TranscriptProjection {
   #pending: PendingMessage[] = [];
   /** toolCallId → 所在消息。 */
   #tools = new Map<string, MutableMessage>();
+  #buffering = new Map<TurnId, MutableMessage>();
+  #reviewNotices = new Map<string, MutableMessage>();
   #approvals = new Map<ApprovalId, ApprovalRequest>();
   /** 全部问题（0.10.0），含已结束的。 */
   #questions = new Map<QuestionId, QuestionRequest>();
@@ -708,6 +718,8 @@ export class TranscriptProjection {
     this.#chaptersDirty = true;
     this.#turns.clear();
     this.#tools.clear();
+    this.#buffering.clear();
+    this.#reviewNotices.clear();
     this.#approvals.clear();
     this.#questions.clear();
     this.#approvalsDirty = true;
@@ -825,9 +837,11 @@ export class TranscriptProjection {
         const message = this.#messages.at(-1);
         const part = message?.parts.at(-1);
         if (
-          message?.role === 'system' &&
+          message &&
           part?.type === 'notice' &&
-          (part.notice.kind === 'handoff' || part.notice.kind === 'resumed') &&
+          (part.notice.kind === 'handoff' ||
+            part.notice.kind === 'resumed' ||
+            part.notice.kind === 'configured') &&
           part.notice.contextPack === undefined
         ) {
           this.#touch(message, event.seq);
@@ -1108,6 +1122,9 @@ export class TranscriptProjection {
       case 'engine.error':
         this.#engineError(event);
         return;
+      case 'engine.notice':
+        this.#engineNotice(event);
+        return;
       case 'engine.raw':
         if (this.#includeRaw) this.#raw(event);
         return;
@@ -1386,6 +1403,7 @@ export class TranscriptProjection {
       role: 'user',
       id: turnId,
       turnId,
+      content,
       parts: userParts(content),
       firstSeq: event.seq,
       lastSeq: event.seq,
@@ -1410,6 +1428,7 @@ export class TranscriptProjection {
       role: 'user',
       id: `${turnId}:steer:${pendingId}`,
       turnId,
+      content,
       parts: userParts(content),
       firstSeq: event.seq,
       lastSeq: event.seq,
@@ -1613,6 +1632,10 @@ export class TranscriptProjection {
     this.#messageListDirty = true;
     this.#chaptersDirty = true;
     this.#turns.delete(turnId);
+    this.#buffering.delete(turnId);
+    for (const [id, message] of this.#reviewNotices) {
+      if (removed.has(message)) this.#reviewNotices.delete(id);
+    }
     for (const [toolCallId, message] of this.#tools) {
       if (removed.has(message)) this.#tools.delete(toolCallId);
     }
@@ -1638,6 +1661,7 @@ export class TranscriptProjection {
 
   #turnFinished(event: WevirEventOf<'turn.finished'>): void {
     const { turnId, outcome, durationMs } = event.payload;
+    this.#clearBuffering(turnId, event.seq);
     const message = this.#assistant(turnId, event.seq);
     message.finished = { outcome, durationMs };
     // domain-model §6.3 规则 4：本回合没被替换的增量丢弃，以已提交消息为准；回合被中断（Host 或引擎退出）时已提交
@@ -1668,6 +1692,7 @@ export class TranscriptProjection {
 
   #delta(event: WevirEventOf<'assistant.delta'>): void {
     const { turnId, streamId, blockIndex, kind, text } = event.payload;
+    if (kind === 'text' && text) this.#clearBuffering(turnId, event.seq);
     const message = this.#assistant(turnId, event.seq);
     const since = this.#activity(turnId, event.ts);
     const key = streamKey({ streamId, blockIndex });
@@ -1702,6 +1727,7 @@ export class TranscriptProjection {
   #committed(event: WevirEventOf<'assistant.message'> | WevirEventOf<'assistant.thought'>): void {
     const { turnId, text, replaces } = event.payload;
     const type = event.type === 'assistant.message' ? 'text' : 'reasoning';
+    if (type === 'text') this.#clearBuffering(turnId, event.seq);
     const replacedKeys = new Set(replaces.map(streamKey));
     // 增量可能在插话之前的那条助手消息里：在这个回合的全部助手消息里找，找不到就放进当前的。
     const message =
@@ -2100,6 +2126,42 @@ export class TranscriptProjection {
     return { ...metadata, skipped: decision.skipped };
   }
 
+  #engineNotice(event: WevirEventOf<'engine.notice'>): void {
+    const { detail, turnId } = event.payload;
+    const key = detail.kind === 'approval_review' ? `review:${detail.reviewId}` : `n:${event.seq}`;
+    const part: ChatPart = { type: 'notice', key, notice: { kind: 'engine', detail } };
+    if (detail.kind === 'approval_review') {
+      const message = this.#reviewNotices.get(detail.reviewId);
+      const index = message?.parts.findIndex((candidate) => candidate.key === key) ?? -1;
+      if (message && index >= 0) {
+        this.#touch(message, event.seq).parts[index] = part;
+        return;
+      }
+    }
+    if (detail.kind === 'output_buffering') {
+      if (!turnId) return;
+      this.#clearBuffering(turnId, event.seq);
+      if (!detail.active) return;
+    }
+    const message = this.#target(turnId, event.seq);
+    message.parts.push(part);
+    if (detail.kind === 'approval_review') this.#reviewNotices.set(detail.reviewId, message);
+    if (detail.kind === 'output_buffering' && turnId) this.#buffering.set(turnId, message);
+  }
+
+  #clearBuffering(turnId: TurnId, seq: number): void {
+    const message = this.#buffering.get(turnId);
+    if (!message) return;
+    this.#buffering.delete(turnId);
+    const index = message.parts.findIndex(
+      (part) =>
+        part.type === 'notice' &&
+        part.notice.kind === 'engine' &&
+        part.notice.detail.kind === 'output_buffering',
+    );
+    if (index >= 0) this.#touch(message, seq).parts.splice(index, 1);
+  }
+
   #engineError(event: WevirEventOf<'engine.error'>): void {
     const { category, message, turnId, fatal, usageLimit } = event.payload;
     const recovery = modelErrorRecovery(event.payload);
@@ -2177,11 +2239,13 @@ export function userContentText(content: readonly UserContentPart[]): string {
 
 /** 用户消息的部件：一个文本部件（只有图片时没有），之后每张图片一个（0.28.0）。 */
 function userParts(content: readonly UserContentPart[]): ChatPart[] {
-  const images: ChatPart[] = content.flatMap((part, index) =>
-    part.type === 'image' ? [{ type: 'image' as const, key: `image:${index}`, image: part }] : [],
-  );
+  const attachments = content.flatMap<ChatPart>((part, index) => {
+    if (part.type === 'image') return [{ type: 'image', key: `image:${index}`, image: part }];
+    if (part.type === 'file') return [{ type: 'file', key: `file:${index}`, file: part }];
+    return [];
+  });
   const text = userContentText(content);
-  if (text === '' && images.length > 0) return images;
+  if (text === '' && attachments.length > 0) return attachments;
   const segments = content.flatMap((part) =>
     part.type === 'text'
       ? [{ text: part.text, ...(part.pasted && { pasted: true as const }) }]
@@ -2195,7 +2259,7 @@ function userParts(content: readonly UserContentPart[]): ChatPart[] {
       state: 'done',
       ...(segments.some((segment) => segment.pasted) && { segments }),
     },
-    ...images,
+    ...attachments,
   ];
 }
 
@@ -2224,6 +2288,7 @@ function freeze(message: MutableMessage): ChatMessage {
         role: 'user',
         turnId: message.turnId as TurnId,
         ...(message.engine !== undefined && { engine: message.engine }),
+        ...(message.content !== undefined && { content: message.content }),
         ...(message.sentBy !== undefined && { sentBy: message.sentBy }),
         ...(message.fromParentAgent && { fromParentAgent: true }),
         ...(message.command !== undefined && { command: message.command }),

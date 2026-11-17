@@ -195,6 +195,26 @@ describe('远程隧道', () => {
     expect(devices).toMatchObject([{ name: 'Laptop', platform: 'macos', status: 'active' }]);
   });
 
+  it('配对的设备通过 Noise 上传超过 4 MiB 的文件，纯文字模型收到 Host 的真实路径', async () => {
+    const t = await setup();
+    const { host, device } = await pairByUri(t);
+    const { client } = await connectRemote(t, host, device);
+    const sessionId = await createSession(t.desktop);
+    const size = 4 * 1024 * 1024 + 1;
+    const { file } = await client.request('file.upload', {
+      name: 'data.csv',
+      data: Buffer.alloc(size, 65).toString('base64'),
+    });
+    expect(file).toMatchObject({ type: 'file', name: 'data.csv', size });
+    const result = await client.request('session.send', { sessionId, content: [file] });
+    expect(result).toHaveProperty('turnId');
+    const chunk = await client.request('file.read', { fileId: file.fileId });
+    expect(Buffer.from(chunk.data, 'base64').length).toBe(4 * 1024 * 1024);
+    await expect(
+      client.request('file.read', { fileId: file.fileId, offset: 4 * 1024 * 1024 }),
+    ).resolves.toMatchObject({ data: 'QQ==' });
+  }, 20_000);
+
   it('不可导出的 WebCrypto X25519 密钥（DH 是异步的）配对与 IK 重连', async () => {
     const t = await setup();
     const pair = (await crypto.subtle.generateKey({ name: 'X25519' }, false, [

@@ -2,6 +2,7 @@ import type {
   AgentEvent,
   AssistantStreamEndedEvent,
   DeltaBlockRef,
+  EngineNotice,
   EngineRawEvent,
   TodoItem,
   ToolDisplay,
@@ -14,11 +15,13 @@ import {
   APP_TOOLS_MORE_SERVER,
   APP_TOOLS_SERVER,
   boundedToolOutput,
+  redactDiagnostics,
   ToolOutputBuffer,
 } from '@wevir/runtime-adapter';
 import { parseGuardrailMarkers } from '@wevir/runtime-adapter/guardrail';
 import { HISTORY_TOOL_SERVER } from '@wevir/runtime-adapter/history-tool';
 import { asyncQuestions } from './async-questions.js';
+import { type GuardianDenial, guardianReview } from './guardian.js';
 import type {
   AgentMessageItem,
   ApprovalRequestMethod,
@@ -84,6 +87,12 @@ export const MAPPED_NOTIFICATIONS = Object.freeze([
   'item/commandExecution/outputDelta',
   'item/fileChange/patchUpdated',
   'item/mcpToolCall/progress',
+  'item/autoApprovalReview/started',
+  'item/autoApprovalReview/completed',
+  'guardianWarning',
+  'warning',
+  'model/safetyBuffering/updated',
+  'mcpServer/startupStatus/updated',
   'thread/tokenUsage/updated',
   'turn/plan/updated',
   'item/plan/delta',
@@ -119,10 +128,6 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   'item/reasoning/summaryPartAdded',
   'thread/status/changed',
   'thread/started',
-  // 自动批准（0.11.0，§4.7）的审查过程与结论：允许的照常执行，拒绝的以工具失败结束、理由在输出里，不另出事件。
-  'item/autoApprovalReview/started',
-  'item/autoApprovalReview/completed',
-  'guardianWarning',
   // 已弃用、由 `contextCompaction` item 取代的压缩通知（0.24.0，§4.9）：压缩照 item 报。
   'thread/compacted',
   // 0.36.0 开了实验面之后多出来的（ADR-0005 补记 16）：thread 设置的回执（`turn/start` 带的协作模式等）、Wevir 不用的 thread
@@ -241,6 +246,8 @@ export class CodexEventMapper {
     this.#subscription = options.subscription === true;
   }
 
+  readonly denials = new Map<string, GuardianDenial>();
+
   /** 回合开始（或结束）：丢掉上一个回合的 item 状态。`compaction`：这个回合里的压缩记为哪种（0.24.0）。 */
   reset(compaction: 'manual' | 'auto' = 'auto'): void {
     this.#items.clear();
@@ -307,7 +314,48 @@ export class CodexEventMapper {
         return isTokenUsage(params)
           ? this.#usage(params, context.stale === true)
           : [this.raw(method, params)];
+      case 'warning':
+      case 'guardianWarning':
+        return typeof params.message === 'string' && params.message
+          ? [this.notice({ kind: 'warning', message: redactDiagnostics(params.message) })]
+          : [this.raw(method, params)];
+      case 'model/safetyBuffering/updated':
+        return typeof params.showBufferingUi === 'boolean' && typeof params.model === 'string'
+          ? [
+              this.notice({
+                kind: 'output_buffering',
+                model: params.model,
+                active: params.showBufferingUi,
+              }),
+            ]
+          : [this.raw(method, params)];
+      case 'item/autoApprovalReview/started':
+      case 'item/autoApprovalReview/completed': {
+        const review = guardianReview(params);
+        if (!review) return [this.raw(method, params)];
+        if (
+          review.event &&
+          method === 'item/autoApprovalReview/completed' &&
+          !this.denials.has(review.detail.reviewId)
+        ) {
+          this.denials.set(review.detail.reviewId, { detail: review.detail, event: review.event });
+          if (this.denials.size > 10) {
+            const oldest = this.denials.keys().next().value;
+            if (oldest !== undefined) this.denials.delete(oldest);
+          }
+        }
+        return [this.notice(review.detail)];
+      }
       case 'mcpServer/startupStatus/updated':
+        if (params.status === 'failed' && typeof params.name === 'string' && params.name) {
+          return [
+            this.notice({
+              kind: 'mcp_failed',
+              server: params.name,
+              ...(typeof params.error === 'string' && { message: redactDiagnostics(params.error) }),
+            }),
+          ];
+        }
         // 回合之外的：`config/mcpServer/reload` 让每个挂着的 thread 都重启 MCP 服务，记进空闲会话会推进它的 `updatedAt` 与
         // `lastSeq`（左栏的排序与未读）。
         if (context.stale === true) return [];
@@ -350,6 +398,10 @@ export class CodexEventMapper {
       }
     }
     return events.length > 0 ? events : [this.raw('hook/completed', params)];
+  }
+
+  notice(detail: EngineNotice): Extract<AgentEvent, { type: 'engine.notice' }> {
+    return { type: 'engine.notice', engineSessionId: this.engineSessionId, detail };
   }
 
   raw(method: string, params: unknown, kind?: string): EngineRawEvent {
@@ -401,15 +453,30 @@ export class CodexEventMapper {
     params: CommandExecutionRequestApprovalParams | FileChangeRequestApprovalParams,
   ): AgentEvent[] {
     const reason = typeof params.reason === 'string' && params.reason !== '' ? params.reason : '';
+    const command =
+      method === 'item/commandExecution/requestApproval'
+        ? (params as CommandExecutionRequestApprovalParams)
+        : undefined;
+    const network = command?.networkApprovalContext;
+    const url =
+      network?.host && network.protocol ? `${network.protocol}://${network.host}` : undefined;
+    const networkDisplay: ToolDisplay | undefined = url
+      ? { kind: 'fetch', summary: url, url }
+      : undefined;
     const state = this.#items.get(params.itemId);
     if (state?.tool !== undefined) {
-      if (reason === '' || state.completed) return [];
+      if ((!reason && !networkDisplay) || state.completed) return [];
       return [
         {
           type: 'tool.updated',
           engineSessionId: this.engineSessionId,
           toolCallId: params.itemId,
-          input: { ...state.tool, justification: reason },
+          input: {
+            ...state.tool,
+            ...(reason && { justification: reason }),
+            ...(network && { networkApprovalContext: network }),
+          },
+          ...(networkDisplay && { display: networkDisplay }),
         },
       ];
     }
@@ -434,8 +501,14 @@ export class CodexEventMapper {
           } satisfies FileChangeItem);
     const events = this.#toolStarted(item);
     const started = events[0];
-    if (reason !== '' && started?.type === 'tool.started') {
-      started.input = { ...item, justification: reason };
+    if (started?.type === 'tool.started') {
+      if (reason || network)
+        started.input = {
+          ...item,
+          ...(reason && { justification: reason }),
+          ...(network && { networkApprovalContext: network }),
+        };
+      if (networkDisplay) started.display = networkDisplay;
     }
     return events;
   }

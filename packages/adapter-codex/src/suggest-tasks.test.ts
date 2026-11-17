@@ -163,13 +163,15 @@ describe('映射', () => {
     );
   });
 
-  it('Wevir 的 MCP 服务正常启动不出事件，起不来的留 engine.raw', () => {
+  it('Wevir 的 MCP 服务正常启动不出事件，起不来时报告引擎警告', () => {
     const mapper = new CodexEventMapper('t');
     const status = (name: string, value: string) =>
       mapper.map('mcpServer/startupStatus/updated', { threadId: 't', name, status: value });
     expect(status('wevir_tasks', 'starting')).toEqual([]);
     expect(status('wevir_tasks', 'ready')).toEqual([]);
-    expect(status('wevir_tasks', 'failed')).toMatchObject([{ type: 'engine.raw' }]);
+    expect(status('wevir_tasks', 'failed')).toMatchObject([
+      { type: 'engine.notice', detail: { kind: 'mcp_failed', server: 'wevir_tasks' } },
+    ]);
     expect(status('other', 'ready')).toMatchObject([{ type: 'engine.raw' }]);
   });
 });

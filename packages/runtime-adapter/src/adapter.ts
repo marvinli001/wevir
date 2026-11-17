@@ -76,6 +76,7 @@ export interface AgentRuntimeAdapter {
   readonly skills?: boolean;
   bindPlugins?(source: import('./plugins.js').EnginePluginSource): void;
   reloadPlugins?(): Promise<void>;
+  listCommands?(engineSessionId: string): Promise<import('./types.js').EngineComposerCommand[]>;
   listConnectorStatus?(): Promise<import('./plugins.js').EngineConnectorStatus[]>;
   /**
    * 预先启动承载这个 Provider 的引擎进程（0.129.0，`provider.prewarm`）：新会话页选中它时 Host 调用，第一条消息就不必等引擎冷启动
@@ -147,6 +148,9 @@ export interface AgentRuntimeAdapter {
    * 错误：同 `send`。
    */
   review?(engineSessionId: string, request: ReviewRequest): Promise<void>;
+
+  /** 用户对真实拒绝记录授权一次重试，上游引擎继续执行自己的审查。 */
+  authorizeDenied?(engineSessionId: string, reviewId: string): Promise<string>;
 
   /**
    * 设会话目标（0.35.0，`session.setGoal`，domain-model §3.16）：替换原有的目标，以 `request.input` 开始第一个回合，同 `send` 在
@@ -249,12 +253,16 @@ export interface AgentRuntimeAdapter {
   readonly branches?: boolean;
 
   /**
-   * 撤回会话最后一个完成的回合（0.38.0，`session.rewind`）：引擎的上下文回到这个回合之前，下一个回合接着之前的历史（Codex：
-   * `thread/revert`，`beforeTurnId` 是 thread 最后一个回合）。不改文件。会话要空闲（没有进行中的回合）、至少有一个完成的回合。
+   * 一次撤回最后 `count` 个已结束的原生回合，默认一个。Host 提供最早一个的原生 ID 时必须与引擎历史相符（Codex：
+   * `thread/revert` 的 `beforeTurnId`）。数量必须是正整数且不超过已有的回合数；失败时不做部分撤回。
    * 不实现表示引擎不能撤回，Host 不声明 `session_rewind`。
    * 错误：`session_not_found`、`session_closed`、`session_busy`、`invalid_input`（子会话、支线、没有回合）、`engine_unavailable`。
    */
-  rewind?(engineSessionId: string): Promise<void>;
+  rewind?(
+    engineSessionId: string,
+    count?: number,
+    expectedFirstEngineTurnId?: string,
+  ): Promise<void>;
 
   /**
    * 引擎能让 agent 建议后续任务（0.16.0，U23）：回合里以 `tasks.suggested` 报出。有它 Host 才声明 `suggested_tasks`。

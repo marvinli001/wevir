@@ -3,7 +3,7 @@
 import { cn } from 'cn';
 import { IconButton } from '@/components/icon-button';
 import { useHostConnection } from '@/host/host-connection';
-import { formatShortcut, SHORTCUTS, type Shortcut } from '@/lib/shortcuts';
+import { formatShortcut, useKeybindings } from '@/lib/shortcuts';
 import { usePaneAccess } from './pane-access';
 import type { PaneController } from './pane-controller';
 import { type PaneKind, paneKindUsable } from './pane-kinds';
@@ -12,11 +12,7 @@ import { findKindTab } from './pane-state';
 
 type LauncherKind = Extract<PaneKind, 'terminal' | 'browser' | 'files'>;
 
-export const PANE_LAUNCHERS: readonly { kind: LauncherKind; shortcut: Shortcut }[] = [
-  { kind: 'terminal', shortcut: SHORTCUTS.terminal },
-  { kind: 'browser', shortcut: SHORTCUTS.browser },
-  { kind: 'files', shortcut: SHORTCUTS.files },
-];
+export const PANE_LAUNCHERS: readonly LauncherKind[] = ['terminal', 'browser', 'files'];
 
 /** 显示这种窗格：已经开着就切过去（终端有几个时取正显示着的、否则第一个），没有就新开一个。 */
 export function showPaneKind(panes: PaneController, kind: LauncherKind): void {
@@ -28,10 +24,11 @@ export function showPaneKind(panes: PaneController, kind: LauncherKind): void {
 export function PaneLaunchers({ panes }: { panes: PaneController }) {
   const { client } = useHostConnection();
   const access = usePaneAccess();
+  const bindings = useKeybindings();
   return PANE_LAUNCHERS.filter(
-    ({ kind }) =>
+    (kind) =>
       paneKindUsable(kind, access) && (kind !== 'terminal' || client?.supports('user_terminal')),
-  ).map(({ kind, shortcut }) => {
+  ).map((kind) => {
     const Icon = paneIcon(kind);
     // 按下的样子：这种窗格正显示着（窗格区看得见、是某个窗格当前的标签）。
     const shown = panes.auxShown && findKindTab(panes.scope, kind)?.shown === true;
@@ -39,7 +36,7 @@ export function PaneLaunchers({ panes }: { panes: PaneController }) {
       <IconButton
         key={kind}
         label={paneKindName(kind)}
-        shortcut={formatShortcut(shortcut)}
+        shortcut={formatShortcut(bindings[kind])}
         aria-pressed={shown}
         className={cn(shown && 'bg-accent')}
         onClick={() => showPaneKind(panes, kind)}

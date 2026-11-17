@@ -1,6 +1,14 @@
 // 消息里的图片（0.28.0）：文件头、ImageStore，以及经方法表对着 EchoAdapter 发带图片的消息。
 
-import { existsSync, mkdirSync, readdirSync, realpathSync, utimesSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import {
   IMAGE_MAX_PER_MESSAGE,
@@ -183,7 +191,8 @@ describe('ImageStore', () => {
   it('image.read 分段读，offset 越界回 INVALID_PARAMS', async () => {
     const { images } = store();
     const bytes = png(10, 10, IMAGE_READ_CHUNK_BYTES + 1000);
-    const part = await images.upload({ mimeType: 'image/png', data: bytes.toString('base64') });
+    const part = await images.saveToolImage(bytes.toString('base64'));
+    if (!part) throw new Error('expected a generated image');
     const first = await images.read({ imageId: part.imageId });
     expect(first).toMatchObject({ mimeType: 'image/png', size: bytes.length, offset: 0 });
     expect(Buffer.from(first.data, 'base64').length).toBe(IMAGE_READ_CHUNK_BYTES);
@@ -196,6 +205,47 @@ describe('ImageStore', () => {
     await expect(
       images.read({ imageId: part.imageId, offset: bytes.length }),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+
+  it('将大尺寸截图缩到统一上限，返回优化后的真实格式与尺寸', async () => {
+    const { images } = store();
+    const { default: sharp } = await import('sharp');
+    const png = await sharp({
+      create: { width: 4000, height: 1000, channels: 4, background: 'transparent' },
+    })
+      .png()
+      .toBuffer();
+    const image = await images.upload({ data: png.toString('base64'), mimeType: 'image/png' });
+    expect(image).toMatchObject({ width: 2000, height: 500, mimeType: 'image/jpeg' });
+    const read = await images.read({ imageId: image.imageId });
+    expect(Buffer.from(read.data, 'base64').byteLength).toBe(image.size);
+    expect(await sharp(Buffer.from(read.data, 'base64')).metadata()).toMatchObject({
+      format: 'jpeg',
+      width: 2000,
+      height: 500,
+    });
+  });
+
+  it('用 Host 存下的附件大小累计，拒绝整条消息时尚未移动任何暂存文件', async () => {
+    const { images, dir } = store();
+    const data = Buffer.alloc(8 * 1024 * 1024).toString('base64');
+    const file = await images.uploadFile({ data, name: '../chart.pdf' });
+    const forged = { ...file, size: 0, name: 'forged' };
+    await expect(images.keep([forged, forged, forged])).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+    });
+    expect(await images.path(file.fileId)).toBe(join(dir, 'staged', `${file.fileId}.data.pdf`));
+    expect(await images.keep([forged])).toEqual([file]);
+    expect(await images.path(file.fileId)).toBe(join(dir, `${file.fileId}.data.pdf`));
+  });
+
+  it('拒绝磁盘字节数已变的附件', async () => {
+    const { images } = store();
+    const file = await images.uploadFile({ data: 'YQ==', name: 'a.txt' });
+    const path = await images.path(file.fileId);
+    if (!path) throw new Error('missing file');
+    writeFileSync(path, 'changed');
+    await expect(images.keep([file])).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 
   it('清理只删 staged/ 里放了超过一天的', async () => {
@@ -305,6 +355,33 @@ describe('带图片的消息', () => {
           .at(-1)?.payload,
       ).toMatchObject({ text: 'Echo: [image: chart.png]' }),
     );
+  });
+
+  it('普通文件经 file.upload 发给纯文字模型，持久化真实文件并保留消息的文件引用', async () => {
+    const env = setup();
+    const session = await env.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'mock',
+      modelId: 'text-only',
+    });
+    const sessionId = session.id as SessionId;
+    const { file } = await env.methods['file.upload']({ name: 'note.txt', data: 'b2s=' }, context);
+    await env.methods['session.send']({ sessionId, content: [file] }, context);
+    await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('idle'));
+    const events = env.events.readSince(sessionId, 0, 1000);
+    expect(events.find((e) => e.type === 'user.message')?.payload).toMatchObject({
+      content: [file],
+    });
+    expect(env.storage.events.attachmentRefs().get(file.fileId)).toEqual(new Set([sessionId]));
+    const path = await env.images.path(file.fileId);
+    if (!path) throw new Error('missing attachment');
+    expect(readFileSync(path, 'utf8')).toBe('ok');
+    expect(events.find((e) => e.type === 'assistant.message')?.payload).toMatchObject({
+      text: expect.stringContaining(path),
+    });
+    expect(events.find((e) => e.type === 'assistant.message')?.payload).toMatchObject({
+      text: expect.stringContaining('>\nok\n</pasted_content'),
+    });
   });
 
   it('模型不收图片、引擎不收图片、超过张数、图片不存在：都不写事件', async () => {

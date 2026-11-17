@@ -28,7 +28,7 @@
 // 加一条 `noReply` 的边界消息，标题（§5.11）在临时会话里同步 `prompt`（title.ts）。
 
 import { randomUUID } from 'node:crypto';
-import { stat } from 'node:fs/promises';
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -40,6 +40,7 @@ import {
   type ApprovalCancelledEvent,
   type ApprovalDecision,
   type EngineAppToolsGrant,
+  type EngineComposerCommand,
   type EngineRuleFiles,
   type EngineSession,
   type EngineToolClass,
@@ -59,6 +60,7 @@ import { openCodeAccountEnv } from './executable.js';
 import { ENGINE_RAW_PROTOCOL, OpenCodeTurnMapper } from './mapping.js';
 import { newMessageId } from './message-id.js';
 import { lowestVariant, type ParsedModelId, parseModelId } from './models.js';
+import { commandAllowed } from './native-commands.js';
 import {
   APPROVAL_OPTIONS,
   engineToolRules,
@@ -73,6 +75,7 @@ import {
   errorMessage,
   isNotFound,
   type Message,
+  type NativeCommandInput,
   type OpenCodeClient,
   type OpenCodeSdk,
   type Session as OpenCodeSessionInfo,
@@ -165,7 +168,7 @@ function admitting(steer: Steer): boolean {
 interface Turn {
   readonly mapper: OpenCodeTurnMapper;
   /** 顶层回合：Wevir 生成的用户消息 ID。 */
-  readonly messageId: string | undefined;
+  messageId: string | undefined;
   /**
    * 顶层回合：见到这个会话的 busy（或回答这条用户消息的 assistant 消息）之后，idle 才算这个回合结束；之前的 idle 是上一个回合
    * 留下的（opencode 结束时先发 session.status idle，有时再发一条 session.idle）。子回合一开始就是 true。
@@ -229,6 +232,7 @@ interface Session {
   attached: boolean;
   stream: DirectoryStream | undefined;
   turn: Turn | undefined;
+  listedCommands?: Set<string>;
   readonly roles: Map<string, 'user' | 'assistant'>;
   readonly approvals: Map<string, Approval>;
   readonly questions: Map<string, Question>;
@@ -498,6 +502,20 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     return this.#attached(engineSessionId).hub.subscribe();
   }
 
+  async listCommands(engineSessionId: string): Promise<EngineComposerCommand[]> {
+    const session = this.#attached(engineSessionId);
+    if (!session.stream || session.parent) return [];
+    const commands = (await session.stream.client.commands())
+      .filter((command) => commandAllowed(command, '', session.settings))
+      .map(({ name, description, hints }) => ({
+        name,
+        ...(description && { description }),
+        ...(hints.length && { argumentHint: hints.join(' ') }),
+      }));
+    session.listedCommands = new Set(commands.map(({ name }) => name));
+    return commands;
+  }
+
   async send(engineSessionId: string, input: AgentInput): Promise<void> {
     this.#alive();
     const session = this.#attached(engineSessionId);
@@ -512,6 +530,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     const stream = session.stream;
     if (stream === undefined) throw new AdapterError('session_closed', 'the session is detached');
 
+    const slash = slashInput(parts);
     const messageId = newMessageId();
     const turn = this.#newTurn(session, messageId, true);
     session.turn = turn;
@@ -520,6 +539,42 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       await stream.ready;
       await this.#dropStaleSteers(session);
       await this.#writeNotes(session);
+      if (slash) {
+        const known = (await stream.client.commands(turn.prompt.signal)).find(
+          (cmd) => cmd.name === slash.name,
+        );
+        if (!known && session.listedCommands?.has(slash.name))
+          throw new AdapterError(
+            'invalid_input',
+            `OpenCode command /${slash.name} is no longer available`,
+          );
+        if (known) {
+          if (!commandAllowed(known, slash.args, session.settings))
+            throw new AdapterError(
+              'invalid_input',
+              'OpenCode cannot enforce this session’s permissions on the command template',
+            );
+          const files = parts.filter((part) => part.type === 'file');
+          if (files.length && known.subtask)
+            throw new AdapterError(
+              'invalid_input',
+              'OpenCode subtask commands do not take attachments',
+            );
+          const request = {
+            sessionID: session.id,
+            messageID: session.settings.system ? `${messageId.slice(0, -10)}WevirRules` : messageId,
+            model: session.settings.modelId,
+            ...variantOf(session.settings),
+            command: known.name,
+            arguments: slash.args,
+            parts: files,
+          };
+          turn.messageId = request.messageID;
+          await this.#sendCommand(session, turn, stream.client, request, turn.prompt.signal);
+          this.#flushTurn(session, turn);
+          return;
+        }
+      }
       await stream.client.promptAsync(
         {
           sessionID: session.id,
@@ -532,11 +587,11 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
         turn.prompt.signal,
       );
     } catch (error) {
+      if (turn.cancelling && !turn.done)
+        this.#settle(session, turn, this.#completed(session, turn));
       if (turn.done) {
         // 发送途中被取消了：回合已按取消结算，交出存着的事件（含终结事件）。
-        const buffered = turn.buffer ?? [];
-        turn.buffer = undefined;
-        for (const event of buffered) session.hub.emit(event);
+        this.#flushTurn(session, turn);
         return;
       }
       if (session.turn === turn) session.turn = undefined;
@@ -546,12 +601,71 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       throw adapterError(error, 'prompt');
     }
     turn.prompt = undefined;
-    const buffered = turn.buffer ?? [];
-    turn.buffer = undefined;
-    for (const event of buffered) session.hub.emit(event);
+    this.#flushTurn(session, turn);
     if (turn.done || turn.active) return;
     turn.watchdog = setTimeout(() => this.#reconcile(session, turn), ACTIVITY_TIMEOUT_MS);
     turn.watchdog.unref?.();
+  }
+
+  #flushTurn(session: Session, turn: Turn): void {
+    const buffered = turn.buffer ?? [];
+    turn.buffer = undefined;
+    for (const event of buffered) session.hub.emit(event);
+  }
+
+  async #sendCommand(
+    session: Session,
+    turn: Turn,
+    client: OpenCodeClient,
+    input: NativeCommandInput,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let file: string | undefined;
+    if (session.settings.system) {
+      // session.command 没有 system 参数；本机插件在 OpenCode 存下本条用户消息之前读取其规则。
+      const dir = path.join(this.#runtime.engineDir, 'command-rules');
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      file = path.join(dir, `${input.messageID}.json`);
+      await writeFile(
+        file,
+        JSON.stringify({ sessionID: session.id, system: session.settings.system }),
+        { flag: 'wx', mode: 0o600 },
+      );
+    }
+    // 这个 POST 等到回合结束才返回，等待期间 SSE 上的审批、提问和取消必须能交给 Host。
+    void (async () => {
+      try {
+        signal.throwIfAborted();
+        const result = await client.command(input, signal);
+        if (session.turn !== turn || turn.done) return;
+        // SSE 与 HTTP 是两个连接。给终结事件先到的机会；若只有 HTTP 结果，用真实的最终消息补齐。
+        turn.watchdog = setTimeout(() => {
+          if (session.turn !== turn || turn.done) return;
+          if (result.info.error) return this.#onError(session, result.info.error);
+          for (const part of result.parts) this.#onPart(session, part);
+          this.#onMessage(session, result.info);
+          turn.active = true;
+          this.#onIdle(session);
+        }, STEER_IDLE_GRACE_MS);
+        turn.watchdog.unref?.();
+      } catch (error) {
+        if (session.turn === turn && !turn.done)
+          this.#settle(
+            session,
+            turn,
+            turn.cancelling
+              ? this.#completed(session, turn)
+              : {
+                  type: 'turn.failed',
+                  engineSessionId: session.id,
+                  category: 'unknown',
+                  message: adapterError(error, 'session.command').message,
+                },
+          );
+      } finally {
+        if (file) await rm(file, { force: true }).catch(() => {});
+      }
+    })();
   }
 
   /**
@@ -570,6 +684,15 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (turn === undefined || turn.done || turn.cancelling || stream === undefined) {
       throw new AdapterError('steer_rejected', 'the OpenCode session has no turn to steer');
     }
+    const slash = slashInput(parts);
+    if (
+      slash &&
+      (session.listedCommands?.has(slash.name) ||
+        (await stream.client.commands()).some((cmd) => cmd.name === slash.name))
+    )
+      throw new AdapterError('steer_rejected', 'OpenCode commands start a separate turn');
+    if (session.turn !== turn || turn.done || turn.cancelling)
+      throw new AdapterError('steer_rejected', 'the OpenCode turn ended before the steer arrived');
     const model = modelOf(session.settings.modelId);
     const steer: Steer = {
       steerId,
@@ -1860,7 +1983,7 @@ function inputParts(input: AgentInput): PromptInput['parts'] {
     .flatMap((part) => (part.type === 'text' ? [part.text] : []))
     .join('\n\n');
   const files = input.content.flatMap((part) =>
-    part.type === 'image'
+    part.type !== 'text'
       ? [
           {
             type: 'file' as const,
@@ -1875,6 +1998,13 @@ function inputParts(input: AgentInput): PromptInput['parts'] {
     throw new AdapterError('invalid_input', 'the message is empty');
   }
   return [...(text.trim() === '' ? [] : [{ type: 'text' as const, text }]), ...files];
+}
+
+function slashInput(parts: PromptInput['parts']): { name: string; args: string } | undefined {
+  const text = parts[0];
+  if (text?.type !== 'text') return undefined;
+  const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text.text.trim());
+  return match?.[1] ? { name: match[1], args: match[2] ?? '' } : undefined;
 }
 
 function modelOf(modelId: string): ParsedModelId {

@@ -176,6 +176,51 @@ describe('startHost', () => {
     }
   });
 
+  it('resumes an explicitly suspended turn once after restart, using the original engine session', async () => {
+    // Echo keeps its engine transcripts in memory. Keep them across the two real Host lifetimes.
+    const adapter = new EchoAdapter({ stepDelayMs: 12 });
+    const keepTranscripts = vi.spyOn(adapter, 'dispose').mockResolvedValue();
+    const { host, home } = await start({ adapter });
+    const client = await connect(host);
+    const sessionId = await createSession(client);
+    const { turnId } = await client.request('session.send', {
+      sessionId,
+      content: [{ type: 'text', text: 'slow initial task' }],
+    });
+    expect(await client.request('host.activity', {})).toEqual({
+      activeTurns: 1,
+      resumableTurns: 1,
+    });
+    await client.request('host.shutdown', { resumeActiveTurns: true });
+    await client.closed;
+    await host.shutdown();
+    keepTranscripts.mockRestore();
+    const next = await start({ home, adapter });
+    const observer = await connect(next.host);
+    const { subscriptionId } = await observer.request('events.subscribe', {
+      sessionId,
+      sinceSeq: 0,
+    });
+    await observer.until(
+      () =>
+        observer
+          .events(subscriptionId)
+          .find((e) => e.type === 'turn.finished' && e.payload.turnId !== turnId),
+      'continued turn settled',
+    );
+    const history = observer.events(subscriptionId);
+    expect(
+      history.filter((e) => e.type === 'user.message' && e.payload.from?.retry?.turnId === turnId),
+    ).toHaveLength(1);
+    expect(
+      history.find((e) => e.type === 'turn.finished' && e.payload.turnId === turnId)?.payload,
+    ).toMatchObject({ continuation: 'on_restart' });
+    expect(
+      (await observer.request('session.get', { sessionId })).session.interruptedTurn,
+    ).toBeUndefined();
+    await expect(observer.request('session.retryTurn', { sessionId, turnId })).rejects.toThrow();
+  });
+
   it('优雅退出按 ADR-0002 §6 的顺序：运行中的回合被取消、未决审批结为 cancelled（host_shutdown），订阅者在 1001 关闭前收到', async () => {
     const { host, home, lines } = await start();
     const client = await connect(host);
@@ -192,7 +237,11 @@ describe('startHost', () => {
     const approvalId =
       requested.type === 'approval.requested' ? requested.payload.approval.id : undefined;
 
-    await host.shutdown({ kind: 'api' });
+    expect(await client.request('host.activity', {})).toEqual({
+      activeTurns: 1,
+      resumableTurns: 0,
+    });
+    await host.shutdown({ kind: 'rpc', client: identity, resumeActiveTurns: true });
     expect((await client.closed).code).toBe(CloseCode.GOING_AWAY);
     const events = client.events(subscriptionId);
     expect(events.find((e) => e.type === 'approval.resolved')?.payload).toEqual({
@@ -217,7 +266,10 @@ describe('startHost', () => {
     const again = await start({ home });
     expect(again.lines.some((l) => l.msg === 'recovered from unclean shutdown')).toBe(false);
     const client2 = await connect(again.host);
-    expect((await client2.request('session.get', { sessionId })).session.state).toBe('idle');
+    expect((await client2.request('session.get', { sessionId })).session).toMatchObject({
+      state: 'idle',
+      interruptedTurn: { auto: false },
+    });
   });
 
   it('引擎卡住（取消与 dispose 都不返回）：超出预算的步骤跳过，照常关闭数据库与连接、删除 host.json；下次启动对账', async () => {
@@ -282,7 +334,10 @@ describe('startHost', () => {
       interruptedSessions: [sessionId],
     });
     const client2 = await connect(again.host);
-    expect((await client2.request('session.get', { sessionId })).session.state).toBe('idle');
+    expect((await client2.request('session.get', { sessionId })).session).toMatchObject({
+      state: 'idle',
+      interruptedTurn: { auto: false },
+    });
   });
 
   it('host.shutdown：默认直接优雅退出；给了 onShutdownRequest 时交给它，带发起方', async () => {

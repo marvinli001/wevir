@@ -22,6 +22,7 @@ import {
 } from './executable.js';
 import { newMessageId } from './message-id.js';
 import { accountModels, contextWindowOf, parseModelId, planLabel } from './models.js';
+import { commandAllowed } from './native-commands.js';
 import {
   errorCategory,
   questionId,
@@ -59,6 +60,14 @@ function evaluate(rules: readonly PermissionRule[], permission: string, pattern:
 }
 
 describe('sdk', () => {
+  it('原生命令沿用会话权限，普通邮件地址和 Markdown 原样可用', () => {
+    const command = { name: 'summarize', template: 'Summarize `notes`! $ARGUMENTS', hints: [] };
+    expect(commandAllowed(command, 'from log@example.test', {})).toBe(true);
+    expect(commandAllowed(command, '@notes.md', {})).toBe(false);
+    expect(commandAllowed({ ...command, template: '@$1' }, 'notes.md', {})).toBe(false);
+    expect(commandAllowed({ ...command, source: 'mcp' }, '', {})).toBe(false);
+    expect(commandAllowed(command, '@notes.md', { permissionMode: 'full_access' })).toBe(true);
+  });
   it('OPENCODE_SDK_VERSION 与 package.json 钉的版本相同', () => {
     const manifest = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),

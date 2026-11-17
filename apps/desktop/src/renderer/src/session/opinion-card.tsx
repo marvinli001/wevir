@@ -14,6 +14,7 @@ import { turnOrb } from '@/fx/orb-state';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
+import { modelLogo } from '@/settings/model-logo';
 import { providerLogo } from '@/settings/provider-catalog';
 import { useTranscriptSessionId } from './fold-state';
 import { modelLabel } from './handoff-model';
@@ -32,7 +33,10 @@ function useOpinionSource(opinion: Pick<SecondOpinion, 'providerId' | 'modelId'>
   const accounts = useAccounts();
   const provider = providers.find((candidate) => candidate.id === opinion.providerId);
   const label = modelLabel(providers, opinion.providerId, opinion.modelId, accounts);
-  const logo = provider ? (sourceOf(provider)?.logo ?? providerLogo(provider)) : undefined;
+  const model = provider?.models.find((candidate) => candidate.id === opinion.modelId);
+  const logo =
+    modelLogo(model ?? { id: opinion.modelId }) ??
+    (provider && (sourceOf(provider)?.logo ?? providerLogo(provider)));
   return { label, logo };
 }
 
@@ -93,7 +97,7 @@ export function OpinionCard({ part }: { part: ChatPartOf<'opinion'> }) {
         <MessagesSquare aria-hidden className="size-3.5 shrink-0" />
         <span className="font-medium">{t('opinion.title')}</span>
         <span aria-hidden>·</span>
-        {logo !== undefined && <ProviderLogo logo={logo} fallback={label} className="size-3.5" />}
+        <ProviderLogo logo={logo} fallback={opinion.modelId} className="size-3.5" />
         <span className="min-w-0 truncate">{label}</span>
         {status !== undefined && <span className="ml-auto shrink-0 pl-2">{status}</span>}
       </header>

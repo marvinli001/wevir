@@ -1,13 +1,18 @@
 // 输入栏上待发的照片（会话页与助理页共用）：从相册选或拍一张，压缩后传给 Host（`image.upload`），传好的带上图片部件。上传怎么做
 // 由页面给（会话页要在 Android 选照片断线后换新连接再传）；出错时交给页面显示哪条提示。
 
-import type { UserImageMimeType, UserImagePart } from '@wevir/protocol';
-import { useState } from 'react';
+import {
+  MESSAGE_ATTACHMENT_MAX_BYTES,
+  type UserImageMimeType,
+  type UserImagePart,
+} from '@wevir/protocol';
+import { useRef, useState } from 'react';
 import type { ComposerAttachment } from '../components/composer';
 import type { MenuSection } from '../components/menu';
 import { type MessageKey, t } from '../i18n';
 import {
   PHOTOS_PER_MESSAGE,
+  PhotoBudgetError,
   PhotoPermissionError,
   type PhotoSource,
   pickPhotos,
@@ -36,29 +41,48 @@ export function usePhotoAttachments({
 } {
   const [attachments, setAttachments] = useState<PhotoAttachment[]>([]);
 
+  const adding = useRef(false);
   const attach = async (source: PhotoSource) => {
+    if (adding.current) return;
+    adding.current = true;
     onError(undefined);
-    let photos: Awaited<ReturnType<typeof pickPhotos>>;
     try {
-      photos = await pickPhotos(source, PHOTOS_PER_MESSAGE - attachments.length);
-    } catch (e) {
-      onError(e instanceof PhotoPermissionError ? 'photo.cameraDenied' : 'photo.failed');
-      return;
-    }
-    for (const photo of photos) {
-      const key = `${photo.uri}:${Date.now()}`;
-      setAttachments((current) => [...current, { key, uri: photo.uri, uploading: true }]);
-      upload(photo.mimeType, photo.data).then(
-        (image) =>
-          setAttachments((current) =>
-            current.map((a) => (a.key === key ? { ...a, uploading: false, image } : a)),
-          ),
-        (e: unknown) => {
-          console.warn('[wevir] image upload failed', e);
-          onError(sendErrorKey(e) === 'error.computerOnly' ? 'error.computerOnly' : 'photo.failed');
-          setAttachments((current) => current.filter((a) => a.key !== key));
-        },
+      const used = attachments.reduce((sum, item) => sum + (item.image?.size ?? 0), 0);
+      const photos = await pickPhotos(
+        source,
+        PHOTOS_PER_MESSAGE - attachments.length,
+        MESSAGE_ATTACHMENT_MAX_BYTES - used,
       );
+      const entries = photos.map(({ uri }, index) => ({
+        key: `${uri}:${Date.now()}:${index}`,
+        uri,
+        uploading: true,
+      }));
+      setAttachments((current) => [...current, ...entries]);
+      for (const [index, photo] of photos.entries()) {
+        const key = entries[index]?.key;
+        try {
+          const image = await upload(photo.mimeType, photo.data);
+          setAttachments((current) =>
+            current.map((item) => (item.key === key ? { ...item, uploading: false, image } : item)),
+          );
+        } catch (error) {
+          onError(
+            sendErrorKey(error) === 'error.computerOnly' ? 'error.computerOnly' : 'photo.failed',
+          );
+          setAttachments((current) => current.filter((item) => item.key !== key));
+        }
+      }
+    } catch (error) {
+      onError(
+        error instanceof PhotoPermissionError
+          ? 'photo.cameraDenied'
+          : error instanceof PhotoBudgetError
+            ? 'photo.budget'
+            : 'photo.failed',
+      );
+    } finally {
+      adding.current = false;
     }
   };
 

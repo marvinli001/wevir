@@ -409,8 +409,12 @@ export interface ThreadGoalClearResponse {
   cleared: boolean;
 }
 
-/** v2/ReviewTarget.ts 里 Wevir 用到的两种（`commit`、`custom` 不用）。 */
-export type ReviewTarget = { type: 'uncommittedChanges' } | { type: 'baseBranch'; branch: string };
+/** v2/ReviewTarget.ts */
+export type ReviewTarget =
+  | { type: 'uncommittedChanges' }
+  | { type: 'baseBranch'; branch: string }
+  | { type: 'commit'; sha: string; title: string | null }
+  | { type: 'custom'; instructions: string };
 
 /** v2/ReviewDelivery.ts：0.167.1 已移除 detached。 */
 export type ReviewDelivery = 'inline';
@@ -818,7 +822,7 @@ export type CommandExecutionApprovalKind = 'command' | 'humanCommand' | 'writeSt
 
 /**
  * v2/CommandExecutionRequestApprovalParams.ts 的稳定字段里本包读的。`approvalId` 只在 zsh 子命令与 stdin 的审批
- * 里有（同一个 item 可能有多次审批）；`availableDecisions` 是实验字段，拿不到（codex-notes §2.7）。
+ * 里有（同一个 item 可能有多次审批）；开启实验协议时带 `availableDecisions`。
  */
 export interface CommandExecutionRequestApprovalParams {
   kind?: CommandExecutionApprovalKind;
@@ -830,9 +834,11 @@ export interface CommandExecutionRequestApprovalParams {
   command?: string | null;
   cwd?: string | null;
   commandActions?: CommandAction[] | null;
+  availableDecisions?: unknown[] | null;
+  networkApprovalContext?: { host: string; protocol: string } | null;
   /**
    * “以后以这个前缀开头的命令不再问”的提议（按词）：模型给了 `prefix_rule` 用它，否则多半是整条命令。适配器原样转给 Host 作审批
-   * 规则的参考（`PendingApproval.proposedPrefix`）；不回 `acceptWithExecpolicyAmendment`，规则由 Host 记、Host 匹配
+   * 规则的参考（`PendingApproval.proposedPrefix`）；用户选择引擎提供的持久修改时原样回传
    * （codex-event-mapping.md §6.6）。
    */
   proposedExecpolicyAmendment?: unknown;
@@ -902,8 +908,7 @@ export const MCP_TOOL_APPROVAL_KIND = 'mcp_tool_call';
 
 /**
  * 审批的回复：v2/CommandExecutionRequestApprovalResponse.ts 与 v2/FileChangeRequestApprovalResponse.ts 的
- * 字符串决定（v2/CommandExecutionApprovalDecision.ts、v2/FileChangeApprovalDecision.ts 的公共部分；带 execpolicy
- * 或网络策略修订的对象形式不用）。
+ * 字符串决定（v2/CommandExecutionApprovalDecision.ts、v2/FileChangeApprovalDecision.ts 的公共部分）。
  */
 export type ApprovalDecisionValue = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
 

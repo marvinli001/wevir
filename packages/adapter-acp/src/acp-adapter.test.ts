@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import type { AccountState, AgentEvent, EngineAccounts } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AcpAdapter } from './acp-adapter.js';
@@ -12,16 +13,18 @@ if (setup.ignoreSigterm) process.on('SIGTERM', () => {});
 let configOptions = setup.configOptions;
 const calls = [];
 let pendingPrompt;
+let receivedPrompt;
 const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params } = JSON.parse(line);
   calls.push(method);
   switch (method) {
     case 'initialize':
-      reply(id, { protocolVersion: params.protocolVersion, agentCapabilities: {}, authMethods: [] });
+      reply(id, { protocolVersion: params.protocolVersion, agentCapabilities: { promptCapabilities: { embeddedContext: setup.embeddedContext === true } }, authMethods: [] });
       break;
     case 'session/new':
     case 'session/resume':
+      if (setup.commands) process.stdout.write(JSON.stringify({jsonrpc:'2.0',method:'session/update',params:{sessionId:'s1',update:{sessionUpdate:'available_commands_update',availableCommands:setup.commands}}}) + '\n');
       reply(id, { sessionId: 's1', configOptions, models: setup.models });
       break;
     case 'session/set_config_option':
@@ -32,7 +35,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     case 'session/close':
       reply(id, {});
       break;
+    case 'fixture/prompt': reply(id, receivedPrompt); break;
     case 'session/prompt':
+      receivedPrompt = params.prompt;
       if (setup.promptError) {
         process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, error: setup.promptError }) + '\n');
         break;
@@ -181,6 +186,51 @@ function setup(
 const config = (modelId: string) => ({ cwd: process.cwd(), providerId: 'fixture', modelId });
 const calls = (adapter: AcpAdapter) =>
   adapter.process.connection.agent.request<string[]>('fixture/calls', {});
+
+it.each([true, false])('delivers a file with embeddedContext=%s', async (embeddedContext) => {
+  const adapter = setup('config_option', { embeddedContext });
+  const { engineSessionId } = await adapter.createSession(config('a'));
+  const uri = new URL('../package.json', import.meta.url);
+  await adapter.send(engineSessionId, {
+    content: [
+      {
+        type: 'file',
+        name: 'package.json',
+        mimeType: 'text/plain',
+        path: fileURLToPath(uri),
+        text: 'inline document preview',
+      },
+    ],
+  });
+  const prompt = await adapter.process.connection.agent.request('fixture/prompt', {});
+  expect(prompt).toEqual(
+    embeddedContext
+      ? [
+          {
+            type: 'resource',
+            resource: {
+              uri: uri.href,
+              mimeType: 'text/plain',
+              text: expect.stringContaining('"@wevir/adapter-acp"'),
+            },
+          },
+        ]
+      : [{ type: 'text', text: 'inline document preview' }],
+  );
+});
+
+it('retains commands advertised before session/new responds', async () => {
+  const adapter = setup('config_option', {
+    commands: [
+      { name: 'stats', description: 'Show usage', input: { hint: '[period]' } },
+      { name: 'bad name' },
+    ],
+  });
+  const session = await adapter.createSession(config('a'));
+  expect(await adapter.listCommands(session.engineSessionId)).toEqual([
+    { name: 'stats', description: 'Show usage', argumentHint: '[period]' },
+  ]);
+});
 
 describe('ACP 额度失败结算', () => {
   it.each(['promptError', 'resultError', 'completion'])('%s：先刷新，再报失败', async (source) => {

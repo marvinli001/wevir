@@ -49,6 +49,20 @@ export function chatsOf(entries: readonly WorkspaceEntry[]): WorkspaceEntry | un
   return entries.find((entry) => isChats(entry.workspace));
 }
 
+export function adjacentSession(
+  entries: readonly WorkspaceEntry[],
+  currentId: string | undefined,
+  direction: -1 | 1,
+): Session | undefined {
+  const sessions = entries
+    .filter(({ workspace }) => workspace.kind !== 'assistant')
+    .flatMap(({ sessions }) => sessions)
+    .filter((session) => !session.archivedAt && !session.parentSessionId && !session.side);
+  const current = sessions.findIndex((session) => session.id === currentId);
+  if (current === -1) return direction === 1 ? sessions[0] : sessions.at(-1);
+  return sessions[(current + direction + sessions.length) % sessions.length];
+}
+
 /**
  * 会话按 workspaceId 归到各自的工作区下，每组按最近活动从新到旧（同一时刻按 ID 倒序，顺序稳定）；不属于
  * 任何已知工作区的会话不显示。

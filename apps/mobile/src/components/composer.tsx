@@ -6,7 +6,7 @@
 // 给了 `draftKey` 时没发出的字记在 state/drafts.ts，离开页面再回来还在。
 
 import { sendOutcomeUnknown } from '@wevir/client-sdk';
-import type { PendingDelivery } from '@wevir/protocol';
+import { MESSAGE_TEXT_MAX_LENGTH, type PendingDelivery } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
 import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
@@ -389,6 +389,7 @@ export function Composer({
         )}
         {dictating && <RecordingBar dictation={dictation} />}
         <TextInput
+          maxLength={MESSAGE_TEXT_MAX_LENGTH}
           value={text}
           onChangeText={(value) => {
             edited.current = true;

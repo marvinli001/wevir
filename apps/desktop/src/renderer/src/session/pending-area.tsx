@@ -1,5 +1,5 @@
 import type { WevirClient } from '@wevir/client-sdk';
-import type { PendingMessage, SessionId, SessionState } from '@wevir/protocol';
+import type { PendingMessage, SessionId, SessionState, UserContentPart } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   CornerDownRight,
@@ -13,17 +13,17 @@ import {
   SquareTerminal,
   Trash2,
 } from 'lucide-react';
-import { type KeyboardEvent, type ReactNode, useState } from 'react';
+import { type KeyboardEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { useSession } from '@/data/workbench-data';
 import { describe as describeError, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { restoreDraft } from './composer';
-import { imagesOf, messageContent } from './composer-images';
+import { EditContent } from './edit-content';
 import { useTranscriptSessionId } from './fold-state';
+import { MessageFiles } from './message-files';
 import {
   canSteerNow,
   fallbackNote,
@@ -95,13 +95,13 @@ export function PendingArea({
         key={message.id}
         message={message}
         onCancel={() => setEditing(undefined)}
-        onSave={(text) =>
+        onSave={(content) =>
           run(async (c) => {
-            // 只改文字，图片（0.28.0）照旧。
+            // 保留原消息里的附件。
             await c.request('pending.update', {
               sessionId,
               pendingId: message.id,
-              content: messageContent(text, imagesOf(message.content)),
+              content,
             });
             setEditing(undefined);
           })
@@ -134,9 +134,15 @@ export function PendingArea({
         onClick={() =>
           run(async (c) => {
             await c.request('pending.cancel', { sessionId, pendingId: message.id });
-            // 删掉的排队消息的文字放回输入框（同 Claude 桌面端），接着改了再发；图片不放回。
-            const text = pendingText(message).trim();
-            if (text !== '') restoreDraft(sessionId, text, true);
+            const text = message.content
+              .flatMap((part) => (part.type === 'text' && !part.pasted ? [part.text] : []))
+              .join('\n');
+            const pastes = message.content.flatMap((part) =>
+              part.type === 'text' && part.pasted ? [part.text] : [],
+            );
+            const attachments = message.content.filter((part) => part.type !== 'text');
+            if (text || attachments.length || pastes.length)
+              restoreDraft(sessionId, text, true, attachments, pastes);
           })
         }
       >
@@ -265,6 +271,7 @@ function PendingRow({ message, actions }: { message: PendingMessage; actions: Re
         <p className="line-clamp-3 text-sm whitespace-pre-wrap break-words">
           {pendingText(message)}
         </p>
+        <MessageFiles files={message.content.filter((part) => part.type === 'file')} />
         {images > 0 && (
           <p className="mt-0.5 text-xs text-muted-foreground">
             {t('pending.images', { count: images })}
@@ -287,23 +294,33 @@ function PendingEditor({
   onCancel,
 }: {
   message: PendingMessage;
-  onSave: (text: string) => Promise<void>;
+  onSave: (content: UserContentPart[]) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [text, setText] = useState(() => pendingText(message));
+  const appendText = !message.content.some((part) => part.type === 'text' && !part.pasted);
+  const [content, setContent] = useState<UserContentPart[]>(() =>
+    appendText ? [...message.content, { type: 'text', text: '' }] : message.content,
+  );
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    ref.current?.focus();
+  }, []);
   const [saving, setSaving] = useState(false);
-  // 只有图片的消息可以把文字删光（0.28.0）。
-  const empty = text.trim() === '' && pendingImageCount(message) === 0;
+  const empty = !content.some((part) => part.type !== 'text' || part.text.trim());
   const save = async () => {
     if (empty || saving) return;
     setSaving(true);
     try {
-      await onSave(text.trim());
+      const last = content.at(-1);
+      await onSave(
+        appendText && last?.type === 'text' && !last.text ? content.slice(0, -1) : content,
+      );
     } finally {
       setSaving(false);
     }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     // Esc 只取消编辑，不停止回合（输入框的 Esc 看 defaultPrevented）。
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -315,13 +332,17 @@ function PendingEditor({
   };
   return (
     <li className="rounded-lg bg-background px-2.5 py-1.5" data-pending-id={message.id}>
-      <Textarea
-        value={text}
-        autoFocus
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={onKeyDown}
-        aria-label={t('pending.edit')}
-        className="max-h-40 min-h-12 resize-none text-sm"
+      <EditContent
+        content={content}
+        editor={{
+          first: ref,
+          disabled: saving,
+          keyDown: onKeyDown,
+          change: (index, text) =>
+            setContent((current) =>
+              current.map((part, i) => (i === index ? { type: 'text', text } : part)),
+            ),
+        }}
       />
       <div className="mt-1 flex items-center justify-end gap-2">
         <Button size="xs" variant="ghost" onClick={onCancel}>

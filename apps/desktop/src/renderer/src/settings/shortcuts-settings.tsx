@@ -1,75 +1,170 @@
+import { type KeyboardEvent, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { type PlainMessageKey, t } from '@/i18n';
-import { formatShortcut, IS_MAC, SHORTCUTS, type Shortcut } from '@/lib/shortcuts';
-import { composerPrefs, sendKeyLabel } from '@/session/composer-prefs';
-import { LIST_CARD, SettingsSection } from './settings-ui';
+import {
+  formatShortcut,
+  IS_MAC,
+  type ShortcutId,
+  setShortcut,
+  shortcutConflict,
+  shortcutFromEvent,
+  shortcutOverrides,
+  useKeybindings,
+} from '@/lib/shortcuts';
+import { composerPrefs, type SendShortcut, sendKeyLabel } from '@/session/composer-prefs';
+import { LIST_CARD, Segmented, SettingsSection } from './settings-ui';
 
-type Row = [label: PlainMessageKey, keys: string];
+const GENERAL: ShortcutId[] = [
+  'newSession',
+  'settings',
+  'restoreDefaultTheme',
+  'search',
+  'back',
+  'forward',
+  'previousSession',
+  'nextSession',
+  'toggleSidebar',
+];
+const PANES: ShortcutId[] = [
+  'toggleAux',
+  'terminal',
+  'browser',
+  'files',
+  'openTabs',
+  'maximize',
+  'splitRight',
+  'nextTab',
+  'previousTab',
+  'nextPane',
+  'previousPane',
+];
+const COMPOSER: ShortcutId[] = ['lowerEffort', 'higherEffort', 'dictation'];
+const GROUPS = [
+  ['shortcuts.section.general', GENERAL],
+  ['shortcuts.section.panes', PANES],
+  ['shortcuts.section.composer', COMPOSER],
+] as const;
 
-const key = (shortcut: Shortcut) => formatShortcut(shortcut);
+function shortcutLabel(id: ShortcutId): string {
+  return t(id === 'restoreDefaultTheme' ? 'appMenu.restoreDefaultTheme' : `shortcuts.${id}`);
+}
 
-/**
- * 设置 → 键盘快捷键（U35，照 Codex 桌面端）：只列出来，不能改。三组：通用、窗格、输入框；输入框的发送键跟着“常规 → 发送消息”。
- */
 export function ShortcutsSettings() {
+  const bindings = useKeybindings();
   const { sendShortcut } = composerPrefs.use();
-  const sections: [PlainMessageKey, Row[]][] = [
+  const [recording, setRecording] = useState<ShortcutId>();
+  const [error, setError] = useState<string>();
+  const fixed: [PlainMessageKey, string][] = [
     [
-      'shortcuts.section.general',
-      [
-        ['shortcuts.newSession', key(SHORTCUTS.newSession)],
-        ['shortcuts.settings', key(SHORTCUTS.settings)],
-        ['appMenu.restoreDefaultTheme', key(SHORTCUTS.restoreDefaultTheme)],
-        ['shortcuts.search', key(SHORTCUTS.search)],
-        ['shortcuts.back', key(SHORTCUTS.back)],
-        ['shortcuts.forward', key(SHORTCUTS.forward)],
-        ['shortcuts.toggleSidebar', key(SHORTCUTS.toggleSidebar)],
-      ],
+      'shortcuts.newline',
+      sendShortcut === 'enter' ? (IS_MAC ? '⇧ Enter' : 'Shift+Enter') : 'Enter',
     ],
-    [
-      'shortcuts.section.panes',
-      [
-        ['shortcuts.toggleAux', key(SHORTCUTS.toggleAux)],
-        ['shortcuts.terminal', key(SHORTCUTS.terminal)],
-        ['shortcuts.browser', key(SHORTCUTS.browser)],
-        ['shortcuts.files', key(SHORTCUTS.files)],
-        ['shortcuts.openTabs', key(SHORTCUTS.openTabs)],
-        ['shortcuts.maximize', key(SHORTCUTS.maximize)],
-        ['shortcuts.splitRight', key(SHORTCUTS.splitRight)],
-        ['shortcuts.nextTab', key(SHORTCUTS.nextTab)],
-        ['shortcuts.previousTab', key(SHORTCUTS.previousTab)],
-        ['shortcuts.nextPane', key(SHORTCUTS.nextPane)],
-        ['shortcuts.previousPane', key(SHORTCUTS.previousPane)],
-      ],
-    ],
-    [
-      'shortcuts.section.composer',
-      [
-        ['shortcuts.send', sendKeyLabel(sendShortcut)],
-        [
-          'shortcuts.newline',
-          sendShortcut === 'enter' ? (IS_MAC ? '⇧ Enter' : 'Shift+Enter') : 'Enter',
-        ],
-        ['shortcuts.sendOther', 'Tab'],
-        ['shortcuts.stop', 'Esc'],
-        ['shortcuts.commands', '/'],
-        ['shortcuts.mention', '@'],
-        ['shortcuts.dictation', key(SHORTCUTS.dictation)],
-      ],
-    ],
+    ['shortcuts.sendOther', 'Tab'],
+    ['shortcuts.stop', 'Esc'],
+    ['shortcuts.commands', '/'],
+    ['shortcuts.mention', '@'],
   ];
-  return sections.map(([title, rows]) => (
-    <SettingsSection key={title} title={t(title)}>
+  const finish = () => {
+    setRecording(undefined);
+    setError(undefined);
+  };
+  const record = (id: ShortcutId, event: KeyboardEvent<HTMLButtonElement>) => {
+    if (recording !== id || event.nativeEvent.isComposing) return;
+    if (event.code === 'Tab' && !event.ctrlKey && !event.altKey && !event.metaKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.key === 'Escape') return finish();
+    if (['Meta', 'Alt', 'Control', 'Shift'].includes(event.key)) return;
+    const shortcut = shortcutFromEvent(event);
+    if (!shortcut) return setError(t('shortcuts.unavailable'));
+    const conflict = shortcutConflict(id, shortcut);
+    if (conflict) return setError(t('shortcuts.conflict', { action: shortcutLabel(conflict) }));
+    setShortcut(id, shortcut);
+    finish();
+  };
+
+  return GROUPS.map(([title, ids]) => (
+    <SettingsSection
+      key={title}
+      title={t(title)}
+      action={
+        title === 'shortcuts.section.general' &&
+        Object.keys(shortcutOverrides.get()).length > 0 && (
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => {
+              finish();
+              shortcutOverrides.set({});
+            }}
+          >
+            {t('shortcuts.reset')}
+          </Button>
+        )
+      }
+    >
       <dl className={LIST_CARD}>
-        {rows.map(([label, keys]) => (
-          <div key={label} className="flex min-h-11 items-center gap-6 px-4 py-2.5 text-sm">
-            <dt className="min-w-0 flex-1">{t(label)}</dt>
-            <dd>
-              <kbd className="rounded-md border border-border bg-muted px-1.5 py-0.5 font-sans text-xs text-soft-foreground">
-                {keys}
-              </kbd>
+        {ids.map((id) => (
+          <div key={id} className="flex min-h-11 items-center gap-4 px-4 py-1.5 text-sm">
+            <dt className="min-w-0 flex-1">{shortcutLabel(id)}</dt>
+            <dd className="flex max-w-[65%] flex-col items-end gap-1">
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                aria-label={`${shortcutLabel(id)} · ${formatShortcut(bindings[id])}`}
+                aria-pressed={recording === id}
+                data-shortcut={id}
+                onClick={(event) => {
+                  event.currentTarget.focus();
+                  setRecording(id);
+                  setError(undefined);
+                }}
+                onBlur={finish}
+                onKeyDown={(event) => record(id, event)}
+              >
+                {recording === id ? (
+                  t('shortcuts.record')
+                ) : (
+                  <kbd className="font-sans">{formatShortcut(bindings[id])}</kbd>
+                )}
+              </Button>
+              {recording === id && error && (
+                <span role="alert" className="text-right text-xs text-destructive">
+                  {error}
+                </span>
+              )}
             </dd>
           </div>
         ))}
+        {ids === COMPOSER && (
+          <>
+            <div className="flex min-h-11 items-center gap-4 px-4 py-1.5 text-sm">
+              <dt className="min-w-0 flex-1">{t('shortcuts.send')}</dt>
+              <dd>
+                <Segmented<SendShortcut>
+                  label={t('shortcuts.send')}
+                  value={sendShortcut}
+                  onChange={(value) =>
+                    composerPrefs.set((current) => ({ ...current, sendShortcut: value }))
+                  }
+                  options={(['enter', 'mod-enter'] as const).map((value) => ({
+                    value,
+                    label: sendKeyLabel(value),
+                  }))}
+                />
+              </dd>
+            </div>
+            {fixed.map(([label, value]) => (
+              <div key={label} className="flex min-h-11 items-center gap-4 px-4 py-1.5 text-sm">
+                <dt className="min-w-0 flex-1">{t(label)}</dt>
+                <dd>
+                  <kbd className="text-xs font-sans text-muted-foreground">{value}</kbd>
+                </dd>
+              </div>
+            ))}
+          </>
+        )}
       </dl>
     </SettingsSection>
   ));

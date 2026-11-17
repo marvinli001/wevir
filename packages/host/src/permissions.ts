@@ -52,6 +52,8 @@ const fullAccess = {
  * 模式运行）不算设置。
  */
 export const PARAM_PERMISSION_RULES: ParamPermissionRules = {
+  'git.push': [{ permission: 'workspace.write', applies: () => true }],
+  'git.createPullRequest': [{ permission: 'workspace.write', applies: () => true }],
   'themes.get': [
     { permission: 'host.manage', applies: (params) => params.backdropStatus !== undefined },
   ],
@@ -74,7 +76,11 @@ export const PARAM_PERMISSION_RULES: ParamPermissionRules = {
   'automation.update': [fullAccess],
   // “总是允许”会写审批规则。
   'approval.respond': [
-    { permission: 'policy.write', applies: (params) => params.remember !== undefined },
+    {
+      permission: 'policy.write',
+      applies: (params) =>
+        params.remember !== undefined || params.optionId.startsWith('codex-policy-'),
+    },
   ],
 };
 

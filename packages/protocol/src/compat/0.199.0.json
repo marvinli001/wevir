@@ -1,0 +1,387 @@
+{
+  "protocolVersion": "0.199.0",
+  "methods": {
+    "host.shutdown": {
+      "params": [
+        {},
+        {
+          "resumeActiveTurns": true
+        }
+      ],
+      "result": [{}]
+    },
+    "session.composerCatalog": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "skills": [
+            {
+              "name": "design"
+            }
+          ],
+          "commands": [
+            {
+              "name": "usage"
+            }
+          ]
+        }
+      ]
+    },
+    "session.rewind": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "through": true,
+          "expectedLatestTurnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "seq": 12
+        }
+      ]
+    },
+    "session.review": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "target": "uncommitted"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "target": "branch"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "target": "commit",
+          "sha": "a12be45"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "target": "custom",
+          "instructions": "Check error handling."
+        }
+      ],
+      "result": [
+        {
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "seq": 12
+        }
+      ]
+    },
+    "file.upload": {
+      "params": [
+        {
+          "name": "notes.txt",
+          "data": "b2s=",
+          "mimeType": "text/plain"
+        },
+        {
+          "name": "empty.txt",
+          "data": ""
+        }
+      ],
+      "result": [
+        {
+          "file": {
+            "type": "file",
+            "fileId": "file_1",
+            "size": 2,
+            "name": "notes.txt",
+            "mimeType": "text/plain"
+          }
+        }
+      ]
+    },
+    "file.read": {
+      "params": [
+        {
+          "fileId": "file_1",
+          "offset": 0
+        }
+      ],
+      "result": [
+        {
+          "fileId": "file_1",
+          "size": 0,
+          "offset": 0,
+          "data": ""
+        }
+      ]
+    },
+    "workspace.create": {
+      "params": [
+        {
+          "parentPath": "/projects",
+          "name": "notes"
+        },
+        {
+          "parentPath": "/projects",
+          "name": "wevir",
+          "repositoryUrl": "https://github.com/wevir-labs/wevir.git"
+        }
+      ],
+      "result": [
+        {
+          "workspace": {
+            "id": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "rootPath": "/Users/me/projects/wevir",
+            "displayName": "wevir",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:00.000Z"
+          },
+          "created": true
+        }
+      ]
+    },
+    "git.branches": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "branches": ["main"],
+          "remotes": ["origin"],
+          "current": "main"
+        }
+      ]
+    },
+    "git.push": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "remote": "origin",
+          "expected": {
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "branch": "main"
+          }
+        }
+      ],
+      "result": [
+        {
+          "status": {
+            "repo": true,
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "main",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "files": [
+              {
+                "path": "src/convert.ts",
+                "staged": {
+                  "status": "modified",
+                  "added": 3,
+                  "removed": 1,
+                  "by": "wevir"
+                },
+                "unstaged": {
+                  "status": "modified",
+                  "added": 1,
+                  "removed": 0
+                }
+              },
+              {
+                "path": "docs/notes.md",
+                "staged": {
+                  "status": "added",
+                  "added": 4,
+                  "removed": 0,
+                  "by": "external"
+                }
+              },
+              {
+                "path": "scratch.txt",
+                "unstaged": {
+                  "status": "untracked"
+                }
+              }
+            ],
+            "fileCount": 3,
+            "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "codeState": {
+              "kind": "git",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "tree": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "verification": {
+              "checks": [
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "name": "Unit tests",
+                  "status": "passed",
+                  "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "finishedAt": "2026-10-12T08:00:05.250Z"
+                },
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPR2",
+                  "name": "Typecheck",
+                  "status": "not_run"
+                }
+              ],
+              "stagedMatchesWorkingTree": false
+            }
+          }
+        }
+      ]
+    },
+    "git.switchBranch": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "branch": "feature",
+          "expected": {
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "branch": "main"
+          }
+        }
+      ],
+      "result": [
+        {
+          "status": {
+            "repo": true,
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "main",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "files": [
+              {
+                "path": "src/convert.ts",
+                "staged": {
+                  "status": "modified",
+                  "added": 3,
+                  "removed": 1,
+                  "by": "wevir"
+                },
+                "unstaged": {
+                  "status": "modified",
+                  "added": 1,
+                  "removed": 0
+                }
+              },
+              {
+                "path": "docs/notes.md",
+                "staged": {
+                  "status": "added",
+                  "added": 4,
+                  "removed": 0,
+                  "by": "external"
+                }
+              },
+              {
+                "path": "scratch.txt",
+                "unstaged": {
+                  "status": "untracked"
+                }
+              }
+            ],
+            "fileCount": 3,
+            "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "codeState": {
+              "kind": "git",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "tree": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "verification": {
+              "checks": [
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "name": "Unit tests",
+                  "status": "passed",
+                  "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "finishedAt": "2026-10-12T08:00:05.250Z"
+                },
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPR2",
+                  "name": "Typecheck",
+                  "status": "not_run"
+                }
+              ],
+              "stagedMatchesWorkingTree": false
+            }
+          }
+        }
+      ]
+    },
+    "git.createPullRequest": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "remote": "origin",
+          "title": "Fix diff",
+          "body": "Changes",
+          "base": "main",
+          "expected": {
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "branch": "fix"
+          }
+        }
+      ],
+      "result": [
+        {
+          "url": "https://github.com/wevir-labs/wevir/pull/1"
+        }
+      ]
+    },
+    "approval.authorizeDenied": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "reviewId": "review-1"
+        }
+      ],
+      "result": [{}]
+    },
+    "host.activity": {
+      "params": [{}],
+      "result": [
+        {
+          "activeTurns": 2,
+          "resumableTurns": 1
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [
+    {
+      "seq": 7,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "engine.notice",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "detail": {
+          "kind": "warning",
+          "message": "Server warning"
+        }
+      }
+    },
+    {
+      "seq": 7,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "turn.finished",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "outcome": "interrupted",
+        "durationMs": 300,
+        "continuation": "manual"
+      }
+    }
+  ],
+  "errors": []
+}

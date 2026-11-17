@@ -44,6 +44,7 @@ import {
   ClientKindSchema,
   ClientTokenSchema,
   EnvironmentIdSchema,
+  FileIdSchema,
   HostIdSchema,
   ImageIdSchema,
   InsightIdSchema,
@@ -117,6 +118,7 @@ import {
   MemoryScopeSchema,
   MemorySummarySchema,
   MemoryTypeSchema,
+  MessageInputSchema,
   PendingDeliverySchema,
   PendingMessageSchema,
   PermissionModeSchema,
@@ -131,7 +133,8 @@ import {
   QuestionAnswerSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
-  ReviewTargetSchema,
+  ReviewCommitShaSchema,
+  ReviewInstructionsSchema,
   SECOND_OPINION_FOCUS_MAX_LENGTH,
   SECOND_OPINION_NOTE_MAX_LENGTH,
   SecondOpinionSchema,
@@ -146,7 +149,7 @@ import {
   ToolGroupInfoSchema,
   ToolPresetInfoSchema,
   ToolPresetSchema,
-  UserContentPartSchema,
+  UserFilePartSchema,
   UserImageMimeTypeSchema,
   UserImagePartSchema,
   VertexConfigSchema,
@@ -159,13 +162,17 @@ import {
 import { WevirEventSchema } from './events.js';
 import {
   DiffSourceSchema,
+  GitBranchesResultSchema,
   GitCommitParamsSchema,
   GitCommitResultSchema,
+  GitCreatePullRequestParamsSchema,
   GitObjectIdSchema,
   GitPathsParamsSchema,
   GitPathsResultSchema,
+  GitPushParamsSchema,
   GitStatusParamsSchema,
   GitStatusResultSchema,
+  GitSwitchBranchParamsSchema,
 } from './git.js';
 import {
   GuardrailAddParamsSchema,
@@ -1292,13 +1299,19 @@ export const SessionCreateFromHistoryParamsSchema = z.object({
 });
 
 /**
- * `session.rewind`（0.38.0，Host 功能 `session_rewind`）：撤掉会话最后一个完成的回合（`turnId` 必须是它），引擎的上下文与消息记录
- * 一起回到这个回合之前；用来编辑重发最后一条用户消息。不改会话目录里的文件。写一条 `turn.rewound`。
+ * 默认撤回最新可见回合。through 带上客户端看到的最新回合 ID，连同目标回合之后同一引擎段的历史一并撤回。
+ * 引擎成功后，Host 为每个撤掉的会话回合写一条 `turn.rewound`，工作树保留原样。
  */
-export const SessionRewindParamsSchema = z.object({
-  sessionId: SessionIdSchema,
-  turnId: TurnIdSchema,
-});
+export const SessionRewindParamsSchema = z
+  .object({
+    sessionId: SessionIdSchema,
+    turnId: TurnIdSchema,
+    through: z.literal(true).optional(),
+    expectedLatestTurnId: TurnIdSchema.optional(),
+  })
+  .refine((p) => !p.through || p.expectedLatestTurnId !== undefined, {
+    path: ['expectedLatestTurnId'],
+  });
 
 export const SessionRewindResultSchema = z.object({
   seq: SeqSchema,
@@ -1467,14 +1480,22 @@ export const SessionUsageResultSchema = z.object({
   sessions: z.array(SessionUsageSchema),
 });
 
+export const SessionIdParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
 /**
  * 代码审查（0.24.0，Host 功能 `session_review`）：开始一个由命令开始的回合（`turn.started` 的 `command`），审查结果是这个回合的
  * 回答。
  */
-export const SessionReviewParamsSchema = z.object({
-  sessionId: SessionIdSchema,
-  target: ReviewTargetSchema,
-});
+export const SessionReviewParamsSchema = z.discriminatedUnion('target', [
+  SessionIdParamsSchema.extend({ target: z.enum(['uncommitted', 'branch']) }),
+  SessionIdParamsSchema.extend({ target: z.literal('commit'), sha: ReviewCommitShaSchema }),
+  SessionIdParamsSchema.extend({
+    target: z.literal('custom'),
+    instructions: ReviewInstructionsSchema,
+  }),
+]);
 
 /**
  * 设会话目标（0.35.0，Host 功能 `session_goals`）：替换原有的目标，以目标为用户消息开始第一个回合（`turn.started` 的 `trigger` 为
@@ -1670,13 +1691,9 @@ export const SessionsChangedParamsSchema = z.object({
   removed: z.array(SessionIdSchema),
 });
 
-export const SessionIdParamsSchema = z.object({
-  sessionId: SessionIdSchema,
-});
-
 export const SessionSendParamsSchema = z.object({
   sessionId: SessionIdSchema,
-  content: z.array(UserContentPartSchema).min(1),
+  content: MessageInputSchema,
   /** 幂等键：同一会话里同一 ID 重发返回原结果，不再发给引擎；请求体不同则 `CLIENT_MESSAGE_CONFLICT`。 */
   clientMessageId: ClientTokenSchema.optional(),
   /**
@@ -1786,7 +1803,7 @@ export const PendingUpdateParamsSchema = z.object({
   sessionId: SessionIdSchema,
   pendingId: PendingMessageIdSchema,
   /** 新的内容；只有排队的与暂停的能改。 */
-  content: z.array(UserContentPartSchema).min(1).optional(),
+  content: MessageInputSchema.optional(),
   /** 新的方式（domain-model §4.6）。 */
   delivery: PendingDeliverySchema.optional(),
 });
@@ -1969,8 +1986,26 @@ export const MemoryChangedParamsSchema = z.object({
 export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 /** `image.upload` 的 `data`（base64）的长度上限。 */
 export const IMAGE_UPLOAD_DATA_MAX_LENGTH = Math.ceil(IMAGE_MAX_BYTES / 3) * 4;
-/** 一条消息最多带几张图片。 */
-export const IMAGE_MAX_PER_MESSAGE = 10;
+export const IMAGE_MAX_EDGE = 2000;
+export const IMAGE_SEND_MAX_BYTES = 4 * 1024 * 1024;
+export const FILE_MAX_BYTES = 10 * 1024 * 1024;
+
+export const FileUploadParamsSchema = z.object({
+  name: UserFilePartSchema.shape.name,
+  mimeType: UserFilePartSchema.shape.mimeType,
+  data: z.string().max(Math.ceil(FILE_MAX_BYTES / 3) * 4),
+});
+export const FileUploadResultSchema = z.object({ file: UserFilePartSchema });
+export const FileReadParamsSchema = z.object({
+  fileId: FileIdSchema,
+  offset: z.int().min(0).optional(),
+});
+export const FileReadResultSchema = z.object({
+  fileId: FileIdSchema,
+  size: z.int().min(0),
+  offset: z.int().min(0),
+  data: z.string(),
+});
 /** `image.read` 一次最多读的字节数；base64 之后仍在连接的发送缓冲之内，更大的图片分几次读。 */
 export const IMAGE_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -2136,7 +2171,16 @@ export const MethodSchemas = {
     permission: null,
   },
   'host.ping': { params: EmptySchema, result: EmptySchema, permission: null },
-  'host.shutdown': { params: EmptySchema, result: EmptySchema, permission: 'host.manage' },
+  'host.activity': {
+    params: EmptySchema,
+    result: z.object({ activeTurns: z.int().nonnegative(), resumableTurns: z.int().nonnegative() }),
+    permission: 'host.manage',
+  },
+  'host.shutdown': {
+    params: z.object({ resumeActiveTurns: z.literal(true).optional() }),
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
   'settings.get': {
     params: EmptySchema,
     result: SettingsResultSchema,
@@ -2161,6 +2205,15 @@ export const MethodSchemas = {
   },
   'workspace.add': {
     params: WorkspaceAddParamsSchema,
+    result: WorkspaceAddResultSchema,
+    permission: 'workspace.write',
+  },
+  'workspace.create': {
+    params: z.object({
+      parentPath: z.string().min(1),
+      name: z.string().trim().min(1).max(200),
+      repositoryUrl: z.string().min(1).max(2048).optional(),
+    }),
     result: WorkspaceAddResultSchema,
     permission: 'workspace.write',
   },
@@ -2384,6 +2437,20 @@ export const MethodSchemas = {
     result: SessionListResultSchema,
     permission: 'session.read',
   },
+  'session.composerCatalog': {
+    params: SessionIdParamsSchema,
+    result: z.object({
+      skills: z.array(z.object({ name: z.string().min(1), description: z.string().optional() })),
+      commands: z.array(
+        z.object({
+          name: z.string().min(1),
+          description: z.string().optional(),
+          argumentHint: z.string().optional(),
+        }),
+      ),
+    }),
+    permission: 'session.read',
+  },
   'session.get': {
     params: SessionIdParamsSchema,
     result: SessionSnapshotSchema,
@@ -2572,6 +2639,16 @@ export const MethodSchemas = {
     permission: 'session.write',
   },
 
+  'file.upload': {
+    params: FileUploadParamsSchema,
+    result: FileUploadResultSchema,
+    permission: 'session.write',
+  },
+  'file.read': {
+    params: FileReadParamsSchema,
+    result: FileReadResultSchema,
+    permission: 'session.read',
+  },
   'image.upload': {
     params: ImageUploadParamsSchema,
     result: ImageUploadResultSchema,
@@ -2800,6 +2877,26 @@ export const MethodSchemas = {
     result: GitCommitResultSchema,
     permission: 'workspace.write',
   },
+  'git.branches': {
+    params: GitStatusParamsSchema,
+    result: GitBranchesResultSchema,
+    permission: 'workspace.read',
+  },
+  'git.switchBranch': {
+    params: GitSwitchBranchParamsSchema,
+    result: GitPathsResultSchema,
+    permission: 'workspace.write',
+  },
+  'git.push': {
+    params: GitPushParamsSchema,
+    result: GitPathsResultSchema,
+    permission: 'git.publish',
+  },
+  'git.createPullRequest': {
+    params: GitCreatePullRequestParamsSchema,
+    result: z.object({ url: z.url({ protocol: /^https$/ }) }),
+    permission: 'git.publish',
+  },
   'process.list': {
     params: ProcessListParamsSchema,
     result: ProcessListResultSchema,
@@ -3025,6 +3122,11 @@ export const MethodSchemas = {
   'question.respond': {
     params: QuestionRespondParamsSchema,
     result: QuestionRespondResultSchema,
+    permission: 'session.write',
+  },
+  'approval.authorizeDenied': {
+    params: SessionIdParamsSchema.extend({ reviewId: z.string().min(1).max(1024) }),
+    result: z.object({}),
     permission: 'session.write',
   },
   'approval.respond': {

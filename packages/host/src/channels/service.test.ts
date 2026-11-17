@@ -1894,6 +1894,21 @@ describe('助理输入框的图片与停止（0.135.0）', () => {
   const row = async (h: Awaited<ReturnType<typeof setup>>, channelId: ChannelId) =>
     (await h.methods['channel.get']({ channelId }, context)).channel;
 
+  it('普通文件跟随帖子进入协调者的信封，频道记录保有自己的引用', async () => {
+    const h = await setup();
+    const bot = await h.create('Desk', 'Read notes.');
+    await h.coordinatorPosts(bot.id, 1);
+    const { file } = await h.methods['file.upload']({ name: 'notes.txt', data: 'b2s=' }, context);
+    const { post } = await h.methods['channel.post'](
+      { channelId: bot.id, content: [file] },
+      context,
+    );
+    expect(post.content).toEqual([file]);
+    const [, answer] = await h.coordinatorPosts(bot.id, 2);
+    expect(textOf(answer)).toContain(`${file.fileId}.data.txt`);
+    expect(h.storage.events.attachmentRefs().get(file.fileId)).toContain(bot.id);
+  });
+
   it('帖子带图片：图片挪出暂存区、进协调者的信封；模型看不了图片时换成说明与本机的文件', async () => {
     const h = await setup();
     const bot = await h.create('Mail desk', 'Sort my inbox.');

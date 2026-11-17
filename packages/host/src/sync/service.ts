@@ -314,7 +314,7 @@ export class SyncService {
         (event) =>
           event.type === 'file.shared' ||
           (event.type === 'user.message' &&
-            event.payload.content.some((part) => part.type === 'image')),
+            event.payload.content.some((part) => part.type !== 'text')),
       )
     )
       this.changed();

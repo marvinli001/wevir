@@ -1,4 +1,4 @@
-import { IMAGE_MAX_BYTES, IMAGE_MAX_PER_MESSAGE, type ProviderProfile } from '@wevir/protocol';
+import type { ProviderProfile } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   base64Of,
@@ -7,7 +7,6 @@ import {
   imagesOf,
   messageContent,
   modelAcceptsImages,
-  pickImages,
   splitFiles,
 } from './composer-images';
 
@@ -24,46 +23,13 @@ describe('imageMimeType', () => {
     expect(imageMimeType(file('a.png', 'image/png'))).toBe('image/png');
     expect(imageMimeType(file('a', 'IMAGE/JPEG'))).toBe('image/jpeg');
     expect(imageMimeType(file('photo.JPG', ''))).toBe('image/jpeg');
+    expect(imageMimeType(file('photo.HEIF', 'application/octet-stream'))).toBe('image/heif');
+    expect(imageMimeType(file('photo', 'image/heic'))).toBe('image/heic');
     expect(imageMimeType(file('anim.gif', 'application/octet-stream'))).toBe('image/gif');
     expect(imageMimeType(file('icon.svg', 'image/svg+xml'))).toBeUndefined();
     expect(imageMimeType(file('notes.txt', ''))).toBeUndefined();
     // 类型明确不是图片时不看扩展名。
     expect(imageMimeType(file('fake.png', 'text/plain'))).toBeUndefined();
-  });
-});
-
-describe('pickImages', () => {
-  it('挑出能发的，第一个被拒的给出原因', () => {
-    const picked = pickImages(
-      [
-        file('a.png', 'image/png'),
-        file('b.svg', 'image/svg+xml'),
-        file('c.webp', 'image/webp', IMAGE_MAX_BYTES + 1),
-        file('d.jpg', 'image/jpeg'),
-      ],
-      0,
-    );
-    expect(picked.accepted.map((entry) => [entry.file.name, entry.mimeType])).toEqual([
-      ['a.png', 'image/png'],
-      ['d.jpg', 'image/jpeg'],
-    ]);
-    expect(picked.rejected).toEqual({ reason: 'unsupported', name: 'b.svg' });
-    expect(pickImages([file('c.webp', 'image/webp', IMAGE_MAX_BYTES + 1)], 0).rejected).toEqual({
-      reason: 'too_large',
-      name: 'c.webp',
-    });
-  });
-
-  it('不超过每条消息的张数', () => {
-    const picked = pickImages(
-      [file('a.png', 'image/png'), file('b.png', 'image/png')],
-      IMAGE_MAX_PER_MESSAGE - 1,
-    );
-    expect(picked.accepted).toHaveLength(1);
-    expect(picked.rejected).toEqual({ reason: 'limit', name: 'b.png' });
-    expect(pickImages([file('a.png', 'image/png')], 0)).toEqual({
-      accepted: [{ file: file('a.png', 'image/png'), mimeType: 'image/png' }],
-    });
   });
 });
 

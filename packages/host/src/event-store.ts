@@ -899,6 +899,7 @@ export class EventStore {
       seq: projection.lastSeq,
       code: this.#checkpointCode,
       required:
+        projection.interruptedTurn?.auto === true ||
         projection.autoContinue !== undefined ||
         projection.routing?.pending !== undefined ||
         (projection.state === 'idle' && projection.subagent?.status === 'running') ||

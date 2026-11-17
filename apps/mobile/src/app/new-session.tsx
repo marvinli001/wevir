@@ -56,6 +56,7 @@ const EFFORT_KEYS: Record<string, MessageKey> = {
   high: 'effort.high',
   xhigh: 'effort.xhigh',
   max: 'effort.max',
+  ultra: 'effort.ultra',
 };
 
 function effortLabel(effort: string | undefined): string {
@@ -385,7 +386,10 @@ export default function NewSessionScreen() {
                 {
                   title: t('newSession.effort'),
                   items: [undefined, ...efforts].map((effort) => ({
-                    label: effortLabel(effort),
+                    label:
+                      effort === undefined && model?.defaultReasoningEffort
+                        ? `${t('effort.default')} · ${effortLabel(model.defaultReasoningEffort)}`
+                        : effortLabel(effort),
                     checked: effort === choice.reasoningEffort,
                     onPress: () =>
                       setChoice({
@@ -409,9 +413,10 @@ export default function NewSessionScreen() {
     },
   ];
 
+  const effectiveEffort = choice?.reasoningEffort ?? model?.defaultReasoningEffort;
   const modelLabel = [
     model !== undefined ? modelName(model) : (choice?.modelId ?? ''),
-    choice?.reasoningEffort !== undefined ? effortLabel(choice.reasoningEffort) : undefined,
+    effectiveEffort !== undefined ? effortLabel(effectiveEffort) : undefined,
   ]
     .filter((part) => part !== undefined && part !== '')
     .join(' · ');

@@ -12,6 +12,7 @@ import {
   METHOD_NAMES,
   PERMISSIONS,
   type Permission,
+  PHONE_DEVICE_PERMISSIONS,
   parsePairingUri,
 } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -61,6 +62,27 @@ async function setup() {
 }
 
 describe('设备与配对', () => {
+  it('手机默认的工作区写权限不能推送或发布 PR；发布权限也不单独授予工作区写入', async () => {
+    const { connect } = await setup();
+    const phone = await connect(PHONE_DEVICE_PERMISSIONS);
+    const publishOnly = await connect(['git.publish']);
+    const params = {
+      workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      remote: 'origin',
+      title: 'Test',
+      expected: { head: 'a'.repeat(40), index: 'b'.repeat(64), branch: 'main' },
+    };
+    for (const method of ['git.push', 'git.createPullRequest'] as const) {
+      expect((await phone.call(method, params)).error).toMatchObject({
+        code: ErrorCode.DEVICE_FORBIDDEN,
+        data: { missing: ['git.publish'] },
+      });
+      expect((await publishOnly.call(method, params)).error).toMatchObject({
+        code: ErrorCode.DEVICE_FORBIDDEN,
+        data: { missing: ['workspace.write'] },
+      });
+    }
+  });
   it('打开远程 → 发起配对 → 握手请求 → 桌面允许 → 设备写入；移除后是 revoked', async () => {
     const { host, home, connect } = await setup();
     const desktop = await connect();

@@ -1,18 +1,31 @@
+import { isUtf8 } from 'node:buffer';
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import {
+  FILE_MAX_BYTES,
+  type FileId,
+  FileIdSchema,
   IMAGE_MAX_BYTES,
+  IMAGE_MAX_EDGE,
   IMAGE_READ_CHUNK_BYTES,
+  IMAGE_SEND_MAX_BYTES,
   type ImageId,
+  ImageIdSchema,
+  MESSAGE_ATTACHMENT_MAX_BYTES,
   type MethodParams,
   type MethodResult,
+  messageContentIssue,
   type UserContentPart,
+  type UserFilePart,
+  UserFilePartSchema,
   type UserImageMimeType,
   type UserImagePart,
   UserImagePartSchema,
 } from '@wevir/protocol';
+import type { AgentFileInput } from '@wevir/runtime-adapter';
 import { HostError } from './errors.js';
 import { newId } from './ids.js';
+import { pastedText } from './relay.js';
 
 // 消息里的图片（0.28.0，host-api.md §3.1 `image.upload` / `image.read`）。`image.upload` 把字节写进数据目录的
 // `images/staged/`，旁边一份 `<id>.json` 记下 Host 认定的 `UserImagePart`；消息被接受时（`session.send`、待发消息）挪到
@@ -41,8 +54,10 @@ export interface ImageStoreOptions {
   now?: () => number;
 }
 
-interface StoredImage {
-  part: UserImagePart;
+type Attachment = UserImagePart | UserFilePart;
+type AttachmentId = ImageId | FileId;
+interface StoredAsset {
+  part: Attachment;
   path: string;
 }
 
@@ -60,31 +75,42 @@ export class ImageStore {
 
   /** `image.upload`：解码、认格式、读像素，写进 `staged/`。 */
   async upload(params: MethodParams<'image.upload'>): Promise<UserImagePart> {
-    if (params.data.length % 4 !== 0 || !BASE64.test(params.data)) {
-      throw invalid(['data'], 'data is not base64');
-    }
-    const bytes = Buffer.from(params.data, 'base64');
-    if (bytes.length === 0) throw invalid(['data'], 'image is empty');
-    if (bytes.length > IMAGE_MAX_BYTES) {
-      throw invalid(['data'], `image is larger than ${IMAGE_MAX_BYTES} bytes`);
-    }
-    const header = sniffImage(bytes);
-    if (header === undefined) throw invalid(['data'], 'not a PNG, JPEG, GIF or WebP image');
+    const input = uploadBytes(params.data, IMAGE_MAX_BYTES);
+    if (input.length === 0) throw invalid(['data'], 'image is empty');
+    const header = sniffImage(input);
+    if (!header) throw invalid(['data'], 'not a PNG, JPEG, GIF or WebP image');
+    const { bytes, ...format } = await prepareImage(input, header);
     const part: UserImagePart = {
       type: 'image',
       imageId: newId('img'),
-      mimeType: header.mimeType,
+      ...format,
       size: bytes.length,
-      ...(header.width !== undefined && { width: header.width, height: header.height }),
       ...(params.name !== undefined && { name: params.name }),
     };
+    await this.#stage(part, bytes);
+    return part;
+  }
+
+  async uploadFile(params: MethodParams<'file.upload'>): Promise<UserFilePart> {
+    const bytes = uploadBytes(params.data, FILE_MAX_BYTES);
+    const part: UserFilePart = {
+      type: 'file',
+      fileId: newId('file'),
+      name: params.name,
+      size: bytes.length,
+      ...(params.mimeType !== undefined && { mimeType: params.mimeType }),
+    };
+    await this.#stage(part, bytes);
+    return part;
+  }
+
+  async #stage(part: Attachment, bytes: Buffer): Promise<void> {
     await mkdir(this.#staged, { recursive: true, mode: 0o700 });
     await writeFile(join(this.#staged, fileName(part)), bytes, { mode: 0o600 });
-    await writeFile(join(this.#staged, `${part.imageId}.json`), JSON.stringify(part), {
+    await writeFile(join(this.#staged, `${assetId(part)}.json`), JSON.stringify(part), {
       mode: 0o600,
     });
     void this.sweep().catch(() => {});
-    return part;
   }
 
   /**
@@ -114,29 +140,99 @@ export class ImageStore {
   /** `image.read`：从 `offset` 起最多 `IMAGE_READ_CHUNK_BYTES`。 */
   async read(params: MethodParams<'image.read'>): Promise<MethodResult<'image.read'>> {
     const image = await this.#find(params.imageId);
-    if (image === undefined) throw notFound(params.imageId);
-    const offset = params.offset ?? 0;
-    const { size } = image.part;
-    if (offset >= size) throw invalid(['offset'], `offset is past the end (${size} bytes)`);
-    const length = Math.min(IMAGE_READ_CHUNK_BYTES, size - offset);
-    const handle = await open(image.path, 'r');
+    if (image?.part.type !== 'image') throw notFound(params.imageId);
+    return {
+      imageId: image.part.imageId,
+      mimeType: image.part.mimeType,
+      ...(await this.#readChunk(image, params.offset ?? 0)),
+    };
+  }
+
+  async readFile(params: MethodParams<'file.read'>): Promise<MethodResult<'file.read'>> {
+    const file = await this.#find(params.fileId);
+    if (file?.part.type !== 'file') throw notFound(params.fileId);
+    return { fileId: file.part.fileId, ...(await this.#readChunk(file, params.offset ?? 0)) };
+  }
+
+  async engineFile(fileId: FileId, remainingText: number): Promise<AgentFileInput> {
+    const file = await this.#find(fileId);
+    if (file?.part.type !== 'file') throw notFound(fileId);
+    if (file.part.size > FILE_MAX_BYTES)
+      throw invalid(['content'], 'stored file exceeds upload limit');
+    const { name, size } = file.part;
+    const handle = await this.#openStored(file);
+    let bytes: Buffer;
     try {
-      const buffer = Buffer.alloc(length);
-      const { bytesRead } = await handle.read(buffer, 0, length, offset);
-      return {
-        imageId: image.part.imageId,
-        mimeType: image.part.mimeType,
-        size,
-        offset,
-        data: buffer.subarray(0, bytesRead).toString('base64'),
-      };
+      bytes = await handle.readFile();
+    } finally {
+      await handle.close();
+    }
+    const pdf = bytes.subarray(0, 5).toString('ascii') === '%PDF-';
+    let decoded: string | undefined;
+    if (
+      !pdf &&
+      isUtf8(bytes) &&
+      bytes.every((byte) => byte === 9 || byte === 10 || byte === 12 || byte === 13 || byte >= 32)
+    ) {
+      const preview = bytes.subarray(0, remainingText * 4);
+      decoded = new TextDecoder().decode(preview, { stream: preview.length < size });
+    }
+    const mimeType = pdf
+      ? 'application/pdf'
+      : decoded !== undefined
+        ? 'text/plain'
+        : 'application/octet-stream';
+    const clipped =
+      decoded !== undefined && (decoded.length > remainingText || size > remainingText * 4);
+    const text = `[Attached file ${JSON.stringify(name)}: ${JSON.stringify(file.path)}${clipped ? '; partial preview' : ''}]`;
+    return {
+      type: 'file',
+      path: file.path,
+      name,
+      mimeType,
+      text:
+        decoded !== undefined && remainingText > 0
+          ? `${text}\n${pastedText(decoded.slice(0, remainingText))}`
+          : text,
+    };
+  }
+
+  async #openStored(asset: StoredAsset) {
+    const handle = await open(asset.path, 'r').catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT' || dirname(asset.path) !== this.#staged) throw error;
+      // 并发发送可能已把已验证的文件挪出了暂存区。
+      return open(join(this.#dir, fileName(asset.part)), 'r');
+    });
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size !== asset.part.size)
+        throw invalid(['content'], 'stored attachment size changed');
+      return handle;
+    } catch (error) {
+      await handle.close();
+      throw error;
+    }
+  }
+
+  async #readChunk(
+    asset: StoredAsset,
+    offset: number,
+  ): Promise<{ size: number; offset: number; data: string }> {
+    const size = asset.part.size;
+    if (size === 0 && offset === 0) return { size, offset, data: '' };
+    if (offset >= size) throw invalid(['offset'], `offset is past the end (${size} bytes)`);
+    const handle = await this.#openStored(asset);
+    try {
+      const buffer = Buffer.alloc(Math.min(IMAGE_READ_CHUNK_BYTES, size - offset));
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, offset);
+      return { size, offset, data: buffer.subarray(0, bytesRead).toString('base64') };
     } finally {
       await handle.close();
     }
   }
 
-  /** 发给引擎的图片在磁盘上的路径；没有这张图片时 `undefined`。 */
-  async path(imageId: ImageId): Promise<string | undefined> {
+  /** 发给引擎的附件在磁盘上的路径；没有时 `undefined`。 */
+  async path(imageId: AttachmentId): Promise<string | undefined> {
     return (await this.#find(imageId))?.path;
   }
 
@@ -145,29 +241,60 @@ export class ImageStore {
    * `IMAGE_NOT_FOUND`；文本原样。
    */
   async keep(content: readonly UserContentPart[]): Promise<UserContentPart[]> {
+    const issue = messageContentIssue(content, false);
+    if (issue) throw invalid(['content'], issue);
     const kept: UserContentPart[] = [];
+    const staged = new Map<AttachmentId, Attachment>();
+    const resolved = new Map<AttachmentId, Attachment>();
+    let total = 0;
     for (const part of content) {
-      if (part.type !== 'image') {
+      if (part.type === 'text') {
         kept.push(part);
         continue;
       }
-      const image = await this.#find(part.imageId);
-      if (image === undefined) throw notFound(part.imageId);
-      if (image.path.startsWith(this.#staged)) await this.#unstage(image.part);
-      kept.push(image.part);
+      const id = assetId(part);
+      let attachment = resolved.get(id);
+      if (!attachment) {
+        const asset = await this.#find(id);
+        if (!asset) throw notFound(id);
+        attachment = asset.part;
+        const handle = await this.#openStored(asset);
+        try {
+          if (attachment.type === 'image' && needsResize(attachment, attachment.size)) {
+            // 旧上传或工具产物保留原图及历史引用，新消息另用优化后的副本。
+            const { bytes, ...format } = await prepareImage(await handle.readFile(), attachment);
+            attachment = { ...attachment, ...format, imageId: newId('img'), size: bytes.length };
+            await this.#stage(attachment, bytes);
+            staged.set(attachment.imageId, attachment);
+          } else if (dirname(asset.path) === this.#staged) {
+            staged.set(id, attachment);
+          }
+        } finally {
+          await handle.close();
+        }
+        resolved.set(id, attachment);
+      }
+      total += attachment.size;
+      if (total > MESSAGE_ATTACHMENT_MAX_BYTES)
+        throw invalid(
+          ['content'],
+          `message attachments exceed ${MESSAGE_ATTACHMENT_MAX_BYTES} bytes`,
+        );
+      kept.push(attachment);
     }
+    for (const part of staged.values()) await this.#unstage(part);
     return kept;
   }
 
   /** 这张图片在磁盘上的文件（0.43.0，`session.usage` / `session.delete`）：图片本身与旁边的 `.json`；没有时为空数组。 */
-  async files(imageId: ImageId): Promise<string[]> {
+  async files(imageId: AttachmentId): Promise<string[]> {
     const image = await this.#find(imageId);
     if (image === undefined) return [];
     return [image.path, join(dirname(image.path), `${imageId}.json`)];
   }
 
   /** 删掉这张图片（0.43.0，`session.delete` 删掉最后一个引用它的会话时）。没有时无操作。 */
-  async remove(imageId: ImageId): Promise<void> {
+  async remove(imageId: AttachmentId): Promise<void> {
     for (const path of await this.files(imageId)) await rm(path, { force: true });
   }
 
@@ -193,34 +320,43 @@ export class ImageStore {
     );
   }
 
-  async #find(imageId: ImageId): Promise<StoredImage | undefined> {
-    for (const dir of [this.#dir, this.#staged]) {
+  async #find(imageId: AttachmentId): Promise<StoredAsset | undefined> {
+    if (!(imageId.startsWith('file_') ? FileIdSchema : ImageIdSchema).safeParse(imageId).success)
+      return undefined;
+    for (const dir of [this.#staged, this.#dir]) {
       const part = await readPart(join(dir, `${imageId}.json`));
-      if (part !== undefined && part.imageId === imageId) {
+      if (part !== undefined && assetId(part) === imageId) {
         return { part, path: join(dir, fileName(part)) };
       }
     }
     return undefined;
   }
-  syncAsset(imageId: ImageId): Promise<StoredImage | undefined> {
+  syncAsset(imageId: AttachmentId): Promise<StoredAsset | undefined> {
     return this.#find(imageId);
   }
-  async importSynced(part: UserImagePart, path: string): Promise<boolean> {
-    const parsed = UserImagePartSchema.parse(part);
+  async importSynced(part: Attachment, path: string): Promise<boolean> {
+    const parsed =
+      part.type === 'image' ? UserImagePartSchema.parse(part) : UserFilePartSchema.parse(part);
     const info = await stat(path);
-    if (info.size !== parsed.size || info.size > TOOL_IMAGE_MAX_BYTES) return false;
+    if (
+      info.size !== parsed.size ||
+      info.size > (parsed.type === 'image' ? TOOL_IMAGE_MAX_BYTES : FILE_MAX_BYTES)
+    )
+      return false;
     const bytes = await readFile(path);
-    const header = sniffImage(bytes);
-    if (!header || header.mimeType !== parsed.mimeType) return false;
-    const existing = await this.#find(parsed.imageId);
+    if (parsed.type === 'image' && sniffImage(bytes)?.mimeType !== parsed.mimeType) return false;
+    const existing = await this.#find(assetId(parsed));
     if (existing)
       return (
-        existing.part.mimeType === parsed.mimeType && (await readFile(existing.path)).equals(bytes)
+        existing.part.type === parsed.type &&
+        existing.part.mimeType === parsed.mimeType &&
+        (parsed.type !== 'file' || existing.part.name === parsed.name) &&
+        (await readFile(existing.path)).equals(bytes)
       );
     await mkdir(this.#dir, { recursive: true, mode: 0o700 });
     for (const [target, content] of [
       [join(this.#dir, fileName(parsed)), bytes],
-      [join(this.#dir, `${parsed.imageId}.json`), Buffer.from(JSON.stringify(parsed))],
+      [join(this.#dir, `${assetId(parsed)}.json`), Buffer.from(JSON.stringify(parsed))],
     ] as const) {
       try {
         const file = await open(target, 'wx', 0o600);
@@ -239,15 +375,15 @@ export class ImageStore {
   }
 
   /** 挪出 `staged/`；同一张图片被两条消息同时用到时，后一个发现已经挪走了就算成功。 */
-  async #unstage(part: UserImagePart): Promise<void> {
+  async #unstage(part: Attachment): Promise<void> {
     await mkdir(this.#dir, { recursive: true, mode: 0o700 });
-    for (const name of [fileName(part), `${part.imageId}.json`]) {
+    for (const name of [fileName(part), `${assetId(part)}.json`]) {
       try {
         await rename(join(this.#staged, name), join(this.#dir, name));
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         await stat(join(this.#dir, name)).catch(() => {
-          throw notFound(part.imageId);
+          throw notFound(assetId(part));
         });
       }
     }
@@ -349,11 +485,56 @@ function webpSize(buf: Buffer): [number, number] | undefined {
   return undefined;
 }
 
-function fileName(part: UserImagePart): string {
+function assetId(part: Attachment): AttachmentId {
+  return part.type === 'image' ? part.imageId : part.fileId;
+}
+
+function uploadBytes(data: string, limit: number): Buffer {
+  if (data.length > Math.ceil(limit / 3) * 4 || data.length % 4 !== 0 || !BASE64.test(data)) {
+    throw invalid(['data'], 'invalid or oversized base64 attachment');
+  }
+  const bytes = Buffer.from(data, 'base64');
+  if (bytes.length > limit) throw invalid(['data'], `attachment exceeds ${limit} bytes`);
+  return bytes;
+}
+
+function needsResize(header: ImageHeader, size: number): boolean {
+  return (
+    size > IMAGE_SEND_MAX_BYTES ||
+    Math.max(header.width ?? Infinity, header.height ?? Infinity) > IMAGE_MAX_EDGE
+  );
+}
+
+async function prepareImage(
+  bytes: Buffer,
+  header: ImageHeader,
+): Promise<ImageHeader & { bytes: Buffer }> {
+  if (!needsResize(header, bytes.length)) return { ...header, bytes };
+  const { default: sharp } = await import('sharp');
+  try {
+    const { data, info } = await sharp(bytes, { limitInputPixels: 64_000_000 })
+      .autoOrient()
+      .resize(IMAGE_MAX_EDGE, IMAGE_MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
+      .flatten({ background: '#fff' })
+      .jpeg({ quality: 82 })
+      .toBuffer({ resolveWithObject: true });
+    if (data.length <= IMAGE_SEND_MAX_BYTES)
+      return { bytes: data, mimeType: 'image/jpeg', width: info.width, height: info.height };
+  } catch {
+    throw invalid(['data'], 'image cannot be resized');
+  }
+  throw invalid(['data'], `resized image exceeds ${IMAGE_SEND_MAX_BYTES} bytes`);
+}
+
+function fileName(part: Attachment): string {
+  if (part.type === 'file') {
+    const ext = extname(part.name);
+    return `${part.fileId}.data${/^\.[a-z0-9]{1,12}$/i.test(ext) ? ext : ''}`;
+  }
   return `${part.imageId}.${EXTENSIONS[part.mimeType]}`;
 }
 
-async function readPart(path: string): Promise<UserImagePart | undefined> {
+async function readPart(path: string): Promise<Attachment | undefined> {
   let text: string;
   try {
     text = await readFile(path, 'utf8');
@@ -361,7 +542,9 @@ async function readPart(path: string): Promise<UserImagePart | undefined> {
     return undefined;
   }
   try {
-    const parsed = UserImagePartSchema.safeParse(JSON.parse(text));
+    const raw = JSON.parse(text);
+    const parsed =
+      raw?.type === 'file' ? UserFilePartSchema.safeParse(raw) : UserImagePartSchema.safeParse(raw);
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
@@ -372,6 +555,7 @@ function invalid(path: Array<string | number>, message: string): HostError<'INVA
   return new HostError('INVALID_PARAMS', message, { issues: [{ path, message }] });
 }
 
-function notFound(imageId: string): HostError<'IMAGE_NOT_FOUND'> {
+function notFound(imageId: string): HostError<'IMAGE_NOT_FOUND' | 'INVALID_PARAMS'> {
+  if (imageId.startsWith('file_')) return invalid(['content'], `attachment ${imageId} not found`);
   return new HostError('IMAGE_NOT_FOUND', `image ${imageId} not found`);
 }

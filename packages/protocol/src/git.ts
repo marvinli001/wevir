@@ -26,6 +26,7 @@ export const DiffSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('uncommitted') }),
   z.object({ kind: z.literal('branch') }),
   z.object({ kind: z.literal('turn'), turnId: TurnIdSchema }),
+  z.object({ kind: z.literal('session') }),
   z.object({ kind: z.literal('staged') }),
 ]);
 export type DiffSource = z.infer<typeof DiffSourceSchema>;
@@ -182,3 +183,31 @@ export const GitCommitResultSchema = z.object({
   status: GitStatusResultSchema,
 });
 export type GitCommitResult = z.infer<typeof GitCommitResultSchema>;
+
+const GitBranchExpectedSchema = GitExpectedStateSchema.extend({
+  /** 两个分支可以落在相同的提交且索引完全一致。 */
+  branch: z.string().min(1).nullable(),
+});
+export type GitBranchExpected = z.infer<typeof GitBranchExpectedSchema>;
+
+export const GitBranchesResultSchema = z.object({
+  branches: z.array(z.string().min(1)),
+  remotes: z.array(z.string().min(1)),
+  current: z.string().min(1).optional(),
+});
+
+export const GitSwitchBranchParamsSchema = GitStatusParamsSchema.extend({
+  branch: z.string().min(1),
+  expected: GitBranchExpectedSchema,
+});
+
+export const GitPushParamsSchema = GitStatusParamsSchema.extend({
+  remote: z.string().min(1),
+  expected: GitBranchExpectedSchema,
+});
+
+export const GitCreatePullRequestParamsSchema = GitPushParamsSchema.extend({
+  base: z.string().min(1).optional(),
+  title: z.string().trim().min(1).max(256),
+  body: z.string().max(65_536).optional(),
+});

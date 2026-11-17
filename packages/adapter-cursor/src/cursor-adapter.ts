@@ -443,7 +443,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       throw new AdapterError('session_busy', 'the Cursor agent is already running a turn');
     }
     const text = input.content
-      .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+      .flatMap((part) => (part.type !== 'image' ? [part.text] : []))
       .join('\n\n');
     // 图片（0.28.0）：SDK 的 `SDKUserMessage.images`，base64（同 T3 Code 的 CursorAdapterV2）。
     // 只有文本时不让出事件循环。

@@ -8,7 +8,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useRouteTarget, useWorkbenchStore } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
-import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { formatShortcut, getShortcut, matchesShortcut, useKeybindings } from '@/lib/shortcuts';
 import { useElementHeight } from '@/lib/use-element-size';
 import { ProjectBackdropLayer } from '@/projects/backdrop';
 import { workspaceLabel } from '@/projects/chats';
@@ -82,6 +82,7 @@ const NO_PANES = emptyScope();
  * 工作台都要重算样式。内容区的宽也按开合后的终态算（下面的 content），过渡期间不跟着每帧重排。
  */
 export function WorkbenchLayout() {
+  const bindings = useKeybindings();
   const viewportWidth = useViewportWidth();
   const viewportHeight = useViewportHeight();
   const prefs = layoutPrefs.use();
@@ -418,7 +419,7 @@ export function WorkbenchLayout() {
                 <IconButton
                   ref={auxToggleRef}
                   label={t(panes.auxShown ? 'layout.hideAux' : 'layout.showAux')}
-                  shortcut={formatShortcut(SHORTCUTS.toggleAux)}
+                  shortcut={formatShortcut(bindings.toggleAux)}
                   aria-pressed={panes.auxShown}
                   className={cn(panes.auxShown && 'bg-accent')}
                   onClick={panes.toggleAux}
@@ -791,32 +792,32 @@ function useShortcuts(
         event.preventDefault();
         action();
       };
-      if (matchesShortcut(event, SHORTCUTS.toggleSidebar))
+      if (matchesShortcut(event, getShortcut('toggleSidebar')))
         return run(() => toggleSidebar(sidebarPlan));
       if (!panes) return;
       const current = focusedPaneId(panes);
       const group = panes.scope.groups.find((candidate) => candidate.id === current);
-      if (matchesShortcut(event, SHORTCUTS.toggleAux)) return run(panes.toggleAux);
-      for (const { kind, shortcut } of PANE_LAUNCHERS) {
+      if (matchesShortcut(event, getShortcut('toggleAux'))) return run(panes.toggleAux);
+      for (const kind of PANE_LAUNCHERS) {
         if (!paneKindUsable(kind, access)) continue;
-        if (matchesShortcut(event, shortcut)) return run(() => showPaneKind(panes, kind));
+        if (matchesShortcut(event, getShortcut(kind))) return run(() => showPaneKind(panes, kind));
       }
-      if (matchesShortcut(event, SHORTCUTS.openTabs)) {
+      if (matchesShortcut(event, getShortcut('openTabs'))) {
         if (panes.scope.groups.length > 0) run(() => setOpenTabsOpen(true));
         return;
       }
-      if (matchesShortcut(event, SHORTCUTS.maximize)) {
+      if (matchesShortcut(event, getShortcut('maximize'))) {
         const target = panes.maximized ?? group?.id;
         if (target !== undefined) run(() => panes.toggleMaximize(target));
         return;
       }
-      if (matchesShortcut(event, SHORTCUTS.splitRight)) {
+      if (matchesShortcut(event, getShortcut('splitRight'))) {
         if (group && group.tabs.length > 1) run(() => panes.split(group.activeTabId, 'right'));
         return;
       }
       for (const [shortcut, delta] of [
-        [SHORTCUTS.nextTab, 1],
-        [SHORTCUTS.previousTab, -1],
+        [getShortcut('nextTab'), 1],
+        [getShortcut('previousTab'), -1],
       ] as const) {
         if (matchesShortcut(event, shortcut)) {
           if (group) run(() => panes.cycle(group.id, delta));
@@ -824,8 +825,8 @@ function useShortcuts(
         }
       }
       for (const [shortcut, delta] of [
-        [SHORTCUTS.nextPane, 1],
-        [SHORTCUTS.previousPane, -1],
+        [getShortcut('nextPane'), 1],
+        [getShortcut('previousPane'), -1],
       ] as const) {
         if (matchesShortcut(event, shortcut)) {
           run(() => movePaneFocus(panes, current, delta));

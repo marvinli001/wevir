@@ -88,8 +88,11 @@ export function presentApproval(
   const title = t(titleKey(detail, scope));
   const target = (
     kind === 'shell'
-      ? (detail.display.command ?? detail.display.summary)
-      : (detail.display.paths?.join('\n') ?? detail.display.summary ?? detail.display.command)
+      ? detail.display.command?.trim() || detail.display.summary
+      : (detail.display.paths?.join('\n') ??
+        detail.display.url ??
+        detail.display.summary ??
+        detail.display.command)
   )?.trim();
   const presentation: ApprovalPresentation = { title };
   const cwd = detail.display.cwd ?? sessionCwd;
@@ -144,26 +147,27 @@ export function elicitationLink(approval: Pick<ApprovalRequest, 'detail'>): stri
   }
 }
 
-/**
- * 审批只给两个按钮（照 Claude Code 与 Codex，维护者 2026-10-15 定）：左边“拒绝”（1、Esc），右边“允许”（2、⌘↵，主按钮）。
- * 拒绝取 Codex 的“拒绝并停止”（`reject_cancel`：停下回合等用户说怎么做，同两者的 No / Deny），没有时取第一个拒绝类；允许取
- * 第一个允许类（只允许这一次）。“本会话不再询问”这类选项不再出现，长期放开改用权限模式（自动批准、完全访问，0.11.0）。
- */
 export interface ApprovalLayout {
   reject: ApprovalOption | undefined;
   allow: ApprovalOption | undefined;
   /** 从左到右，第 i 个对应数字键 i + 1。 */
   numbered: ApprovalOption[];
+  alternatives: ApprovalOption[];
 }
 
 export function approvalLayout(options: readonly ApprovalOption[]): ApprovalLayout {
-  const rejects = options.filter((option) => option.category === 'reject');
-  const reject = rejects.find((option) => option.kind === 'reject_cancel') ?? rejects[0];
-  const allow = options.find((option) => option.category === 'allow');
+  // 键盘上的单次批准和拒绝不能落到持久规则，即使引擎把规则选项排在第一位。
+  const reject =
+    options.find((option) => option.kind === 'reject_cancel') ??
+    options.find((option) => option.kind === 'reject_once' || option.kind === 'reject_decline');
+  const allow = options.find(
+    (option) => option.kind === 'allow_accept' || option.kind === 'allow_once',
+  );
   return {
     reject,
     allow,
     numbered: [reject, allow].filter((option) => option !== undefined),
+    alternatives: options.filter((option) => option !== reject && option !== allow),
   };
 }
 
@@ -174,7 +178,7 @@ export function approvalLayout(options: readonly ApprovalOption[]): ApprovalLayo
 export function alwaysAllow(
   approval: Pick<ApprovalRequest, 'proposedRule' | 'options'>,
 ): { option: ApprovalOption; prefix: string } | undefined {
-  const option = approval.options.find((candidate) => candidate.category === 'allow');
+  const { allow: option } = approvalLayout(approval.options);
   const prefixes = approval.proposedRule?.prefixes;
   if (option === undefined || prefixes === undefined) return undefined;
   return { option, prefix: prefixes.map(prefixText).join(t('common.listSeparator')) };
@@ -190,8 +194,20 @@ export function prefixText(prefix: readonly string[]): string {
 }
 
 /** 选项按钮的文字：认识的 kind 本地化，不认识的显示引擎给的 label（与 CLI 的 optionLabel 一致）。 */
-export function optionLabel(option: Pick<ApprovalOption, 'kind' | 'label'>): string {
-  const key = OPTION_LABELS[option.kind];
+export function optionLabel(
+  option: Pick<ApprovalOption, 'kind' | 'label' | 'policyTarget'>,
+): string {
+  if (option.policyTarget !== undefined) {
+    switch (option.kind) {
+      case 'allow_exec_policy':
+        return t('approval.option.allowPrefix', { target: option.policyTarget });
+      case 'allow_network_policy':
+        return t('approval.option.allowHost', { target: option.policyTarget });
+      case 'reject_always_network':
+        return t('approval.option.blockHost', { target: option.policyTarget });
+    }
+  }
+  const key = Object.hasOwn(OPTION_LABELS, option.kind) ? OPTION_LABELS[option.kind] : undefined;
   return key ? t(key) : option.label || option.kind;
 }
 
@@ -299,6 +315,7 @@ function titleKey(detail: ApprovalDetail, scope: ApprovalScope | undefined): Pla
   const appTool = appToolName === undefined ? undefined : APP_TOOL_TITLES[appToolName];
   if (appTool !== undefined) return appTool;
   const { kind, paths } = detail.display;
+  if (kind === 'fetch' && detail.toolName === 'commandExecution') return 'approval.title.network';
   const outside =
     scope && paths?.length ? paths.some((path) => !within(path, scope.roots)) : undefined;
   switch (kind) {

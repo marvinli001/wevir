@@ -22,6 +22,7 @@ import {
   type WorkspaceDiffFileResult,
   type WorkspaceDiffResult,
 } from '@wevir/protocol';
+import { killTree } from '@wevir/runtime-adapter';
 
 /** 每条 git 命令的时限。 */
 export const GIT_TIMEOUT_MS = 10_000;
@@ -57,6 +58,8 @@ export interface GitRunOptions {
   env?: Record<string, string>;
   stdin?: string;
   timeoutMs?: number;
+  /** 远端传输和交互式凭据助手可能派生子进程；超时时一起结束。 */
+  processGroup?: boolean;
   maxBytes?: number;
   /** 超过 `maxBytes`：`error`（默认）抛错；`truncate` 停下 git，结果带 `truncated`。 */
   overflow?: 'error' | 'truncate';
@@ -96,6 +99,7 @@ function spawnGit(
       cwd,
       env: { ...gitEnv(), ...options.env },
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: options.processGroup === true && process.platform !== 'win32',
       windowsHide: true,
     });
     const chunks: Buffer[] = [];
@@ -106,7 +110,8 @@ function spawnGit(
     let stderr = '';
     const stop = (why: 'timeout' | 'abort') => {
       stopped = why;
-      child.kill('SIGKILL');
+      if (options.processGroup) killTree(child, 'SIGKILL');
+      else child.kill('SIGKILL');
     };
     const timer = setTimeout(() => stop('timeout'), options.timeoutMs ?? GIT_TIMEOUT_MS);
     const onAbort = () => stop('abort');
@@ -126,7 +131,8 @@ function spawnGit(
       } else {
         overflowed = true;
       }
-      child.kill('SIGKILL');
+      if (options.processGroup) killTree(child, 'SIGKILL');
+      else child.kill('SIGKILL');
     });
     child.stderr.on('data', (chunk: Buffer) => {
       if (stderr.length < 4096) stderr += chunk.toString('utf8');
@@ -324,10 +330,16 @@ export async function repoInfo(dir: string): Promise<RepoInfo | undefined> {
       runGit(cwd, [...config, 'rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], {
         okCodes: [0, 1],
       }),
-      runGit(cwd, [...config, 'symbolic-ref', '--quiet', '--short', 'HEAD'], { okCodes: [0, 1] }),
+      runGit(cwd, [...config, 'symbolic-ref', '--quiet', 'HEAD'], { okCodes: [0, 1] }),
     ]);
     const headSha = head.code === 0 ? head.stdout.toString('utf8').trim() : '';
-    const branchName = branch.code === 0 ? branch.stdout.toString('utf8').trim() : '';
+    const branchName =
+      branch.code === 0
+        ? branch.stdout
+            .toString('utf8')
+            .trim()
+            .replace(/^refs\/heads\//, '')
+        : '';
     return {
       cwd,
       toplevel,
@@ -390,6 +402,15 @@ async function defaultBranch(repo: RepoInfo): Promise<string | undefined> {
     if (found.code === 0) return candidate;
   }
   return undefined;
+}
+
+export async function resolveReviewCommit(dir: string, sha: string): Promise<string | undefined> {
+  const repo = await repoInfo(dir);
+  if (!repo || !/^[0-9a-f]{4,64}$/i.test(sha)) return undefined;
+  const result = await git(repo, ['rev-parse', '--verify', '--end-of-options', `${sha}^{commit}`], {
+    okCodes: [0, 1, 128],
+  });
+  return result.code === 0 ? result.stdout.toString().trim() : undefined;
 }
 
 /**

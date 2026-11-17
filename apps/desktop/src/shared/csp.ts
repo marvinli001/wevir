@@ -24,8 +24,8 @@
 //   `'unsafe-eval'`，仍然没有）；能借它编译 WebAssembly 的前提是已经能在渲染进程执行脚本。换 Shiki 的 JS 正则引擎可以不放开，
 //   但 T3 Code 用的是 WASM，个别语法的正则 JS 引擎不支持，照 T3。worker 加载的脚本有自己的 CSP（取自它的响应头），构建产物里
 //   协议处理器给每个文件都带 productionCsp()，开发服务器的 server.headers 同样给每个响应都带，所以 worker 里也有这一项。
-// - `worker-src 'self'`：高亮在 Web Worker 里跑（Vite 打成同 origin 的单独文件，`new Worker(url, { type: 'module' })`）。不写
-//   时 worker 回落到 `script-src` 已经是 'self'，显式写出来，免得以后给 script-src 加别的来源时 worker 跟着放开；不放行 blob:。
+// - `worker-src 'self' blob:`：高亮在 Web Worker 里跑（Vite 打成同 origin 的单独文件，`new Worker(url, { type: 'module' })`）。不写
+//   时 worker 回落到 `script-src` 已经是 'self'，显式写出来，免得以后给 script-src 加别的来源时 worker 跟着放开；HEIC 解码器 (heic-to/csp) 用内嵌的代码建立 Blob Worker。
 // Pierre 把 diff 的行写成带 style 属性的 HTML，style 属性仍不放行：pnpm 补丁在它写完后经 CSSOM 补上
 // （patches/@pierre__diffs@1.5.1.patch，pnpm-workspace.yaml 的说明）。
 
@@ -71,7 +71,7 @@ export function productionCsp(nonce?: string): string {
   return [
     "default-src 'none'",
     "script-src 'self' 'wasm-unsafe-eval'",
-    "worker-src 'self'",
+    "worker-src 'self' blob:",
     nonce === undefined ? "style-src 'self'" : `style-src 'self' 'nonce-${nonce}'`,
     `connect-src ${HOST_CONNECT_SRC} ${HOST_FILES_SRC}`,
     ...COMMON,
@@ -87,7 +87,7 @@ export function developmentCsp(nonce: string): string {
   return [
     "default-src 'none'",
     `script-src 'self' 'nonce-${nonce}' 'wasm-unsafe-eval'`,
-    "worker-src 'self'",
+    "worker-src 'self' blob:",
     `style-src 'self' 'nonce-${nonce}'`,
     `connect-src 'self' ws://localhost:${DEV_SERVER_PORT} ${HOST_CONNECT_SRC} ${HOST_FILES_SRC}`,
     ...COMMON,

@@ -18,6 +18,7 @@ import { createPersistedStore, createStore } from '@/lib/store';
 import { capabilities, platformApi } from '@/platform/platform';
 import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
+import { deleteComposerInputs } from '@/session/composer-drafts';
 import { engineFeaturesOf } from '@/session/handoff-model';
 import { reportActionFailure } from './action-notices';
 import { markSeen, markUnread, useUnread } from './seen-sessions';
@@ -307,6 +308,7 @@ export async function deleteSessionPermanently(
     ...(force && { force: true }),
   });
   unpin(sessionId);
+  await deleteComposerInputs([sessionId]);
   await store?.refresh();
   return {
     keptBranches: result.keptBranches ?? [],

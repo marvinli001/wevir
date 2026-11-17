@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, relative } from 'node:path';
-import { ImageIdSchema } from '@wevir/protocol';
+import { FileIdSchema, ImageIdSchema } from '@wevir/protocol';
 import type { Storage, SyncVaultRecord } from '@wevir/storage';
 import type { ImageStore } from '../images.js';
 import type { PluginRegistry } from '../plugins.js';
@@ -100,20 +100,31 @@ export async function syncBundleRoots(options: {
     }
   }
   if (vault.categories.includes('artifact'))
-    for (const [imageId, sessions] of storage.events.imageRefs()) {
+    for (const [imageId, sessions] of storage.events.attachmentRefs()) {
       const project = projects.find((value) =>
-        [...sessions].some((id) => storage.sessions.get(id)?.workspaceId === value.workspaceId),
+        [...sessions].some(
+          (id) =>
+            (storage.sessions.get(id)?.workspaceId ?? storage.channels.get(id)?.workspaceId) ===
+            value.workspaceId,
+        ),
       );
       if (!project) continue;
-      const asset = await options.images.syncAsset(ImageIdSchema.parse(imageId));
+      const id = imageId.startsWith('file_')
+        ? FileIdSchema.safeParse(imageId)
+        : ImageIdSchema.safeParse(imageId);
+      if (!id.success) continue;
+      const asset = await options.images.syncAsset(id.data);
       if (asset)
         roots.push({
           category: 'artifact',
-          localKey: `image:${imageId}`,
+          localKey: `${asset.part.type}:${imageId}`,
           name: imageId,
           path: asset.path,
           projectId: project.projectId,
-          metadata: { schema: 'wevir-image/1', part: asset.part },
+          metadata: {
+            schema: asset.part.type === 'file' ? 'wevir-file/1' : 'wevir-image/1',
+            part: asset.part,
+          },
         });
     }
   return roots;

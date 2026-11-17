@@ -1,9 +1,9 @@
 // 附照片的尺寸与大小（纯逻辑，photos.ts 用）。
 
-import { IMAGE_MAX_PER_MESSAGE } from '@wevir/protocol';
+import { IMAGE_MAX_EDGE, IMAGE_MAX_PER_MESSAGE } from '@wevir/protocol';
 
 /** 长边上限：模型看图够用，经隧道的字节少。 */
-export const PHOTO_MAX_EDGE = 2048;
+export const PHOTO_MAX_EDGE = IMAGE_MAX_EDGE;
 export const JPEG_QUALITY = 0.8;
 
 /** 一条消息里最多几张（Host 的上限）。 */

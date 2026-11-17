@@ -46,6 +46,7 @@ export const PERMISSION_LABEL: Record<Permission, PlainMessageKey> = {
   'session.write': 'settings.devices.permission.sessionWrite',
   'workspace.read': 'settings.devices.permission.workspaceRead',
   'workspace.write': 'settings.devices.permission.workspaceWrite',
+  'git.publish': 'settings.devices.permission.gitPublish',
   'provider.read': 'settings.devices.permission.providerRead',
   'provider.write': 'settings.devices.permission.providerWrite',
   'terminal.write': 'settings.devices.permission.terminalWrite',
@@ -66,6 +67,7 @@ export const PLATFORM_LABEL: Record<Device['platform'], PlainMessageKey> = {
 export const RISKY_DEVICE_PERMISSIONS: ReadonlySet<Permission> = new Set([
   'terminal.write',
   'policy.write',
+  'git.publish',
 ]);
 
 /** 勾上或去掉一项权限后的整组权限（按 `DEVICE_PERMISSION_ORDER` 排）。 */

@@ -6,6 +6,7 @@ import { APP_MENU_LABEL_KEYS, type AppMenuLabels } from '../../shared/desktop-ap
 import { App } from './App.js';
 import { bootstrapRenderer } from './bootstrap.js';
 import { t } from './i18n/index.js';
+import { getShortcut, menuAccelerator, shortcutOverrides } from './lib/shortcuts';
 import './index.css';
 
 const root = document.getElementById('root');
@@ -16,13 +17,20 @@ void bootstrapRenderer().then(() => {
     ?.setTrayLabels({ open: t('tray.open'), quit: t('tray.quit') })
     .catch(() => undefined);
   // macOS 应用菜单同样按界面语言（main/app-menu.ts）。
-  window.wevir
-    ?.setAppMenuLabels(
-      Object.fromEntries(
-        APP_MENU_LABEL_KEYS.map((key) => [key, t(`appMenu.${key}`)]),
-      ) as AppMenuLabels,
-    )
-    .catch(() => undefined);
+  const syncMenu = () =>
+    window.wevir
+      ?.setAppMenuLabels(
+        Object.fromEntries(
+          APP_MENU_LABEL_KEYS.map((key) => [key, t(`appMenu.${key}`)]),
+        ) as AppMenuLabels,
+        {
+          settings: menuAccelerator(getShortcut('settings')),
+          restoreDefaultTheme: menuAccelerator(getShortcut('restoreDefaultTheme')),
+        },
+      )
+      .catch(() => undefined);
+  void syncMenu();
+  shortcutOverrides.subscribe(syncMenu);
   createRoot(root).render(
     <StrictMode>
       <App />

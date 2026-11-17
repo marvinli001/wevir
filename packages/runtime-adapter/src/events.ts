@@ -483,6 +483,25 @@ export interface GuardrailBlockedEvent {
   maxAttempts?: number;
 }
 
+export type EngineNotice =
+  | { kind: 'warning'; message: string }
+  | { kind: 'mcp_failed'; server: string; message?: string }
+  | { kind: 'output_buffering'; model: string; active: boolean }
+  | {
+      kind: 'approval_review';
+      reviewId: string;
+      action: string;
+      status: 'inProgress' | 'approved' | 'denied' | 'timedOut' | 'aborted' | 'userApproved';
+      riskLevel?: string;
+      rationale?: string;
+    };
+
+export interface EngineNoticeEvent {
+  type: 'engine.notice';
+  engineSessionId: string;
+  detail: EngineNotice;
+}
+
 /** 适配器不认识的引擎消息，原样保留，不丢弃。 */
 export interface EngineRawEvent {
   type: 'engine.raw';
@@ -520,6 +539,7 @@ export type AgentEvent =
   | TurnFailedEvent
   | TurnRetryingEvent
   | EngineExitedEvent
+  | EngineNoticeEvent
   | EngineRawEvent
   | TurnStartedEvent
   | TurnSteeredEvent

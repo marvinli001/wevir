@@ -42,6 +42,10 @@ function attribute(value: string): string {
  * 粘贴的段落（0.90.0，文本段的 `pasted`）：每段包进 `<pasted_content id="…">`，开闭标签带同一个随机 id，参照 Claude Code
  * 桌面版。模型据此分清哪些是用户自己写的、哪些是用户粘贴来的材料（材料里的指令不是用户写的）。去掉 `pasted` 标记，引擎只看文字。
  */
+export function pastedText(text: string, id: string = randomBytes(6).toString('hex')): string {
+  return `<pasted_content id="${id}">\n${text}\n</pasted_content id="${id}">`;
+}
+
 export function pastedContent(
   content: readonly UserContentPart[],
   newId: () => string = () => randomBytes(6).toString('hex'),
@@ -51,7 +55,7 @@ export function pastedContent(
     const id = newId();
     return {
       type: 'text',
-      text: `<pasted_content id="${id}">\n${part.text}\n</pasted_content id="${id}">`,
+      text: pastedText(part.text, id),
     };
   });
 }

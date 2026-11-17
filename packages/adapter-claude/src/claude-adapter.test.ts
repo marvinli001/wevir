@@ -448,6 +448,37 @@ describe('一问一答（录音 plain）', () => {
 });
 
 describe('图片（0.28.0）', () => {
+  it('PDF 直接进入 SDK 的 document 部件', async () => {
+    const { adapter, sdk } = harness();
+    const dir = mkdtempSync(join(tmpdir(), 'wevir-pdf-'));
+    try {
+      const path = join(dir, 'report.pdf');
+      const pdf = Buffer.from('%PDF-1.7');
+      writeFileSync(path, pdf);
+      const { engineSessionId } = await adapter.createSession(CONFIG);
+      const log = collect(adapter, engineSessionId);
+      await adapter.send(engineSessionId, {
+        content: [
+          {
+            type: 'file',
+            path,
+            name: 'report.pdf',
+            mimeType: 'application/pdf',
+            text: 'Attached report.pdf',
+          },
+        ],
+      });
+      await log.until(isTurnTerminal);
+      expect(sessionQueries(sdk)[0]?.prompts[0]?.message.content).toContainEqual({
+        type: 'document',
+        title: 'report.pdf',
+        source: { type: 'base64', media_type: 'application/pdf', data: pdf.toString('base64') },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('图片在前（base64 图片块），文本在后；只有文本时照旧是字符串', async () => {
     const { adapter, sdk } = harness();
     expect(adapter.acceptsImages()).toBe(true);

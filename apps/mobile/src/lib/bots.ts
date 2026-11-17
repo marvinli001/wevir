@@ -236,7 +236,9 @@ export function postViews(post: ChannelPost, directory: BotDirectory = new Map()
   if (images.length > 0)
     out.push({ ...base, id: `${post.id}:images`, card: { kind: 'images', images } });
   const text = post.content
-    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .flatMap((part) =>
+      part.type === 'text' ? [part.text] : part.type === 'file' ? [part.name] : [],
+    )
     .join('\n\n')
     .trim();
   const card = post.card;
@@ -529,7 +531,9 @@ export function botTimeLabel(at: string, now: Date): string {
 export function botPostQuote(post: Pick<ChannelPost, 'content'>): string {
   return Array.from(
     post.content
-      .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+      .flatMap((part) =>
+        part.type === 'text' ? [part.text] : part.type === 'file' ? [part.name] : [],
+      )
       .join('\n')
       .split('\n')
       .find((line) => line.trim() !== '') ?? '',

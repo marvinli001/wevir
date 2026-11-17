@@ -3,7 +3,7 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Wevir 的输入框是纯文本 textarea，没有内联块，光标就是字符位置，去掉折叠光标的换算；这里只认 `@` 提及（斜杠命令
-// 在 composer-commands.ts，只认消息开头）；没有 PR 与 `$` skill。
+// 在 composer-commands.ts，只认消息开头）；文件提及与技能共用词边界。
 //
 // 输入框的 @ 提及（U33）：光标往回到上一个空白为一个词，`@` 开头时弹出文件列表，选中后整个词换成 `@路径 `。
 
@@ -31,11 +31,15 @@ function tokenStartForCursor(text: string, cursor: number): number {
 }
 
 /** 光标所在的词是 `@…` 时给出提及的查询；否则 `null`。 */
-export function detectMentionTrigger(text: string, cursorInput: number): MentionTrigger | null {
+export function detectMentionTrigger(
+  text: string,
+  cursorInput: number,
+  prefix: '@' | '$' = '@',
+): MentionTrigger | null {
   const cursor = clampCursor(text, cursorInput);
   const tokenStart = tokenStartForCursor(text, cursor);
   const token = text.slice(tokenStart, cursor);
-  if (!token.startsWith('@')) return null;
+  if (!token.startsWith(prefix)) return null;
   return { query: token.slice(1), rangeStart: tokenStart, rangeEnd: cursor };
 }
 

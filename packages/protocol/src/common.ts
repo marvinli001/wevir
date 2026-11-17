@@ -19,6 +19,7 @@ export const QuestionIdSchema = z.templateLiteral(['qst_', IdBodySchema]);
 export const TaskIdSchema = z.templateLiteral(['tsk_', IdBodySchema]);
 /** 保存的环境（0.15.0，U22.1）。 */
 export const EnvironmentIdSchema = z.templateLiteral(['env_', IdBodySchema]);
+export const FileIdSchema = z.templateLiteral(['file_', IdBodySchema]);
 /** 用户消息里的图片（0.28.0）。 */
 export const ImageIdSchema = z.templateLiteral(['img_', IdBodySchema]);
 /** 自动化与它的一次运行（0.66.0）。 */
@@ -76,6 +77,7 @@ export type StreamId = z.infer<typeof StreamIdSchema>;
 export type SubscriptionId = z.infer<typeof SubscriptionIdSchema>;
 export type PendingMessageId = z.infer<typeof PendingMessageIdSchema>;
 export type QuestionId = z.infer<typeof QuestionIdSchema>;
+export type FileId = z.infer<typeof FileIdSchema>;
 export type ImageId = z.infer<typeof ImageIdSchema>;
 export type HostId = z.infer<typeof HostIdSchema>;
 export type CheckId = z.infer<typeof CheckIdSchema>;

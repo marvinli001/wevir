@@ -33,6 +33,7 @@ import { providerLogo } from '@/settings/provider-catalog';
 import { DEEPSEEK_DEFAULT_MODELS } from '@/settings/provider-presets';
 import { carryEffort } from './effort';
 import { isFast, supportsFast } from './fast-mode';
+import { useEffortShortcuts } from './use-effort-shortcuts';
 
 /**
  * 选中的模型：哪个 Provider 的哪个模型，推理档位（省略表示模型的默认档位），快速模式（0.148.0，省略表示模型的默认，见
@@ -63,6 +64,7 @@ const EFFORT_LABELS: Record<string, PlainMessageKey> = {
   high: 'subagent.effort.high',
   xhigh: 'subagent.effort.xhigh',
   max: 'subagent.effort.max',
+  ultra: 'subagent.effort.ultra',
 };
 
 export function effortLabel(effort: string | undefined): string {
@@ -84,6 +86,7 @@ export function ModelPicker({
   lockProvider = false,
   switchable,
   readOnly = false,
+  effortShortcuts = false,
   onChange,
 }: {
   providers: readonly ProviderProfile[];
@@ -92,6 +95,7 @@ export function ModelPicker({
   /** 已有会话（`lockProvider`）能接力过去的别的 Provider（0.25.0）；省略时都不能。 */
   switchable?: (provider: ProviderProfile) => boolean;
   readOnly?: boolean;
+  effortShortcuts?: boolean;
   onChange: (next: ModelChoice) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -99,8 +103,14 @@ export function ModelPicker({
   const accounts = useAccounts();
   const provider = providers.find((candidate) => candidate.id === value.providerId);
   const model = provider && modelsOf(provider).find((candidate) => candidate.id === value.modelId);
-  const logo = provider && model && providerLogo(provider) === 'zuv' ? modelLogo(model) : undefined;
+  const logo =
+    modelLogo(model ?? { id: value.modelId }) ??
+    (provider && (sourceOf(provider)?.logo ?? providerLogo(provider)));
   const efforts = model?.reasoningEfforts ?? [];
+  const effectiveEffort = value.reasoningEffort ?? model?.defaultReasoningEffort;
+  useEffortShortcuts(effortShortcuts && !readOnly, efforts, effectiveEffort, (reasoningEffort) =>
+    onChange({ ...value, reasoningEffort }),
+  );
   const fastAvailable = supportsFast(provider, value.modelId);
   const fast = isFast(provider, value);
   const name = modelName(model, value.modelId);
@@ -132,7 +142,9 @@ export function ModelPicker({
         )}
         <AccountBadge label={account?.label} size="sm" />
         <span className="truncate">{name}</span>
-        {efforts.length > 0 && <EffortChipLabel efforts={efforts} value={value.reasoningEffort} />}
+        {(efforts.length > 0 || effectiveEffort !== undefined) && (
+          <EffortChipLabel efforts={efforts} value={effectiveEffort} />
+        )}
         {trailing}
       </span>
     </>
@@ -198,8 +210,8 @@ export function ModelPicker({
                   className="shrink-0 font-normal text-muted-foreground"
                   data-testid="model-picker-effort"
                 >
-                  {efforts.length > 0
-                    ? effortLabel(value.reasoningEffort)
+                  {efforts.length > 0 || effectiveEffort !== undefined
+                    ? effortLabel(effectiveEffort)
                     : t('model.effort.fixed')}
                 </span>
                 <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
@@ -220,7 +232,7 @@ export function ModelPicker({
             {efforts.length > 0 && (
               <EffortSlider
                 efforts={efforts}
-                value={value.reasoningEffort}
+                value={effectiveEffort}
                 onChange={(effort) => onChange({ ...value, reasoningEffort: effort })}
               />
             )}
@@ -309,7 +321,6 @@ export function ModelList({
       return { provider, source, label, badge: account?.label, email, models };
     })
     .filter((group) => group.models.length > 0);
-  const anySource = groups.some((group) => group.source !== undefined);
 
   return (
     <div className="flex max-h-[26rem] flex-col animate-in duration-150 fade-in slide-in-from-right-2">
@@ -384,7 +395,6 @@ export function ModelList({
               <ul>
                 {models.map((model) => {
                   const selected = provider.id === value.providerId && model.id === value.modelId;
-                  const zuv = providerLogo(provider) === 'zuv';
                   return (
                     <li key={model.id}>
                       <button
@@ -398,15 +408,11 @@ export function ModelList({
                           selected && 'font-medium',
                         )}
                       >
-                        {source || zuv ? (
-                          <ProviderLogo
-                            logo={zuv ? modelLogo(model) : source?.logo}
-                            fallback={modelName(model, model.id)}
-                            className={cn('size-3.5 shrink-0', locked && 'opacity-50 grayscale')}
-                          />
-                        ) : (
-                          anySource && <span aria-hidden className="size-3.5 shrink-0" />
-                        )}
+                        <ProviderLogo
+                          logo={modelLogo(model) ?? source?.logo ?? providerLogo(provider)}
+                          fallback={modelName(model, model.id)}
+                          className={cn('size-3.5 shrink-0', locked && 'opacity-50 grayscale')}
+                        />
                         <span className="min-w-0 flex-1 truncate">
                           {modelName(model, model.id)}
                         </span>
@@ -508,7 +514,7 @@ function EffortSlider({
     if (!track) return;
     const rect = track.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (clientX - rect.left - 12) / (rect.width - 24)));
-    const next = efforts[Math.round(ratio * last)];
+    const next = efforts[Math.round(ratio * (efforts.length - 1))];
     if (next !== undefined && next !== value) onChange(next);
   };
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {

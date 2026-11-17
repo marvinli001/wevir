@@ -8,12 +8,23 @@ import { lastTurnShowsWrapUp } from './wrap-up-model';
 export function sessionChrome(state: TranscriptState | undefined) {
   if (!state) return undefined;
   const t = state.transcript;
+  const lastInterrupted =
+    t.state === 'idle'
+      ? t.messages.findLast(
+          (message) => message.role === 'assistant' && message.finished?.outcome === 'interrupted',
+        )
+      : undefined;
   return {
     error: state.error,
     caughtUp: state.caughtUp,
     hasEvents: t.lastSeq > 0,
     finishedTurn: hasFinishedTurn(t),
     turnId: lastTurnId(t),
+    editFromSeq: Math.max(
+      t.engineSegments?.at(-1)?.seq ?? 0,
+      lastInterrupted ? lastInterrupted.seqRange[1] + 1 : 0,
+    ),
+    lastInterruptedTurn: lastInterrupted?.role === 'assistant' ? lastInterrupted.turnId : undefined,
     handoff: handoffAfterLastTurn(t),
     lastOutcome: t.messages.findLast((message) => message.role === 'assistant')?.finished?.outcome,
     hasWrapUp: lastTurnShowsWrapUp(t),

@@ -53,6 +53,22 @@ function textOf(events: AgentEvent[], kind: 'text' | 'reasoning'): string {
 }
 
 describe('EchoAdapter', () => {
+  it('checks the full rewind count before removing any turn', async () => {
+    const session = await open();
+    await session.send('keep');
+    await session.readUntil(settled);
+    for (const count of [0, -1, 1.5, 2]) {
+      await expect(session.adapter.rewind(session.id, count)).rejects.toMatchObject({
+        code: 'invalid_input',
+      });
+    }
+    await expect(session.adapter.rewind(session.id, 1, 'unbound-id')).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    await session.send('recall');
+    expect(textOf(await session.readUntil(settled), 'text')).toContain('History: keep');
+  });
+
   it('回显输入：先按分片发增量，再发替换它们的已提交消息', async () => {
     const session = await open({ chunkSize: 4 });
     await session.send('hello');

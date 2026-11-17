@@ -1,8 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { APP_MENU_LABEL_KEYS } from '../shared/desktop-api.js';
-import { appMenuTemplate, DEFAULT_APP_MENU_LABELS, parseAppMenuLabels } from './app-menu.js';
+import {
+  appMenuTemplate,
+  DEFAULT_APP_MENU_LABELS,
+  parseAppMenuLabels,
+  parseAppMenuShortcuts,
+} from './app-menu.js';
 
 describe('app menu', () => {
+  it('原生恢复菜单采用已校验的自定义组合键', () => {
+    const shortcuts = { settings: 'CommandOrControl+,', restoreDefaultTheme: 'Control+Alt+L' };
+    expect(parseAppMenuShortcuts(shortcuts)).toEqual(shortcuts);
+    expect(
+      parseAppMenuShortcuts({ settings: 'CommandOrControl+', restoreDefaultTheme: 'bad' }),
+    ).toBeUndefined();
+    const items = appMenuTemplate(
+      DEFAULT_APP_MENU_LABELS,
+      { openSettings() {}, checkForUpdates() {}, restoreDefaultTheme() {} },
+      'darwin',
+      shortcuts,
+    );
+    const view = items.find((item) => item.role === 'viewMenu');
+    if (!view) throw new Error('view menu missing');
+    const recovery = (view.submenu as Electron.MenuItemConstructorOptions[]).find(
+      (item) => item.id === 'restore-default-theme',
+    );
+    expect(recovery?.accelerator).toBe('Control+Alt+L');
+  });
   it.each(['darwin', 'win32', 'linux'] as const)(
     'has a native theme recovery action on %s',
     (platform) => {

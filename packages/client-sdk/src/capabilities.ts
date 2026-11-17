@@ -38,6 +38,7 @@ export const DEFAULT_CLIENT_CAPABILITIES = {
   subscription_kinds: true,
   subscription_accounts: true,
   user_images: true,
+  user_files: true,
   question_timeout: true,
   approval_rules: true,
   approval_timeout: true,

@@ -180,7 +180,7 @@ const CHECKPOINT_DELAY_MS = 5000;
 
 /** 谁触发了退出，记进日志。 */
 export type ShutdownTrigger =
-  | { kind: 'rpc'; client: ClientIdentity }
+  | { kind: 'rpc'; client: ClientIdentity; resumeActiveTurns?: boolean }
   | { kind: 'signal'; signal: NodeJS.Signals }
   | { kind: 'stdin_eof' }
   | { kind: 'parent_port' }
@@ -2090,12 +2090,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         side_session_list: true,
         ...(adapter.compact !== undefined && { session_compact: true }),
         ...(adapter.review !== undefined && { session_review: true }),
+        engine_notices: true,
         ...(adapter.startGoal !== undefined && { session_goals: true }),
         usage_auto_continue: true,
         usage_limit_switch: true,
         usage_limit_routing: true,
         turn_retry: true,
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
+        user_files: true,
         ...(mcp !== undefined && { app_tools: true }),
         ...(mcp !== undefined && { shared_files: true }),
         ...(mcp !== undefined && { transcript_chapters: true }),
@@ -2110,7 +2112,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(options.web !== undefined && { web_tools: true }),
         ...(adapter.planMode === true && { plan_mode: true }),
         ...(adapter.fork !== undefined && adapter.branches === true && { session_branches: true }),
-        ...(adapter.rewind !== undefined && { session_rewind: true }),
+        ...(adapter.rewind !== undefined && { session_rewind: true, session_rewind_history: true }),
         ...(adapter.injectNote !== undefined && { session_undo: true }),
         ...(recapInstructions !== undefined && { session_recap: true }),
         ...(insightInstructions !== undefined && { session_insights: true }),
@@ -2118,7 +2120,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         rule_files: true,
         ...(review !== undefined && { review_comments: true }),
         ...(review !== undefined && { review_findings: true }),
+        session_composer_catalog: true,
+        session_restart_continuation: true,
         git_commit: true,
+        git_workflow: true,
         session_retro: true,
         episodes: true,
         context_search: true,
@@ -2221,7 +2226,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,
-      onShutdownRequest: (client) => requestShutdown({ kind: 'rpc', client }),
+      onShutdownRequest: (client, resumeActiveTurns) =>
+        requestShutdown({ kind: 'rpc', client, ...(resumeActiveTurns && { resumeActiveTurns }) }),
       httpHandler: (req, res) =>
         fileUrls.handle(req, res) ||
         mcpRemote.handle(req, res) ||
@@ -2329,6 +2335,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       releaseRuntimeFileSync: () => runtimeFile.releaseSync(),
     };
+    manager.continueAfterRestart();
     sync.start();
     requestShutdown = options.onShutdownRequest ?? ((trigger) => void host.shutdown(trigger));
     logger.info('host ready', {
@@ -2508,7 +2515,16 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   await step('stop_accepting', () => parts.rpc.stopAccepting(), true);
   await step('close_themes', () => parts.themes.close());
   // 取消回合的事件经订阅推送出去，所以连接要留到后面再关。
-  if (!(await step('cancel_turns', () => parts.sessions.shutdown(), true))) {
+  if (
+    !(await step(
+      'cancel_turns',
+      () =>
+        parts.sessions.shutdown(
+          parts.trigger.kind === 'rpc' && parts.trigger.resumeActiveTurns === true,
+        ),
+      true,
+    ))
+  ) {
     // 不再等引擎结算：先停止写事件，之后才能安全地关闭数据库。会话停在活动状态，下次启动时对账（#15）。
     void parts.sessions.dispose().catch((error: unknown) => {
       logger.error('session manager dispose failed', { error });

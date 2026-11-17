@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import {
   type HostEndpoint,
   type HostHello,
+  hostSupports,
   WevirClient,
   webSocketTransport,
 } from '@wevir/client-sdk';
@@ -343,13 +344,30 @@ export class HostLifecycle {
     }
   }
 
-  /**
-   * 退出时调用：只停止本次拉起的 Host（含还没就绪的）；附着的 Host 不动。先请它退出（`HostChild.requestExit`：关归属管道
-   * 或经 parentPort 发消息，Host 随即优雅退出），`pipeCloseMs` 内没退出就确认 host.json 仍是它之后发 `host.shutdown`，
-   * 再过 `shutdownMs` 仍没退出才 SIGKILL。可重复调用。
-   */
-  stop(): Promise<void> {
-    this.#stopping ??= this.#stop();
+  /** 退出前查询所拥有的 Host，活动回合可能在另一个客户端或隐藏会话中。 */
+  async quitActivity(): Promise<'idle' | 'resumable' | 'manual' | 'active'> {
+    const ownership = this.ownership;
+    if (ownership?.kind !== 'owned' || this.#child?.hasExited()) return 'idle';
+    const client = await this.#controlClient();
+    try {
+      if (!(await this.#isStillOurs(ownership))) return 'idle';
+      if (hostSupports(client.hello.features, 'session_restart_continuation')) {
+        const { activeTurns, resumableTurns } = await client.request('host.activity', {});
+        return activeTurns === 0 ? 'idle' : resumableTurns > 0 ? 'resumable' : 'manual';
+      }
+      const { sessions } = await client.request('session.list', {});
+      return sessions.some((session) => session.activeTurn !== undefined) ? 'active' : 'idle';
+    } finally {
+      client.close();
+    }
+  }
+
+  /** 保留续作意图时先等 Host 确认，其余退出沿用子进程归属通道。 */
+  stop(resumeActiveTurns = false): Promise<void> {
+    this.#stopping ??= this.#stop(resumeActiveTurns).catch((error: unknown) => {
+      this.#stopping = undefined;
+      throw error;
+    });
     return this.#stopping;
   }
 
@@ -714,7 +732,23 @@ export class HostLifecycle {
     }
   }
 
-  async #stop(): Promise<void> {
+  async #stop(resumeActiveTurns: boolean): Promise<void> {
+    const readyOwner = this.ownership;
+    if (
+      resumeActiveTurns &&
+      readyOwner?.kind === 'owned' &&
+      this.#child &&
+      !this.#child.hasExited()
+    ) {
+      const child = this.#child;
+      // 先让 Host 确认续作请求，再关闭归属通道。提前关闭会以普通退出结算活动回合。
+      const requested = await this.#requestShutdown(readyOwner, true);
+      if (requested && (await exitsWithin(child, this.#timeouts.shutdownMs))) {
+        this.#shutdown.abort();
+        clearInterval(this.#watchTimer);
+        return;
+      }
+    }
     this.#shutdown.abort();
     clearInterval(this.#watchTimer);
     // 启动或重新拉起还在进行时先等它结束（成功或失败），才知道子进程与归属。
@@ -738,8 +772,8 @@ export class HostLifecycle {
       pid: child.host.pid,
       waitedMs: this.#timeouts.pipeCloseMs,
     });
-    if (ownership && (await this.#isStillOurs(ownership))) {
-      await this.#requestShutdown().catch((error: unknown) =>
+    if (ownership) {
+      await this.#requestShutdown(ownership).catch((error: unknown) =>
         this.#log('warn', 'host.shutdown failed', { error: describe(error) }),
       );
     }
@@ -763,15 +797,21 @@ export class HostLifecycle {
     return info?.pid === ownership.pid && info.startedAt === ownership.startedAt;
   }
 
-  async #requestShutdown(): Promise<void> {
-    const client = await WevirClient.connect({
-      endpoint: await readHostEndpoint(this.#options.home),
+  async #controlClient(): Promise<WevirClient> {
+    return WevirClient.connect({
+      endpoint: () => readHostEndpoint(this.#options.home),
       transport: webSocketTransport(WebSocket),
       identity: await this.#options.identity,
       timeouts: { connectMs: this.#timeouts.probeMs, requestMs: this.#timeouts.probeMs },
     });
+  }
+
+  async #requestShutdown(ownership: HostOwnership, resumeActiveTurns = false): Promise<boolean> {
+    const client = await this.#controlClient();
     try {
-      await client.request('host.shutdown', {});
+      if (!(await this.#isStillOurs(ownership))) return false;
+      await client.request('host.shutdown', resumeActiveTurns ? { resumeActiveTurns: true } : {});
+      return true;
     } finally {
       client.close();
     }

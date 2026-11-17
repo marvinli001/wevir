@@ -111,7 +111,7 @@ export function NewSessionHero({
           className={cn(row, 'text-muted-foreground hover:text-foreground')}
         >
           <Plus aria-hidden className="size-4 shrink-0" />
-          {t('home.addFolder')}
+          {t('home.createProject')}
         </button>
       )}
       {environments && (

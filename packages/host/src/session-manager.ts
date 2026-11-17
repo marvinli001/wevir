@@ -26,10 +26,11 @@ import {
   type HandoffNoteRef,
   type HookOutcome,
   HookOutcomeSchema,
-  IMAGE_MAX_PER_MESSAGE,
+  MESSAGE_TEXT_MAX_LENGTH,
   type MessageFrom,
   type MethodParams,
   type MethodResult,
+  messageContentIssue,
   type PendingDelivery,
   type PendingMessage,
   type PendingMessageId,
@@ -47,7 +48,6 @@ import {
   REVIEW_SUMMARY_MAX_LENGTH,
   type ResolvedApprovalStatus,
   type ReviewFinding,
-  type ReviewTarget,
   type RoutingDecision,
   type RoutingSettings,
   SESSION_RECAP_MIN_AWAY_MS,
@@ -143,7 +143,7 @@ import { episodeMarkdown } from './episodes/build.js';
 import type { EpisodeService } from './episodes/service.js';
 import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
-import { reviewRepo } from './git-diff.js';
+import { resolveReviewCommit, reviewRepo } from './git-diff.js';
 import {
   type CreatedWorktree,
   createWorktree,
@@ -581,6 +581,12 @@ interface Deferred {
   resolve(): void;
 }
 
+interface FinishedSessionTurn {
+  turnId: TurnId;
+  seq: number;
+  outcome: TurnOutcome;
+}
+
 /** 进行中的回合在 Host 内存里的部分：引擎 ID 到 Host ID 的映射、未收尾的工具。 */
 interface TurnRuntime {
   readonly turnId: TurnId;
@@ -592,6 +598,7 @@ interface TurnRuntime {
   readonly tools: Map<string, ToolInfo>;
   /** `turn.finished` 写入时完成。 */
   readonly finished: Deferred;
+  continuation?: 'manual' | 'on_restart';
   /**
    * 回合在 `cancelling` 时加入的待发消息（R11，domain-model §4.6）：用户按了停止之后又发的，取消结算后不暂停、照常发出。
    * 只在内存里：Host 重启后一律暂停。
@@ -970,7 +977,7 @@ export class SessionManager {
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
   readonly #execution: SessionManagerOptions['execution'];
   readonly #reviewFindings: SessionManagerOptions['reviewFindings'];
-  readonly #usageTurns = new Map<string, TurnId>();
+  readonly #boundTurns = new Map<string, Map<string, TurnId>>();
   readonly #onUsage: SessionManagerOptions['onUsage'];
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
@@ -985,6 +992,7 @@ export class SessionManager {
   readonly #autoContinue: SessionManagerOptions['autoContinue'];
   readonly #routing: SessionManagerOptions['routing'];
   readonly #routingRecovery = new Set<SessionId>();
+  readonly #restartContinuations = new Map<SessionId, TurnId>();
   readonly #idleCompaction: SessionManagerOptions['idleCompaction'];
   readonly #idleCompactionTimers: AutoContinueTimers;
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
@@ -1340,6 +1348,14 @@ export class SessionManager {
       const { id: sessionId, parentSessionId } = snapshot.session;
       const { state, activeTurn, subagent } = snapshot.session;
       const active = ACTIVE_STATES.includes(state);
+      if (
+        state === 'idle' &&
+        snapshot.session.interruptedTurn?.auto &&
+        snapshot.session.readOnly === undefined &&
+        snapshot.session.archivedAt === undefined
+      ) {
+        this.#restartContinuations.set(sessionId, snapshot.session.interruptedTurn.turnId);
+      }
       if (!active && state === 'idle' && subagent?.status === 'running') {
         // 子会话还没开始过回合就随 Host 退出了：引擎侧的子 agent 不在了，免得一直显示“运行中”（domain-model §4.5）。
         this.#events.appendMany(sessionId, [
@@ -1386,6 +1402,12 @@ export class SessionManager {
               this.#openToolsFromEvents(sessionId, activeTurn.turnId),
               'interrupted',
               durationSince(activeTurn.startedAt),
+              undefined,
+              (state !== 'cancelling' ||
+                snapshot.session.interruptedTurn?.turnId === activeTurn.turnId) &&
+                canContinueInterrupted(snapshot.session)
+                ? 'manual'
+                : undefined,
             ),
           );
         }
@@ -1401,6 +1423,25 @@ export class SessionManager {
     }
     report.unknownSends = this.#storage.sendReceipts.markAcceptedAsUnknown(isoNow());
     return report;
+  }
+
+  async composerCatalog(
+    sessionId: SessionId,
+    enabledSkills: (cwd: string) => Promise<Array<{ name: string; description: string }>>,
+  ): Promise<MethodResult<'session.composerCatalog'>> {
+    const record = this.#storage.sessions.get(sessionId);
+    if (!record) throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
+    const runtime = this.#runtimes.get(sessionId);
+    const provider = this.#storage.providers.get(record.providerId);
+    const hasSkills = provider && (this.#featuresOf(provider.kind)?.skills ?? this.#adapter.skills);
+    const [skills, commands] = await Promise.all([
+      hasSkills ? enabledSkills(record.cwd) : [],
+      runtime?.attachment ? this.#adapter.listCommands?.(runtime.engineSessionId) : [],
+    ]);
+    return {
+      skills: skills.map(({ name, description }) => ({ name, description })),
+      commands: commands ?? [],
+    };
   }
 
   /** 会话所在的工作区：存储里的，或正在建、还没写进存储的；都不是时 `undefined`。 */
@@ -2024,7 +2065,12 @@ export class SessionManager {
     const collaborationMode = params.collaborationMode === 'plan' ? 'plan' : undefined;
     if (collaborationMode !== undefined) this.#assertPlanMode(runtime);
     // 图片（0.28.0）：换成 Host 记下的、挪出暂存区。回执的指纹仍按客户端发来的内容算，重发时照样认得出。
-    const content = await this.#acceptContent(runtime, params.content, ['content']);
+    const content = await this.#acceptContent(
+      runtime,
+      params.content,
+      ['content'],
+      from?.channel === undefined,
+    );
     const accepted = { ...params, content };
     // 审批改道（0.144.0）：只给用户自己发的消息，别的会话、自动化与频道发来的照常排队。
     if (params.declineApproval === true && from === undefined) {
@@ -2116,11 +2162,18 @@ export class SessionManager {
   }
 
   /**
-   * `session.review`（0.24.0）：开始一个由命令开始的回合，引擎审查改动。会话目录要是 git 仓库；`branch` 要找得到基础分支
-   * （同 `workspace.diff` 的 `branch`），否则 `INVALID_PARAMS`。
+   * `session.review`：按工作树、分支、提交或自定义说明审查。Git 目标要能在仓库中解析，否则 `INVALID_PARAMS`。
    */
-  review(sessionId: SessionId, target: ReviewTarget): Promise<MethodResult<'session.review'>> {
+  review(params: MethodParams<'session.review'>): Promise<MethodResult<'session.review'>> {
+    const { sessionId, target } = params;
     return this.#command(sessionId, 'review', async (runtime) => {
+      if (params.target === 'custom')
+        return { kind: 'review', target: 'custom', instructions: params.instructions };
+      if (params.target === 'commit') {
+        const sha = await resolveReviewCommit(this.#record(runtime).cwd, params.sha);
+        if (!sha) throw invalidContent(['sha'], 'unknown or ambiguous commit');
+        return { kind: 'review', target: 'commit', sha };
+      }
       const repo = await reviewRepo(this.#record(runtime).cwd);
       if (repo === undefined) {
         throw new HostError('INVALID_PARAMS', 'the session directory is not a git repository', {
@@ -2133,7 +2186,7 @@ export class SessionManager {
           issues: [{ path: ['target'], message: 'no base branch' }],
         });
       }
-      return { kind: 'review', target, baseBranch: repo.baseBranch };
+      return { kind: 'review', target: 'branch', baseBranch: repo.baseBranch };
     });
   }
 
@@ -2331,10 +2384,22 @@ export class SessionManager {
       return this.#adapter.compact(engineSessionId);
     }
     if (this.#adapter.review === undefined) throw new Error('adapter has no review');
-    const request: ReviewRequest =
-      command.target === 'branch' && command.baseBranch !== undefined
-        ? { target: 'branch', baseBranch: command.baseBranch }
-        : { target: 'uncommitted' };
+    let request: ReviewRequest;
+    switch (command.target) {
+      case 'commit':
+        request = { target: 'commit', sha: command.sha };
+        break;
+      case 'custom':
+        request = { target: 'custom', instructions: command.instructions };
+        break;
+      case 'branch':
+        if (!command.baseBranch) throw new Error('review command is missing the base branch');
+        request = { target: 'branch', baseBranch: command.baseBranch };
+        break;
+      case 'uncommitted':
+        request = { target: 'uncommitted' };
+        break;
+    }
     return this.#adapter.review(engineSessionId, request);
   }
 
@@ -2352,6 +2417,7 @@ export class SessionManager {
       /** 普通发送带 `clientMessageId` 时记回执用。 */
       fingerprint?: string;
       pending?: PendingMessage;
+      authorization?: Extract<AppendInput, { type: 'engine.notice' }>;
       from?: MessageFrom;
       /** `session.setGoal`（0.35.0）：这条消息是新的目标，交给引擎的 `startGoal`。 */
       goal?: { objective: string; tokenBudget?: number };
@@ -2374,6 +2440,13 @@ export class SessionManager {
     const nativeSlashCommand = goal === undefined && isNativeSlashCommand(engineContent);
     const agentInput = await this.#agentInput(engineContent);
     const snapshot = this.#snapshot(runtime);
+    if (pending && !isDeepStrictEqual(this.#events.pending(runtime.id, pending.id), pending)) {
+      // 读附件期间用户取消或编辑了这条消息，重新取队首。
+      void this.#scheduleDispatch(runtime);
+      throw new HostError('INVALID_STATE', 'queued message changed before delivery', {
+        state: snapshot.session.state,
+      });
+    }
     const turnId = newId('trn');
     const inputs: AppendInput[] = [
       {
@@ -2395,6 +2468,7 @@ export class SessionManager {
         payload: { turnId, ...(goal !== undefined && { trigger: 'goal' as const }) },
       },
     ];
+    if (input.authorization) inputs.push(input.authorization);
     if (pending !== undefined) {
       inputs.push(pendingUpdated({ ...pending, status: 'sent', turnId, updatedAt: isoNow() }));
     }
@@ -2535,14 +2609,14 @@ export class SessionManager {
     runtime: SessionRuntime,
     content: UserContentPart[],
     path: Array<string | number>,
+    checkText = true,
   ): Promise<UserContentPart[]> {
-    const count = content.filter((part) => part.type === 'image').length;
-    if (count === 0) return content;
-    if (count > IMAGE_MAX_PER_MESSAGE) {
-      throw invalidContent(path, `a message can carry at most ${IMAGE_MAX_PER_MESSAGE} images`);
-    }
+    const issue = messageContentIssue(content, checkText);
+    if (issue) throw invalidContent(path, issue);
+    if (content.every((part) => part.type === 'text')) return content;
     const images = this.#images;
-    if (images === undefined || !this.#acceptsImages(runtime)) {
+    if (!images) throw invalidContent(path, 'this host cannot store attachments');
+    if (content.some((part) => part.type === 'image') && !this.#acceptsImages(runtime)) {
       const { providerId, modelId } = this.#snapshot(runtime).session;
       throw invalidContent(
         path,
@@ -2571,9 +2645,17 @@ export class SessionManager {
   /** 交给引擎的输入：图片换成数据目录里的文件。 */
   async #agentInput(content: readonly UserContentPart[]): Promise<AgentInput> {
     const parts: AgentInput['content'] = [];
+    let fileTextRemaining = MESSAGE_TEXT_MAX_LENGTH;
     for (const part of content) {
       if (part.type === 'text') {
         parts.push({ type: 'text', text: part.text });
+        continue;
+      }
+      if (part.type === 'file') {
+        if (!this.#images) throw invalidContent(['content'], 'this host cannot store attachments');
+        const input = await this.#images.engineFile(part.fileId, fileTextRemaining);
+        parts.push(input);
+        fileTextRemaining = Math.max(0, fileTextRemaining - input.text.length);
         continue;
       }
       const path = await this.#images?.path(part.imageId);
@@ -2761,7 +2843,9 @@ export class SessionManager {
     for (const approval of pending) {
       const owner = this.#runtimes.get(approval.sessionId as SessionId);
       if (owner === undefined || !owner.requestIds.has(approval.id)) continue;
-      const rejects = (approval.options as ApprovalOption[]).filter((o) => o.category === 'reject');
+      const rejects = (approval.options as ApprovalOption[]).filter(
+        (o) => o.category === 'reject' && o.policyTarget === undefined,
+      );
       const carries = owner.messageOptions.get(approval.id);
       const option =
         rejects.find((o) => carries?.has(o.optionId) === true) ??
@@ -2934,8 +3018,31 @@ export class SessionManager {
     if (snapshot.session.state !== 'idle') return;
     const next = snapshot.pendingMessages?.find((pending) => pending.status === 'waiting');
     if (next === undefined) return;
+    // 持久队列可能来自旧版本，模型也可能在等待期间改变。
+    let content: UserContentPart[];
+    try {
+      content = await this.#acceptContent(
+        runtime,
+        next.content,
+        ['content'],
+        next.from?.channel === undefined,
+      );
+    } catch (error) {
+      if (!isHostError(error)) throw error;
+      if (isDeepStrictEqual(this.#events.pending(runtime.id, next.id), next)) {
+        this.#write(runtime, [
+          pendingUpdated({
+            ...next,
+            status: 'held',
+            fallback: { reason: 'rejected', message: error.message },
+            updatedAt: isoNow(),
+          }),
+        ]);
+      }
+      return;
+    }
     await this.#startTurn(runtime, {
-      content: next.content,
+      content,
       sentBy: next.sentBy,
       ...(next.clientMessageId !== undefined && { clientMessageId: next.clientMessageId }),
       pending: next,
@@ -4100,11 +4207,11 @@ export class SessionManager {
   async #recordFindings(
     sessionId: SessionId,
     findings: readonly FindingInput[],
-    source: 'uncommitted' | 'branch',
+    source: 'uncommitted' | 'branch' | 'custom' | 'commit',
     turnId: TurnId | undefined,
   ): Promise<ReviewFinding[]> {
-    const input = { findings, source, ...(turnId !== undefined && { turnId }) };
-    if (this.#reviewFindings !== undefined) {
+    if (this.#reviewFindings !== undefined && (source === 'uncommitted' || source === 'branch')) {
+      const input = { findings, source, ...(turnId !== undefined && { turnId }) };
       try {
         return await this.#reviewFindings(sessionId, input);
       } catch (error) {
@@ -4411,6 +4518,9 @@ export class SessionManager {
       if (target.seq < handoffSeq) {
         throw refuse('the turn is from before the session switched models');
       }
+      const dropTurns = side
+        ? 0
+        : this.#nativeSuffix(source, target, turns.slice(index + 1)).afterCount;
       if (!source.attachment) await this.#autoResume(source);
       if (!side && this.#adapter.supports?.(source.engineSessionId, 'branch') === false) {
         throw refuse("the session's engine cannot branch");
@@ -4474,7 +4584,7 @@ export class SessionManager {
         engineSession = await fork(
           source.engineSessionId,
           await this.#engineConfig(sessionId, config, rules),
-          side ? { kind: 'side' } : { kind: 'branch', dropTurns: turns.length - 1 - index },
+          side ? { kind: 'side' } : { kind: 'branch', dropTurns },
         );
       } catch (error) {
         this.#creating.delete(sessionId);
@@ -4662,9 +4772,7 @@ export class SessionManager {
   }
 
   /**
-   * `session.rewind`（0.38.0，domain-model §3.18）：撤回顶层会话（不是支线）最后一个完成的回合，客户端随后把改过的消息照常发出。
-   * 会话要空闲（`SESSION_BUSY`）、不是只读、出错或已关闭；`turnId` 必须是最后一个没撤回的完成的回合（`INVALID_STATE`）。引擎会话
-   * 没挂上时先自动恢复，引擎撤回之后写 `turn.rewound`。会话目录里的文件不动。
+   * 撤回最新回合，或在核对最新可见回合后撤到指定回合之前。引擎只能撤自己的历史，不能跨接力段。
    */
   async rewind(params: MethodParams<'session.rewind'>): Promise<{ seq: number }> {
     this.#assertOpen();
@@ -4687,33 +4795,42 @@ export class SessionManager {
       }
       const { turns, handoffSeq, hidden } = this.#finishedTurns(runtime.id);
       const last = turns.filter((turn) => !hidden.has(turn.turnId)).at(-1);
-      if (last === undefined || last.turnId !== params.turnId) {
-        throw refuse('only the last finished turn can be rewound');
+      const target = turns.find(
+        (turn) => turn.turnId === params.turnId && !hidden.has(turn.turnId),
+      );
+      if (
+        !last ||
+        !target ||
+        (params.through
+          ? last.turnId !== params.expectedLatestTurnId
+          : last.turnId !== params.turnId)
+      ) {
+        throw refuse('the visible turn history has changed');
       }
-      if (this.#events.handoffState(runtime.id)?.context !== undefined || last.seq < handoffSeq) {
+      if (this.#events.handoffState(runtime.id)?.context !== undefined || target.seq < handoffSeq) {
         throw refuse('the turn is from before the session switched models');
       }
+      const following = turns.slice(turns.indexOf(target) + 1);
+      const { count, firstEngineTurnId } = this.#nativeSuffix(runtime, target, following);
       if (!runtime.attachment) await this.#autoResume(runtime);
       if (this.#adapter.supports?.(runtime.engineSessionId, 'rewind') === false) {
         throw refuse("the session's engine cannot rewind turns");
       }
-      // 引擎的历史里还留着最后一个看得见的回合之后被撤销的回合（0.51.0）：一并退掉，从后往前，每退一个写一条 `turn.rewound`。
-      const dropped = turns.slice(turns.findIndex((turn) => turn.turnId === last.turnId)).reverse();
-      let seq = 0;
-      for (const turn of dropped) {
-        try {
-          await rewind(runtime.engineSessionId);
-        } catch (error) {
-          const info = engineErrorInfo(error);
-          throw new HostError('ENGINE_ERROR', info.message, info);
-        }
-        seq = this.#events.append(runtime.id, {
+      try {
+        await rewind(runtime.engineSessionId, count, firstEngineTurnId);
+      } catch (error) {
+        const info = engineErrorInfo(error);
+        throw new HostError('ENGINE_ERROR', info.message, info);
+      }
+      const rewound = this.#events.appendMany(
+        runtime.id,
+        [...following.reverse(), target].map((turn) => ({
           type: 'turn.rewound',
           source: 'host',
           payload: { turnId: turn.turnId },
-        }).seq;
-      }
-      return { seq };
+        })),
+      );
+      return { seq: (rewound.at(-1) as WevirEvent).seq };
     });
   }
 
@@ -4822,20 +4939,49 @@ export class SessionManager {
     return undefined;
   }
 
+  #nativeSuffix(
+    runtime: SessionRuntime,
+    target: FinishedSessionTurn,
+    following: readonly FinishedSessionTurn[],
+  ) {
+    const boundCounts = new Map<TurnId, number>();
+    let firstEngineTurnId: string | undefined;
+    for (const [nativeId, turnId] of this.#boundTurns.get(runtime.engineSessionId) ?? []) {
+      boundCounts.set(turnId, (boundCounts.get(turnId) ?? 0) + 1);
+      if (turnId === target.turnId) firstEngineTurnId ??= nativeId;
+    }
+    const countOf = (turn: FinishedSessionTurn) => {
+      const bound = boundCounts.get(turn.turnId);
+      // Host 可能已记下中断、引擎却没接收回合。把它计入数量会选错原生历史。
+      if (bound === undefined && turn.outcome === 'interrupted') {
+        throw new HostError(
+          'INVALID_STATE',
+          'the engine did not confirm the history of an interrupted turn',
+          {
+            state: this.#snapshot(runtime).session.state,
+          },
+        );
+      }
+      return bound ?? 1;
+    };
+    const afterCount = following.reduce((sum, turn) => sum + countOf(turn), 0);
+    return { afterCount, count: countOf(target) + afterCount, firstEngineTurnId };
+  }
+
   /**
-   * 会话里完成、没被撤回的回合（`turn.finished` 的 `seq`），按先后——这些回合都还在引擎的历史里；`handoffSeq` 是最近一次接力
-   * （`session.handoff`）的 `seq`，没有时 0。分支与撤回按它数引擎的回合（0.38.0）。
+   * Host 已结束、没被撤回的回合，按先后。中断的回合可能没被引擎接收。`handoffSeq` 是最近一次接力
+   * （`session.handoff`）的 `seq`，没有时 0。
    *
    * 撤销（0.51.0，§3.22）不改引擎的历史，只让回合在消息记录里隐藏：`hidden` 是现在被撤销的回合，`redo` 是还能重做的（撤销的先后，
    * 最后一个先重做；会话一开始新回合，栈就清空，那些回合从此只是隐藏）。看得见的回合是 `turns` 去掉 `hidden`。
    */
   #finishedTurns(sessionId: SessionId): {
-    turns: Array<{ turnId: TurnId; seq: number }>;
+    turns: FinishedSessionTurn[];
     handoffSeq: number;
     hidden: Set<TurnId>;
     redo: TurnId[];
   } {
-    const turns: Array<{ turnId: TurnId; seq: number }> = [];
+    const turns: FinishedSessionTurn[] = [];
     const hidden = new Set<TurnId>();
     let redo: TurnId[] = [];
     let handoffSeq = 0;
@@ -4848,7 +4994,11 @@ export class SessionManager {
       'session.handoff',
     ])) {
       if (event.type === 'turn.finished')
-        turns.push({ turnId: event.payload.turnId, seq: event.seq });
+        turns.push({
+          turnId: event.payload.turnId,
+          seq: event.seq,
+          outcome: event.payload.outcome,
+        });
       else if (event.type === 'turn.rewound') {
         const index = turns.findIndex((turn) => turn.turnId === event.payload.turnId);
         if (index >= 0) turns.splice(index, 1);
@@ -4874,6 +5024,80 @@ export class SessionManager {
     return this.#events
       .readSince(sessionId, 0, untilSeq)
       .filter((event) => event.seq <= untilSeq && BRANCH_HISTORY_EVENTS.has(event.type));
+  }
+
+  async authorizeDenied(
+    sessionId: SessionId,
+    reviewId: string,
+    sentBy: ClientIdentity,
+  ): Promise<void> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    this.#assertNotChild(runtime);
+    await this.#serial(runtime, async () => {
+      const record = this.#events
+        .readTypes(sessionId, ['engine.notice'])
+        .findLast(
+          (event) =>
+            event.type === 'engine.notice' &&
+            event.payload.detail.kind === 'approval_review' &&
+            event.payload.detail.reviewId === reviewId,
+        );
+      if (record?.type !== 'engine.notice' || record.payload.detail.kind !== 'approval_review') {
+        throw invalidContent(['reviewId'], 'unknown review');
+      }
+      const { detail, turnId } = record.payload;
+      if (detail.status === 'userApproved') return;
+      const { session } = this.#snapshot(runtime);
+      const { turns, hidden, handoffSeq } = this.#finishedTurns(sessionId);
+      if (
+        detail.status !== 'denied' ||
+        !turnId ||
+        record.seq < handoffSeq ||
+        hidden.has(turnId) ||
+        (runtime.turn?.turnId !== turnId && !turns.some((turn) => turn.turnId === turnId)) ||
+        session.readOnly ||
+        session.side ||
+        session.permissionMode !== 'auto_review' ||
+        !['idle', 'running', 'awaiting_approval'].includes(session.state) ||
+        !runtime.attachment ||
+        !this.#adapter.authorizeDenied
+      ) {
+        throw new HostError('INVALID_STATE', 'the original review session is unavailable', {
+          state: session.state,
+        });
+      }
+      let action: string;
+      try {
+        action = await this.#adapter.authorizeDenied(runtime.engineSessionId, reviewId);
+      } catch (error) {
+        const info = engineErrorInfo(error);
+        throw new HostError('ENGINE_ERROR', info.message, info);
+      }
+      const authorization: AppendInput = {
+        type: 'engine.notice',
+        source: 'host',
+        payload: {
+          turnId,
+          detail: { ...detail, status: 'userApproved', action },
+          decidedBy: sentBy,
+        },
+      };
+      if (this.#snapshot(runtime).session.state !== 'idle') {
+        this.#write(runtime, [authorization]);
+        return;
+      }
+      const text = `Retry only the action authorized for this review, once, through the normal approval process. If already retried, report its outcome.
+${JSON.stringify({ reviewId, action })}`;
+      const original = this.#events.readTypes(sessionId, ['user.message'], { turnId })[0];
+      await this.#startTurn(runtime, {
+        content: [{ type: 'text', text }],
+        sentBy,
+        authorization,
+        ...(original?.type === 'user.message' &&
+          original.payload.collaborationMode === 'plan' && { collaborationMode: 'plan' }),
+      });
+    });
   }
 
   /**
@@ -5071,7 +5295,9 @@ export class SessionManager {
     const options = approval.options as ApprovalOption[];
     const option =
       options.find((candidate) => candidate.kind === 'reject_once') ??
-      options.find((candidate) => candidate.category === 'reject');
+      options.find(
+        (candidate) => candidate.category === 'reject' && candidate.policyTarget === undefined,
+      );
     const settle = (resolution: ApprovalResolution, release: boolean): void => {
       const snapshot = this.#snapshot(runtime);
       const inputs: AppendInput[] = [resolved(approvalId, 'expired', resolution)];
@@ -5180,18 +5406,42 @@ export class SessionManager {
    * 各会话并行，单个会话最多等 `cancelTimeoutMs`。不 `dispose` 适配器。可重复调用，返回同一个
    * Promise。
    */
-  shutdown(): Promise<void> {
-    this.#shutdown ??= this.#runShutdown();
+  shutdown(resumeActiveTurns = false): Promise<void> {
+    this.#shutdown ??= this.#runShutdown(resumeActiveTurns);
     return this.#shutdown;
   }
 
-  async #runShutdown(): Promise<void> {
+  quitActivity(): MethodResult<'host.activity'> {
+    let activeTurns = 0;
+    let resumableTurns = 0;
+    for (const runtime of this.#runtimes.values()) {
+      if (!runtime.turn) continue;
+      activeTurns++;
+      if (canAutoContinueInterrupted(this.#snapshot(runtime), runtime.turn)) resumableTurns++;
+    }
+    return { activeTurns, resumableTurns };
+  }
+
+  async #runShutdown(resumeActiveTurns: boolean): Promise<void> {
     this.#shuttingDown = true;
     await Promise.all(
       [...this.#runtimes.values()].map((runtime) =>
-        this.#serial(runtime, () => this.#cancelTurn(runtime, 'host_shutdown')).catch(
-          this.#onError,
-        ),
+        this.#serial(runtime, async () => {
+          const snapshot = this.#snapshot(runtime);
+          const turn = runtime.turn;
+          if (
+            turn &&
+            !turn.command &&
+            snapshot.session.state !== 'cancelling' &&
+            canContinueInterrupted(snapshot.session)
+          ) {
+            turn.continuation =
+              resumeActiveTurns && canAutoContinueInterrupted(snapshot, turn)
+                ? 'on_restart'
+                : 'manual';
+          }
+          await this.#cancelTurn(runtime, 'host_shutdown');
+        }).catch(this.#onError),
       ),
     );
     await this.dispose();
@@ -5840,7 +6090,7 @@ export class SessionManager {
       this.#write(runtime, [
         ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason }),
         ...cancelQuestions(snapshot, reason),
-        stateChanged(state, 'cancelling', 'cancel_requested'),
+        stateChanged(state, 'cancelling', 'cancel_requested', runtime.turn?.continuation),
       ]);
     } else if (state !== 'cancelling') {
       return;
@@ -5878,7 +6128,14 @@ export class SessionManager {
         turnId,
       ),
       ...(turnId !== undefined
-        ? finishTurn(turnId, turn?.openTools ?? [], 'interrupted', this.#turnDuration(runtime))
+        ? finishTurn(
+            turnId,
+            turn?.openTools ?? [],
+            'interrupted',
+            this.#turnDuration(runtime),
+            undefined,
+            turn?.continuation && 'manual',
+          )
         : []),
       stateChanged('cancelling', 'error', 'cancel_unconfirmed'),
       ...settlePendings(this.#snapshot(runtime), () => 'held'),
@@ -6146,6 +6403,15 @@ export class SessionManager {
       case 'engine.exited':
         this.#engineFailed(runtime, exitInfo(event), { exited: true });
         return;
+      case 'engine.notice':
+        this.#write(runtime, [
+          {
+            type: 'engine.notice',
+            source: 'engine',
+            payload: { detail: event.detail, ...(runtime.turn && { turnId: runtime.turn.turnId }) },
+          },
+        ]);
+        return;
       case 'engine.raw':
         this.#write(runtime, [
           {
@@ -6179,13 +6445,15 @@ export class SessionManager {
         ]);
         this.#checkAutoCompaction(runtime, event);
         return;
-      case 'turn.bound':
-        if (runtime.turn !== undefined)
-          this.#usageTurns.set(
-            JSON.stringify([runtime.engineSessionId, event.engineTurnId]),
-            runtime.turn.turnId,
-          );
+      case 'turn.bound': {
+        if (runtime.turn) {
+          const bindings =
+            this.#boundTurns.get(runtime.engineSessionId) ?? new Map<string, TurnId>();
+          bindings.set(event.engineTurnId, runtime.turn.turnId);
+          this.#boundTurns.set(runtime.engineSessionId, bindings);
+        }
         return;
+      }
       case 'usage.recorded': {
         if (this.#onUsage === undefined) return;
         const { providerId, modelId } = this.#events.state(sessionId) as Session;
@@ -6193,7 +6461,7 @@ export class SessionManager {
           event.engineTurnId === null
             ? undefined
             : event.engineTurnId !== undefined
-              ? this.#usageTurns.get(JSON.stringify([runtime.engineSessionId, event.engineTurnId]))
+              ? this.#boundTurns.get(runtime.engineSessionId)?.get(event.engineTurnId)
               : runtime.turn?.turnId;
         this.#onUsage(
           {
@@ -6439,7 +6707,7 @@ export class SessionManager {
       case 'approval.requested':
         if (this.#roleRefused(runtime, turn, event)) return;
         if (event.fullAccessOverride === undefined) {
-          if (this.#autoAllowed(runtime, turn, event)) return;
+          if (!event.humanOnly && this.#autoAllowed(runtime, turn, event)) return;
           if (this.#policyAnswered(runtime, turn, event)) return;
         }
         this.#approvalRequested(runtime, turn, event);
@@ -6656,6 +6924,7 @@ export class SessionManager {
         optionId: option.optionId,
         label: option.label,
         kind: option.kind,
+        ...(option.policyTarget !== undefined && { policyTarget: option.policyTarget }),
         category: option.kind.startsWith('allow_') ? 'allow' : 'reject',
       })),
       detail: tool ? approvalDetail(tool, event) : null,
@@ -6725,7 +6994,12 @@ export class SessionManager {
       tool?.toolName ?? '',
       tool?.input,
     );
-    if (answer === undefined || runtime.approvalIds.get(event.requestId) !== approvalId) return;
+    if (
+      answer === undefined ||
+      (event.humanOnly && answer.behavior === 'allow') ||
+      runtime.approvalIds.get(event.requestId) !== approvalId
+    )
+      return;
     const option =
       answer.behavior === 'allow'
         ? allowOnceOption(event.options)
@@ -6758,7 +7032,9 @@ export class SessionManager {
     });
     const option =
       rejectOnceOption(event.options) ??
-      event.options.find((candidate) => candidate.kind.startsWith('reject'));
+      event.options.find(
+        (candidate) => !candidate.policyTarget && candidate.kind.startsWith('reject'),
+      );
     if (option === undefined) this.cancel(runtime.id).catch(this.#onError);
     else this.#answerEngine(runtime, event, option.optionId);
     return true;
@@ -6815,6 +7091,7 @@ export class SessionManager {
       return false;
     }
     if (decision === 'allow') {
+      if (event.humanOnly) return false;
       const option = allowOnceOption(event.options);
       if (option === undefined) return false;
       this.#answerEngine(runtime, event, option.optionId);
@@ -6857,7 +7134,11 @@ export class SessionManager {
   ):
     | { matched?: { optionId: string; ruleIds: ApprovalRuleId[] }; proposed?: string[][] }
     | undefined {
-    if (event.fullAccessOverride !== undefined || event.suppressAlwaysAllowRule === true)
+    if (
+      event.humanOnly ||
+      event.fullAccessOverride !== undefined ||
+      event.suppressAlwaysAllowRule === true
+    )
       return undefined;
     const rules = this.#approvalRules;
     const command = approvalCommand(tool);
@@ -7591,6 +7872,9 @@ export class SessionManager {
         finalOutcome,
         this.#turnDuration(runtime),
         expired !== undefined ? undefined : engineStopReason,
+        finalOutcome === 'cancelled' || finalOutcome === 'interrupted'
+          ? turn.continuation
+          : undefined,
       ),
       stateChanged(state, 'idle', 'turn_finished'),
       // 待发消息（domain-model §4.6）：没插进去的插话改为排队；回合没完成就暂停（取消过程中加入的除外）。
@@ -7923,6 +8207,21 @@ export class SessionManager {
       .catch(this.#onError);
   }
 
+  continueAfterRestart(): void {
+    for (const [sessionId, turnId] of this.#restartContinuations) {
+      void this.retryTurn(
+        { sessionId, turnId },
+        this.#autoContinue?.identity ?? AUTO_CONTINUE_IDENTITY,
+      ).catch((error: unknown) =>
+        this.#onWarning('could not continue an interrupted session', {
+          sessionId,
+          error: errorText(error),
+        }),
+      );
+    }
+    this.#restartContinuations.clear();
+  }
+
   async retryTurn(
     params: MethodParams<'session.retryTurn'>,
     sentBy: ClientIdentity,
@@ -7930,12 +8229,21 @@ export class SessionManager {
     this.#assertOpen();
     const runtime = this.#runtime(params.sessionId);
     this.#assertNotChild(runtime);
+    const before = this.#snapshot(runtime).session;
+    if (
+      before.state === 'error' &&
+      !before.readOnly &&
+      before.interruptedTurn?.turnId === params.turnId
+    ) {
+      await this.resume(params.sessionId);
+    }
     return this.#serial(runtime, async () => {
       const snapshot = this.#snapshot(runtime);
       if (
         snapshot.session.state !== 'idle' ||
         snapshot.session.readOnly !== undefined ||
-        this.#events.retryableTurnId(runtime.id) !== params.turnId
+        (this.#events.retryableTurnId(runtime.id) !== params.turnId &&
+          snapshot.session.interruptedTurn?.turnId !== params.turnId)
       ) {
         throw new HostError('INVALID_STATE', 'turn is no longer available for retry', {
           state: snapshot.session.state,
@@ -8042,6 +8350,11 @@ export class SessionManager {
           runtime.turn?.openTools ?? [],
           'interrupted',
           durationSince(activeTurn.startedAt),
+          undefined,
+          canContinueInterrupted(snapshot.session) &&
+            (runtime.turn?.continuation || (options.exited && state !== 'cancelling'))
+            ? 'manual'
+            : undefined,
         ),
       );
     }
@@ -8287,8 +8600,13 @@ function stateChanged(
   from: SessionState,
   to: SessionState,
   reason: StateChangeReason,
+  continuation?: 'manual' | 'on_restart',
 ): AppendInput {
-  return { type: 'session.state_changed', source: 'host', payload: { from, to, reason } };
+  return {
+    type: 'session.state_changed',
+    source: 'host',
+    payload: { from, to, reason, ...(continuation && { continuation }) },
+  };
 }
 
 function resolved(
@@ -8401,6 +8719,22 @@ function positiveInt(value: number | undefined): value is number {
   return value !== undefined && Number.isInteger(value) && value >= 1;
 }
 
+function canContinueInterrupted(session: Session): boolean {
+  return !session.parentSessionId && !session.readOnly;
+}
+
+function canAutoContinueInterrupted(snapshot: SessionSnapshot, turn: TurnRuntime): boolean {
+  return (
+    canContinueInterrupted(snapshot.session) &&
+    !snapshot.session.channel &&
+    !snapshot.session.automation &&
+    !turn.command &&
+    snapshot.session.state === 'running' &&
+    !snapshot.pendingApprovals.length &&
+    !snapshot.pendingQuestions?.length
+  );
+}
+
 function engineError(
   info: EngineErrorInfo & { code?: number },
   fatal: boolean,
@@ -8501,6 +8835,7 @@ function finishTurn(
   outcome: TurnOutcome,
   durationMs: number,
   engineStopReason?: string,
+  continuation?: 'manual' | 'on_restart',
 ): AppendInput[] {
   const inputs: AppendInput[] = [...openTools].map((toolCallId) => ({
     type: 'tool.finished',
@@ -8515,6 +8850,7 @@ function finishTurn(
       outcome,
       durationMs,
       ...(engineStopReason !== undefined && { engineStopReason }),
+      ...(continuation && { continuation }),
     },
   });
   return inputs;
@@ -8801,7 +9137,11 @@ function makeTitle(content: readonly UserContentPart[]): string {
  */
 /** 消息里的文字（UserPromptSubmit 的 `prompt`）；图片写成 `[image]`。 */
 function plainTextOf(content: readonly UserContentPart[]): string {
-  return content.map((part) => (part.type === 'text' ? part.text : '[image]')).join('\n');
+  return content
+    .map((part) =>
+      part.type === 'text' ? part.text : part.type === 'file' ? `[file: ${part.name}]` : '[image]',
+    )
+    .join('\n');
 }
 
 function allowOnceOption(
