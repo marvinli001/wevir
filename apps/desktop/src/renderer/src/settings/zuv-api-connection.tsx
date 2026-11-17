@@ -1,5 +1,5 @@
 import type { WevirClient } from '@wevir/client-sdk';
-import type { ProviderProfile, ZuvApiError, ZuvApiState } from '@wevir/protocol';
+import type { ZuvApiError, ZuvApiState } from '@wevir/protocol';
 import { ExternalLink, KeyRound, LoaderCircle, LogIn, RotateCw, Unplug } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { StatusDot } from '@/components/status-dot';
@@ -47,18 +47,15 @@ export function zuvApiError(error: ZuvApiError): string {
 type Action = 'zuvApi.login' | 'zuvApi.cancel' | 'zuvApi.disconnect' | 'zuvApi.refreshModels';
 
 /**
- * ZUV API 的登录连接（设置 → 模型服务）：照订阅来源的详情，在列表里就地展开，不另开页面。已连接时列出账号、API Key 前缀与模型，
+ * ZUV API 的登录连接（设置 → 模型服务）：照订阅来源的详情，在列表里就地展开，不另开页面。已连接时列出账号与 API Key 前缀（模型太多，不逐个列出），
  * 下面一排“重新登录”“刷新模型”“断开连接”；未连接时“登录连接”（新增时还有“手动填写”，转到填 Key 的表单）；授权中显示进度与
  * “打开授权页”“取消”。每 2 s 读一次状态，变了刷新工作台。
  */
 export function ZuvApiConnectionPanel({
   client,
-  provider,
   onManual,
 }: {
   client: WevirClient;
-  /** 已登记的 ZUV API Provider，有时列出它的模型。 */
-  provider?: ProviderProfile;
   onManual?: () => void;
 }) {
   const store = useWorkbenchStore();
@@ -151,7 +148,6 @@ export function ZuvApiConnectionPanel({
         </span>,
       ]);
   }
-  const models = provider?.models ?? [];
   const spinner = (action: Action) =>
     busy === action ? <LoaderCircle className="animate-spin" data-icon="inline-start" /> : null;
 
@@ -166,23 +162,6 @@ export function ZuvApiConnectionPanel({
             </div>
           ))}
         </dl>
-      )}
-      {connected && models.length > 0 && (
-        <div>
-          <p className="mb-1.5 text-xs text-muted-foreground">
-            {t('source.models', { count: models.length })}
-          </p>
-          <ul className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto" data-source-models>
-            {models.map((model) => (
-              <li
-                key={model.id}
-                className="rounded-md border border-border bg-background px-2 py-0.5 text-xs"
-              >
-                {model.displayName ?? model.id}
-              </li>
-            ))}
-          </ul>
-        </div>
       )}
       {/* 未连接与授权中：状态在左、按钮在右，一行。 */}
       <div className="flex flex-wrap items-center gap-1.5">

@@ -271,7 +271,7 @@ export function ProviderSettings() {
                 expanded={expanded?.kind === 'provider' && expanded.id === provider.id}
                 detail={
                   client && zuvConnection && provider.id === ZUV_API_PROVIDER_ID ? (
-                    <ZuvApiConnectionPanel client={client} provider={provider} />
+                    <ZuvApiConnectionPanel client={client} />
                   ) : undefined
                 }
                 onEdit={() => {
