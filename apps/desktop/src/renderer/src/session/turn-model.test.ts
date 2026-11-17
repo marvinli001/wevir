@@ -168,7 +168,7 @@ describe('groupTurns / turnStart', () => {
     expect(groupTurns(messages).map((b) => b.kind)).toEqual(['turn', 'turn']);
   });
 
-  it('回合中途的系统提示不把回合断开：之后的插话与回答并进同一块，提示排在后面', () => {
+  it('回合中途的模型切换提示保留在插话之前，折叠后仍显示', () => {
     const s = session();
     s.add('session.created', { workspaceId: 'ws_1', cwd: '/w', providerId: 'p', modelId: 'm' });
     s.turn();
@@ -188,7 +188,6 @@ describe('groupTurns / turnStart', () => {
     expect(messages.map((m) => m.role)).toEqual([
       'user',
       'assistant',
-      'system',
       'user',
       'assistant',
       'user',
@@ -196,14 +195,25 @@ describe('groupTurns / turnStart', () => {
     ]);
     const blocks = groupTurns(messages);
     expect(blocks.map((b) => (b.kind === 'turn' ? [b.turnId, b.messages.length] : b.kind))).toEqual(
-      [[TURN, 4], 'message', [TURN2, 2]],
+      [
+        [TURN, 4],
+        [TURN2, 2],
+      ],
     );
     const [turn] = blocks;
-    expect(turn?.kind === 'turn' && foldTurn(turn.messages, false, false).showHeader).toBe(true);
-    // 分段渲染的起点落在提示或回合后半截时挪到回合开头；落在下一个回合时不动。
+    if (turn?.kind !== 'turn') throw new Error('missing turn');
+    const fold = foldTurn(turn.messages, false, false);
+    expect(fold.defaultFolded).toBe(true);
+    expect(turn.messages.flatMap((message) => foldedParts(message, fold))).toMatchObject([
+      { type: 'text', text: '改一下' },
+      { type: 'notice', notice: { kind: 'configured', to: { modelId: 'other' } } },
+      { type: 'text', text: '顺便跑测试' },
+      { type: 'text', text: '好的。' },
+    ]);
+    // 插话及之后的回答仍属于整个回合；下一个回合独立显示。
     expect(turnStart(messages, 2)).toBe(0);
     expect(turnStart(messages, 3)).toBe(0);
-    expect(turnStart(messages, 5)).toBe(5);
+    expect(turnStart(messages, 4)).toBe(4);
   });
 
   it('isReportOnly：回合结束后才到的任务回报自成一块，别的系统消息与回合不算', () => {

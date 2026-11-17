@@ -1574,7 +1574,9 @@ export class TranscriptProjection {
   }
 
   #notice(event: WevirEvent, notice: SessionNotice): void {
-    this.#target(undefined, event.seq).parts.push({
+    // 回合内的配置提示留在发生处，后续输出与插话不会把它推到回合末尾。
+    const turnId = notice.kind === 'configured' ? this.#activeTurnId : undefined;
+    this.#target(turnId, event.seq).parts.push({
       type: 'notice',
       key: `n:${event.seq}`,
       notice,

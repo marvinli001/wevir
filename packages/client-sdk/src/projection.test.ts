@@ -328,6 +328,70 @@ describe('TranscriptProjection：增量与已提交消息（domain-model §6.3�
     expect(projection.snapshot()).toEqual(transcript);
   });
 
+  it('回合中的速度切换留在后续输出与插话之前，空闲时仍独立显示', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('assistant.message', { turnId: TURN, messageId: 'before', text: '切换前', replaces: [] });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const before = projection.snapshot();
+    for (const fast of [true, false, true]) {
+      projection.apply(add('session.configured', { modelId: 'deepseek-chat', fast }));
+      const live = projection.snapshot();
+      expect(live.messages).toHaveLength(2);
+      expect(live.messages[1]?.parts.at(-1)).toMatchObject({
+        type: 'notice',
+        notice: { kind: 'configured', to: { fast } },
+      });
+    }
+    expect(before.messages[1]?.parts).toHaveLength(1);
+    projection.apply(
+      add('assistant.message', { turnId: TURN, messageId: 'after', text: '切换后', replaces: [] }),
+    );
+    projection.apply(
+      add('user.steered', {
+        turnId: TURN,
+        pendingId: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        content: [{ type: 'text', text: '是卡住了吗？' }],
+        sentBy: identity,
+      }),
+    );
+    projection.apply(
+      add('assistant.message', {
+        turnId: TURN,
+        messageId: 'reply',
+        text: '没有卡住。',
+        replaces: [],
+      }),
+    );
+    projection.apply(add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 100 }));
+    projection.apply(add('session.configured', { modelId: 'deepseek-chat', fast: false }));
+    const transcript = projection.snapshot();
+    expect(transcript.messages.map((message) => message.role)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'assistant',
+      'system',
+    ]);
+    expect(transcript.messages[1]?.parts).toMatchObject([
+      { type: 'text', text: '切换前' },
+      { type: 'notice', notice: { to: { fast: true } } },
+      { type: 'notice', notice: { to: { fast: false } } },
+      { type: 'notice', notice: { to: { fast: true } } },
+      { type: 'text', text: '切换后' },
+    ]);
+    expect(transcript.messages[2]?.parts).toMatchObject([{ text: '是卡住了吗？' }]);
+    expect(transcript.messages[3]?.parts).toMatchObject([{ text: '没有卡住。' }]);
+    expect(transcript.messages[4]?.parts).toMatchObject([
+      { type: 'notice', notice: { to: { fast: false } } },
+    ]);
+    expect(projectTranscript(list)).toEqual(transcript);
+    projection.reset();
+    for (const event of list) projection.apply(event);
+    expect(projection.snapshot()).toEqual(transcript);
+  });
+
   it('接力更新配置基线，之后相同的配置与只改思考强度都不标记', () => {
     const { list, add } = events();
     add('session.handoff', {
