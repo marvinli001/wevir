@@ -28,6 +28,7 @@ import {
 import { useAccounts } from '@/data/workbench-data';
 import { ParticleFlow } from '@/fx/particle-flow';
 import { type PlainMessageKey, t } from '@/i18n';
+import { modelLogo } from '@/settings/model-logo';
 import { providerLogo } from '@/settings/provider-catalog';
 import { DEEPSEEK_DEFAULT_MODELS } from '@/settings/provider-presets';
 import { carryEffort } from './effort';
@@ -98,6 +99,7 @@ export function ModelPicker({
   const accounts = useAccounts();
   const provider = providers.find((candidate) => candidate.id === value.providerId);
   const model = provider && modelsOf(provider).find((candidate) => candidate.id === value.modelId);
+  const logo = provider && model && providerLogo(provider) === 'zuv' ? modelLogo(model) : undefined;
   const efforts = model?.reasoningEfforts ?? [];
   const fastAvailable = supportsFast(provider, value.modelId);
   const fast = isFast(provider, value);
@@ -125,12 +127,8 @@ export function ModelPicker({
         />
       )}
       <span ref={anchorRef} className="inline-flex min-w-0 items-center gap-1.5">
-        {source && (
-          <ProviderLogo
-            logo={source.logo}
-            fallback={t(source.name)}
-            className="size-3.5 shrink-0"
-          />
+        {(source || logo) && (
+          <ProviderLogo logo={logo ?? source?.logo} fallback={name} className="size-3.5 shrink-0" />
         )}
         <AccountBadge label={account?.label} size="sm" />
         <span className="truncate">{name}</span>
@@ -386,6 +384,7 @@ export function ModelList({
               <ul>
                 {models.map((model) => {
                   const selected = provider.id === value.providerId && model.id === value.modelId;
+                  const zuv = providerLogo(provider) === 'zuv';
                   return (
                     <li key={model.id}>
                       <button
@@ -399,14 +398,13 @@ export function ModelList({
                           selected && 'font-medium',
                         )}
                       >
-                        {source ? (
+                        {source || zuv ? (
                           <ProviderLogo
-                            logo={source.logo}
-                            fallback={label}
+                            logo={zuv ? modelLogo(model) : source?.logo}
+                            fallback={modelName(model, model.id)}
                             className={cn('size-3.5 shrink-0', locked && 'opacity-50 grayscale')}
                           />
                         ) : (
-                          // API 的模型不带标志，留同样宽的空位，名字与订阅的对齐。
                           anySource && <span aria-hidden className="size-3.5 shrink-0" />
                         )}
                         <span className="min-w-0 flex-1 truncate">

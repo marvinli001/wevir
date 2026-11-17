@@ -12,7 +12,7 @@ import {
   toMessagesRequest,
 } from './messages/request.js';
 import { MessagesStreamTranslator } from './messages/response.js';
-import { providerForModel, routeOf, toolSearchMode } from './providers.js';
+import { isZuvApiHost, providerForModel, routeOf, toolSearchMode } from './providers.js';
 import { SseParser, sseEvent } from './sse.js';
 import { dispatchToolSearch } from './tool-search.js';
 import { isObject } from './tools.js';
@@ -22,6 +22,7 @@ import type {
   ResponsesEvent,
   ResponsesRequest,
 } from './types.js';
+import { zuvReplay } from './zuv-replay.js';
 
 export const GATEWAY_VERSION: string = packageJson.version;
 
@@ -64,7 +65,8 @@ export function prepareUpstream(
   options: PrepareOptions = {},
 ): Prepared {
   provider = providerForModel(provider, request.model);
-  let body = request;
+  const replay = isZuvApiHost(provider.baseURL ?? '') ? zuvReplay(provider.id, request) : undefined;
+  let body = replay?.body ?? request;
   const route = routeOf(provider, options.deepseekBaseURL, body.model);
   if (route.mode === 'unsupported') return { ok: false, status: 400, message: route.message };
   // Codex 的工具搜索：上游不认 `tool_search` 时先翻译成普通函数（三种协议共用），响应最后再还原。
@@ -173,13 +175,17 @@ export function prepareUpstream(
   const stripped: ResponsesRequest = { ...body };
   for (const field of STRIPPED_BODY_FIELDS) delete stripped[field];
   const dialect = applyDialects(provider, stripped);
+  const dialectRewrite =
+    replay === undefined
+      ? dialect.rewrite
+      : (event: ResponsesEvent) => replay.rewrite(dialect.rewrite?.(event) ?? event);
   // 方言先还原（命名空间、custom 工具），工具搜索的还原在最外层。
   const rewrite =
     searchRewrite === undefined
-      ? dialect.rewrite
-      : dialect.rewrite === undefined
+      ? dialectRewrite
+      : dialectRewrite === undefined
         ? searchRewrite
-        : (event: ResponsesEvent) => searchRewrite((dialect.rewrite as EventRewrite)(event));
+        : (event: ResponsesEvent) => searchRewrite((dialectRewrite as EventRewrite)(event));
   return {
     ok: true,
     mode: 'responses',

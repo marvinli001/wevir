@@ -40,6 +40,7 @@ function fixture() {
     checkError: '',
     modelsFail: false,
     modelsEmpty: false,
+    efforts: [] as string[],
     pollLost: false,
     completeLost: false,
     completed: false,
@@ -103,6 +104,7 @@ function fixture() {
             id: 'test/allowed',
             name: 'Allowed model',
             protocols: ['responses'],
+            reasoning_efforts: state.efforts,
             owned_by: 'test',
             context_length: 8192,
             max_output_tokens: 1024,
@@ -134,6 +136,22 @@ function fixture() {
 }
 
 describe('ZUV API connection', () => {
+  it('refreshes saved fixed-effort metadata from the authenticated model catalog', async () => {
+    const f = fixture();
+    const connection = f.create();
+    await connection.load();
+    await connection.login();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(f.storage.providers.get(ZUV_API_PROVIDER_ID)?.models).toMatchObject([
+      { id: 'test/allowed', reasoningEfforts: [] },
+    ]);
+    f.state.efforts = ['none', 'low', 'high', 'max'];
+    await connection.refreshModels();
+    expect(f.storage.providers.get(ZUV_API_PROVIDER_ID)?.models).toMatchObject([
+      { id: 'test/allowed', reasoningEfforts: ['off', 'low', 'high', 'max'] },
+    ]);
+  });
+
   it('installs an ordinary payg provider and keeps subscription credentials and requests separate', async () => {
     const f = fixture();
     const connection = f.create();

@@ -16,6 +16,37 @@ const model = (id: string, protocols = ['responses', 'chat', 'messages', 'gemini
 });
 
 describe('Zuv public model discovery', () => {
+  it.each(['reasoningEfforts', 'reasoning_efforts'])(
+    'uses %s from the catalog, including fixed models and wire none',
+    async (field) => {
+      const result = await discoverZuvModels(undefined, async () =>
+        Response.json({
+          data: [
+            { ...model('xai/grok-4.7'), [field]: ['low', 'medium', 'high', 'xhigh'] },
+            { ...model('openai/gpt-6.1-terra'), [field]: ['none', 'low', 'high', 'max'] },
+            { ...model('google/gemini-4-argon-high'), [field]: [] },
+          ],
+        }),
+      );
+      expect(result.ok).toBe(true);
+      expect(result.models.map(({ model }) => model.reasoningEfforts)).toEqual([
+        ['low', 'medium', 'high', 'xhigh'],
+        ['off', 'low', 'high', 'max'],
+        [],
+      ]);
+    },
+  );
+
+  it('rejects unsupported effort metadata instead of saving invalid choices', async () => {
+    expect(
+      await discoverZuvModels(undefined, async () =>
+        Response.json({
+          data: [{ ...model('vendor/model'), reasoning_efforts: ['invalid'] }],
+        }),
+      ),
+    ).toMatchObject({ ok: false, models: [], reason: 'protocol' });
+  });
+
   it('imports the full current catalog without a model allowlist, key or Ollama limit', async () => {
     const data = Array.from({ length: 90 }, (_, index) => model(`new-vendor/release-${index}`));
     data.push(model('another-vendor/new-model', ['messages']));

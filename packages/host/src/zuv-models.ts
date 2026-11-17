@@ -84,6 +84,7 @@ export async function discoverZuvModels(
         return { ok: false, models: [], reason: 'protocol' };
       const api = Object.keys(PROTOCOLS).find((protocol) => protocols.includes(protocol));
       const inputModalities = item.inputModalities ?? item.input_modalities;
+      const efforts = item.reasoningEfforts ?? item.reasoning_efforts ?? [];
       const parsed = ProviderModelSchema.safeParse({
         id: item.id,
         displayName: item.name,
@@ -97,8 +98,9 @@ export async function discoverZuvModels(
         capabilities: item.capabilities,
         families: item.families ?? item.endpoints,
         supportsImages: Array.isArray(inputModalities) && inputModalities.includes('image'),
-        // The public catalog declares reasoning capability, but no selectable effort levels.
-        reasoningEfforts: [],
+        reasoningEfforts: Array.isArray(efforts)
+          ? efforts.map((effort) => (effort === 'none' ? 'off' : effort))
+          : efforts,
       });
       if (!parsed.success || api === undefined)
         return { ok: false, models: [], reason: 'protocol' };
