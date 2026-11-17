@@ -377,7 +377,7 @@ describe('带图片的消息', () => {
     if (!path) throw new Error('missing attachment');
     expect(readFileSync(path, 'utf8')).toBe('ok');
     expect(events.find((e) => e.type === 'assistant.message')?.payload).toMatchObject({
-      text: expect.stringContaining(path),
+      text: expect.stringContaining(JSON.stringify(path)),
     });
     expect(events.find((e) => e.type === 'assistant.message')?.payload).toMatchObject({
       text: expect.stringContaining('>\nok\n</pasted_content'),

@@ -1,8 +1,9 @@
 // 暂存与提交（0.67.0，`git.*`）：对着真实的 git 在临时目录里建仓库。HOME 换成空目录，不读维护者的全局配置（签名、钩子目录）。
 
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 import {
   type CodeState,
   type GitExpectedState,
@@ -13,7 +14,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { isHostError } from '../errors.js';
 import { readStaged, readUncommitted } from '../git-diff.js';
-import { useTempDir } from '../test-utils.js';
+import { removeTempDir, useTempDir } from '../test-utils.js';
 import { readCodeState } from '../verification/code-state.js';
 import { parseTrace2 } from './commit.js';
 import { createProjectDirectory } from './project.js';
@@ -22,20 +23,20 @@ import { GitService, type GitVerificationSource, summarize } from './service.js'
 const tempDir = useTempDir();
 
 const saved: Record<string, string | undefined> = {};
+let testHome: string | undefined;
 beforeAll(() => {
   for (const key of ['HOME', 'XDG_CONFIG_HOME', 'EMAIL']) saved[key] = process.env[key];
-  const home = join(execFileSync('mktemp', ['-d']).toString().trim());
-  process.env.HOME = home;
-  process.env.XDG_CONFIG_HOME = join(home, '.config');
+  testHome = mkdtempSync(join(tmpdir(), 'wevir-git-home-'));
+  process.env.HOME = testHome;
+  process.env.XDG_CONFIG_HOME = join(testHome, '.config');
   delete process.env.EMAIL;
 });
 afterAll(() => {
-  const home = process.env.HOME;
   for (const [key, value] of Object.entries(saved)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
-  if (home) rmSync(home, { recursive: true, force: true });
+  if (testHome) removeTempDir(testHome);
 });
 
 /** 外部进程（终端、别的工具）跑的 git。 */
@@ -185,7 +186,8 @@ echo https://github.com/owner/repo/pull/42
       ssh,
       `const {spawnSync}=require('node:child_process');process.exit(spawnSync('git',['upload-pack',${JSON.stringify(source)}],{stdio:'inherit'}).status ?? 1)`,
     );
-    sh(parent, 'config', '--global', 'core.sshCommand', `"${process.execPath}" "${ssh}"`);
+    const sshCommand = [process.execPath, ssh].map((path) => `"${path.split(sep).join('/')}"`);
+    sh(parent, 'config', '--global', 'core.sshCommand', sshCommand.join(' '));
     sh(parent, 'config', '--global', 'ssh.variant', 'ssh');
     try {
       const copy = await createProjectDirectory(
@@ -194,7 +196,7 @@ echo https://github.com/owner/repo/pull/42
         'ssh://git@example.test/owner/repo.git',
       );
       expect(head(copy)).toBe(head(source));
-      expect(readFileSync(join(copy, 'a.txt'), 'utf8')).toBe('a1\n');
+      expect(readFileSync(join(copy, 'a.txt'), 'utf8').replaceAll('\r\n', '\n')).toBe('a1\n');
       await expect(createProjectDirectory(parent, 'copy')).rejects.toThrow(/already exists/);
       await expect(createProjectDirectory(parent, '../outside')).rejects.toThrow(/directory name/);
       await expect(createProjectDirectory(parent, 'unsafe', source)).rejects.toThrow(

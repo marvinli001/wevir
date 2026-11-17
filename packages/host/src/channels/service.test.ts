@@ -45,7 +45,7 @@ const tempDir = useTempDir();
 const storages = useStorages();
 const context = { client: identity, capabilities: {} };
 /** Windows 上的 CI 慢得多，等待放宽。 */
-const WAIT = process.platform === 'win32' ? 20_000 : 5000;
+const WAIT = process.platform === 'win32' ? 30_000 : 5000;
 const waitFor = <T>(callback: () => T | Promise<T>) => vi.waitFor(callback, { timeout: WAIT });
 /** 用例结束时停下服务，免得回合在存储关闭后还在写。 */
 const cleanups: Array<() => unknown> = [];
@@ -310,7 +310,9 @@ describe('ChannelService', () => {
     expect(intent?.body).not.toContain('sk-');
     expect(intent?.body).not.toContain('Second line');
   });
-  it('建两个助理：各自的隐藏工作区与协调者，第一次唤醒是 setup，不进会话与项目列表', async () => {
+  it('建两个助理：各自的隐藏工作区与协调者，第一次唤醒是 setup，不进会话与项目列表', {
+    timeout: WAIT * 2,
+  }, async () => {
     const h = await setup();
     const first = await h.create('Mail desk', 'Sort my inbox every morning.');
     const second = await h.create('Trip desk', 'Keep my travel bookings in order.');
@@ -321,8 +323,10 @@ describe('ChannelService', () => {
     expect(first.assistant?.avatar.color).toBeLessThan(ASSISTANT_AVATAR_COLOR_COUNT);
     expect(first.workspaceId).not.toBe(second.workspaceId);
 
-    const [setupA] = await h.coordinatorPosts(first.id, 1);
-    const [setupB] = await h.coordinatorPosts(second.id, 1);
+    const [[setupA], [setupB]] = await Promise.all([
+      h.coordinatorPosts(first.id, 1),
+      h.coordinatorPosts(second.id, 1),
+    ]);
     for (const post of [setupA, setupB]) {
       expect(ChannelPostSchema.parse(post)).toEqual(post);
       const text = post?.content[0]?.type === 'text' ? post.content[0].text : '';

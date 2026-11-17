@@ -1763,7 +1763,7 @@ describe('full Host material synchronization with synthetic identities', () => {
       }
       expect(mock.errors).toEqual([]);
     },
-    20000,
+    process.platform === 'win32' ? 45_000 : 20_000,
   );
 
   it('previews and explicitly merges concurrent memory edits through the Host while retaining both revisions', async () => {
