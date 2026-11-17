@@ -19,6 +19,7 @@ import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppTools } from '../app-tools.js';
+import { describeSchedule } from '../automations/automation-tools.js';
 import { AutomationService } from '../automations/service.js';
 import { EventStore } from '../event-store.js';
 import { addWorkspace, createHostMethods } from '../host-methods.js';
@@ -35,8 +36,6 @@ import {
   type ChannelServiceOptions,
   type ChannelSubscriptionMessage,
   channelActivity,
-  MORNING_BRIEF_TIME,
-  morningBriefAutomation,
   postOfAnswer,
   ROTATE_WAKES,
 } from './service.js';
@@ -130,9 +129,13 @@ async function setup(
     ...(options.now !== undefined && { now: options.now }),
     ...(options.timezone !== undefined && { timezone: options.timezone }),
     schedules: {
-      created: async (channel) => {
-        await automations?.create(morningBriefAutomation(channel.id), { kind: 'user' });
-      },
+      routines: (channelId) =>
+        (automations?.forChannel(channelId) ?? [])
+          .filter((item) => item.enabled && item.autoPausedAt === undefined)
+          .map((item) => ({
+            title: item.title,
+            schedule: `${describeSchedule(item.schedule)} (${item.timezone})`,
+          })),
       deleted: async (channelId) => {
         await automations?.deleteForChannel(channelId);
       },
@@ -249,6 +252,7 @@ async function setup(
     sendWhileBusy: () => 'queue',
     tasks: taskBoards,
     channels: service,
+    automations,
   });
   appTools = tools;
   const call = (sessionId: SessionId, name: string, args: Record<string, unknown> = {}) => {
@@ -1011,11 +1015,13 @@ describe('聊天交互', () => {
     h.service.wakeForSchedule(bot.id, { title: 'Held', prompt: 'Keep this update.' });
     await new Promise((resolve) => setTimeout(resolve, 30));
     const limited = (await h.service.get(bot.id)).channel;
+    expect(limited.proactiveLimited).toBe(true);
     expect(limited.pausedAt).toBeUndefined();
     expect(limited.answering).toBeUndefined();
     expect(limited.usage?.wakes).toBe(1);
     expect(h.posts(bot.id)).toHaveLength(2);
     now += 24 * 60 * 60 * 1000;
+    expect((await h.service.get(bot.id)).channel.proactiveLimited).toBeUndefined();
     h.service.wakeForSchedule(bot.id, { title: 'Next day', prompt: 'New day.' });
     const next = (await h.coordinatorPosts(bot.id, 3)).at(-1);
     expect(JSON.stringify(next?.content)).toContain('Keep this update.');
@@ -1289,10 +1295,106 @@ describe('聊天交互', () => {
 });
 
 describe('日程与晨间简报', () => {
-  it('晨间简报回答 NOTHING_TO_REPORT 时整条不发', async () => {
+  it(
+    '新助理没有自动化，默认平衡；交接只带自己的启用例行事务',
+    async () => {
+      const h = await setup();
+      const bot = await h.create('Desk', 'Daily updates.');
+      await h.coordinatorPosts(bot.id, 1);
+      expect(h.automations.forChannel(bot.id)).toEqual([]);
+      expect(bot.budget).toEqual({ dailyWakes: 20, dailyTokens: 400_000 });
+      await h.automations.create(
+        {
+          title: 'Daily review <data>',
+          prompt: 'Look at today.',
+          schedule: { kind: 'daily', time: '09:30' },
+          channelId: bot.id,
+        },
+        { kind: 'user' },
+      );
+      await h.automations.create(
+        {
+          title: 'Disabled routine',
+          prompt: 'Look later.',
+          schedule: { kind: 'interval', minutes: 30 },
+          channelId: bot.id,
+          enabled: false,
+        },
+        { kind: 'user' },
+      );
+      await h.service.rotate(bot.id);
+      h.service.wake(bot.id);
+      const last = (await h.coordinatorPosts(bot.id, 2)).at(-1);
+      const text = JSON.stringify(last?.content);
+      expect(text).toContain('<routines>');
+      expect(text).toContain('Daily review &lt;data&gt;: daily at 09:30');
+      expect(text).not.toContain('Disabled routine');
+    },
+    WAIT * 3,
+  );
+
+  it('助理默认只列自己的例行事务，scope all 列全部；已交出的 agent 一次性跟进删除并持久化', async () => {
     const h = await setup();
     const bot = await h.create('Desk', 'Daily updates.');
+    const first = (await h.coordinatorPosts(bot.id, 1))[0];
+    const coordinator = (
+      first?.author.kind === 'coordinator' ? first.author.sessionId : ''
+    ) as SessionId;
+    const other = await h.create('Other', 'Calendar.');
+    await h.coordinatorPosts(other.id, 1);
+    await h.automations.create(
+      {
+        title: 'Other routine',
+        prompt: 'Read calendar.',
+        schedule: { kind: 'daily', time: '09:00' },
+        channelId: other.id,
+      },
+      { kind: 'user' },
+    );
+    const saved = await h.call(coordinator, 'wevir_automation_save', {
+      title: 'Review outcome',
+      prompt: 'Look at the outcome for cpo_original.',
+      schedule: { kind: 'once', at: '2099-01-01T01:00:00.000Z' },
+    });
+    expect(saved.isError).toBeUndefined();
+    const [own] = h.automations.forChannel(bot.id);
+    expect(own?.createdBy).toMatchObject({ kind: 'agent', sessionId: coordinator });
+    const ownList = await h.call(coordinator, 'wevir_automations');
+    expect((ownList.structuredContent as { automations: unknown[] }).automations).toHaveLength(1);
+    const all = await h.call(coordinator, 'wevir_automations', { scope: 'all' });
+    expect((all.structuredContent as { automations: unknown[] }).automations).toHaveLength(2);
+    const deleted: unknown[] = [];
+    const unwatch = h.automations.watch((change) => deleted.push(change));
+    const result = await h.automations.runNow(own?.id ?? '');
+    expect(result.status).toBe('completed');
+    expect(h.automations.forChannel(bot.id)).toEqual([]);
+    expect(deleted).toContainEqual({ automationId: own?.id, deleted: true });
+    unwatch();
+    await h.automations.load();
+    expect(h.automations.forChannel(bot.id)).toEqual([]);
+    const answer = (await h.coordinatorPosts(bot.id, 2)).at(-1);
+    expect(JSON.stringify(answer?.content)).toContain('Look at the outcome for cpo_original.');
+    expect(h.automations.forChannel(other.id)).toHaveLength(1);
+    const userOnce = await h.automations.create(
+      {
+        title: 'User reminder',
+        prompt: 'Read this.',
+        schedule: { kind: 'once', at: '2099-01-01T01:00:00.000Z' },
+        channelId: bot.id,
+      },
+      { kind: 'user' },
+    );
+    await h.automations.runNow(userOnce.id);
+    expect(h.automations.forChannel(bot.id)).toHaveLength(1);
+  });
+
+  it('晨间简报回答 NOTHING_TO_REPORT 时整条不发', async () => {
+    let now = Date.parse('2026-11-17T01:00:00.000Z');
+    const h = await setup({ now: () => now });
+    const bot = await h.create('Desk', 'Daily updates.');
     await h.coordinatorPosts(bot.id, 1);
+    expect((await h.service.get(bot.id)).channel.lastActiveAt).toBe(new Date(now).toISOString());
+    now += 60_000;
     const original = h.sessions.send.bind(h.sessions);
     vi.spyOn(h.sessions, 'send').mockImplementationOnce((params, by, options) =>
       original(
@@ -1312,6 +1414,8 @@ describe('日程与晨间简报', () => {
       expect(h.events.snapshot(coordinator)?.session.activeTurn).toBeUndefined();
     });
     expect(h.posts(bot.id)).toHaveLength(1);
+    expect((await h.service.get(bot.id)).channel.lastActiveAt).toBe(new Date(now).toISOString());
+    expect((await h.service.get(bot.id)).channel.coordinator).not.toHaveProperty('lastActiveAt');
   });
   it('晨间简报用普通消息呈现，清单只作为数据；删助理一起删日程', async () => {
     const h = await setup();
@@ -1320,11 +1424,21 @@ describe('日程与晨间简报', () => {
     const coordinator = (
       first?.author.kind === 'coordinator' ? first.author.sessionId : ''
     ) as SessionId;
+    await h.automations.create(
+      {
+        title: 'Morning brief',
+        prompt: 'Look at today.',
+        schedule: { kind: 'daily', time: '08:00' },
+        channelId: bot.id,
+        brief: true,
+      },
+      { kind: 'user' },
+    );
     const schedules = h.automations.forChannel(bot.id);
     expect(schedules).toEqual([
       expect.objectContaining({
         title: 'Morning brief',
-        schedule: { kind: 'daily', time: MORNING_BRIEF_TIME },
+        schedule: { kind: 'daily', time: '08:00' },
         channelId: bot.id,
         brief: true,
         notify: 'never',

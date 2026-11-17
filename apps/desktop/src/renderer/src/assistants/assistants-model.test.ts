@@ -1,4 +1,11 @@
-import type { ApprovalRequest, BoardTask, Channel, ChannelPost } from '@wevir/protocol';
+import {
+  type ApprovalRequest,
+  ASSISTANT_PROACTIVITY,
+  type Automation,
+  type BoardTask,
+  type Channel,
+  type ChannelPost,
+} from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
   ACTIVITY_LABEL,
@@ -17,10 +24,13 @@ import {
   mentionQuery,
   mergePosts,
   outgoingText,
+  panelSupported,
   postText,
   previewLine,
+  proactivityOf,
   randomAvatar,
   rerollAvatar,
+  routineStatus,
   rowState,
   schedulesSupported,
   showsReplyQuote,
@@ -444,5 +454,70 @@ describe('chat presentation', () => {
     expect(applyUpdate(current, { posts: [post(1, 'old', { replyCount: 1 })] }).posts).toEqual(
       current.posts,
     );
+  });
+});
+
+describe('助理面板', () => {
+  it('仅新 Host 使用面板，主动程度须匹配两个预算字段', () => {
+    expect(panelSupported(undefined)).toBe(false);
+    expect(panelSupported({ channel_chat: true })).toBe(false);
+    expect(panelSupported({ channel_panel: true })).toBe(true);
+    expect(ASSISTANT_PROACTIVITY).toEqual({
+      quiet: { dailyWakes: 5, dailyTokens: 100_000 },
+      balanced: { dailyWakes: 20, dailyTokens: 400_000 },
+      active: { dailyWakes: 60, dailyTokens: 1_200_000 },
+    });
+    for (const key of ['quiet', 'balanced', 'active'] as const)
+      expect(proactivityOf(ASSISTANT_PROACTIVITY[key])).toBe(key);
+    expect(proactivityOf({ dailyWakes: 20, dailyTokens: 200_000 })).toBeUndefined();
+  });
+
+  const now = Date.parse('2026-11-16T23:30:00.000Z');
+  const routine = (schedule: Automation['schedule'], patch: Partial<Automation> = {}) => ({
+    schedule,
+    enabled: true,
+    timezone: 'Pacific/Auckland',
+    ...patch,
+  });
+  it('日程推导近期活动状态，暂停优先', () => {
+    expect(routineStatus(routine({ kind: 'daily', time: '09:30' }), now)).toBe('每天 9:30');
+    expect(
+      routineStatus(routine({ kind: 'daily', time: '09:30', weekdays: [1, 2, 3, 4, 5] }), now),
+    ).toBe('工作日 9:30');
+    expect(routineStatus(routine({ kind: 'daily', time: '09:00', weekdays: [1] }), now)).toBe(
+      '每周一 9:00',
+    );
+    expect(routineStatus(routine({ kind: 'monthly', time: '09:00', day: 1 }), now)).toBe(
+      '每月 1 日 9:00',
+    );
+    expect(routineStatus(routine({ kind: 'interval', minutes: 30 }), now)).toBe('监控中');
+    expect(routineStatus(routine({ kind: 'interval', minutes: 30 }, { enabled: false }), now)).toBe(
+      '已暂停',
+    );
+    expect(
+      routineStatus(
+        routine({ kind: 'daily', time: '09:00' }, { autoPausedAt: new Date(now).toISOString() }),
+        now,
+      ),
+    ).toBe('已暂停');
+    expect(routineStatus(routine({ kind: 'manual' }), now)).toBe('手动运行');
+  });
+  it('一次性事务按其时区显示今天、明天与日期，跨年与夏令时也按日历推导', () => {
+    expect(routineStatus(routine({ kind: 'once', at: '2026-11-17T03:00:00.000Z' }), now)).toBe(
+      '今天 16:00',
+    );
+    expect(routineStatus(routine({ kind: 'once', at: '2026-11-17T20:00:00.000Z' }), now)).toBe(
+      '明天 9:00',
+    );
+    expect(routineStatus(routine({ kind: 'once', at: '2026-11-19T20:00:00.000Z' }), now)).toContain(
+      '11月20日 9:00',
+    );
+    expect(routineStatus(routine({ kind: 'once', at: '2027-01-01T20:00:00.000Z' }), now)).toContain(
+      '2027',
+    );
+    const beforeFallBack = Date.parse('2026-04-04T11:30:00.000Z');
+    expect(
+      routineStatus(routine({ kind: 'once', at: '2026-04-05T21:00:00.000Z' }), beforeFallBack),
+    ).toBe('明天 9:00');
   });
 });

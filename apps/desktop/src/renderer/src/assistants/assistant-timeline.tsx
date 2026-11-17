@@ -48,6 +48,7 @@ import {
   chatSupported,
   groupMembers,
   outgoingText,
+  panelSupported,
   postFirstLine,
   postText,
   showsReplyQuote,
@@ -196,6 +197,7 @@ export function AssistantTimeline({
               <PostRow
                 post={post}
                 chat={chat}
+                panel={channel.kind === 'assistant' && panelSupported(client.hello.features)}
                 first={first}
                 last={last}
                 highlighted={highlighted === post.id}
@@ -304,6 +306,7 @@ function PostRow({
   assistants,
   threads,
   chat,
+  panel,
   first,
   last,
   highlighted,
@@ -322,6 +325,7 @@ function PostRow({
   assistants: ReadonlyMap<string, Channel>;
   threads: ChannelThread[];
   chat: boolean;
+  panel: boolean;
   first: boolean;
   last: boolean;
   highlighted: boolean;
@@ -529,7 +533,12 @@ function PostRow({
           </span>
         )}
         {threads.map((thread) => (
-          <ThreadCard key={thread.sessionId} thread={thread} onOpen={onOpenThread} />
+          <ThreadCard
+            key={thread.sessionId}
+            thread={thread}
+            onOpen={onOpenThread}
+            compact={panel}
+          />
         ))}
       </div>
     </div>
@@ -752,9 +761,11 @@ function SuggestionCard({
 function ThreadCard({
   thread,
   onOpen,
+  compact,
 }: {
   thread: ChannelThread;
   onOpen: (thread: ChannelThread) => void;
+  compact: boolean;
 }) {
   const resolved = thread.status === 'resolved';
   const line = thread.status === 'working' ? thread.doing : thread.lastReply?.firstLine;
@@ -765,6 +776,42 @@ function ThreadCard({
       : data.workspaces.find((entry) => entry.workspace.id === thread.workspaceId)?.workspace
           .displayName,
   );
+  if (compact)
+    return (
+      <button
+        type="button"
+        className={cn(
+          'flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-2 text-left text-sm outline-none hover:bg-muted focus-visible:focus-ring',
+          resolved && 'text-muted-foreground',
+        )}
+        onClick={() => onOpen(thread)}
+        data-card="thread"
+        data-thread-status={thread.status}
+        data-action="open-thread"
+      >
+        {thread.status === 'working' ? (
+          <LoaderCircle
+            aria-hidden
+            className="size-4 shrink-0 animate-spin text-running motion-reduce:animate-none"
+          />
+        ) : resolved ? (
+          <CircleCheck aria-hidden className="size-4 shrink-0" />
+        ) : (
+          <GitBranch
+            aria-hidden
+            className={cn('size-4 shrink-0', thread.status === 'waiting' && 'text-warning')}
+          />
+        )}
+        <span className="min-w-0 truncate">
+          {resolved ? `${t('assistants.thread.completed')} · ${thread.title}` : thread.title}
+        </span>
+        {!resolved && (
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {[project, line || t(THREAD_STATUS_LABEL[thread.status])].filter(Boolean).join(' · ')}
+          </span>
+        )}
+      </button>
+    );
   return (
     <section
       className={cn(

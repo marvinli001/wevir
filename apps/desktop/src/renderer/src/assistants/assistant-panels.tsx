@@ -1,5 +1,4 @@
-// 助理的另外三个页签（0.120.0–0.121.0）：任务（只有用户能标完成，`channel.updateTask`）、日程与规矩（发给它的自动化，规矩的档位、
-// 每天的预算，`automation.update` / `channel.update`）、记忆（它的隐藏工作区的项目记忆，停用与删除）。
+// 助理的任务、规矩与记忆，供资料面板复用；旧 Host 的日程页签保留预算数字与日程控件。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import { hostSupports } from '@wevir/client-sdk';
@@ -27,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
+import { Disclosure } from '@/session/disclosure';
 import { EmptyList, LIST_CARD } from '@/settings/settings-ui';
 import { CATEGORY_LABEL, groupTasks } from './assistants-model';
 
@@ -138,7 +138,6 @@ export function SchedulePanel({
   schedules: boolean;
   onError: (text: string) => void;
 }) {
-  const rules = channel.assistant?.rules ?? {};
   const update = (params: Omit<MethodParams<'channel.update'>, 'channelId'>) =>
     client
       .request('channel.update', { channelId: channel.id, ...params })
@@ -154,21 +153,7 @@ export function SchedulePanel({
       {schedules && <Schedules client={client} channel={channel} onError={onError} />}
       <section>
         <h3 className={SECTION_TITLE}>{t('assistants.rules.title')}</h3>
-        <ul className={LIST_CARD}>
-          {ASSISTANT_RULE_CATEGORIES.map((category) => (
-            <li key={category} className={ROW}>
-              <span className="min-w-0 flex-1 text-sm">{t(CATEGORY_LABEL[category])}</span>
-              <Select
-                className="w-36"
-                value={rules[category] ?? DEFAULT_ASSISTANT_RULES[category]}
-                options={TIER_ORDER.map((tier) => ({ value: tier, label: t(TIER_LABEL[tier]) }))}
-                aria-label={t(CATEGORY_LABEL[category])}
-                onValueChange={(tier) => update({ rules: { ...rules, [category]: tier } })}
-                data-rule={category}
-              />
-            </li>
-          ))}
-        </ul>
+        <RulesPanel client={client} channel={channel} onError={onError} />
       </section>
       <section>
         <h3 className={SECTION_TITLE}>{t('assistants.budget.title')}</h3>
@@ -208,6 +193,43 @@ export function SchedulePanel({
         </ul>
       </section>
     </div>
+  );
+}
+
+export function RulesPanel({
+  client,
+  channel,
+  onError,
+}: {
+  client: WevirClient;
+  channel: Channel;
+  onError: (text: string) => void;
+}) {
+  const rules = channel.assistant?.rules ?? {};
+  const update = (params: Omit<MethodParams<'channel.update'>, 'channelId'>) =>
+    client
+      .request('channel.update', { channelId: channel.id, ...params })
+      .catch((reason: unknown) =>
+        onError(t('assistants.actionFailed', { error: describe(reason) })),
+      );
+  return (
+    <section>
+      <ul className={LIST_CARD}>
+        {ASSISTANT_RULE_CATEGORIES.map((category) => (
+          <li key={category} className={ROW}>
+            <span className="min-w-0 flex-1 text-sm">{t(CATEGORY_LABEL[category])}</span>
+            <Select
+              className="w-36"
+              value={rules[category] ?? DEFAULT_ASSISTANT_RULES[category]}
+              options={TIER_ORDER.map((tier) => ({ value: tier, label: t(TIER_LABEL[tier]) }))}
+              aria-label={t(CATEGORY_LABEL[category])}
+              onValueChange={(tier) => update({ rules: { ...rules, [category]: tier } })}
+              data-rule={category}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -296,7 +318,15 @@ function Schedules({
 
 // ---- 记忆 ----
 
-export function MemoryPanel({ client, channel }: { client: WevirClient; channel: Channel }) {
+export function MemoryPanel({
+  client,
+  channel,
+  collapsible = false,
+}: {
+  client: WevirClient;
+  channel: Channel;
+  collapsible?: boolean;
+}) {
   const supported = hostSupports(client.hello.features, 'memory');
   const manage = client.can('host.manage');
   const [listing, setListing] = useState<MethodResult<'memory.list'>>();
@@ -311,7 +341,7 @@ export function MemoryPanel({ client, channel }: { client: WevirClient; channel:
       (reason) => setError(t('assistants.memory.loadFailed', { error: describe(reason) })),
     );
   }, [client, supported, channel.workspaceId]);
-  if (!supported) return <EmptyList>{t('settings.memory.unsupported')}</EmptyList>;
+
   const notes = (listing?.notes ?? []).filter((note) => note.scope === 'project');
   const act = async (note: MemorySummary, action: () => Promise<unknown>) => {
     setBusy(note.name);
@@ -329,7 +359,7 @@ export function MemoryPanel({ client, channel }: { client: WevirClient; channel:
     name: note.name,
     workspaceId: channel.workspaceId,
   });
-  return (
+  const content = (
     <div className="flex flex-col gap-3">
       {error && (
         <p className="text-sm text-destructive" role="alert">
@@ -384,5 +414,21 @@ export function MemoryPanel({ client, channel }: { client: WevirClient; channel:
         </ul>
       )}
     </div>
+  );
+  const body = supported ? content : <EmptyList>{t('settings.memory.unsupported')}</EmptyList>;
+  return collapsible ? (
+    <Disclosure
+      summary={
+        <span className="flex flex-1 items-center justify-between text-sm font-medium">
+          {t('assistants.tab.memory')}
+          <span className="text-xs text-muted-foreground">{notes.length}</span>
+        </span>
+      }
+      summaryClassName="py-2"
+    >
+      {body}
+    </Disclosure>
+  ) : (
+    body
   );
 }

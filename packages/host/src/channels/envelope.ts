@@ -173,7 +173,7 @@ export interface WakeInput {
   digest?: string;
   /** 自上一次唤醒以来用户改了的设置（身份、规矩、文件夹）。 */
   changed?: string;
-  /** 晨间简报（0.121.0）：Host 组装的卡片内容，协调者的回答接在卡片上面。 */
+  /** 晨间简报：Host 组装的三张清单数据。 */
   brief?: {
     todo: readonly BriefLine[];
     done: readonly BriefLine[];
@@ -213,7 +213,7 @@ export function wakeEnvelope(input: WakeInput, id = envelopeId()): UserContentPa
         ? ''
         : `\nYour working folder ${workspace} is already set up and is where your sessions run: keep your files there and count it as ready; only extra folders of the user's need granting.`;
     parts.push(
-      `<setup>\nThis ${input.channel.kind} was just created. In one or two lines, say what you can do and invite the user to say what to watch or handle. Use the inventory as reference; request missing access in a sentence only when needed.${own}\n<inventory connectors="${names(connectors)}" skills="${names(skills)}"${workspace === undefined ? '' : ` working_folder="${attr(workspace)}"`} folders="${names(folders)}" browser="${browser ? 'yes' : 'no'}"/>${unavailableBlock(input.setup)}\n</setup>`,
+      `<setup>\nThis ${input.channel.kind} was just created. In one or two lines, say what you can do and invite the user to say what to watch or handle. Use the inventory as reference; request missing access in a sentence only when needed. When the user describes recurring work, create its routine yourself.${own}\n<inventory connectors="${names(connectors)}" skills="${names(skills)}"${workspace === undefined ? '' : ` working_folder="${attr(workspace)}"`} folders="${names(folders)}" browser="${browser ? 'yes' : 'no'}"/>${unavailableBlock(input.setup)}\n</setup>`,
     );
   } else if (input.brain !== undefined) {
     const { connectors, skills, browser } = input.brain;
@@ -304,12 +304,14 @@ export function handover(
   generation: number,
   workspace?: string,
   threads: readonly ChannelThread[] = [],
+  routines: readonly { title: string; schedule: string }[] = [],
 ): string {
   const before = [
     `<channel_handover channel="${attr(channel.title)}" kind="${channel.kind}" generation="${generation}">`,
     identityBlock(channel, workspace),
   ].join('\n');
-  const after = `${threadsBlock(threads)}\n</channel_handover>`;
+  const routineBlock = `<routines>\n${routines.map((routine) => `- ${escapeText(routine.title)}: ${escapeText(routine.schedule)}`).join('\n')}\n</routines>`;
+  const after = `${threadsBlock(threads)}\n${routineBlock}\n</channel_handover>`;
   const lines: string[] = [];
   let bytes = Buffer.byteLength(
     `${before}\n<recent_posts count="30">\n\n</recent_posts>\n${after}`,

@@ -573,7 +573,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 const TIME_INPUT =
   'h-8 rounded-lg border border-input bg-card px-2 text-sm tabular-nums outline-none focus-visible:focus-field [color-scheme:light] dark:[color-scheme:dark]';
 
-function ScheduleCard({
+export function ScheduleCard({
   draft,
   timezone,
   onChange,

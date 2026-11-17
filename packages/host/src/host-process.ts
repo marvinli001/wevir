@@ -31,11 +31,11 @@ import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
 import { AppTools, engineSessionResolver, MORE_TOOLS_INSTRUCTIONS } from './app-tools.js';
 import { ApprovalRuleService } from './approval-rules/service.js';
-import { automationRunMessage } from './automations/automation-tools.js';
+import { automationRunMessage, describeSchedule } from './automations/automation-tools.js';
 import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
 import { AssistantFolders } from './channels/assistants.js';
-import { ChannelService, morningBriefAutomation } from './channels/service.js';
+import { ChannelService } from './channels/service.js';
 import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { ComputerBroker } from './computer-broker.js';
@@ -1179,11 +1179,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             )
           ).record,
       },
-      // 建助理时给它一个每天 08:00 的晨间简报（0.121.0），删助理时一起删。
       schedules: {
-        created: async (channel) => {
-          await automationService.create(morningBriefAutomation(channel.id), { kind: 'user' });
-        },
+        routines: (channelId) =>
+          automationService
+            .forChannel(channelId)
+            .filter((automation) => automation.enabled && automation.autoPausedAt === undefined)
+            .map((automation) => ({
+              title: automation.title,
+              schedule: `${describeSchedule(automation.schedule)} (${automation.timezone})`,
+            })),
         deleted: (channelId) => automationService.deleteForChannel(channelId),
       },
       // 删助理时清掉它项目的记忆与环境的变量（任务清单下次启动时清，见上面的 sweep）。
@@ -2160,6 +2164,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         channel_groups: true,
         channel_composer: true,
         channel_chat: true,
+        channel_panel: true,
       },
       engineFeatures,
       plugins,

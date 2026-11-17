@@ -1,12 +1,23 @@
-// 助理页（0.120.0，Host 功能 `channels`）：左栏是聊天列表（头像、名字、最后一条、时间、状态、未读），右边是选中的助理：头部（头像、
-// 名字、职责、暂停与删除），四个页签（对话、任务、日程与规矩、记忆）。照 Grok、Muse、Duet 一类个人助理：每个助理一条时间线。
+// 助理页：左栏聊天列表，右边是对话与资料面板（0.197.0，channel_panel）；旧 Host 保留四个页签。
 // 助理群（0.133.0）也在列表里：叠放的成员头像；选中时只有群的时间线，头部列出成员。
 // 页面窄到两栏放不下（手机上的 Wevir Web）时列表与对话二选一：没选中时是列表，选中后是对话，头部有返回；线程也占满整页。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { Channel, ChannelId, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowLeft, Bot, Ellipsis, Pause, Pencil, Play, Plus, Trash2, Users } from 'lucide-react';
+import {
+  ArrowLeft,
+  Bot,
+  Ellipsis,
+  PanelRight,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useSearchParams } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -19,14 +30,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
+import { createPersistedStore } from '@/lib/store';
 import { useElementSize } from '@/lib/use-element-size';
 import { paths } from '@/routes/paths';
 import { formatMessageTime } from '@/session/format';
 import { Segmented } from '@/settings/settings-ui';
 import { AssistantAvatar, GroupAvatar } from './assistant-avatar';
 import { editAssistant, openAssistantDialog } from './assistant-dialog';
+import { AssistantPanel } from './assistant-panel';
 import { MemoryPanel, SchedulePanel, TasksPanel } from './assistant-panels';
 import { ThreadPage, ThreadPane } from './assistant-thread';
 import { AssistantTimeline } from './assistant-timeline';
@@ -34,6 +48,7 @@ import {
   assistantsById,
   groupMembers,
   groupsSupported,
+  panelSupported,
   previewLine,
   ROW_STATE_LABEL,
   rowState,
@@ -49,6 +64,15 @@ const ERROR_MS = 6000;
 
 /** 页面窄于它就只显示一栏：列表 288（w-72）加上对话至少 312。 */
 const SPLIT_MIN_WIDTH = 600;
+
+const panelPreferences = createPersistedStore<Record<string, boolean>>(
+  'wevir.assistant-panel.v1',
+  {},
+  (raw) =>
+    raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+      ? Object.fromEntries(Object.entries(raw).filter(([, value]) => typeof value === 'boolean'))
+      : undefined,
+);
 
 export function AssistantsPage({
   client,
@@ -142,6 +166,7 @@ export function AssistantsPage({
               client={client}
               channelId={channelId}
               sessionId={pageThread}
+              assistant={assistants.get(channelId)}
               paneAvailable={!narrow}
             />
           ) : channelId !== undefined ? (
@@ -151,6 +176,7 @@ export function AssistantsPage({
               channelId={channelId}
               assistants={assistants}
               narrow={narrow}
+              pageWidth={page.width}
             />
           ) : channels === undefined ? null : (
             <EmptyState
@@ -265,17 +291,26 @@ function AssistantPane({
   channelId,
   assistants,
   narrow,
+  pageWidth,
 }: {
   client: WevirClient;
   channelId: ChannelId;
   assistants: ReadonlyMap<string, Channel>;
   /** 一栏：头部有返回，页签另起一行，线程占满整页。 */
   narrow: boolean;
+  pageWidth: number;
 }) {
   const state = useAssistantView(client, channelId);
   const [tab, setTab] = useState<Tab>('conversation');
   const [error, setError] = useState<string>();
   const [confirming, setConfirming] = useState(false);
+  const panel = panelSupported(client.hello.features);
+  const panelPreference = panelPreferences.use()[channelId];
+  const panelOpen = panelPreference ?? pageWidth >= 1100;
+  const floating = pageWidth < 1100;
+  const showPanel = (open: boolean) => {
+    panelPreferences.set((current) => ({ ...current, [channelId]: open }));
+  };
   const navigate = useNavigate();
   // 时间线旁边的线程窗格（`?thread=`）。
   const [search, setSearch] = useSearchParams();
@@ -369,14 +404,28 @@ function AssistantPane({
               .join(' · ')}
           </p>
         </div>
-        {!narrow && tabs}
-        <IconButton
-          label={t(paused ? 'assistants.resume' : 'assistants.pause')}
-          onClick={togglePause}
-          data-action={paused ? 'resume' : 'pause'}
-        >
-          {paused ? <Play /> : <Pause />}
-        </IconButton>
+        {!panel && !narrow && tabs}
+        {panel ? (
+          <IconButton
+            label={t('assistants.panel.title')}
+            aria-expanded={panelOpen && threadId === undefined}
+            onClick={() => {
+              closeThread();
+              showPanel(threadId !== undefined || !panelOpen);
+            }}
+            data-action="assistant-panel-toggle"
+          >
+            <PanelRight />
+          </IconButton>
+        ) : (
+          <IconButton
+            label={t(paused ? 'assistants.resume' : 'assistants.pause')}
+            onClick={togglePause}
+            data-action={paused ? 'resume' : 'pause'}
+          >
+            {paused ? <Play /> : <Pause />}
+          </IconButton>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -401,7 +450,7 @@ function AssistantPane({
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
-      {narrow && (
+      {!panel && narrow && (
         <div className="shrink-0 overflow-x-auto border-b border-border px-3 py-2 *:w-full">
           {tabs}
         </div>
@@ -413,7 +462,7 @@ function AssistantPane({
       )}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          {tab === 'conversation' ? (
+          {panel || tab === 'conversation' ? (
             <AssistantTimeline
               client={client}
               view={view}
@@ -459,10 +508,62 @@ function AssistantPane({
             channelId={channelId}
             sessionId={threadId}
             thread={view.threads.find((thread) => thread.sessionId === threadId)}
+            assistant={panel ? channel : undefined}
             onClose={closeThread}
           />
         )}
+        {panel && panelOpen && threadId === undefined && !floating && (
+          <aside
+            className="flex w-80 shrink-0 flex-col border-l border-border"
+            data-panel-mode="docked"
+          >
+            <div className="flex h-12 shrink-0 items-center justify-between px-4">
+              <span className="text-sm font-medium">{t('assistants.panel.title')}</span>
+              <IconButton label={t('common.close')} onClick={() => showPanel(false)}>
+                <X />
+              </IconButton>
+            </div>
+            <AssistantPanel
+              client={client}
+              view={view}
+              error={error}
+              onPause={togglePause}
+              onOpenThread={(thread) => {
+                showPanel(false);
+                navigate(paths.assistantThread(channelId, thread.sessionId, !narrow));
+              }}
+              onError={setError}
+            />
+          </aside>
+        )}
       </div>
+      {panel && floating && (
+        <Sheet open={panelOpen && threadId === undefined} onOpenChange={showPanel}>
+          <SheetContent
+            className={cn(
+              'gap-0 pt-10',
+              narrow
+                ? 'data-[side=right]:w-full data-[side=right]:sm:max-w-none'
+                : 'data-[side=right]:w-80 data-[side=right]:sm:max-w-80',
+            )}
+            aria-describedby={undefined}
+            data-panel-mode={narrow ? 'page' : 'overlay'}
+          >
+            <SheetTitle className="sr-only">{t('assistants.panel.title')}</SheetTitle>
+            <AssistantPanel
+              client={client}
+              view={view}
+              error={error}
+              onPause={togglePause}
+              onOpenThread={(thread) => {
+                showPanel(false);
+                navigate(paths.assistantThread(channelId, thread.sessionId, !narrow));
+              }}
+              onError={setError}
+            />
+          </SheetContent>
+        </Sheet>
+      )}
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}

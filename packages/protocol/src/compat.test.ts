@@ -192,6 +192,7 @@ import frozen01930 from './compat/0.193.0.json' with { type: 'json' };
 import frozen01940 from './compat/0.194.0.json' with { type: 'json' };
 import frozen01950 from './compat/0.195.0.json' with { type: 'json' };
 import frozen01960 from './compat/0.196.0.json' with { type: 'json' };
+import frozen01970 from './compat/0.197.0.json' with { type: 'json' };
 import {
   ErrorCode,
   type ErrorCodeName,
@@ -406,6 +407,7 @@ const frozenVersions: FrozenSamples[] = [
   frozen01940,
   frozen01950,
   frozen01960,
+  frozen01970,
   frozen01830,
   frozen01810,
   frozen01840,

@@ -8,18 +8,22 @@ import {
   type ApprovalRequest,
   ASSISTANT_AVATAR_COLOR_COUNT,
   ASSISTANT_AVATAR_TYPES,
+  ASSISTANT_PROACTIVITY,
   type AssistantAvatar,
   type AssistantRuleCategory,
+  type Automation,
   type BoardTask,
   type Channel,
   type ChannelActivityKind,
+  type ChannelBudget,
   type ChannelPost,
   type ChannelThread,
   type EngineFeatures,
   type HostFeatures,
   type MethodParams,
 } from '@wevir/protocol';
-import type { PlainMessageKey } from '@/i18n';
+import { scheduleText, wallTime } from '@/automations/automations-model';
+import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { formatJson } from '@/session/format';
 
 // ---- 规矩 ----
@@ -113,6 +117,16 @@ export function composerSupported(features: HostFeatures | undefined): boolean {
 export function chatSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'channel_chat');
 }
+
+export function panelSupported(features: HostFeatures | undefined): boolean {
+  return features !== undefined && hostSupports(features, 'channel_panel');
+}
+
+export const proactivityLabel = {
+  quiet: 'assistants.panel.quiet',
+  balanced: 'assistants.panel.balanced',
+  active: 'assistants.panel.active',
+} as const satisfies Record<keyof typeof ASSISTANT_PROACTIVITY, PlainMessageKey>;
 
 /** 输入框的主按钮：协调者（群里是成员）在回、输入框空着时是停止，否则是发送（在回时发的帖子等它回完再交出去）。 */
 export function composerAction(input: {
@@ -461,4 +475,41 @@ export function groupTasks(tasks: readonly BoardTask[]): {
     open: sorted.filter((task) => task.status === 'pending' || task.status === 'in_progress'),
     done: sorted.filter((task) => task.status === 'completed' || task.status === 'cancelled'),
   };
+}
+
+export function proactivityOf(
+  budget: ChannelBudget,
+): keyof typeof ASSISTANT_PROACTIVITY | undefined {
+  return (Object.keys(ASSISTANT_PROACTIVITY) as (keyof typeof ASSISTANT_PROACTIVITY)[]).find(
+    (key) =>
+      ASSISTANT_PROACTIVITY[key].dailyWakes === budget.dailyWakes &&
+      ASSISTANT_PROACTIVITY[key].dailyTokens === budget.dailyTokens,
+  );
+}
+
+export function routineStatus(
+  automation: Pick<Automation, 'schedule' | 'enabled' | 'autoPausedAt' | 'timezone'>,
+  now: number,
+): string {
+  if (!automation.enabled || automation.autoPausedAt !== undefined)
+    return t('assistants.state.paused');
+  const schedule = automation.schedule;
+  if (schedule.kind === 'interval') return t('assistants.panel.monitoring');
+  if (schedule.kind === 'once') {
+    const { date, time } = wallTime(Date.parse(schedule.at), automation.timezone);
+    const today = wallTime(now, automation.timezone).date;
+    const tomorrow = new Date(`${today}T00:00:00Z`);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    const clock = time.replace(/^0/, '');
+    if (date === today) return t('automations.moment.today', { time: clock });
+    if (date === tomorrow.toISOString().slice(0, 10))
+      return t('automations.moment.tomorrow', { time: clock });
+    return `${new Intl.DateTimeFormat(currentLocale(), { timeZone: automation.timezone, month: 'short', day: 'numeric', ...(date.slice(0, 4) !== today.slice(0, 4) && { year: 'numeric' }) }).format(new Date(schedule.at))} ${clock}`;
+  }
+  return scheduleText(
+    schedule.kind === 'daily' || schedule.kind === 'monthly'
+      ? { ...schedule, time: schedule.time.replace(/^0/, '') }
+      : schedule,
+    automation.timezone,
+  );
 }

@@ -2,7 +2,7 @@
 // 会话视图跟它的事件流。两种开法：时间线旁边的窗格（`?thread=`），或占满右边（`/assistants/:channelId/thread/:sessionId`）。
 
 import type { WevirClient } from '@wevir/client-sdk';
-import type { ChannelId, ChannelThread, Session, SessionId } from '@wevir/protocol';
+import type { Channel, ChannelId, ChannelThread, Session, SessionId } from '@wevir/protocol';
 import {
   ArrowLeft,
   Check,
@@ -27,6 +27,9 @@ import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { SessionView } from '@/session/session-view';
+import { AssistantAvatar } from './assistant-avatar';
+import { panelSupported } from './assistants-model';
+import { useAssistantView } from './use-assistants';
 
 /** 按 ID 读一个会话再画会话视图；读不到时写原因。 */
 function ThreadSession({
@@ -80,15 +83,25 @@ function ThreadHeader({
   title,
   children,
   leading,
+  assistant,
 }: {
   title: string;
   children: ReactNode;
   leading?: ReactNode;
+  assistant?: Channel;
 }) {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
-      {leading ?? <GitBranch aria-hidden className="ml-1 size-4 shrink-0 text-muted-foreground" />}
-      <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{title}</h2>
+      {leading ??
+        (assistant?.assistant ? (
+          <AssistantAvatar avatar={assistant.assistant.avatar} size={24} />
+        ) : (
+          <GitBranch aria-hidden className="ml-1 size-4 shrink-0 text-muted-foreground" />
+        ))}
+      <div className="min-w-0 flex-1">
+        {assistant && <p className="truncate text-xs text-muted-foreground">{assistant.title}</p>}
+        <h2 className="truncate text-sm font-medium">{title}</h2>
+      </div>
       {children}
     </header>
   );
@@ -133,7 +146,13 @@ function ThreadMenu({
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={toggle} data-action={resolved ? 'reopen' : 'resolve'}>
           {resolved ? <RotateCcw /> : <Check />}
-          {t(resolved ? 'assistants.thread.reopen' : 'assistants.thread.resolve')}
+          {t(
+            resolved
+              ? 'assistants.thread.reopen'
+              : panelSupported(client.hello.features)
+                ? 'assistants.thread.complete'
+                : 'assistants.thread.resolve',
+          )}
         </DropdownMenuItem>
       </DropdownMenuContent>
       {error !== undefined && (
@@ -151,12 +170,14 @@ export function ThreadPane({
   channelId,
   sessionId,
   thread,
+  assistant,
   onClose,
 }: {
   client: WevirClient;
   channelId: ChannelId;
   sessionId: SessionId;
   thread: ChannelThread | undefined;
+  assistant?: Channel;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
@@ -166,7 +187,7 @@ export function ThreadPane({
       aria-label={t('assistants.thread.pane')}
       data-thread-pane={sessionId}
     >
-      <ThreadHeader title={thread?.title ?? t('assistants.thread.pane')}>
+      <ThreadHeader title={thread?.title ?? t('assistants.thread.pane')} assistant={assistant}>
         {thread !== undefined && (
           <ThreadMenu
             key={sessionId}
@@ -200,18 +221,24 @@ export function ThreadPage({
   channelId,
   sessionId,
   paneAvailable,
+  assistant,
 }: {
   client: WevirClient;
   channelId: ChannelId;
   sessionId: SessionId;
   paneAvailable: boolean;
+  assistant?: Channel;
 }) {
   const navigate = useNavigate();
   const [title, setTitle] = useState<string>();
+  const panel = panelSupported(client.hello.features);
+  const view = useAssistantView(client, channelId);
+  const thread = view.view?.threads.find((item) => item.sessionId === sessionId);
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-thread-page={sessionId}>
       <ThreadHeader
         title={title ?? ''}
+        assistant={panel ? assistant : undefined}
         leading={
           <IconButton
             label={t('assistants.thread.back')}
@@ -222,6 +249,14 @@ export function ThreadPage({
           </IconButton>
         }
       >
+        {panel && thread !== undefined && (
+          <ThreadMenu
+            client={client}
+            channelId={channelId}
+            sessionId={sessionId}
+            resolved={thread.status === 'resolved'}
+          />
+        )}
         {paneAvailable && (
           <IconButton
             label={t('assistants.thread.openPane')}

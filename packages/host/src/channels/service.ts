@@ -114,24 +114,6 @@ import {
 } from './envelope.js';
 import { plainPreviewLine } from './plain-preview.js';
 
-/** 建助理时给它的晨间简报（0.121.0）：每天这个时刻（本机时区）。 */
-export const MORNING_BRIEF_TIME = '08:00';
-
-/** 晨间简报交给协调者的指令；卡片上的三张清单由 Host 组装（`<brief>`）。 */
-export const MORNING_BRIEF_PROMPT =
-  'Morning brief. Say in two or three lines what matters today for your job: anything due, anything new since yesterday, and what you need from the user.';
-
-/** 建助理时 Host 替它建的晨间简报自动化。 */
-export function morningBriefAutomation(channelId: ChannelId): MethodParams<'automation.create'> {
-  return {
-    title: 'Morning brief',
-    prompt: MORNING_BRIEF_PROMPT,
-    schedule: { kind: 'daily', time: MORNING_BRIEF_TIME },
-    channelId,
-    brief: true,
-  };
-}
-
 /** 用户连着发帖时等多久再唤醒（ADR-0020 §9）。 */
 export const WAKE_DELAY_MS = 1000;
 export const THREAD_UPDATE_DELAY_MS = 5000;
@@ -213,9 +195,9 @@ export interface ChannelServiceOptions {
   /** 预算的自然日按哪个时区；省略是本机时区。 */
   timezone?: string;
   random?: () => number;
-  /** 助理的日程（0.121.0，自动化）：建好后建晨间简报，删了一起删。 */
+  /** 助理的例行事务：交接时列出启用的，删助理时一起删。 */
   schedules?: {
-    created(channel: Channel): Promise<void>;
+    routines(channelId: ChannelId): readonly { title: string; schedule: string }[];
     deleted(channelId: ChannelId): Promise<void>;
   };
   /**
@@ -240,6 +222,7 @@ export interface ChannelServiceOptions {
 interface StoredCoordinator extends ChannelCoordinator {
   /** 这一班唤醒过几次。 */
   wakes?: number;
+  lastActiveAt?: string;
 }
 
 /** 帖子的 `meta` 列（Host 自用，0.133.0）。 */
@@ -691,16 +674,8 @@ export class ChannelService {
     }
     const record = this.#record(id);
     this.#touch(record.id as ChannelId);
-    // 第一步（照 Grok）：按职责看要用的连接器、文件夹与浏览器登录，缺的列成“我需要什么”。
     this.#queueWake(record.id as ChannelId, 'setup', { setup: true, immediate: true });
-    const channel = this.#channel(record);
-    await this.#options.schedules?.created(channel).catch((error: unknown) =>
-      this.#options.onWarning?.('assistant schedule not created', {
-        channelId: id,
-        error: errorMessage(error),
-      }),
-    );
-    return channel;
+    return this.#channel(record);
   }
 
   /** 建群（0.133.0）：没有工作区、协调者与预算，成员是几个助理。 */
@@ -1521,6 +1496,13 @@ export class ChannelService {
       }
       return;
     }
+    const record = this.#storage.channels.get(entry.channelId);
+    if (record === undefined || record.deletedAt !== undefined) return;
+    const at = iso(this.#now());
+    this.#storage.channels.update(record.id, {
+      coordinator: { ...(record.coordinator as StoredCoordinator), lastActiveAt: at },
+      updatedAt: at,
+    });
     const active = this.#active.get(entry.channelId);
     if (
       active === undefined ||
@@ -1532,8 +1514,6 @@ export class ChannelService {
       return;
     }
     this.#active.delete(entry.channelId);
-    const record = this.#storage.channels.get(entry.channelId);
-    if (record === undefined || record.deletedAt !== undefined) return;
     try {
       this.#finishWake(record, active, info.outcome);
     } catch (error) {
@@ -1730,7 +1710,7 @@ export class ChannelService {
     }
     // 协调者会话：没有、不能用了、或到了换班的阈值时另开一班。
     let coordinator = record.coordinator as StoredCoordinator;
-    let fresh = false;
+    let fresh = (coordinator.wakes ?? 0) === 0;
     const session =
       coordinator.sessionId === undefined
         ? undefined
@@ -1784,7 +1764,7 @@ export class ChannelService {
           .filter((post) => !wake.posts.some((p) => p.id === post.id));
         content[0] = {
           type: 'text',
-          text: `${handover(channel, recent, coordinator.generation, this.#workspacePath(record), this.#threads(record))}\n\n${first.text}`,
+          text: `${handover(channel, recent, coordinator.generation, this.#workspacePath(record), this.#threads(record), this.#options.schedules?.routines(channel.id))}\n\n${first.text}`,
         };
       }
     }
@@ -2515,7 +2495,7 @@ export class ChannelService {
 
   #channel(record: ChannelRecord, threads = this.#threads(record)): Channel {
     if (record.kind === 'group') return this.#groupChannel(record);
-    const { wakes: _wakes, ...coordinator } = record.coordinator as StoredCoordinator;
+    const { wakes: _wakes, lastActiveAt, ...coordinator } = record.coordinator as StoredCoordinator;
     const usage = this.#storage.channels.usage(record.id, this.#day());
     const last = this.#storage.channels.posts(record.id, { limit: 1 })[0];
     const unread = this.#storage.channels.countUnread(
@@ -2576,6 +2556,8 @@ export class ChannelService {
       ...(unread > 0 && { unreadCount: unread }),
       ...(answering && { answering: true }),
       ...(answering && { activity: { kind: this.#activity(coordinator.sessionId) } }),
+      ...(lastActiveAt !== undefined && { lastActiveAt }),
+      ...(this.#overBudget(record) && { proactiveLimited: true }),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

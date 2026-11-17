@@ -794,7 +794,7 @@ export class AutomationService {
   async #wake(entry: Entry, run: AutomationRun, openedBy?: SessionId): Promise<void> {
     const { automation } = entry;
     if (automation.channelId !== undefined) {
-      this.#wakeChannel(entry, run, automation.channelId);
+      await this.#wakeChannel(entry, run, automation.channelId);
       return;
     }
     try {
@@ -828,7 +828,7 @@ export class AutomationService {
   }
 
   /** 发给助理的：把指令（与检查脚本的输出）交给助理的下一次唤醒，交出即完成；结果在助理的时间线上。 */
-  #wakeChannel(entry: Entry, run: AutomationRun, channelId: string): void {
+  async #wakeChannel(entry: Entry, run: AutomationRun, channelId: string): Promise<void> {
     const { automation } = entry;
     const channels = this.#options.channels;
     try {
@@ -845,6 +845,10 @@ export class AutomationService {
       this.#finish(automation.id, run.id, 'completed', {});
     } catch (error) {
       this.#finish(automation.id, run.id, 'failed', { error: errorMessage(error) });
+      return;
+    }
+    if (automation.createdBy.kind === 'agent' && automation.schedule.kind === 'once') {
+      await this.delete(automation.id);
     }
   }
 

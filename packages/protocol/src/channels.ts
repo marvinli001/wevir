@@ -161,8 +161,14 @@ export const ChannelBudgetSchema = z.object({
 });
 export type ChannelBudget = z.infer<typeof ChannelBudgetSchema>;
 
-/** 助理的默认预算。 */
-export const DEFAULT_ASSISTANT_BUDGET: ChannelBudget = { dailyWakes: 20, dailyTokens: 200_000 };
+export const ASSISTANT_PROACTIVITY = {
+  quiet: { dailyWakes: 5, dailyTokens: 100_000 },
+  balanced: { dailyWakes: 20, dailyTokens: 400_000 },
+  active: { dailyWakes: 60, dailyTokens: 1_200_000 },
+} satisfies Record<string, ChannelBudget>;
+
+/** 新助理默认采用平衡的主动程度。 */
+export const DEFAULT_ASSISTANT_BUDGET: ChannelBudget = ASSISTANT_PROACTIVITY.balanced;
 
 /** 今天自发唤醒的次数与 token（`day` 是本机时区的 `YYYY-MM-DD`）。 */
 export const ChannelUsageSchema = z.object({
@@ -239,6 +245,10 @@ export const ChannelSchema = z.object({
   answering: z.literal(true).optional(),
   /** 当前活动（0.194.0，channel_chat），只在 answering 时带。 */
   activity: z.object({ kind: ChannelActivityKindSchema }).optional(),
+  /** 协调者最近一次回合结束（含安静回合）的时刻（0.197.0，channel_panel）。 */
+  lastActiveAt: IsoTimeSchema.optional(),
+  /** 今日自发额度已用完（0.197.0，channel_panel）。 */
+  proactiveLimited: z.literal(true).optional(),
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
 });

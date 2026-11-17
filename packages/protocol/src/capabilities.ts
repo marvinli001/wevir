@@ -579,7 +579,7 @@ export const HOST_FEATURES = {
    */
   channels: 'channels',
   /**
-   * 助理的日程（0.121.0）：`Automation.channelId` / `brief`、建助理时的晨间简报、`brief` 卡片的内容，通知种类 `channel`、意图与
+   * 助理的日程（0.121.0）：`Automation.channelId` / `brief`、晨间简报数据与旧卡片，通知种类 `channel`、意图与
    * 收件箱项的 `channelId`。
    */
   channel_schedules: 'channel_schedules',
@@ -596,6 +596,8 @@ export const HOST_FEATURES = {
   channel_composer: 'channel_composer',
   /** 聊天交互（0.194.0）：引用、表情与协调者活动。 */
   channel_chat: 'channel_chat',
+  /** 资料面板与主动程度（0.197.0）：最近活跃、今日自发额度。 */
+  channel_panel: 'channel_panel',
   /**
    * iOS 模拟器（0.122.0，domain-model §3.15.9）：`simulator.*` 方法、`simulator.changed` / `simulator.show` / `simulator.orientation`
    * 通知与 RPC 端口上的 `/simulator/stream`；设置的 `iosSimulator` 开着（默认）且有应用级工具时还有 `simulator_control` 与
@@ -790,6 +792,7 @@ export const HostFeaturesSchema = z.looseObject({
   channel_groups: z.boolean().optional(),
   channel_composer: z.boolean().optional(),
   channel_chat: z.boolean().optional(),
+  channel_panel: z.boolean().optional(),
   ios_simulator: z.boolean().optional(),
   turn_wrap_up: z.boolean().optional(),
   engine_prewarm: z.boolean().optional(),
