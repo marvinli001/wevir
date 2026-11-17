@@ -40,9 +40,13 @@ describe('Cursor 的模型', () => {
         { id: 'fast', value: 'false' },
       ],
     });
+    // 不认识的档位按没选：带默认变体的档位。
     expect(modelSelection('composer-2', 'xhigh', undefined, FAKE_MODELS)).toEqual({
       id: 'composer-2',
-      params: [{ id: 'fast', value: 'false' }],
+      params: [
+        { id: 'fast', value: 'false' },
+        { id: 'effort', value: 'medium' },
+      ],
     });
     expect(modelSelection('gpt-6', 'high', true, FAKE_MODELS)).toEqual({ id: 'gpt-6' });
     expect(modelSelection('composer-2', 'high', true, undefined)).toEqual({ id: 'composer-2' });
@@ -68,7 +72,56 @@ describe('Cursor 的模型', () => {
     ]);
     expect(modelSelection('composer-2', undefined, true, FAKE_MODELS)).toEqual({
       id: 'composer-2',
-      params: [{ id: 'fast', value: 'true' }],
+      params: [
+        { id: 'fast', value: 'true' },
+        { id: 'effort', value: 'medium' },
+      ],
     });
+  });
+
+  it('没选的参数带默认变体里的值（有的套餐不接受留空的参数）；快速模式没选时是 false；默认变体没给值或值不在列表里的不带', () => {
+    const catalog = [
+      {
+        id: 'grok-4.5',
+        displayName: 'Grok 4.5',
+        parameters: [
+          { id: 'effort', values: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }] },
+          { id: 'fast', values: [{ value: 'false' }, { value: 'true' }] },
+          { id: 'context', values: [{ value: '200k' }, { value: '1m' }] },
+          { id: 'thinking', values: [{ value: 'on' }, { value: 'off' }] },
+          { id: 'mode', values: [{ value: 'a' }] },
+        ],
+        variants: [
+          {
+            displayName: 'Grok 4.5 High Fast 1M',
+            isDefault: true,
+            params: [
+              { id: 'effort', value: 'high' },
+              { id: 'fast', value: 'true' },
+              { id: 'context', value: '1m' },
+              { id: 'mode', value: 'b' },
+            ],
+          },
+          { displayName: 'Grok 4.5 Low', params: [{ id: 'thinking', value: 'off' }] },
+        ],
+      },
+    ];
+    expect(modelSelection('grok-4.5', undefined, undefined, catalog)).toEqual({
+      id: 'grok-4.5',
+      params: [
+        { id: 'fast', value: 'false' },
+        { id: 'effort', value: 'high' },
+        { id: 'context', value: '1m' },
+      ],
+    });
+    expect(modelSelection('grok-4.5', 'low', true, catalog)).toEqual({
+      id: 'grok-4.5',
+      params: [
+        { id: 'effort', value: 'low' },
+        { id: 'fast', value: 'true' },
+        { id: 'context', value: '1m' },
+      ],
+    });
+    expect(modelSelection('auto', undefined, undefined, catalog)).toEqual({ id: 'default' });
   });
 });

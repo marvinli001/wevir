@@ -69,7 +69,11 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
         replaces: [{ attemptId: 'run-1:text:1', blockIndex: 0 }],
       },
       { type: 'assistant.stream_ended', attemptId: 'run-1:text:1', outcome: 'committed' },
-      // turn-ended 带的用量（0.62.0）：每个回合一条，按 run ID。
+    ]);
+    expect(mapper.answered).toBe(true);
+    expect(mapper.reply.failure).toBeUndefined();
+    // turn-ended 带的用量（0.62.0）：回合结束时每个 run 一条，按 run ID。
+    expect(strip(mapper.finish('completed'))).toEqual([
       {
         type: 'usage.recorded',
         granularity: 'turn',
@@ -78,9 +82,6 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
         outputTokens: 5,
       },
     ]);
-    expect(mapper.answered).toBe(true);
-    expect(mapper.reply.failure).toBeUndefined();
-    expect(mapper.finish('completed')).toEqual([]);
   });
 
   it('工具：开始、局部更新、完成；命令的流式输出；编辑带 diff；MCP 的 isError 算失败；待办；子 agent 的局部更新不看', () => {
@@ -352,30 +353,41 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
 });
 
 describe('回合的用量（0.62.0）', () => {
-  it('缓存与推理原样带上；只报一次；没有用量的 turn-ended 不报', () => {
+  it('一个 run 的各个 turn-ended 相加，回合结束时报一条；输入减去 Cursor 算在里面的缓存读写；推理原样带上；没有用量时不报', () => {
     const usage = {
-      inputTokens: 40,
+      inputTokens: 12_840,
       outputTokens: 300,
       cacheReadTokens: 12_000,
       cacheWriteTokens: 800,
       reasoningTokens: 120,
     };
-    const { events } = replay([
+    const { events, mapper } = replay([
       { type: 'turn-ended', usage },
-      { type: 'turn-ended', usage },
+      { type: 'step-started', stepId: 2 },
+      {
+        type: 'turn-ended',
+        usage: {
+          inputTokens: 31_961,
+          outputTokens: 181,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 31_955,
+        },
+      },
     ]);
-    expect(strip(events)).toEqual([
+    expect(events).toEqual([]);
+    expect(strip(mapper.finish('cancelled'))).toEqual([
       {
         type: 'usage.recorded',
         granularity: 'turn',
         requestId: 'run-1',
-        inputTokens: 40,
-        outputTokens: 300,
+        inputTokens: 46,
+        outputTokens: 481,
         cacheReadTokens: 12_000,
-        cacheWriteTokens: 800,
+        cacheWriteTokens: 32_755,
         reasoningTokens: 120,
       },
     ]);
-    expect(replay([{ type: 'turn-ended' }]).events).toEqual([]);
+    expect(mapper.finish('cancelled')).toEqual([]);
+    expect(replay([{ type: 'turn-ended' }]).mapper.finish('completed')).toEqual([]);
   });
 });

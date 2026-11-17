@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-cursor/src/server/sdk.ts（另参照同目录 CursorSdkCatalog.ts、CursorAgentSdk.ts 用到的 SDK 入口）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；SDK 1.2.0 跟进 c8a601c0dfa5c7626e51e06d727076f6b840a005
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；SDK 1.2.0 跟进 c8a601c0dfa5c7626e51e06d727076f6b840a005；检查点与 run 记录照
+// c165587702dae88d8e1d2236114f52e44cf2f205、0b308312d53f0e434e4ff58b32bc6de0221454ff（CursorAgentSdk.ts 的 readContextUsage、runCheckpointed）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：不再用 createRequire 加载 CJS 产物（T3 为了 Node SEA），改为第一次用到时动态 import（安装包里从数据目录下载装好的那份加载）；Effect 的 Context 服务换成窄接口 CursorSdk，
 // 测试换成假的。
@@ -16,6 +17,7 @@ import type {
   AgentOptions,
   InteractionUpdate,
   ListResult,
+  RunRecord,
   RunResult,
   SDKModel,
   SDKUser,
@@ -66,6 +68,17 @@ export interface CursorSdk {
     options: CursorLocalRunOptions,
   ): Promise<ListResult<{ id: string; status: string }>>;
   cancelRun(runId: string, options: CursorLocalRunOptions): Promise<void>;
+  /**
+   * agent 最近的检查点（本地存储的 `checkpointStore.loadLatest`；SDK 的类型是 unknown，实际是 ConversationStateStructure，带
+   * `tokenDetails`）；还没有检查点时是 null。`cwd` 是 agent 的工作目录，本地存储按它定位。
+   */
+  loadCheckpoint(agentId: string, cwd: string): Promise<unknown>;
+  /** 本地存储里的一个 run（`store.getRun`），看它开始时与最近的检查点；没有这个 run 时是 null。 */
+  getRun(
+    agentId: string,
+    runId: string,
+    cwd: string,
+  ): Promise<Pick<RunRecord, 'startCheckpointRef' | 'latestCheckpointRef'> | null>;
   me(apiKey: string): Promise<SDKUser>;
   listModels(apiKey: string): Promise<SDKModel[]>;
   /** 浏览器登录并铸一把 API Key（`Cursor.auth.login`）。 */
@@ -160,6 +173,11 @@ function wrap(sdk: typeof import('@cursor/sdk')): CursorSdk {
     resumeAgent: (agentId, options) => sdk.Agent.resume(agentId, options),
     listRuns: (agentId, options) => sdk.Agent.listRuns(agentId, { runtime: 'local', ...options }),
     cancelRun: (runId, options) => sdk.Agent.cancelRun(runId, { runtime: 'local', ...options }),
+    // 与 Agent.create 的本地 agent 同一个存储：SDK 按工作目录缓存平台（createAgentPlatform 的 workspaceRef 就是 local.cwd）。
+    loadCheckpoint: async (agentId, cwd) =>
+      (await sdk.createAgentPlatform({ workspaceRef: cwd })).checkpointStore.loadLatest(agentId),
+    getRun: async (agentId, runId, cwd) =>
+      (await sdk.createAgentPlatform({ workspaceRef: cwd })).store.getRun(agentId, runId),
     me: (apiKey) => sdk.Cursor.me({ apiKey }),
     listModels: (apiKey) => sdk.Cursor.models.list({ apiKey }),
     login: (options) => sdk.Cursor.auth.login(options),

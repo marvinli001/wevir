@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,9 @@ import { CURSOR_SDK_VERSION } from './sdk.js';
 import { FakeCursorSdk, type RunScript, sdkError } from './test-fixtures/fake-sdk.js';
 import { PLAIN_UPDATES, TOOL_UPDATES, TRANSPORT_FAILURE_UPDATES } from './test-fixtures/updates.js';
 
+/** mcp.json 里的字面占位符 `${name}`。 */
+const v = (name: string) => `\${${name}}`;
+
 const dirs: string[] = [];
 const adapters: CursorAdapter[] = [];
 afterEach(async () => {
@@ -36,6 +39,7 @@ function setup(options: Partial<CursorAdapterOptions> = {}) {
     sdk: async () => sdk,
     logger: { warn: (message) => warnings.push(message) },
     platform: 'linux', // Windows 只有完全访问，单独的用例传 win32
+    userHome: home, // 不读本机的 ~/.cursor
     ...options,
   });
   adapters.push(adapter);
@@ -227,9 +231,13 @@ describe('CursorAdapter', () => {
     await vi.waitFor(() =>
       expect(events.filter((event) => event.type === 'turn.settled')).toHaveLength(2),
     );
+    // 没选档位时带默认变体的档位（T3 d3ef7e8e52）。
     expect(agent.sent[1]?.options?.model).toEqual({
       id: 'composer-2',
-      params: [{ id: 'fast', value: 'true' }],
+      params: [
+        { id: 'fast', value: 'true' },
+        { id: 'effort', value: 'medium' },
+      ],
     });
   });
 
@@ -808,6 +816,128 @@ describe('CursorAdapter', () => {
     await expect(
       adapter.createSession({ cwd: home, providerId: 'cursor', modelId: 'auto' }),
     ).rejects.toMatchObject({ code: 'engine_unavailable' });
+  });
+
+  it('回合结束时从检查点报上下文用量（T3 c165587702）；没有检查点、上限是 0 或读不到时不报，回合照常结束', async () => {
+    const { adapter, sdk, home, warnings } = setup();
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    const { events } = collect(adapter, engineSessionId);
+    sdk.checkpoints.set(engineSessionId, {
+      tokenDetails: { usedTokens: 8_304, maxTokens: 200_000 },
+    });
+    await adapter.send(engineSessionId, text('Say hello'));
+    await until(events, 'turn.settled');
+    expect(sdk.loadCheckpointCalls).toEqual([{ agentId: engineSessionId, cwd: home }]);
+    const fill = events.findIndex((event) => event.type === 'usage.updated');
+    expect(events[fill]).toEqual({
+      type: 'usage.updated',
+      engineSessionId,
+      contextUsed: 8_304,
+      contextSize: 200_000,
+    });
+    expect(fill).toBeLessThan(events.findIndex((event) => event.type === 'turn.settled'));
+
+    for (const checkpoint of [
+      null,
+      { tokenDetails: { usedTokens: 0, maxTokens: 0 } },
+      new Error('store locked'),
+    ]) {
+      events.length = 0;
+      sdk.checkpoints.set(engineSessionId, checkpoint);
+      await adapter.send(engineSessionId, text('Say hello'));
+      await until(events, 'turn.settled');
+      expect(events.some((event) => event.type === 'usage.updated')).toBe(false);
+    }
+    expect(warnings).toContain('Cursor context usage unavailable');
+  });
+
+  it('在第一个检查点之前取消的 run 被 Cursor 丢掉：下一条消息带上它的请求；有了自己的检查点或压缩不带（T3 d313b2aff3、0b308312d5）', async () => {
+    const { adapter, sdk, home } = setup();
+    sdk.script = (message): RunScript =>
+      message.startsWith('hang') || message.startsWith('Your previous turn')
+        ? { updates: [], hang: true }
+        : { updates: PLAIN_UPDATES };
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    const { events } = collect(adapter, engineSessionId);
+    const settled = () => events.filter((event) => event.type === 'turn.settled').length;
+    const sent = () => sdk.agent(engineSessionId).sent.map((entry) => entry.message);
+
+    await adapter.send(engineSessionId, text('hang: refactor the parser'));
+    await adapter.cancel(engineSessionId);
+    await vi.waitFor(() => expect(settled()).toBe(1));
+    // 压缩不带，也不清掉。
+    sdk.script = () => ({ updates: [] });
+    await adapter.compact(engineSessionId);
+    await vi.waitFor(() => expect(settled()).toBe(2));
+    sdk.script = (message): RunScript =>
+      message.endsWith('also add tests') ? { updates: [], hang: true } : { updates: PLAIN_UPDATES };
+    await adapter.send(engineSessionId, text('also add tests'));
+    expect(sent().at(-1)).toBe(
+      'Your previous turn was interrupted and is missing from your history. Some of its work may already be done. Its request was:\n\nhang: refactor the parser\n\nThe new message, which may continue or change that request:\n\nalso add tests',
+    );
+    // 这一次也在检查点之前取消：带上的是整段（含更早的请求）。
+    await adapter.cancel(engineSessionId);
+    await vi.waitFor(() => expect(settled()).toBe(3));
+    await adapter.send(engineSessionId, text('go on'));
+    await vi.waitFor(() => expect(settled()).toBe(4));
+    expect(sent().at(-1)).toMatch(
+      /^Your previous turn[\s\S]*hang: refactor the parser[\s\S]*also add tests[\s\S]*go on$/,
+    );
+    // 送出之后不再带。
+    await adapter.send(engineSessionId, text('next'));
+    await vi.waitFor(() => expect(settled()).toBe(5));
+    expect(sent().at(-1)).toBe('next');
+
+    // run 存过自己的检查点：请求还在对话里，不带。
+    sdk.script = (message): RunScript =>
+      message === 'kept' ? { updates: [], hang: true } : { updates: PLAIN_UPDATES };
+    await adapter.send(engineSessionId, text('kept'));
+    const kept = sdk.agent(engineSessionId).runs.at(-1);
+    await adapter.cancel(engineSessionId);
+    await vi.waitFor(() => expect(settled()).toBe(6));
+    sdk.checkpointedRuns.add(kept?.id ?? '');
+    await adapter.send(engineSessionId, text('after kept'));
+    await vi.waitFor(() => expect(settled()).toBe(7));
+    expect(sent().at(-1)).toBe('after kept');
+  });
+
+  it('mcp.json 里用了工作区变量的服务展开后随每次 send 交出，应用级工具一起给；没有这类服务时 send 不带 mcpServers（T3 cc97303381）', async () => {
+    const { adapter, sdk, home } = setup();
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+      appTools: { url: 'http://127.0.0.1:4100/mcp', token: 't' },
+    });
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Say hello'));
+    await until(events, 'turn.settled');
+    expect(sdk.agent(engineSessionId).sent[0]?.options).not.toHaveProperty('mcpServers');
+
+    mkdirSync(join(home, '.cursor'), { recursive: true });
+    writeFileSync(
+      join(home, '.cursor', 'mcp.json'),
+      `{ "mcpServers": { "repro": { "command": "node", "args": ["${v('workspaceFolder')}/server.mjs"] } } }`,
+    );
+    events.length = 0;
+    await adapter.send(engineSessionId, text('Say hello'));
+    await until(events, 'turn.settled');
+    expect(sdk.agent(engineSessionId).sent[1]?.options?.mcpServers).toEqual({
+      repro: { command: 'node', args: [`${home}/server.mjs`], cwd: home },
+      wevir: {
+        type: 'http',
+        url: 'http://127.0.0.1:4100/mcp',
+        headers: { Authorization: 'Bearer t' },
+      },
+    });
   });
 
   it('CURSOR_SDK_VERSION 与装上的 @cursor/sdk 一致', () => {

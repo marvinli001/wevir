@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-cursor/src/server/status.ts（buildCursorDiscoveredModelsFromSdk）、sdkModel.ts（cursorSdkModelSelection）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；跟进 d3ef7e8e527ce2076ee858fc4c5360955da54b8a（没选的参数带上目录里的默认值）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 把每个模型参数做成一个选项；Wevir 的模型只有推理档位与快速模式，只取 effort / reasoning 参数里 Wevir 认识的档位与 `fast`
-// 开关（T3 的 fastMode），其余参数用 Cursor 的默认值；列表第一个是 Auto。
+// 开关（T3 的 fastMode），其余参数明确带上默认变体的值；列表第一个是 Auto。
 //
 // Cursor 的模型列表（`Cursor.models.list`）→ Wevir 的模型，以及会话的模型与推理档位 → SDK 的 `ModelSelection`
 // （docs/architecture/cursor-event-mapping.md §3）。
@@ -74,7 +74,9 @@ export function accountModels(models: readonly SDKModel[]): AccountModels {
 
 /**
  * 会话的模型 → SDK 的 `ModelSelection`。推理档位只在模型列表里这个模型有对应参数时带上（参数 ID 与原值取自列表）；快速模式
- * （0.148.0）在模型有 `fast` 参数时明确带 `true` 或 `false`，不落到 Cursor 的默认变体。不认识的模型照原样交给 SDK，由它报错。
+ * （0.148.0）在模型有 `fast` 参数时明确带 `true` 或 `false`，不落到 Cursor 的默认变体。其余参数（以及没选或不认识的档位）带上
+ * 默认变体里的值：有的 Cursor 套餐不接受留空参数的 run（T3 d3ef7e8e52）；默认变体没给值的参数不带。不认识的模型照原样交给 SDK，
+ * 由它报错。
  */
 export function modelSelection(
   modelId: string,
@@ -86,14 +88,30 @@ export function modelSelection(
   const model = catalog?.find((candidate) => candidate.id.trim() === modelId);
   if (model === undefined) return { id };
   const params: NonNullable<ModelSelection['params']> = [];
+  const chosen = new Set<string>();
   const parameter = reasoningEffort === undefined ? undefined : effortParameter(model);
   const value = parameter?.values.find(
     (entry) => entry.value.trim().toLowerCase() === reasoningEffort,
   );
   if (parameter !== undefined && value !== undefined) {
     params.push({ id: parameter.id, value: value.value });
+    chosen.add(parameter.id.trim());
   }
   const speed = fastParameter(model);
-  if (speed !== undefined) params.push({ id: speed.id, value: fast === true ? 'true' : 'false' });
+  if (speed !== undefined) {
+    params.push({ id: speed.id, value: fast === true ? 'true' : 'false' });
+    chosen.add(speed.id.trim());
+  }
+  const defaults = model.variants?.find((variant) => variant.isDefault === true)?.params ?? [];
+  for (const candidate of model.parameters ?? []) {
+    const parameterId = candidate.id.trim();
+    if (parameterId === '' || chosen.has(parameterId)) continue;
+    chosen.add(parameterId);
+    const preset = defaults.find((param) => param.id.trim() === parameterId)?.value.trim();
+    const entry = candidate.values.find((option) => option.value.trim() === preset);
+    if (preset !== undefined && preset !== '' && entry !== undefined) {
+      params.push({ id: candidate.id, value: entry.value });
+    }
+  }
   return params.length > 0 ? { id, params } : { id };
 }

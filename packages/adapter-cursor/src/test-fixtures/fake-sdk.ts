@@ -182,6 +182,11 @@ export class FakeCursorSdk implements CursorSdk {
   /** `listRuns` 列出的、排在遗留 run 前面的已结束 run 有几个。 */
   finishedRunCount = 0;
   readonly listRunsCalls: { agentId: string; options: CursorLocalRunOptions }[] = [];
+  /** agentId → 最近的检查点（`loadCheckpoint`）；没有时是 null。是 Error 时抛它。 */
+  readonly checkpoints = new Map<string, unknown>();
+  /** 存过自己的检查点的 run（`getRun` 报的最近检查点与开始时不同）。 */
+  readonly checkpointedRuns = new Set<string>();
+  readonly loadCheckpointCalls: { agentId: string; cwd: string }[] = [];
   script: (message: string) => RunScript = scriptFor;
   deltaBeforeSend = false;
   runCount = 0;
@@ -236,6 +241,24 @@ export class FakeCursorSdk implements CursorSdk {
     for (const [agentId, conflict] of this.activeRunConflicts) {
       if (conflict === runId) this.activeRunConflicts.delete(agentId);
     }
+  }
+
+  async loadCheckpoint(agentId: string, cwd: string): Promise<unknown> {
+    this.loadCheckpointCalls.push({ agentId, cwd });
+    const checkpoint = this.checkpoints.get(agentId) ?? null;
+    if (checkpoint instanceof Error) throw checkpoint;
+    return checkpoint;
+  }
+
+  async getRun(agentId: string, runId: string) {
+    if (!this.known.has(agentId)) return null;
+    const start = { blobId: `${runId}:start`, storeKind: 'blob' };
+    return {
+      startCheckpointRef: start,
+      latestCheckpointRef: this.checkpointedRuns.has(runId)
+        ? { blobId: `${runId}:latest`, storeKind: 'blob' }
+        : start,
+    };
   }
 
   async me(apiKey: string): Promise<SDKUser> {

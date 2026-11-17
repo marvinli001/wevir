@@ -6,7 +6,9 @@
 // 修改：Effect 改写成普通 TS 的 AgentRuntimeAdapter；去掉 T3 的 MCP 服务、skills、附件与计划模式；权限模式改按 Wevir 的三种映射；
 // 换权限时重新打开 agent；取消 10 秒确认不了时自己按取消结算。跟进 T3 be1d066732：回合已经结束后 SDK 迟到的恢复失败不算回合失败；
 // 跟进 T3 8298664e9e：用量到了上限时回合失败带 `usageLimit`，之前先重读账号的用量；跟进 T3 8c15be97dd：找遗留的 run 时读完
-// listRuns 的每一页。
+// listRuns 的每一页；跟进 T3 d3ef7e8e52：没选的模型参数带上目录里的默认值；跟进 c165587702：回合结束时从检查点报上下文用量；跟进
+// d313b2aff3 与 0b308312d5 的检查点判断：在第一个检查点之前取消的 run 被 Cursor 丢掉，下一条消息带上它的请求；跟进 cc97303381：
+// mcp.json 里用了 `${workspaceFolder}` 等变量的服务展开后随每次 send 交出（workspace-mcp.ts）。
 // 手动压缩照 c8a601c0dfa5c7626e51e06d727076f6b840a005（CursorAgentSdk.ts、adapter.ts）的 summarize()。
 //
 // Cursor 引擎（订阅来源 `cursor`，ADR-0005 补记 14，docs/architecture/cursor-event-mapping.md）：经官方 `@cursor/sdk` 在 Host
@@ -16,9 +18,11 @@
 // supports*Approval 都是 false）。Wevir 的三种权限模式按语义映射到 `sandboxOptions.enabled` 与 `autoReview`（permissionPolicy）。
 
 import { readFile, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import type {
   AgentOptions,
   InteractionUpdate,
+  McpServerConfig,
   SDKModel,
   SDKUserMessage,
   SettingSource,
@@ -55,7 +59,7 @@ import {
   isUsageLimitError,
 } from './errors.js';
 import { CursorTurnMapper } from './mapping.js';
-import { modelSelection } from './models.js';
+import { AUTO_MODEL_ID, modelSelection } from './models.js';
 import {
   CURSOR_SDK_VERSION,
   type CursorAgentHandle,
@@ -64,11 +68,14 @@ import {
   loadCursorSdk,
 } from './sdk.js';
 import type { CursorSdkInstaller } from './sdk-install.js';
+import { workspaceMcpServers } from './workspace-mcp.js';
 
 /** 等取消确认的时限（T3 的 interruptTurn 等 10 秒）。 */
 export const CANCEL_TIMEOUT_MS = 10_000;
 /** 回合撞上用量上限时最多等多久重读账号的用量。 */
 export const USAGE_REFRESH_TIMEOUT_MS = 5_000;
+/** 读 SDK 本地存储（检查点、run 记录）与工作区 mcp.json 最多等多久；超时按读不到处理。 */
+export const STORE_READ_TIMEOUT_MS = 5_000;
 
 /** 告警与日志出口；Host 的 Logger 满足这个接口（`addSecret` 登记 API Key，日志里抹掉）。 */
 export interface CursorAdapterLogger {
@@ -99,6 +106,8 @@ export interface CursorAdapterOptions {
   loginTimeoutMs?: number;
   /** 测试用：换掉 `process.platform`（Windows 只有完全访问）。 */
   platform?: NodeJS.Platform;
+  /** 测试用：换掉用户主目录（`~/.cursor/mcp.json` 与 `mcp-disabled.json`）。 */
+  userHome?: string;
 }
 
 /** CursorAdapter 声明的权限模式。 */
@@ -206,15 +215,19 @@ export function agentOptions(input: {
       enableAgentRetries: true,
     },
     ...(disallowed.length > 0 && { disallowedTools: disallowed }),
-    ...(input.appTools !== undefined && {
-      mcpServers: {
-        [APP_TOOLS_SERVER]: {
-          type: 'http',
-          url: input.appTools.url,
-          headers: { Authorization: `Bearer ${input.appTools.token}` },
-        },
-      },
-    }),
+    ...(input.appTools !== undefined && { mcpServers: appToolsServers(input.appTools) }),
+  };
+}
+
+/** 应用级工具的 HTTP MCP 服务（0.30.0）。 */
+function appToolsServers(appTools: AppToolsEndpoint | undefined): Record<string, McpServerConfig> {
+  if (appTools === undefined) return {};
+  return {
+    [APP_TOOLS_SERVER]: {
+      type: 'http',
+      url: appTools.url,
+      headers: { Authorization: `Bearer ${appTools.token}` },
+    },
   };
 }
 
@@ -227,6 +240,8 @@ interface SessionSettings {
 
 interface Turn {
   compact: boolean;
+  /** 这个 run 交出的用户文字（含带上的被丢请求）；压缩时没有。 */
+  prompt: string | undefined;
   run: CursorRun | undefined;
   mapper: CursorTurnMapper | undefined;
   cancelling: boolean;
@@ -252,6 +267,11 @@ interface Session {
   reopen: boolean;
   /** 刚恢复：第一条消息可能撞上上一个进程留下的 run（T3 的 abandonedRunRecoveryAvailable）。 */
   recoverAbandonedRun: boolean;
+  /**
+   * 上一个被取消的 run 与它的请求（T3 d313b2aff3）：Cursor 只从 run 的第一个检查点起保留它，之前取消的整个从对话里丢掉，
+   * 下一条消息要带上它的请求（0b308312d5 先看 run 有没有自己的检查点）。
+   */
+  interrupted: { runId: string; text: string } | undefined;
 }
 
 export class CursorAdapter implements AgentRuntimeAdapter {
@@ -350,6 +370,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       turn: undefined,
       reopen: false,
       recoverAbandonedRun: false,
+      interrupted: undefined,
     });
     return engineSession(agent.agentId, settings);
   }
@@ -397,6 +418,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       turn: undefined,
       reopen: false,
       recoverAbandonedRun: true,
+      interrupted: undefined,
     });
     return engineSession(engineSessionId, settings);
   }
@@ -439,7 +461,6 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     if (!compact && text.trim() === '' && images.length === 0) {
       throw new AdapterError('invalid_input', 'the message is empty');
     }
-    const message: string | SDKUserMessage = images.length === 0 ? text : { text, images };
     // 没经过界面的会话（旧会话、接力过来的）可能还是请求批准：不替用户升成完全访问，说明原因。
     if (!this.permissionModes.includes(session.settings.permissionMode ?? 'on_request')) {
       throw new AdapterError('invalid_input', WINDOWS_FULL_ACCESS_ONLY);
@@ -451,6 +472,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     });
     const turn: Turn = {
       compact,
+      prompt: undefined,
       run: undefined,
       mapper: undefined,
       cancelling: false,
@@ -462,6 +484,20 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     try {
       const apiKey = await this.accounts.requireApiKey();
       const agent = await this.#openAgent(session, apiKey);
+      const dropped = compact ? undefined : await this.#droppedRequest(session);
+      const prompt =
+        dropped === undefined
+          ? text
+          : `Your previous turn was interrupted and is missing from your history. Some of its work may already be done. Its request was:\n\n${dropped}\n\nThe new message, which may continue or change that request:\n\n${text}`;
+      turn.prompt = compact ? undefined : prompt;
+      const message: string | SDKUserMessage =
+        images.length === 0 ? prompt : { text: prompt, images };
+      // send 时给的 mcpServers 换掉建 agent 时的那组，所以应用级工具也要一起给（T3 cc97303381）。
+      const workspace = compact ? {} : await this.#workspaceMcpServers(session);
+      const mcpServers =
+        Object.keys(workspace).length === 0
+          ? undefined
+          : { ...workspace, ...appToolsServers(session.appTools) };
       // run 开出之前 SDK 就可能调 onDelta：先存着，有了 runId 再按顺序映射（T3 的 pendingUpdates）。
       const pending: InteractionUpdate[] = [];
       const onDelta = ({ update }: { update: InteractionUpdate }) => {
@@ -480,6 +516,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
                 this.accounts.cachedModels(apiKey),
               ),
               mode: 'agent',
+              ...(mcpServers !== undefined && { mcpServers }),
               onDelta,
             });
       let run: CursorRun;
@@ -490,6 +527,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
         run = await this.#recoverAbandonedRun(session, apiKey, error, send);
       }
       session.recoverAbandonedRun = false;
+      if (!compact) session.interrupted = undefined;
       if (turn.done) {
         // 等 run 开出的时候会话被关了或适配器被释放了。
         run.cancel().catch(() => {});
@@ -595,6 +633,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       engineSessionId,
     });
     session.recoverAbandonedRun = true;
+    if (turn.run !== undefined) this.#remember(session, turn, turn.run);
     this.#settle(session, turn, [
       ...(turn.mapper?.finish('cancelled') ?? []),
       { type: 'turn.settled', engineSessionId, outcome: 'cancelled', stopReason: 'cancelled' },
@@ -674,6 +713,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       // 没有进展的恢复写出的文字不是这个回合的回答。
       const answer = lateResumeFailure || turn.compact ? [] : mapper.finalResult(result.result);
       if (turn.cancelling || result.status === 'cancelled') {
+        this.#remember(session, turn, run);
         events = [
           ...answer,
           ...mapper.finish('cancelled'),
@@ -731,6 +771,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
         await this.#refreshUsage();
         if (turn.done) return;
       }
+      if (cancelled) this.#remember(session, turn, run);
       events = cancelled
         ? [
             ...mapper.finish('cancelled'),
@@ -756,7 +797,88 @@ export class CursorAdapter implements AgentRuntimeAdapter {
             },
           ];
     }
-    this.#settle(session, turn, events);
+    // 回合报的用量是计费的（每一步都算），上下文用了多少只有检查点知道（T3 c165587702）。
+    const fill = await this.#contextFill(session);
+    if (turn.done) return;
+    this.#settle(session, turn, fill === undefined ? events : [fill, ...events]);
+  }
+
+  /** 回合结束时上下文的用量：agent 最近的检查点里的 `tokenDetails`；没有检查点、读不到或没有上限时不报。 */
+  async #contextFill(session: Session): Promise<AgentEvent | undefined> {
+    try {
+      const sdk = await this.#loadSdk();
+      const checkpoint = await within(sdk.loadCheckpoint(session.id, session.cwd));
+      const details = (
+        checkpoint as { tokenDetails?: { usedTokens?: unknown; maxTokens?: unknown } }
+      )?.tokenDetails;
+      const used = details?.usedTokens;
+      const max = details?.maxTokens;
+      // 没设的 protobuf 消息读出来是 0。
+      if (!isTokenCount(used) || !isTokenCount(max) || max === 0) return undefined;
+      return {
+        type: 'usage.updated',
+        engineSessionId: session.id,
+        contextUsed: used,
+        contextSize: max,
+      };
+    } catch (error) {
+      this.#options.logger?.warn('Cursor context usage unavailable', {
+        engineSessionId: session.id,
+        error: errorMessage(error),
+      });
+      return undefined;
+    }
+  }
+
+  /** 记下被取消的 run 的请求，下一条消息看它有没有被 Cursor 丢掉。 */
+  #remember(session: Session, turn: Turn, run: CursorRun): void {
+    if (turn.prompt === undefined || turn.prompt.trim() === '') return;
+    session.interrupted = { runId: run.id, text: turn.prompt };
+  }
+
+  /**
+   * 上一个被取消的 run 的请求，在它被 Cursor 丢掉时（run 没有自己的检查点：最近的检查点还是开始时那个，T3 0b308312d5）；
+   * 有检查点时它还在对话里，不带。读不到 run 记录时照带（宁可重复，不丢请求）。
+   */
+  async #droppedRequest(session: Session): Promise<string | undefined> {
+    const interrupted = session.interrupted;
+    if (interrupted === undefined) return undefined;
+    try {
+      const sdk = await this.#loadSdk();
+      const run = await within(sdk.getRun(session.id, interrupted.runId, session.cwd));
+      const latest = run?.latestCheckpointRef?.blobId;
+      if (latest !== undefined && latest !== run?.startCheckpointRef?.blobId) {
+        session.interrupted = undefined;
+        return undefined;
+      }
+    } catch (error) {
+      this.#options.logger?.warn(
+        'Cursor run record unavailable; resending the interrupted request',
+        {
+          engineSessionId: session.id,
+          error: errorMessage(error),
+        },
+      );
+    }
+    return interrupted.text;
+  }
+
+  /** 工作区 mcp.json 里要展开变量的服务（workspace-mcp.ts）；读不了时告警，交给 SDK 自己起。 */
+  async #workspaceMcpServers(session: Session): Promise<Record<string, McpServerConfig>> {
+    try {
+      return await within(
+        workspaceMcpServers(session.cwd, {
+          env: this.#options.env ?? process.env,
+          userHome: this.#options.userHome ?? homedir(),
+        }),
+      );
+    } catch (error) {
+      this.#options.logger?.warn('Cursor workspace MCP servers unresolved', {
+        engineSessionId: session.id,
+        error: errorMessage(error),
+      });
+      return {};
+    }
   }
 
   /**
@@ -871,15 +993,12 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     }
   }
 
-  /** 推理档位与快速模式换成 SDK 参数要模型列表：有缓存用缓存，没有且要用时读一次（失败就不带）。 */
+  /**
+   * 模型参数（推理档位、快速模式与其余参数的默认值）换成 SDK 参数要模型列表：有缓存用缓存，没有时除 Auto 外读一次（失败就不带）。
+   */
   async #catalog(apiKey: string, settings: SessionSettings): Promise<SDKModel[] | undefined> {
     const cached = this.accounts.cachedModels(apiKey);
-    if (
-      cached !== undefined ||
-      (settings.reasoningEffort === undefined && settings.fast !== true)
-    ) {
-      return cached;
-    }
+    if (cached !== undefined || settings.modelId === AUTO_MODEL_ID) return cached;
     return this.accounts.catalogModels(apiKey).catch(() => undefined);
   }
 
@@ -972,6 +1091,29 @@ function isResumeFailureAfterTurnEnded(
     result.status === 'error' &&
     result.error?.message === RESUME_NO_PROGRESS_MESSAGE
   );
+}
+
+function isTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** 最多等 `STORE_READ_TIMEOUT_MS`，超时抛错。 */
+async function within<T>(promise: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`timed out after ${STORE_READ_TIMEOUT_MS} ms`)),
+          STORE_READ_TIMEOUT_MS,
+        );
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function runErrorCategory(

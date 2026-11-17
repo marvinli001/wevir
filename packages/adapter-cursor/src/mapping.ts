@@ -5,7 +5,7 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 投影成自己的节点、消息与回合项；这里产出 Wevir 的增量、已提交消息、工具与待办事件，子 agent 只当工具，没完成的工具在取消或失败时按失败收尾。
 // 跟进 T3 656f3f4094（每段回答单独判断传输诊断）、be1d066732（记下回合是否已经结束）、8871c265a2（命令的退出码）与
-// d51bc58f5e（MCP 结果里的图片）。
+// d51bc58f5e（MCP 结果里的图片）；跟进 c165587702（一个 run 的用量是它所有 `turn-ended` 之和，Cursor 的 inputTokens 含缓存读写）。
 //
 // Cursor SDK 的流式更新（`send` 的 `onDelta`，`InteractionUpdate`）→ AgentEvent（docs/architecture/cursor-event-mapping.md §4）。
 // 一个回合（一个 run）一个映射器，按更新到达的顺序调用 `map`，回合结束时 `finish`。
@@ -51,6 +51,8 @@ const WORK_UPDATES: ReadonlySet<string> = new Set([
   'tool-call-started',
 ]);
 
+type TurnUsage = NonNullable<Extract<InteractionUpdate, { type: 'turn-ended' }>['usage']>;
+
 interface TextSegment {
   readonly attemptId: string;
   text: string;
@@ -81,8 +83,8 @@ export class CursorTurnMapper {
   readonly #reasoning: TextStream = { kind: 'reasoning', current: undefined, count: 0 };
   readonly #tools = new Map<string, OpenTool>();
   #finished = false;
-  /** 报过这个 run 的 `usage.recorded`（0.62.0）。 */
-  #recorded = false;
+  /** 这个 run 到目前为止各个 `turn-ended` 的用量之和（0.62.0）；回合结束时报一条 `usage.recorded`。 */
+  #usageTotal: TurnUsage | undefined;
 
   constructor(engineSessionId: string, runId: string) {
     this.engineSessionId = engineSessionId;
@@ -131,11 +133,8 @@ export class CursorTurnMapper {
       case 'step-completed':
         return [...this.#complete(this.#text), ...this.#complete(this.#reasoning)];
       case 'turn-ended':
-        return [
-          ...this.#complete(this.#text),
-          ...this.#complete(this.#reasoning),
-          ...this.#usage(update.usage),
-        ];
+        this.#addUsage(update.usage);
+        return [...this.#complete(this.#text), ...this.#complete(this.#reasoning)];
       case 'shell-output-delta':
         return this.#shellOutput(update.event);
       default:
@@ -153,22 +152,41 @@ export class CursorTurnMapper {
     }
   }
 
+  /** 加上一个 `turn-ended` 带的用量：一个 run 里 agent 结束后又接着干活会有好几个，每个只算它自己那一段（T3 c165587702）。 */
+  #addUsage(usage: TurnUsage | undefined): void {
+    if (usage === undefined) return;
+    const total = this.#usageTotal;
+    this.#usageTotal =
+      total === undefined
+        ? { ...usage }
+        : {
+            inputTokens: total.inputTokens + usage.inputTokens,
+            outputTokens: total.outputTokens + usage.outputTokens,
+            cacheReadTokens: total.cacheReadTokens + usage.cacheReadTokens,
+            cacheWriteTokens: total.cacheWriteTokens + usage.cacheWriteTokens,
+            ...((total.reasoningTokens !== undefined || usage.reasoningTokens !== undefined) && {
+              reasoningTokens: (total.reasoningTokens ?? 0) + (usage.reasoningTokens ?? 0),
+            }),
+          };
+  }
+
   /**
-   * `turn-ended` 带的这个 run 的用量（0.62.0，`usage.recorded`，每个回合一条，`requestId` 是 run ID）。SDK 的口径与事件相同：
-   * `inputTokens` 不含缓存的读写（它的 `totalTokens` 是四项之和），`reasoningTokens` 含在输出里。SDK 不报实际的模型，也只按
-   * 回合报：一个回合里有几次模型调用、中间跑了多久的工具都不知道，所以不报时长。
+   * 这个 run 的用量（0.62.0，`usage.recorded`，每个回合一条，`requestId` 是 run ID），回合结束时报。Cursor 的 `inputTokens` 已含缓存
+   * 的读写（SDK 自己的 `toTokenUsage` 把 `totalTokens` 算成输入加输出；T3 c165587702 的样例输入 31,961 里有 31,955 是缓存写入），
+   * 事件的口径不含，所以减掉；`reasoningTokens` 含在输出里。SDK 不报实际的模型，也只按回合报：一个回合里有几次模型调用、中间
+   * 跑了多久的工具都不知道，所以不报时长。
    */
-  #usage(usage: Extract<InteractionUpdate, { type: 'turn-ended' }>['usage']): UsageRecordedEvent[] {
-    if (usage === undefined || this.#recorded) return [];
+  #usage(): UsageRecordedEvent[] {
+    const usage = this.#usageTotal;
+    if (usage === undefined) return [];
     const count = (value: unknown) =>
       typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
-    const input = count(usage.inputTokens);
     const output = count(usage.outputTokens);
     const cacheRead = count(usage.cacheReadTokens);
     const cacheWrite = count(usage.cacheWriteTokens);
+    const input = Math.max(0, count(usage.inputTokens) - cacheRead - cacheWrite);
     const reasoning = Math.min(count(usage.reasoningTokens), output);
     if (input + output + cacheRead + cacheWrite === 0) return [];
-    this.#recorded = true;
     return [
       {
         type: 'usage.recorded',
@@ -203,12 +221,15 @@ export class CursorTurnMapper {
 
   /**
    * 回合结束：还在流的文字与思考按已提交消息补发（取消或出错时保留已经显示的输出）；`completed` 以外的结局里没完成的工具按
-   * 失败收尾（Host 在取消期间把它记为 cancelled），正常结束时留给 Host 记为 unknown（events.ts 的 ToolFinishedEvent）。之后的
-   * 更新一律忽略。
+   * 失败收尾（Host 在取消期间把它记为 cancelled），正常结束时留给 Host 记为 unknown（events.ts 的 ToolFinishedEvent）；有用量时
+   * 报这个 run 的合计。之后的更新一律忽略。
    */
   finish(outcome: 'completed' | 'cancelled' | 'failed'): AgentEvent[] {
     if (this.#finished) return [];
-    const events = [...this.#complete(this.#reasoning), ...this.#complete(this.#text)];
+    const events: AgentEvent[] = [
+      ...this.#complete(this.#reasoning),
+      ...this.#complete(this.#text),
+    ];
     if (outcome !== 'completed') {
       for (const [toolCallId, tool] of this.#tools) {
         events.push({
@@ -221,6 +242,7 @@ export class CursorTurnMapper {
       }
     }
     this.#tools.clear();
+    events.push(...this.#usage());
     this.#finished = true;
     return events;
   }

@@ -148,6 +148,8 @@ function loginAgainstMock(real: CursorSdk, base: string): CursorSdk {
     resumeAgent: (agentId, options) => fake.resumeAgent(agentId, options),
     listRuns: (agentId) => fake.listRuns(agentId),
     cancelRun: (runId) => fake.cancelRun(runId),
+    loadCheckpoint: (agentId, cwd) => fake.loadCheckpoint(agentId, cwd),
+    getRun: (agentId, runId) => fake.getRun(agentId, runId),
     me: (apiKey) => fake.me(apiKey),
     listModels: (apiKey) => fake.listModels(apiKey),
     login: (options) => real.login({ ...options, backendUrl: base, websiteUrl: base }),
