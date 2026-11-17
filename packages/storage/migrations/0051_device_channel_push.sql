@@ -1,0 +1,1 @@
+ALTER TABLE devices ADD COLUMN push_channel_enabled INTEGER NOT NULL DEFAULT 1;

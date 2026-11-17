@@ -2704,6 +2704,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': 'Stessa identità registrata altrove',
   'settings.devices.push': 'Push',
   'settings.devices.pushNeedsAction': 'Azione richiesta',
+  'settings.devices.pushChannel': 'Messaggi dell’assistente',
   'settings.devices.pushCompletion': 'Completamento',
   'settings.devices.pushUnreachable': 'Gateway push non raggiungibile',
   'settings.devices.pushRejected': 'Il gateway push ha rifiutato la richiesta',

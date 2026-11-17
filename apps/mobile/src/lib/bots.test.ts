@@ -1,16 +1,126 @@
 import { describe, expect, it } from 'vitest';
+import { setLocale } from '../i18n';
 import { approval, at, CHANNEL_A, channel, post, thread } from './bot-test-utils';
 import {
   approvalView,
+  type BotPost,
   botFromChannel,
   botPatch,
+  botPostQuote,
+  botProactivity,
+  botReplyCount,
+  botRoutineStatus,
+  botTimeLabel,
+  botTimelineRows,
   brainLimit,
   folderParts,
   groupPatch,
   postViews,
+  showsBotQuote,
   sortBots,
   timelineViews,
 } from './bots';
+
+describe('助理聊天', () => {
+  it('同作者不足五分钟成组，半小时或跨天分隔，卡片与不同说话者断组', () => {
+    const views = [0, 1, 6, 36].flatMap((minute, i) =>
+      postViews(post(CHANNEL_A, i + 1, { createdAt: at(minute) })),
+    );
+    expect(
+      botTimelineRows(views).map(({ first, last, separator }) => [first, last, separator]),
+    ).toEqual([
+      [true, false, true],
+      [false, true, false],
+      [true, true, false],
+      [true, true, true],
+    ]);
+    const midnight = [
+      postViews(
+        post(CHANNEL_A, 1, { createdAt: new Date(2026, 10, 16, 23, 59).toISOString() }),
+      )[0] as BotPost,
+      postViews(
+        post(CHANNEL_A, 2, { createdAt: new Date(2026, 10, 17, 0, 1).toISOString() }),
+      )[0] as BotPost,
+    ];
+    expect(botTimelineRows(midnight)[1]).toMatchObject({ first: true, separator: true });
+    const speaker = {
+      id: 'other',
+      name: 'Other',
+      avatar: { type: 'cloud' as const, color: 0, seed: 0 },
+    };
+    expect(
+      botTimelineRows([views[0] as BotPost, { ...(views[1] as BotPost), speaker }])[1]?.first,
+    ).toBe(true);
+  });
+
+  it('拆分帖子只显示一份引用与表情，并隐藏协调者默认的最近用户引用', () => {
+    const root = post(CHANNEL_A, 1, {
+      author: { kind: 'user' },
+      content: [{ type: 'text', text: '原话\n下一行' }],
+    });
+    const answer = post(CHANNEL_A, 2, {
+      replyTo: root.id,
+      replyCount: 3,
+      reactions: [{ emoji: '👀', by: 'user' }],
+      files: [{ name: 'a', path: 'a', size: 1 }],
+    });
+    const views = postViews(answer);
+    expect(views[0]).toMatchObject({
+      sourceId: answer.id,
+      seq: 2,
+      replyTo: root.id,
+      replyCount: 3,
+    });
+    expect(views[1]?.replyTo).toBeUndefined();
+    expect(botPostQuote(root)).toBe('原话');
+    expect(showsBotQuote(views[0] as BotPost, [root, answer])).toBe(false);
+    expect(showsBotQuote({ ...(views[0] as BotPost), sourceId: root.id }, [root, answer])).toBe(
+      true,
+    );
+  });
+
+  it('时间分隔使用今天、昨天与跨年日期', () => {
+    setLocale('en');
+    expect(botReplyCount(1)).toBe('1 reply');
+    expect(botReplyCount(2)).toBe('2 replies');
+    setLocale('ru');
+    expect(botReplyCount(2)).toBe('2 ответа');
+    expect(botReplyCount(21)).toBe('21 ответ');
+    expect(botReplyCount(12)).toBe('12 ответов');
+    setLocale('zh-CN');
+    const now = new Date(2026, 10, 17, 12);
+    expect(botTimeLabel(new Date(2026, 10, 17, 9, 30).toISOString(), now)).toMatch(/^今天 .*9:30$/);
+    expect(botTimeLabel(new Date(2026, 10, 16, 9, 30).toISOString(), now)).toMatch(/^昨天 /);
+    expect(botTimeLabel(new Date(2025, 10, 16).toISOString(), now)).toContain('2025');
+  });
+
+  it('近期活动按事务时区推出日程、暂停、跨天与跨年', () => {
+    setLocale('zh-CN');
+    const base = { enabled: true, timezone: 'Pacific/Auckland' };
+    const now = new Date('2026-11-16T23:00:00Z');
+    const status = (schedule: Parameters<typeof botRoutineStatus>[0]['schedule']) =>
+      botRoutineStatus({ ...base, schedule }, now);
+    expect(status({ kind: 'daily', time: '09:30' })).toBe('每天 9:30');
+    expect(status({ kind: 'daily', time: '09:30', weekdays: [5, 4, 3, 2, 1] })).toBe('工作日 9:30');
+    expect(status({ kind: 'daily', time: '09:30', weekdays: [1] })).toContain('周一');
+    expect(status({ kind: 'monthly', time: '09:30', day: 1 })).toBe('每月 1 日 9:30');
+    expect(status({ kind: 'interval', minutes: 60 })).toBe('监控中');
+    expect(status({ kind: 'once', at: '2026-11-17T03:00:00Z' })).toBe('今天 16:00');
+    expect(status({ kind: 'once', at: '2026-11-17T20:00:00Z' })).toBe('明天 9:00');
+    expect(status({ kind: 'once', at: '2027-01-01T03:00:00Z' })).toContain('2027');
+    expect(botRoutineStatus({ ...base, enabled: false, schedule: { kind: 'manual' } }, now)).toBe(
+      '已暂停',
+    );
+    expect(
+      botRoutineStatus(
+        { ...base, autoPausedAt: now.toISOString(), schedule: { kind: 'manual' } },
+        now,
+      ),
+    ).toBe('已暂停');
+    expect(botProactivity({ dailyWakes: 20, dailyTokens: 400_000 })).toBe('balanced');
+    expect(botProactivity({ dailyWakes: 21, dailyTokens: 400_000 })).toBeUndefined();
+  });
+});
 
 describe('bots', () => {
   it('频道换成列表行', () => {

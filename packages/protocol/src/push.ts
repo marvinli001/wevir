@@ -12,7 +12,7 @@ import {
   WorkspaceIdSchema,
 } from './common.js';
 import {
-  AGENT_NOTIFICATION_BODY_MAX_LENGTH,
+  NOTIFICATION_BODY_MAX_LENGTH,
   NOTIFICATION_TITLE_MAX_LENGTH,
   NotificationKindSchema,
 } from './notifications.js';
@@ -37,7 +37,7 @@ export const PushTokenSchema = z
 export const PUSH_VERIFY_CODE_BYTES = 16;
 export const PushVerifyCodeSchema = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
 
-/** 两路开关的类别：需要操作（审批、提问、失败，自动化等待或失败，agent 的提醒）与完成（回合完成、自动化完成）。 */
+/** 载荷的既有类别；助理消息的独立开关按 kind 判定，保留旧手机兼容。 */
 export const PushCategorySchema = z.enum(['action', 'completion']);
 export type PushCategory = z.infer<typeof PushCategorySchema>;
 
@@ -45,12 +45,13 @@ export type PushCategory = z.infer<typeof PushCategorySchema>;
 
 /**
  * Host 设置 `remote.push`：`enabled` 是总开关（关着时 Host 从不连网关，关掉时删掉全部令牌并向网关解绑）；`needsAction` 与
- * `completion`（0.112.0）是两路开关，省略按开。
+ * `completion`（0.112.0）与 `channel`（0.198.0）分别控制需要处理、完成与助理消息，省略按开。
  */
 export const RemotePushSettingsSchema = z.object({
   enabled: z.boolean(),
   needsAction: z.boolean().optional(),
   completion: z.boolean().optional(),
+  channel: z.boolean().optional(),
 });
 export type RemotePushSettings = z.infer<typeof RemotePushSettingsSchema>;
 
@@ -61,6 +62,7 @@ export type RemotePushSettings = z.infer<typeof RemotePushSettingsSchema>;
 export const DevicePushSchema = z.object({
   enabled: z.boolean(),
   registered: z.boolean(),
+  channel: z.boolean().optional(),
 });
 export type DevicePush = z.infer<typeof DevicePushSchema>;
 
@@ -92,12 +94,14 @@ export type RemotePushStatus = z.infer<typeof RemotePushStatusSchema>;
 export const PushStateSchema = z.object({
   enabled: z.boolean(),
   registered: z.boolean(),
+  channel: z.boolean().optional(),
   gatewayUrl: z.url({ protocol: /^https?$/ }),
   routeId: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 });
 export type PushState = z.infer<typeof PushStateSchema>;
 
 export const PushGetParamsSchema = z.object({});
+export const PushUpdateParamsSchema = z.object({ channel: z.boolean() });
 export const PushRegisterParamsSchema = z.object({
   platform: PushPlatformSchema,
   token: PushTokenSchema,
@@ -114,25 +118,36 @@ export const PushChangedParamsSchema = PushStateSchema;
 export const PUSH_MESSAGE_VERSION = 1;
 
 /**
- * 手机解密后看到的一条提醒（UTF-8 JSON）：只放显示与跳转要的最少字段，只有 agent 的提醒带正文。`host` 是电脑的名称，`id` 同通知意图的 ID
+ * 手机解密后看到的一条提醒（UTF-8 JSON）：只放显示与跳转要的最少字段，agent 与助理的提醒可带正文。`host` 是电脑的名称，`id` 同通知意图的 ID
  * （手机据此去重）。旧版手机认不出 `agent` 种类，显示通用的“需要处理”。
  */
-export const PushMessageSchema = z.looseObject({
-  v: z.literal(PUSH_MESSAGE_VERSION),
-  id: z.string().max(160),
-  kind: NotificationKindSchema,
-  category: PushCategorySchema,
-  title: z.string().max(NOTIFICATION_TITLE_MAX_LENGTH),
-  host: z.string().max(64),
-  sessionId: SessionIdSchema.optional(),
-  workspaceId: WorkspaceIdSchema.optional(),
-  automationId: AutomationIdSchema.optional(),
-  /** 0.121.0：助理的提醒点开去助理页。 */
-  channelId: ChannelIdSchema.optional(),
-  /** 0.142.0：只在 `agent`，agent 写的正文（打码），手机显示它而不是种类文案。 */
-  body: z.string().max(AGENT_NOTIFICATION_BODY_MAX_LENGTH).optional(),
-  createdAt: IsoTimeSchema,
-});
+export const PushMessageSchema = z
+  .looseObject({
+    v: z.literal(PUSH_MESSAGE_VERSION),
+    id: z.string().max(160),
+    kind: NotificationKindSchema,
+    category: PushCategorySchema,
+    title: z.string().max(NOTIFICATION_TITLE_MAX_LENGTH),
+    host: z.string().max(64),
+    sessionId: SessionIdSchema.optional(),
+    workspaceId: WorkspaceIdSchema.optional(),
+    automationId: AutomationIdSchema.optional(),
+    /** 0.121.0：助理的提醒点开去助理页。 */
+    channelId: ChannelIdSchema.optional(),
+    /** 0.198.0：助理通知定位的帖子序号。 */
+    seq: z.int().min(1).optional(),
+    /** 0.142.0：agent 的正文或助理帖子的首行（打码）；助理最多 120 个码点。 */
+    body: z.string().max(NOTIFICATION_BODY_MAX_LENGTH).optional(),
+    createdAt: IsoTimeSchema,
+  })
+  .refine(
+    (message) =>
+      message.body === undefined ||
+      (message.kind === 'channel'
+        ? Array.from(message.body).length <= 120
+        : message.body.length <= 200),
+    { path: ['body'], message: 'Push preview is too long' },
+  );
 export type PushMessage = z.infer<typeof PushMessageSchema>;
 
 // ── 推送网关的线缆 ─────────────────────────────────────────────────

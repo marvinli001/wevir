@@ -120,6 +120,11 @@ export class FakeChannels {
   readonly client: ChannelClient = {
     canCreate: false,
     canEdit: false,
+    canWrite: true,
+    chat: false,
+    panel: false,
+    canPause: false,
+    onAutomationsChanged: () => () => {},
     canReadProviders: false,
     composer: false,
     speech: false,
@@ -189,9 +194,26 @@ export class FakeChannels {
         const item = post(channelId as Channel['id'], (posts.at(-1)?.seq ?? 0) + 1, {
           author: { kind: 'user' },
           content: params.content as ChannelPost['content'],
+          ...(typeof params.replyTo === 'string' && {
+            replyTo: params.replyTo as ChannelPost['id'],
+          }),
         });
         this.add(item);
         return { post: item };
+      }
+      case 'channel.react': {
+        const item = posts.find((p) => p.id === params.postId) as ChannelPost;
+        return {
+          post: {
+            ...item,
+            reactions: params.emoji === null ? [] : [{ emoji: params.emoji, by: 'user' }],
+          },
+        };
+      }
+      case 'channel.pause': {
+        const item = { ...find(), state: params.paused ? 'paused' : 'idle' };
+        this.channels = this.channels.map((c) => (c.id === channelId ? (item as Channel) : c));
+        return { channel: item };
       }
       case 'channel.respondSuggestion': {
         const item = posts.find((p) => p.id === params.postId) as ChannelPost;

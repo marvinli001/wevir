@@ -5,10 +5,13 @@
 // 输入栏（0.135.0，Host 有 `channel_composer` 时）同会话页：前面一枚加照片的按钮，协调者（群里是成员）在回、输入栏空着时尾部是停止。
 // Host 有 `speech` 时能听写。帖子里的图片按需读进缓存（lib/image-cache.ts）。
 
-import type { UserImagePart } from '@wevir/protocol';
-import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { ClientClosedError, ConnectionLostError } from '@wevir/client-sdk';
+import type { ChannelPost, UserImagePart } from '@wevir/protocol';
+import * as Clipboard from 'expo-clipboard';
+import { Stack, useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActionSheetIOS,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -23,12 +26,25 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BotAvatar } from '../../components/bot-avatar';
-import { PostView } from '../../components/bot-cards';
+import { ChatPost, PostView, TypingBubble } from '../../components/bot-cards';
 import { botPose, botStateColor, GroupAvatar } from '../../components/bot-row';
 import { Composer } from '../../components/composer';
 import { HeaderButton } from '../../components/header-button';
+import { useActionSheet } from '../../components/sheets';
+import { Icon } from '../../components/ui';
 import { joinNames, locale, type MessageKey, t } from '../../i18n';
-import { type Bot, type BotPost, type Decision, timelineViews } from '../../lib/bots';
+import {
+  BOT_REACTIONS,
+  type Bot,
+  type BotPost,
+  type BotTimelineRow,
+  botPostQuote,
+  botTimeLabel,
+  botTimelineRows,
+  type Decision,
+  showsBotQuote,
+  timelineViews,
+} from '../../lib/bots';
 import { cachedImage } from '../../lib/image-cache';
 import { keyboardOverlap } from '../../lib/keyboard';
 import { sendErrorKey } from '../../lib/session-actions';
@@ -36,6 +52,7 @@ import { useBot, useBotAccess, useBotProjects, useBotStore, useTimeline } from '
 import { useMinuteClock } from '../../state/clock';
 import { acknowledgeDraft, loadDraft } from '../../state/drafts';
 import { usePhotoAttachments } from '../../state/photo-attachments';
+import { useReducedMotion } from '../../state/reduced-motion';
 import { useComputer } from '../../state/registry';
 import { SPACE, TEXT, useTheme } from '../../theme';
 
@@ -46,15 +63,20 @@ const GAP_MS = 30 * 60_000;
 const LARGE_TITLE = 100;
 
 export default function BotScreen() {
-  const { key } = useLocalSearchParams<{ key: string }>();
+  const { key, seq } = useLocalSearchParams<{ key: string; seq?: string }>();
   const bot = useBot(key);
   if (bot === undefined) return null;
-  return <BotChat bot={bot} />;
+  return (
+    <BotChat
+      bot={bot}
+      targetSeq={seq !== undefined && /^[1-9]\d*$/.test(seq) ? Number(seq) : undefined}
+    />
+  );
 }
 
 type Item =
   | { kind: 'time'; key: string; at: string }
-  | { kind: 'post'; key: string; post: BotPost };
+  | ({ kind: 'post'; key: string } & BotTimelineRow);
 
 function items(posts: readonly BotPost[]): Item[] {
   const out: Item[] = [];
@@ -64,7 +86,7 @@ function items(posts: readonly BotPost[]): Item[] {
     if (at - previous >= GAP_MS)
       out.push({ kind: 'time', key: `t:${post.id}`, at: post.createdAt });
     previous = at;
-    out.push({ kind: 'post', key: post.id, post });
+    out.push({ kind: 'post', key: post.id, post, first: true, last: true, separator: false });
   }
   return out;
 }
@@ -89,7 +111,7 @@ function scrollToEnd(list: FlatList<Item> | null, animated: boolean) {
   scroll?.scrollToEnd({ animated });
 }
 
-function BotChat({ bot }: { bot: Bot }) {
+function BotChat({ bot, targetSeq }: { bot: Bot; targetSeq: number | undefined }) {
   const computer = useComputer(bot.computer);
   const theme = useTheme();
   const router = useRouter();
@@ -109,6 +131,20 @@ function BotChat({ bot }: { bot: Bot }) {
       .catch((reason: unknown) => console.warn('[wevir] draft reconciliation', reason));
   }, [draftKey, timeline.posts]);
   const now = useMinuteClock();
+  const reducedMotion = useReducedMotion();
+  const [focused, setFocused] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
+  const [reply, setReply] = useState<ChannelPost>();
+  const [scrollTarget, setScrollTarget] = useState<string>();
+  const [highlighted, setHighlighted] = useState<string>();
+  const [actionSheet, showActions] = useActionSheet();
+  const locatedSeq = useRef<number | undefined>(undefined);
+  const scrollRetry = useRef<ReturnType<typeof setTimeout>>(undefined);
   const insets = useSafeAreaInsets();
   const list = useRef<FlatList<Item>>(null);
   const [composerHeight, setComposerHeight] = useState(64);
@@ -138,8 +174,8 @@ function BotChat({ bot }: { bot: Bot }) {
   // 停在对话里时新来的消息算已读。
   const lastSeq = timeline.posts.at(-1)?.seq;
   useEffect(() => {
-    if (lastSeq !== undefined) void store.markRead(bot.key).catch(() => {});
-  }, [store, bot.key, lastSeq]);
+    if (focused && lastSeq !== undefined) void store.markRead(bot.key).catch(() => {});
+  }, [store, bot.key, lastSeq, focused]);
 
   useEffect(() => {
     const show = Keyboard.addListener(
@@ -194,13 +230,17 @@ function BotChat({ bot }: { bot: Bot }) {
   // 线程是那台电脑上的一个会话。
   const openThread = useCallback(
     (sessionId: string) => {
-      router.push({ pathname: '/session/[key]', params: { key: `${bot.computer}/${sessionId}` } });
+      router.push({
+        pathname: '/session/[key]',
+        params: { key: `${bot.computer}/${sessionId}`, botKey: bot.key },
+      });
     },
-    [router, bot.computer],
+    [router, bot.computer, bot.key],
   );
 
   const group = bot.kind === 'group';
   const access = useBotAccess(bot.key);
+  const chat = access.chat && !group;
   const [error, setError] = useState<MessageKey>();
   // Android 的系统相册与相机是另一个 Activity：选照片时 App 进了后台、连接断开，等这台电脑重新连上（最多 15 秒）再传。
   const upload = async (mimeType: Parameters<typeof store.uploadImage>[1], data: string) => {
@@ -221,16 +261,24 @@ function BotChat({ bot }: { bot: Bot }) {
       pinned.current = true;
       setError(undefined);
       try {
-        await store.send(bot.key, text, mentions, photos.images, clientMessageId);
+        await store.send(
+          bot.key,
+          text,
+          mentions,
+          photos.images,
+          clientMessageId,
+          chat ? reply?.id : undefined,
+        );
       } catch (e) {
         // 电脑不在线时 store 直接抛错：说出来，输入栏把字放回去。
         setError(store.access(bot.key).online ? sendErrorKey(e) : 'newSession.offline');
         throw e;
       }
       setMentions([]);
+      setReply(undefined);
       photos.clear();
     },
-    [store, bot.key, mentions, photos],
+    [store, bot.key, mentions, photos, reply, chat],
   );
   const stop = useCallback(() => store.stop(bot.key), [store, bot.key]);
   const speech = useMemo(() => store.speech(bot.key), [store, bot.key]);
@@ -247,22 +295,177 @@ function BotChat({ bot }: { bot: Bot }) {
   };
 
   // 帖子里说话的助理按同一台电脑上的列表找；列表变了 bot 也会换，跟着重算。
-  const data = useMemo(
-    () => items(timelineViews(timeline, store.directory(bot.key), projects)),
-    [timeline, store, bot, projects],
+  const data = useMemo(() => {
+    const posts = timelineViews(timeline, store.directory(bot.key), projects);
+    if (!chat) return items(posts);
+    return botTimelineRows(posts).flatMap((row): Item[] => [
+      ...(row.separator
+        ? [{ kind: 'time' as const, key: `t:${row.post.id}`, at: row.post.createdAt }]
+        : []),
+      { kind: 'post', key: row.post.id, ...row },
+    ]);
+  }, [timeline, store, bot, projects, chat]);
+  const jump = useCallback(
+    async (postId: string) => {
+      pinned.current = false;
+      setScrollTarget(postId);
+      try {
+        await store.findPost(bot.key, postId);
+      } catch {
+        setError('bot.locateFailed');
+      }
+    },
+    [store, bot.key],
   );
+
+  useEffect(() => {
+    if (
+      targetSeq === undefined ||
+      !access.online ||
+      locatedSeq.current === targetSeq ||
+      timeline.loading ||
+      timeline.loadingOlder
+    )
+      return;
+    pinned.current = false;
+    const target = timeline.posts.find((post) => post.seq === targetSeq);
+    if (target !== undefined) {
+      locatedSeq.current = targetSeq;
+      setScrollTarget(target.id);
+      return;
+    }
+    const connectionVersion = access.connectionVersion;
+    void store.loadThrough(bot.key, targetSeq).catch((error: unknown) => {
+      if (store.access(bot.key).connectionVersion !== connectionVersion) return;
+      if (error instanceof ConnectionLostError || error instanceof ClientClosedError) return;
+      console.warn('[wevir] could not locate bot post', error);
+      setError('bot.locateFailed');
+    });
+  }, [
+    store,
+    bot.key,
+    targetSeq,
+    access.online,
+    access.connectionVersion,
+    timeline.loading,
+    timeline.loadingOlder,
+    timeline.posts,
+  ]);
+
+  useEffect(() => {
+    if (scrollTarget === undefined || !access.online || timeline.loading || timeline.loadingOlder)
+      return;
+    const index = data.findIndex(
+      (item) => item.kind === 'post' && item.post.sourceId === scrollTarget,
+    );
+    if (index < 0) {
+      if (timeline.hasMore) {
+        const connectionVersion = access.connectionVersion;
+        void store.findPost(bot.key, scrollTarget).catch((error: unknown) => {
+          if (
+            store.access(bot.key).connectionVersion !== connectionVersion ||
+            error instanceof ConnectionLostError ||
+            error instanceof ClientClosedError
+          )
+            return;
+          setError('bot.locateFailed');
+        });
+      } else {
+        setError('bot.locateFailed');
+        setScrollTarget(undefined);
+      }
+      return;
+    }
+    pinned.current = false;
+    setError(undefined);
+    setHighlighted(scrollTarget);
+    list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: !reducedMotion });
+    setScrollTarget(undefined);
+  }, [
+    data,
+    scrollTarget,
+    timeline.loading,
+    timeline.loadingOlder,
+    timeline.hasMore,
+    reducedMotion,
+    store,
+    bot.key,
+    access.online,
+    access.connectionVersion,
+  ]);
+
+  useEffect(() => {
+    if (highlighted === undefined) return;
+    const timer = setTimeout(() => setHighlighted(undefined), 1800);
+    return () => clearTimeout(timer);
+  }, [highlighted]);
+  useEffect(() => () => clearTimeout(scrollRetry.current), []);
+
+  const react = async (post: BotPost, emoji: string) => {
+    if (!access.canWrite) return;
+    try {
+      await store.react(
+        bot.key,
+        post.sourceId ?? post.id,
+        timeline.posts
+          .find((p) => p.id === (post.sourceId ?? post.id))
+          ?.reactions?.some((r) => r.by === 'user' && r.emoji === emoji)
+          ? null
+          : emoji,
+      );
+    } catch {
+      setError('bot.actionFailed');
+    }
+  };
+  const menu = (post: BotPost) => {
+    const source = timeline.posts.find((p) => p.id === post.sourceId);
+    if (source === undefined) return;
+    const actions = [
+      ...(access.canWrite
+        ? [
+            { label: t('bot.reply'), onPress: () => setReply(source) },
+            ...BOT_REACTIONS.map((emoji) => ({
+              label: emoji,
+              onPress: () => void react(post, emoji),
+            })),
+          ]
+        : []),
+      {
+        label: t('bot.copy'),
+        onPress: () => {
+          void Clipboard.setStringAsync(
+            source.content.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('\n'),
+          ).catch(() => setError('bot.actionFailed'));
+        },
+      },
+    ];
+    if (Platform.OS === 'ios')
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...actions.map((action) => action.label), t('add.cancel')],
+          cancelButtonIndex: actions.length,
+          userInterfaceStyle: theme.dark ? 'dark' : 'light',
+        },
+        (index) => actions[index]?.onPress(),
+      );
+    else showActions(actions);
+  };
   const stateColor = botStateColor(theme, bot.state);
   const bottom = keyboard > 0 ? 8 : Math.max(insets.bottom, 8);
 
   return (
     <>
+      {actionSheet}
       <Stack.Screen options={{ title: bot.name }} />
       <HeaderButton
         sf="slider.horizontal.3"
         md="tune"
-        label={t(group ? 'group.edit' : 'editBot.title')}
+        label={t(group ? 'group.edit' : access.panel ? 'bot.profile' : 'editBot.title')}
         onPress={() =>
-          router.push({ pathname: group ? '/edit-group' : '/edit-bot', params: { key: bot.key } })
+          router.push({
+            pathname: group ? '/edit-group' : access.panel ? '/bot-profile' : '/edit-bot',
+            params: { key: bot.key },
+          })
         }
       />
       <KeyboardAvoidingView
@@ -275,6 +478,14 @@ function BotChat({ bot }: { bot: Bot }) {
             ref={list}
             data={data}
             keyExtractor={(item) => item.key}
+            onScrollToIndexFailed={({ index, averageItemLength }) => {
+              list.current?.scrollToOffset({ offset: averageItemLength * index, animated: false });
+              clearTimeout(scrollRetry.current);
+              scrollRetry.current = setTimeout(
+                () => list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false }),
+                120,
+              );
+            }}
             contentInsetAdjustmentBehavior="automatic"
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
@@ -287,6 +498,12 @@ function BotChat({ bot }: { bot: Bot }) {
             onContentSizeChange={(_, height) => {
               content.current = height;
               if (!pinned.current || timeline.loading || data.length === 0) return;
+              if (
+                scrollTarget !== undefined ||
+                highlighted !== undefined ||
+                (targetSeq !== undefined && !settled.current)
+              )
+                return;
               follow(settled.current);
               settled.current = true;
             }}
@@ -333,7 +550,11 @@ function BotChat({ bot }: { bot: Bot }) {
               </View>
             }
             ListFooterComponent={
-              bot.state === 'working' ? (
+              chat ? (
+                bot.answering ? (
+                  <TypingBubble bot={bot} />
+                ) : undefined
+              ) : bot.state === 'working' ? (
                 <View style={styles.working}>
                   <BotAvatar avatar={bot.avatar} size={22} pose="working" />
                   <Text style={[styles.meta, { color: theme.mutedForeground }]}>
@@ -345,11 +566,34 @@ function BotChat({ bot }: { bot: Bot }) {
             renderItem={({ item }) =>
               item.kind === 'time' ? (
                 <Text style={[styles.time, { color: theme.mutedForeground }]}>
-                  {clock(item.at, now)}
+                  {chat ? botTimeLabel(item.at, now) : clock(item.at, now)}
                 </Text>
+              ) : chat &&
+                item.post.author !== 'host' &&
+                ['text', 'images'].includes(item.post.card.kind) ? (
+                <ChatPost
+                  row={item}
+                  bot={bot}
+                  onLoadImage={loadImage}
+                  highlighted={highlighted === item.post.sourceId}
+                  {...(showsBotQuote(item.post, timeline.posts) && {
+                    quote:
+                      botPostQuote(
+                        timeline.posts.find((p) => p.id === item.post.replyTo) ?? { content: [] },
+                      ) || t('bot.earlierMessage'),
+                  })}
+                  onQuote={() => item.post.replyTo !== undefined && void jump(item.post.replyTo)}
+                  onLongPress={() => menu(item.post)}
+                  onReact={(emoji) => void react(item.post, emoji)}
+                  onReplies={() => {
+                    const first = timeline.posts.find((p) => p.replyTo === item.post.sourceId);
+                    if (first) void jump(first.id);
+                  }}
+                />
               ) : (
                 <View style={styles.post}>
                   <PostView
+                    compactThread={chat}
                     post={item.post}
                     now={now}
                     onDecide={decide}
@@ -408,6 +652,30 @@ function BotChat({ bot }: { bot: Bot }) {
                 })}
               </ScrollView>
             )}
+            {chat && reply !== undefined && (
+              <View
+                style={[styles.quote, { backgroundColor: theme.card, borderColor: theme.border }]}
+              >
+                <Text
+                  style={[styles.quoteText, { color: theme.mutedForeground }]}
+                  numberOfLines={1}
+                >
+                  {botPostQuote(reply) || t('bot.image')}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('add.cancel')}
+                  onPress={() => setReply(undefined)}
+                  hitSlop={10}
+                >
+                  <Icon
+                    name={{ ios: 'xmark', android: 'close' }}
+                    size={16}
+                    color={theme.mutedForeground}
+                  />
+                </Pressable>
+              </View>
+            )}
             {error !== undefined && (
               <Text style={[styles.error, { color: theme.destructive }]} testID="bot-error">
                 {t(error)}
@@ -416,7 +684,7 @@ function BotChat({ bot }: { bot: Bot }) {
             <Composer
               key={computer?.record.routeId ?? bot.key}
               draftKey={`${computer?.record.routeId ?? 'unassigned'}/bot:${bot.id}`}
-              canSend={access.online}
+              canSend={access.online && access.canWrite}
               onSend={send}
               {...(group && { placeholder: t('bot.groupPlaceholder', { name: bot.name }) })}
               {...(access.composer && {
@@ -475,5 +743,15 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   memberName: { fontSize: TEXT.small, fontWeight: '500' },
+  quote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 12,
+    marginBottom: 6,
+  },
+  quoteText: { flex: 1, fontSize: TEXT.small },
   error: { fontSize: TEXT.small, textAlign: 'center', paddingBottom: 6 },
 });

@@ -2656,6 +2656,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': '同じ ID が別の場所で登録済み',
   'settings.devices.push': 'プッシュ',
   'settings.devices.pushNeedsAction': '要対応',
+  'settings.devices.pushChannel': 'アシスタントのメッセージ',
   'settings.devices.pushCompletion': '完了',
   'settings.devices.pushUnreachable': 'プッシュゲートウェイに接続できません',
   'settings.devices.pushRejected': 'プッシュゲートウェイが要求を拒否',

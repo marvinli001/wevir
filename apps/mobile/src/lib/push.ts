@@ -98,6 +98,7 @@ export type PushFailure =
 /** 一台电脑的推送接口（经隧道），`WevirClient` 里用到的部分。 */
 export interface PushLinkClient {
   get(): Promise<PushState>;
+  update?(params: { channel: boolean }): Promise<PushState>;
   register(params: { platform: PushPlatform; token: string; code: string }): Promise<PushState>;
   unregister(): Promise<PushState>;
   /** `push.changed`；重连之后以 `undefined` 调一次。 */
@@ -436,6 +437,7 @@ export interface PushTarget {
   computer: string;
   sessionId?: string;
   channelId?: string;
+  seq?: number;
 }
 
 export function pushTarget(computer: PushComputer, message: PushMessage): PushTarget {
@@ -443,6 +445,7 @@ export function pushTarget(computer: PushComputer, message: PushMessage): PushTa
     computer: computer.name,
     ...(message.sessionId !== undefined && { sessionId: message.sessionId }),
     ...(message.channelId !== undefined && { channelId: message.channelId }),
+    ...(message.seq !== undefined && { seq: message.seq }),
   };
 }
 
@@ -451,21 +454,24 @@ export function readPushTarget(data: unknown): PushTarget | undefined {
   if (typeof data !== 'object' || data === null) return undefined;
   const value = (data as Record<string, unknown>)[PUSH_TARGET_KEY];
   if (typeof value !== 'object' || value === null) return undefined;
-  const { computer, sessionId, channelId } = value as Record<string, unknown>;
+  const { computer, sessionId, channelId, seq } = value as Record<string, unknown>;
   if (typeof computer !== 'string' || computer === '') return undefined;
   if (sessionId !== undefined && typeof sessionId !== 'string') return undefined;
   if (channelId !== undefined && typeof channelId !== 'string') return undefined;
+  if (seq !== undefined && (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 1))
+    return undefined;
   return {
     computer,
     ...(sessionId !== undefined && { sessionId }),
     ...(channelId !== undefined && { channelId }),
+    ...(typeof seq === 'number' && { seq }),
   };
 }
 
 /** 跳转信息转成 `notificationTarget` 要的形状。 */
 export function targetIntent(
   target: PushTarget,
-): Pick<NotificationIntent, 'sessionId' | 'channelId'> {
+): Pick<NotificationIntent, 'sessionId' | 'channelId' | 'seq'> {
   return {
     ...(target.sessionId !== undefined && {
       sessionId: target.sessionId as NotificationIntent['sessionId'],
@@ -473,5 +479,6 @@ export function targetIntent(
     ...(target.channelId !== undefined && {
       channelId: target.channelId as NotificationIntent['channelId'],
     }),
+    ...(target.seq !== undefined && { seq: target.seq }),
   };
 }

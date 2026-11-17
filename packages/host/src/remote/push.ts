@@ -28,6 +28,7 @@ import {
   type RemoteSettings,
 } from '@wevir/protocol';
 import { HostError } from '../errors.js';
+import { redactSecrets } from '../secret-patterns.js';
 import type { DeviceService, StoredPushToken } from './devices.js';
 import type { RemoteIdentity } from './identity.js';
 
@@ -153,8 +154,8 @@ function errorMessage(error: unknown): string {
 
 // ── 推送判定 ───────────────────────────────────────────────────────
 
-/** 意图属于哪一路开关：需要操作（审批、提问、失败，自动化等待或失败），或完成（回合完成、自动化完成）。 */
-export function pushCategory(intent: NotificationIntent): PushCategory {
+/** 意图属于哪一路开关：需要操作（审批、提问、失败，自动化等待或失败），完成（回合完成、自动化完成），或助理消息。 */
+export function pushCategory(intent: NotificationIntent): PushCategory | 'channel' {
   switch (intent.kind) {
     case 'approval':
     case 'question':
@@ -164,9 +165,9 @@ export function pushCategory(intent: NotificationIntent): PushCategory {
       return 'completion';
     case 'automation':
       return intent.automationStatus === 'completed' ? 'completion' : 'action';
-    // 助理在时间线上说话（0.121.0）：同回合完成；预算用完、回合失败的说明也归这一路。
+    // 助理时间线的消息独立于回合完成。
     case 'channel':
-      return 'completion';
+      return 'channel';
     // agent 的提醒（0.142.0）：要用户处理或想知道的事。
     case 'agent':
       return 'action';
@@ -286,6 +287,7 @@ export class PushService {
     return {
       enabled: this.#enabledFor(deviceId),
       registered: device?.status === 'active' && device.push?.registered === true,
+      ...(device?.push?.channel === false && { channel: false }),
       gatewayUrl: this.#options.gateway.url,
       routeId: keys.routeId,
     };
@@ -330,6 +332,10 @@ export class PushService {
   async unregister(deviceId: DeviceId): Promise<PushState> {
     await this.#forget(deviceId);
     return this.stateFor(deviceId);
+  }
+
+  setChannelEnabled(deviceId: DeviceId, enabled: boolean): void {
+    this.#options.devices.setPushChannelEnabled(deviceId, enabled);
   }
 
   /** 桌面改这台设备的推送开关（`device.update` 与 `pairing.respond` 的 `push`）。关掉时删掉令牌并解绑。 */
@@ -390,7 +396,7 @@ export class PushService {
 
   #key(deviceId: DeviceId): string {
     const device = this.#options.devices.get(deviceId);
-    return `${this.#enabledFor(deviceId)} ${device?.push?.registered === true}`;
+    return `${this.#enabledFor(deviceId)} ${device?.push?.registered === true} ${device?.push?.channel !== false}`;
   }
 
   #devicesChanged(): void {
@@ -430,6 +436,7 @@ export class PushService {
     const category = pushCategory(intent);
     if (category === 'action' && settings.push.needsAction === false) return 'off';
     if (category === 'completion' && settings.push.completion === false) return 'off';
+    if (category === 'channel' && settings.push.channel === false) return 'off';
     const devices = this.#options.devices
       .list()
       .filter(
@@ -437,6 +444,7 @@ export class PushService {
           device.status === 'active' &&
           device.push?.enabled === true &&
           device.push.registered === true &&
+          (category !== 'channel' || device.push.channel !== false) &&
           device.permissions.includes('session.read'),
       );
     if (devices.length === 0) return 'no_device';
@@ -485,6 +493,8 @@ export class PushService {
   }
 
   #dispatch(deviceId: DeviceId, intent: NotificationIntent): void {
+    const targets = this.#targets(intent);
+    if (!Array.isArray(targets) || !targets.includes(deviceId)) return;
     const now = this.#now();
     const sent = (this.#sent.get(deviceId) ?? []).filter((at) => now - at < 60 * 60_000);
     if (sent.length >= this.#maxPerHour) {
@@ -513,15 +523,23 @@ export class PushService {
       v: PUSH_MESSAGE_VERSION,
       id: intent.id,
       kind: intent.kind,
-      category: pushCategory(intent),
+      // Older phones accept only action/completion; preference routing uses kind above.
+      category: intent.kind === 'channel' ? 'completion' : (pushCategory(intent) as PushCategory),
       title: intent.title,
       host: this.#options.hostName.slice(0, 64),
       ...(intent.sessionId !== undefined && { sessionId: intent.sessionId }),
       ...(intent.workspaceId !== undefined && { workspaceId: intent.workspaceId }),
       ...(intent.automationId !== undefined && { automationId: intent.automationId }),
       ...(intent.channelId !== undefined && { channelId: intent.channelId }),
-      // 只有 agent 的提醒（0.142.0）带正文：它就是 agent 要说的话，别的种类的正文不上手机。
+      ...(intent.kind === 'channel' && intent.seq !== undefined && { seq: intent.seq }),
+      // agent 与助理消息的正文只进入加密载荷。
       ...(intent.kind === 'agent' && intent.body !== '' && { body: intent.body }),
+      ...(intent.kind === 'channel' &&
+        intent.body !== '' && {
+          body: Array.from(redactSecrets(intent.body.split(/\r?\n/, 1)[0] ?? '').text)
+            .slice(0, 120)
+            .join(''),
+        }),
       createdAt: intent.createdAt,
     };
     const now = this.#now();

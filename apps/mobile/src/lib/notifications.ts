@@ -6,16 +6,22 @@ import type { NotificationIntent } from '@wevir/protocol';
 import { botKey } from './bots';
 
 export type NotificationTarget =
-  | { pathname: '/bot/[key]'; params: { key: string } }
+  | { pathname: '/bot/[key]'; params: { key: string; seq?: string } }
   | { pathname: '/session/[key]'; params: { key: string } }
   | { pathname: '/computer/[name]'; params: { name: string } };
 
 export function notificationTarget(
   computer: string,
-  intent: Pick<NotificationIntent, 'channelId' | 'sessionId'>,
+  intent: Pick<NotificationIntent, 'channelId' | 'sessionId' | 'seq'>,
 ): NotificationTarget {
   if (intent.channelId !== undefined)
-    return { pathname: '/bot/[key]', params: { key: botKey(computer, intent.channelId) } };
+    return {
+      pathname: '/bot/[key]',
+      params: {
+        key: botKey(computer, intent.channelId),
+        ...(intent.seq !== undefined && { seq: String(intent.seq) }),
+      },
+    };
   if (intent.sessionId !== undefined)
     return { pathname: '/session/[key]', params: { key: botKey(computer, intent.sessionId) } };
   return { pathname: '/computer/[name]', params: { name: computer } };

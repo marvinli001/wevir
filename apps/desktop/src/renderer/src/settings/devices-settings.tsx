@@ -84,6 +84,7 @@ export function DevicesSettings() {
   const remote = remoteOf(settings);
   const listenerSupported = supported && hostSupports(view.hello.features, 'remote_listener');
   const pushSupported = supported && hostSupports(view.hello.features, 'remote_push');
+  const channelPushSupported = supported && hostSupports(view.hello.features, 'channel_push');
   const webSupported = supported && hostSupports(view.hello.features, 'remote_web');
   const [devices, setDevices] = useState<Device[]>();
   const [status, setStatus] = useState<RemoteStatus>();
@@ -345,6 +346,21 @@ export function DevicesSettings() {
                   }
                 />
               ))}
+            {remote.push.enabled && channelPushSupported && (
+              <SettingsRow
+                title={t('settings.devices.pushChannel')}
+                control={
+                  <Switch
+                    label={t('settings.devices.pushChannel')}
+                    checked={remote.push.channel !== false}
+                    disabled={saving}
+                    onChange={(channel) =>
+                      void saveRemote({ ...remote, push: { ...remote.push, channel } })
+                    }
+                  />
+                }
+              />
+            )}
           </div>
         </SettingsSection>
       )}

@@ -2165,6 +2165,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         channel_composer: true,
         channel_chat: true,
         channel_panel: true,
+        channel_pause: true,
+        channel_push: true,
       },
       engineFeatures,
       plugins,

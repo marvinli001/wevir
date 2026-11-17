@@ -1,0 +1,100 @@
+{
+  "protocolVersion": "0.198.0",
+  "methods": {
+    "channel.pause": {
+      "params": [
+        {
+          "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "paused": true
+        }
+      ],
+      "result": [
+        {
+          "channel": {
+            "id": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "kind": "assistant",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "title": "收件箱",
+            "assistant": {
+              "description": "每天整理邮件，挑出要回的",
+              "avatar": {
+                "type": "clover",
+                "color": 2,
+                "seed": 0.42
+              },
+              "rules": {
+                "messages": "ask",
+                "local_files": "tell"
+              },
+              "folders": []
+            },
+            "coordinator": {
+              "providerId": "openai",
+              "modelId": "gpt-5.5-mini",
+              "mode": "act",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR7",
+              "generation": 1
+            },
+            "budget": {
+              "dailyWakes": 20,
+              "dailyTokens": 400000
+            },
+            "usage": {
+              "day": "2026-11-17",
+              "wakes": 20,
+              "tokens": 41200
+            },
+            "state": "paused",
+            "pendingCount": 1,
+            "lastPostSeq": 4,
+            "lastPost": {
+              "seq": 4,
+              "author": "coordinator",
+              "preview": "两封要回，草稿已备好。",
+              "at": "2026-10-12T08:00:05.250Z"
+            },
+            "unreadCount": 2,
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-11-17T02:00:00.000Z",
+            "lastActiveAt": "2026-11-17T01:00:00.000Z",
+            "proactiveLimited": true,
+            "pausedAt": "2026-11-17T02:00:00.000Z",
+            "pauseReason": "user"
+          }
+        }
+      ]
+    },
+    "push.update": {
+      "params": [
+        {
+          "channel": false
+        }
+      ],
+      "result": [
+        {
+          "enabled": true,
+          "registered": true,
+          "channel": false,
+          "gatewayUrl": "https://push.wevir.si",
+          "routeId": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ]
+    }
+  },
+  "notifications": {
+    "notification.intent": [
+      {
+        "id": "channel:cpo_1",
+        "kind": "channel",
+        "channelId": "chn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "seq": 9,
+        "title": "Inbox",
+        "body": "Two messages",
+        "createdAt": "2026-11-17T00:00:00.000Z",
+        "collapseKey": "channel:chn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+      }
+    ]
+  },
+  "events": [],
+  "errors": []
+}

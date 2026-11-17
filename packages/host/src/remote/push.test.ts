@@ -182,6 +182,9 @@ async function setup(options: { coalesceMs?: number; maxPerHour?: number } = {})
 }
 
 describe('pushCategory', () => {
+  it('助理消息独立于完成类', () => {
+    expect(pushCategory(intent({ kind: 'channel' }))).toBe('channel');
+  });
   it('两路开关的归类', () => {
     expect(pushCategory(intent({ kind: 'approval' }))).toBe('action');
     expect(pushCategory(intent({ kind: 'question' }))).toBe('action');
@@ -195,6 +198,58 @@ describe('pushCategory', () => {
       'completion',
     );
     expect(pushCategory(intent({ kind: 'agent' }))).toBe('action');
+  });
+});
+
+describe('助理推送', () => {
+  const channel = (seq: number, body = 'First line\nSecond line') =>
+    intent({
+      id: `channel:cpo_${seq}`,
+      kind: 'channel',
+      channelId: 'chn_1',
+      seq,
+      sessionId: undefined,
+      title: 'Inbox',
+      body,
+      collapseKey: 'channel:chn_1',
+    });
+  it('加密正文只带打码首行、最多 120 个码点，并带定位序号', async () => {
+    const t = await setup({ coalesceMs: 0 });
+    const { pair } = await t.phone();
+    t.emit(channel(7, `token=sk-${'x'.repeat(48)} ${'😀'.repeat(150)}\nSECRET SECOND LINE`));
+    await until(() => t.sends().length === 1, 'channel push');
+    const message = t.open(
+      pair,
+      (t.sends()[0] as Extract<GatewayCall, { kind: 'send' }>).payload,
+    ).message;
+    expect(message).toMatchObject({
+      seq: 7,
+      title: 'Inbox',
+      kind: 'channel',
+      category: 'completion',
+    });
+    expect(message.body).not.toContain('sk-');
+    expect(message.body).not.toContain('SECOND');
+    expect(Array.from(message.body ?? '')).toHaveLength(120);
+  });
+  it('助理、完成和设备开关各自生效，排队期间关闭后不再发送', async () => {
+    const t = await setup({ coalesceMs: 80 });
+    const { device } = await t.phone();
+    t.setRemote({ ...t.remote(), push: { enabled: true, completion: false } });
+    t.emit(channel(1));
+    await until(() => t.sends().length === 1, 'channel despite completion off');
+    t.emit(channel(2));
+    t.push.setChannelEnabled(device.id, false);
+    expect(await t.push.stateFor(device.id)).toMatchObject({ channel: false });
+    expect(t.storage.devices.get(device.id)?.pushChannelEnabled).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    expect(t.sends()).toHaveLength(1);
+    t.push.setChannelEnabled(device.id, true);
+    t.setRemote({ ...t.remote(), push: { enabled: true, channel: false } });
+    t.emit(channel(3));
+    t.emit(intent({ kind: 'completed', collapseKey: 'session:other' }));
+    await until(() => t.sends().length === 2, 'completion despite channel off');
+    expect(t.sends()).toHaveLength(2);
   });
 });
 

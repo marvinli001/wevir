@@ -4,7 +4,7 @@ import { Linking, StyleSheet, Switch, Text } from 'react-native';
 import { t } from '../i18n';
 import type { MessageKey } from '../i18n/zh-CN';
 import type { PushStatus } from '../lib/push';
-import { usePushSettings, usePushStatus } from '../state/push';
+import { useChannelPush, usePushSettings, usePushStatus } from '../state/push';
 import { SPACE, TEXT, useTheme } from '../theme';
 import { Group, Row } from './ui';
 
@@ -18,6 +18,7 @@ function statusKey(status: PushStatus): MessageKey {
 export function PushStatusSection({ name }: { name: string }) {
   const theme = useTheme();
   const status = usePushStatus(name);
+  const channel = useChannelPush(name);
   if (status === undefined) return null;
   const tone =
     status.kind === 'failed' || status.kind === 'denied'
@@ -26,12 +27,33 @@ export function PushStatusSection({ name }: { name: string }) {
   return (
     <Group style={styles.section}>
       <Row
-        last
+        last={!channel.supported}
         icon={{ ios: 'bell.badge', android: 'notifications_active' }}
         title={t('push.section')}
         trailing={<Text style={[styles.status, { color: tone }]}>{t(statusKey(status))}</Text>}
         {...(status.kind === 'denied' && { onPress: () => void Linking.openSettings() })}
       />
+      {channel.supported && (
+        <Row
+          last
+          title={t('push.assistantMessages')}
+          subtitle={
+            channel.failed ? (
+              <Text style={[styles.status, { color: theme.destructive }]}>
+                {t('push.settingsFailed')}
+              </Text>
+            ) : undefined
+          }
+          trailing={
+            <Switch
+              value={channel.enabled}
+              disabled={channel.busy}
+              onValueChange={(value) => void channel.change(value)}
+              accessibilityLabel={t('push.assistantMessages')}
+            />
+          }
+        />
+      )}
     </Group>
   );
 }

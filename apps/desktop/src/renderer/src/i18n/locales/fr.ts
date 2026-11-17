@@ -2711,6 +2711,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': 'Même identité enregistrée ailleurs',
   'settings.devices.push': 'Push',
   'settings.devices.pushNeedsAction': 'Action requise',
+  'settings.devices.pushChannel': 'Messages de l’assistant',
   'settings.devices.pushCompletion': 'Fin de tâche',
   'settings.devices.pushUnreachable': 'Passerelle push injoignable',
   'settings.devices.pushRejected': 'La passerelle push a refusé la requête',

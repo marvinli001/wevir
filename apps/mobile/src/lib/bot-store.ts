@@ -45,6 +45,11 @@ export interface ChannelClient {
   readonly canCreate: boolean;
   /** 能改这台电脑上的助理（`workspace.write`）。 */
   readonly canEdit: boolean;
+  readonly canWrite: boolean;
+  readonly chat: boolean;
+  readonly panel: boolean;
+  readonly canPause: boolean;
+  onAutomationsChanged: WevirClient['onAutomationsChanged'];
   /** 能读这台电脑的模型服务（`provider.read`），改助理的模型要用。 */
   readonly canReadProviders: boolean;
   /** 每种 Provider 的引擎能做什么（`host.hello` 的 `engineFeatures`），改大脑时提示用；旧 Host 没有。 */
@@ -83,6 +88,11 @@ export interface NewBot {
 /** 这台设备在助理所在电脑上能做的事。 */
 export interface BotAccess {
   online: boolean;
+  connectionVersion: number;
+  canWrite: boolean;
+  chat: boolean;
+  panel: boolean;
+  canPause: boolean;
   canEdit: boolean;
   canReadProviders: boolean;
   /** 输入框能带照片、能停止。 */
@@ -180,9 +190,15 @@ export class BotStore {
   }
 
   access(key: string): BotAccess {
-    const client = this.target(key)?.state.client;
+    const state = this.target(key)?.state;
+    const client = state?.client;
     return {
       online: client !== undefined,
+      connectionVersion: state?.generation ?? 0,
+      canWrite: client?.canWrite === true,
+      chat: client?.chat === true,
+      panel: client?.panel === true,
+      canPause: client?.canPause === true,
       canEdit: client?.canEdit === true,
       canReadProviders: client?.canReadProviders === true,
       composer: client?.composer === true,
@@ -340,6 +356,7 @@ export class BotStore {
     mentions: readonly string[] = [],
     images: readonly UserImagePart[] = [],
     clientPostId?: string,
+    replyTo?: string,
   ): Promise<void> {
     const trimmed = text.trim();
     if (trimmed === '' && images.length === 0) return;
@@ -352,10 +369,54 @@ export class BotStore {
         clientPostId:
           clientPostId ?? `cp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
         ...(mentions.length > 0 && { mentions: mentions as Channel['id'][] }),
+        ...(client.chat && replyTo !== undefined && { replyTo: replyTo as ChannelPost['id'] }),
       },
       { queue: false },
     );
     this.addPosts(key, [post]);
+  }
+
+  async react(key: string, postId: string, emoji: string | null): Promise<void> {
+    const { channelId, client } = this.connected(key);
+    const { post } = await client.request('channel.react', {
+      channelId,
+      postId: postId as ChannelPost['id'],
+      emoji,
+    });
+    this.addPosts(key, [post]);
+  }
+
+  async pause(key: string, paused: boolean): Promise<void> {
+    const { channelId, client } = this.connected(key);
+    const { channel } = await client.request('channel.pause', { channelId, paused });
+    this.target(key)?.state.channels.set(channelId, channel);
+    this.rebuild();
+  }
+
+  async routines(key: string) {
+    const { channelId, client } = this.connected(key);
+    const { automations } = await client.request('automation.list', {});
+    return automations.filter((automation) => automation.channelId === channelId);
+  }
+
+  watchRoutines(key: string, listener: () => void): () => void {
+    return this.connected(key).client.onAutomationsChanged(listener);
+  }
+
+  async loadThrough(key: string, seq: number): Promise<void> {
+    await this.open(key);
+    while (this.timeline(key).hasMore && (this.timeline(key).posts[0]?.seq ?? 0) > seq)
+      if (this.timeline(key).loading || this.timeline(key).loadingOlder) return;
+      else await this.loadOlder(key);
+  }
+
+  async findPost(key: string, postId: string): Promise<void> {
+    while (
+      !this.timeline(key).posts.some((post) => post.id === postId) &&
+      this.timeline(key).hasMore
+    )
+      if (this.timeline(key).loading || this.timeline(key).loadingOlder) return;
+      else await this.loadOlder(key);
   }
 
   /** 采纳或忽略助理的提议。 */

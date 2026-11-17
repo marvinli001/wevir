@@ -1,4 +1,4 @@
-import type { Channel } from '@wevir/protocol';
+import type { Channel, ChannelPost } from '@wevir/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import { BotStore, PAGE_SIZE } from './bot-store';
 import {
@@ -29,6 +29,43 @@ function setup(options: { posts?: number; canCreate?: boolean } = {}) {
 }
 
 describe('BotStore', () => {
+  it('后台返回换连接时，即使仍在线也通知定位器重试，并使用新连接加载旧帖', async () => {
+    const { host, store } = setup({ posts: 95 });
+    await store.open(KEY);
+    const before = store.access(KEY);
+    const next = new FakeChannels();
+    next.channels = host.channels;
+    next.posts = host.posts;
+    store.setHosts([{ computer: 'mac', computerName: 'MacBook', client: next.client }]);
+    expect(store.access(KEY).online).toBe(true);
+    expect(store.access(KEY).connectionVersion).toBeGreaterThan(before.connectionVersion);
+    await vi.waitFor(() => expect(next.watches.has(CHANNEL_A)).toBe(true));
+    await store.loadThrough(KEY, 2);
+    expect(store.timeline(KEY).posts.some((p) => p.seq === 2)).toBe(true);
+    expect(next.calls('channel.posts').some((params) => params.beforeSeq !== undefined)).toBe(true);
+  });
+  it('引用和表情写回同一帖子，通知定位可越过多页，旧 Host 不发引用字段', async () => {
+    const { host, store } = setup({ posts: 95 });
+    Object.assign(host.client, { chat: true, canPause: true });
+    await store.loadThrough(KEY, 2);
+    const root = store.timeline(KEY).posts.find((p) => p.seq === 2) as ChannelPost;
+    expect(root).toBeDefined();
+    await store.send(KEY, 'answer', [], [], 'client1', root.id);
+    expect(host.calls('channel.post').at(-1)).toMatchObject({ replyTo: root.id });
+    await store.react(KEY, root.id, '👀');
+    expect(store.timeline(KEY).posts.find((p) => p.id === root.id)?.reactions).toEqual([
+      { emoji: '👀', by: 'user' },
+    ]);
+    await store.react(KEY, root.id, null);
+    expect(store.timeline(KEY).posts.find((p) => p.id === root.id)?.reactions).toEqual([]);
+    await store.pause(KEY, true);
+    expect(store.bot(KEY)?.state).toBe('paused');
+    await store.pause(KEY, false);
+    expect(store.bot(KEY)?.state).toBe('idle');
+    Object.assign(host.client, { chat: false });
+    await store.send(KEY, 'legacy', [], [], 'client2', root.id);
+    expect(host.calls('channel.post').at(-1)).not.toHaveProperty('replyTo');
+  });
   it('每台在线的电脑读自己的助理，合并成一个按最后动静排的列表', async () => {
     const { store } = setup();
     const other = new FakeChannels();
@@ -256,6 +293,11 @@ describe('BotStore', () => {
     await vi.waitFor(() => expect(readOnly.store.list).toHaveLength(2));
     expect(readOnly.store.access(KEY)).toEqual({
       online: true,
+      connectionVersion: 2,
+      canWrite: true,
+      chat: false,
+      panel: false,
+      canPause: false,
       canEdit: false,
       canReadProviders: false,
       composer: false,
@@ -267,6 +309,11 @@ describe('BotStore', () => {
     await vi.waitFor(() => expect(store.list).toHaveLength(2));
     expect(store.access(KEY)).toEqual({
       online: true,
+      connectionVersion: 2,
+      canWrite: true,
+      chat: false,
+      panel: false,
+      canPause: false,
       canEdit: true,
       canReadProviders: true,
       composer: false,

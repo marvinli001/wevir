@@ -153,16 +153,19 @@ export class NotificationService {
     const at = Date.parse(post.createdAt);
     this.#seen.set(id, at);
     if (!this.#fresh(at) || !this.#enabled('channel')) return;
-    const body = post.content
-      .map((part) => (part.type === 'text' ? part.text : ''))
-      .join(' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    const text = post.author.kind === 'assistant' ? `${post.author.name}: ${body}` : body;
+    const body =
+      post.content
+        .map((part) => (part.type === 'text' ? part.text : ''))
+        .join('\n')
+        .split(/\r?\n/)
+        .find((line) => line.trim() !== '') ?? '';
+    const line = body.replace(/\s+/g, ' ').trim();
+    const text = post.author.kind === 'assistant' ? `${post.author.name}: ${line}` : line;
     this.#emit({
       id,
       kind: 'channel',
       channelId: channel.id,
+      seq: post.seq,
       ...(channel.workspaceId !== undefined && { workspaceId: channel.workspaceId }),
       title: cut(channel.title, NOTIFICATION_TITLE_MAX_LENGTH),
       body: cut(redactSecrets(text).text, NOTIFICATION_BODY_MAX_LENGTH),

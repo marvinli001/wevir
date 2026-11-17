@@ -5,10 +5,12 @@
 
 import {
   type ApprovalRequest,
+  ASSISTANT_PROACTIVITY,
   ASSISTANT_RULE_CATEGORIES,
   type AssistantRuleCategory,
   type AssistantRules,
   type AssistantRuleTier,
+  type Automation,
   type Channel,
   type ChannelPost,
   type ChannelThread,
@@ -19,9 +21,10 @@ import {
   GROUP_MEMBERS_MIN,
   type UserImagePart,
 } from '@wevir/protocol';
+import { locale, t } from '../i18n';
 import { type Avatar, normalizeAvatar } from './bot-avatar';
 
-/** 列表与详情里的状态：空闲、工作中、等用户决定、已暂停（用户暂停或预算用完）。 */
+/** 列表与详情里的状态：空闲、工作中、等用户决定、已暂停（用户暂停）。 */
 export type BotState = Channel['state'];
 
 /** 群的成员，或时间线上说话的另一个助理。 */
@@ -49,6 +52,8 @@ export interface Bot {
   state: BotState;
   /** 协调者（群里是成员）正在回这条时间线（0.135.0）：输入框空着时显示停止。 */
   answering: boolean;
+  activity?: NonNullable<Channel['activity']>['kind'];
+  lastActiveAt?: string;
   unreadCount: number;
   lastPost?: { text: string; at: string };
   createdAt: string;
@@ -118,6 +123,11 @@ export type BotCard =
 export interface BotPost {
   /** 列表里的键：帖子是帖子 ID（带文字又带卡片的拆成两条），线程是会话 ID，审批是审批 ID。 */
   id: string;
+  sourceId?: string;
+  seq?: number;
+  replyTo?: string;
+  replyCount?: number;
+  reactions?: ChannelPost['reactions'];
   author: 'user' | 'bot' | 'host';
   createdAt: string;
   card: BotCard;
@@ -172,6 +182,8 @@ export function botFromChannel(
     avatar: normalizeAvatar(channel.assistant?.avatar ?? members[0]?.avatar),
     state: channel.state,
     answering: channel.answering === true,
+    ...(channel.activity && { activity: channel.activity.kind }),
+    ...(channel.lastActiveAt && { lastActiveAt: channel.lastActiveAt }),
     unreadCount: channel.unreadCount ?? 0,
     ...(last !== undefined && {
       lastPost: {
@@ -213,6 +225,8 @@ export function postViews(post: ChannelPost, directory: BotDirectory = new Map()
   const to =
     post.to === undefined ? undefined : (directory.get(post.to.channelId)?.title ?? post.to.name);
   const base = {
+    sourceId: post.id,
+    seq: post.seq,
     author: author(post),
     createdAt: post.createdAt,
     ...(speaker !== undefined && { speaker }),
@@ -288,6 +302,12 @@ export function postViews(post: ChannelPost, directory: BotDirectory = new Map()
       id: `${post.id}:file:${index}`,
       card: { kind: 'file', name: file.name, size: file.size },
     });
+  }
+  const primary = out.find((view) => view.card.kind === 'text') ?? out[0];
+  if (primary !== undefined) {
+    if (post.replyTo !== undefined) primary.replyTo = post.replyTo;
+    if (post.replyCount !== undefined) primary.replyCount = post.replyCount;
+    if (post.reactions !== undefined) primary.reactions = post.reactions;
   }
   return out;
 }
@@ -432,6 +452,172 @@ export function timelineViews(
   }
   out.push(...loose);
   return out;
+}
+
+export const BOT_REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '✅'] as const;
+
+export function botReplyCount(n: number): string {
+  const plural =
+    locale() === 'ru'
+      ? n % 10 === 1 && n % 100 !== 11
+        ? 'one'
+        : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)
+          ? 'few'
+          : 'other'
+      : n === 1
+        ? 'one'
+        : 'other';
+  return t(
+    plural === 'one' ? 'bot.replies.one' : plural === 'few' ? 'bot.replies.few' : 'bot.replies',
+    { n },
+  );
+}
+
+export interface BotTimelineRow {
+  post: BotPost;
+  first: boolean;
+  last: boolean;
+  separator: boolean;
+}
+
+export function botTimelineRows(posts: readonly BotPost[]): BotTimelineRow[] {
+  const grouped = (a: BotPost | undefined, b: BotPost | undefined) =>
+    a !== undefined &&
+    b !== undefined &&
+    a.author !== 'host' &&
+    a.author === b.author &&
+    a.speaker?.id === b.speaker?.id &&
+    ['text', 'images'].includes(a.card.kind) &&
+    ['text', 'images'].includes(b.card.kind) &&
+    new Date(a.createdAt).toDateString() === new Date(b.createdAt).toDateString() &&
+    Date.parse(b.createdAt) - Date.parse(a.createdAt) < 5 * 60_000;
+  return posts.map((post, index) => {
+    const previous = posts[index - 1];
+    return {
+      post,
+      first: !grouped(previous, post),
+      last: !grouped(post, posts[index + 1]),
+      separator:
+        previous === undefined ||
+        new Date(previous.createdAt).toDateString() !== new Date(post.createdAt).toDateString() ||
+        Date.parse(post.createdAt) - Date.parse(previous.createdAt) >= 30 * 60_000,
+    };
+  });
+}
+
+export function botTimeLabel(at: string, now: Date): string {
+  const date = new Date(at);
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const day =
+    date.toDateString() === now.toDateString()
+      ? t('bot.today')
+      : date.toDateString() === yesterday.toDateString()
+        ? t('bot.yesterday')
+        : new Intl.DateTimeFormat(locale(), {
+            month: 'short',
+            day: 'numeric',
+            ...(date.getFullYear() !== now.getFullYear() && { year: 'numeric' }),
+          }).format(date);
+  return `${day} ${new Intl.DateTimeFormat(locale(), {
+    hour: 'numeric',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(date)}`;
+}
+
+export function botPostQuote(post: Pick<ChannelPost, 'content'>): string {
+  return Array.from(
+    post.content
+      .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+      .join('\n')
+      .split('\n')
+      .find((line) => line.trim() !== '') ?? '',
+  )
+    .slice(0, 200)
+    .join('');
+}
+
+export function showsBotQuote(post: BotPost, posts: readonly ChannelPost[]): boolean {
+  if (post.replyTo === undefined) return false;
+  const source = posts.find((p) => p.id === post.sourceId);
+  const latestUser = posts.findLast((p) => p.seq < (post.seq ?? 0) && p.author.kind === 'user');
+  return source?.author.kind !== 'coordinator' || latestUser?.id !== post.replyTo;
+}
+
+export function botProactivity(budget: NonNullable<Channel['budget']>) {
+  return (Object.keys(ASSISTANT_PROACTIVITY) as (keyof typeof ASSISTANT_PROACTIVITY)[]).find(
+    (key) =>
+      ASSISTANT_PROACTIVITY[key].dailyWakes === budget.dailyWakes &&
+      ASSISTANT_PROACTIVITY[key].dailyTokens === budget.dailyTokens,
+  );
+}
+
+export function botRoutineStatus(
+  automation: Pick<Automation, 'schedule' | 'timezone' | 'enabled' | 'autoPausedAt'>,
+  now: Date,
+): string {
+  if (!automation.enabled || automation.autoPausedAt !== undefined) return t('bots.state.paused');
+  const schedule = automation.schedule;
+  if (schedule.kind === 'interval') return t('bot.monitoring');
+  if (schedule.kind === 'manual') return t('bot.manual');
+  if (schedule.kind === 'once') {
+    const format = new Intl.DateTimeFormat('en-CA', {
+      timeZone: automation.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const date = new Date(schedule.at);
+    const today = format.format(now);
+    const parts = format.formatToParts(now);
+    const part = (key: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === key)?.value;
+    const tomorrow = new Date(
+      Date.UTC(Number(part('year')), Number(part('month')) - 1, Number(part('day')) + 1),
+    );
+    const nextDay = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(tomorrow);
+    const clock = new Intl.DateTimeFormat(locale(), {
+      timeZone: automation.timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .format(date)
+      .replace(/^0/, '');
+    if (format.format(date) === today) return t('bot.schedule.today', { time: clock });
+    if (format.format(date) === nextDay) return t('bot.schedule.tomorrow', { time: clock });
+    return `${new Intl.DateTimeFormat(locale(), {
+      timeZone: automation.timezone,
+      month: 'short',
+      day: 'numeric',
+      ...(format.formatToParts(date).find((p) => p.type === 'year')?.value !== part('year') && {
+        year: 'numeric',
+      }),
+    }).format(date)} ${clock}`;
+  }
+  const time = schedule.time.replace(/^0/, '');
+  if (schedule.kind === 'monthly') return t('bot.schedule.monthly', { day: schedule.day, time });
+  if (schedule.weekdays === undefined || schedule.weekdays.length === 7)
+    return t('bot.schedule.daily', { time });
+  if (
+    schedule.weekdays.length === 5 &&
+    [1, 2, 3, 4, 5].every((d) => schedule.weekdays?.includes(d))
+  )
+    return t('bot.schedule.weekdays', { time });
+  const days = [1, 2, 3, 4, 5, 6, 0]
+    .filter((d) => schedule.weekdays?.includes(d))
+    .map((d) =>
+      new Intl.DateTimeFormat(locale(), { weekday: 'short', timeZone: 'UTC' }).format(
+        new Date(Date.UTC(2026, 9, 18 + d)),
+      ),
+    )
+    .join(t('common.listSeparator'));
+  return t('bot.schedule.weekly', { days, time });
 }
 
 /** 编辑页里的值；`model` 只在换过模型时有。 */

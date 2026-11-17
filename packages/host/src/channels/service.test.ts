@@ -284,6 +284,32 @@ async function setup(
 }
 
 describe('ChannelService', () => {
+  it('暂停接口只改暂停状态，恢复后保留身份与预算', async () => {
+    const h = await setup();
+    const bot = await h.create('Inbox', 'Sort messages.');
+    await h.coordinatorPosts(bot.id, 1);
+    const paused = await h.methods['channel.pause']({ channelId: bot.id, paused: true }, context);
+    expect(paused.channel.state).toBe('paused');
+    const resumed = await h.methods['channel.pause']({ channelId: bot.id, paused: false }, context);
+    expect(resumed.channel).toMatchObject({ title: bot.title, budget: bot.budget });
+    expect(resumed.channel.pausedAt).toBeUndefined();
+  });
+  it('助理通知正文取打码首行，并指向发出的帖子序号', async () => {
+    const h = await setup();
+    const bot = await h.create('Inbox', 'Sort messages.');
+    await h.coordinatorPosts(bot.id, 1);
+    h.intents.splice(0);
+    const { channel: current } = await h.service.get(bot.id);
+    const result = await h.call(current.coordinator?.sessionId as SessionId, 'wevir_channel_post', {
+      text: `First sk-${'x'.repeat(48)}\nSecond line stays in the chat.`,
+    });
+    expect(result.isError).not.toBe(true);
+    const intent = h.intents.find((value) => value.kind === 'channel');
+    expect(intent).toMatchObject({ title: 'Inbox', seq: h.posts(bot.id).at(-1)?.seq });
+    expect(intent?.body).toContain('First');
+    expect(intent?.body).not.toContain('sk-');
+    expect(intent?.body).not.toContain('Second line');
+  });
   it('建两个助理：各自的隐藏工作区与协调者，第一次唤醒是 setup，不进会话与项目列表', async () => {
     const h = await setup();
     const first = await h.create('Mail desk', 'Sort my inbox every morning.');

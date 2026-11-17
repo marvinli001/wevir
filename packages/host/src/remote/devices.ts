@@ -236,6 +236,15 @@ export class DeviceService {
     this.#changed();
   }
 
+  setPushChannelEnabled(id: DeviceId, enabled: boolean): void {
+    const record = this.#storage.devices.get(id);
+    if (!record) throw notFound(id);
+    if (record.status !== 'active') throw invalidParams(['id'], 'the device has been removed');
+    if ((record.pushChannelEnabled !== false) === enabled) return;
+    this.#storage.devices.update(id, { pushChannelEnabled: enabled });
+    this.#changed();
+  }
+
   /**
    * 给这台设备加密下一条推送用的计数：`max(上一次 + 1, now)`，先写库再返回。取毫秒时间戳作下限，库被从备份恢复、计数倒退时也不会
    * 与之前用过的重复。
@@ -297,7 +306,11 @@ function toDevice(record: DeviceRecord): Device {
     createdAt: record.createdAt,
     lastSeenAt: record.lastSeenAt,
     status: record.status as Device['status'],
-    push: { enabled: record.pushEnabled, registered: record.pushTokenRef !== undefined },
+    push: {
+      enabled: record.pushEnabled,
+      registered: record.pushTokenRef !== undefined,
+      ...(record.pushChannelEnabled === false && { channel: false }),
+    },
   };
 }
 

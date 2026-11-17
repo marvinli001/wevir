@@ -40,6 +40,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BotAvatar } from '../../components/bot-avatar';
 import { PostView } from '../../components/bot-cards';
 import { Composer } from '../../components/composer';
 import { type ContinuityContext, HandoffRow, UsageLimitCard } from '../../components/continuity';
@@ -81,6 +82,7 @@ import {
   visibleItems,
 } from '../../lib/session-items';
 import { type SessionView, SessionWatch } from '../../lib/session-watch';
+import { useBot } from '../../state/bots';
 import { useMinuteClock } from '../../state/clock';
 import { acknowledgeDraft, loadDraft } from '../../state/drafts';
 import { usePhotoAttachments } from '../../state/photo-attachments';
@@ -107,7 +109,7 @@ function toolVerb(kind: ToolDisplayKind): string | undefined {
 }
 
 export default function SessionScreen() {
-  const { key } = useLocalSearchParams<{ key: string }>();
+  const { key, botKey } = useLocalSearchParams<{ key: string; botKey?: string }>();
   const slash = key.indexOf('/');
   const computer = key.slice(0, slash);
   const sessionId = key.slice(slash + 1) as SessionId;
@@ -275,6 +277,10 @@ export default function SessionScreen() {
       }),
   };
   const title = view.transcript?.title || session?.title || t('session.untitled');
+  const threadBot = useBot(
+    botKey ??
+      (session?.channel?.role === 'thread' ? `${computer}/${session.channel.channelId}` : ''),
+  );
   const archived = session?.archivedAt !== undefined;
   const meta = [
     snapshot !== undefined ? displayName(snapshot.record) : undefined,
@@ -468,7 +474,37 @@ export default function SessionScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title }} />
+      <Stack.Screen
+        options={
+          threadBot === undefined
+            ? { title }
+            : {
+                title: threadBot.name,
+                headerLargeTitleEnabled: false,
+                headerTitle: () => (
+                  <View
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 8, maxWidth: 240 }}
+                  >
+                    <BotAvatar avatar={threadBot.avatar} size={28} />
+                    <View style={{ flexShrink: 1 }}>
+                      <Text
+                        numberOfLines={1}
+                        style={{ fontSize: TEXT.body, fontWeight: '600', color: theme.foreground }}
+                      >
+                        {threadBot.name}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={{ fontSize: TEXT.caption, color: theme.mutedForeground }}
+                      >
+                        {title}
+                      </Text>
+                    </View>
+                  </View>
+                ),
+              }
+        }
+      />
       <HeaderMenu
         sf="ellipsis"
         md="more_vert"

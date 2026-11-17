@@ -2672,6 +2672,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': 'Same identity registered elsewhere',
   'settings.devices.push': 'Push',
   'settings.devices.pushNeedsAction': 'Needs action',
+  'settings.devices.pushChannel': 'Assistant messages',
   'settings.devices.pushCompletion': 'Completion',
   'settings.devices.pushUnreachable': 'Push gateway unreachable',
   'settings.devices.pushRejected': 'Push gateway rejected the request',

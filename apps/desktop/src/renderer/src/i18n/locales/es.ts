@@ -2706,6 +2706,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': 'Misma identidad registrada en otro lugar',
   'settings.devices.push': 'Push',
   'settings.devices.pushNeedsAction': 'Requiere acción',
+  'settings.devices.pushChannel': 'Mensajes del asistente',
   'settings.devices.pushCompletion': 'Finalización',
   'settings.devices.pushUnreachable': 'Pasarela push inaccesible',
   'settings.devices.pushRejected': 'La pasarela push rechazó la solicitud',

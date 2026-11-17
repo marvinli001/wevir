@@ -3,7 +3,7 @@
 
 import { bytesToBase64url } from '@wevir/client-sdk';
 import { generateKeyPair, pushCollapseKey, sealPushMessage } from '@wevir/noise';
-import type { PushState } from '@wevir/protocol';
+import { PushMessageSchema, type PushState } from '@wevir/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import vectors from '../../../../packages/noise/test-vectors/push.json' with { type: 'json' };
 import {
@@ -11,6 +11,7 @@ import {
   type DeviceToken,
   openPush,
   PUSH_CODE_TIMEOUT_MS,
+  PUSH_TARGET_KEY,
   type PushLinkClient,
   PushRegistrar,
   type PushRegistrationStore,
@@ -403,6 +404,29 @@ describe('PushRegistrar', () => {
 });
 
 describe('Host 的封装与手机的解密互通', () => {
+  it('助理正文与通知定位序号保留，错误的定位参数拒绝', () => {
+    const message = PushMessageSchema.parse({
+      v: 1,
+      id: 'channel:cpo_1',
+      kind: 'channel',
+      category: 'completion',
+      title: 'Inbox',
+      host: 'Mac',
+      channelId: 'chn_1',
+      body: 'Two messages',
+      seq: 91,
+      createdAt: '2026-11-17T00:00:00.000Z',
+    });
+    expect(pushContent(message, () => 'generic').body).toBe('Two messages');
+    const target = pushTarget({ name: 'mac', routeId: ROUTE }, message);
+    expect(readPushTarget({ [PUSH_TARGET_KEY]: target })).toEqual({
+      computer: 'mac',
+      channelId: 'chn_1',
+      seq: 91,
+    });
+    expect(targetIntent(target)).toMatchObject({ channelId: 'chn_1', seq: 91 });
+    expect(readPushTarget({ [PUSH_TARGET_KEY]: { ...target, seq: -1 } })).toBeUndefined();
+  });
   it('Host 用设备公钥封的推送，手机用设备私钥解开', () => {
     const host = generateKeyPair();
     const device = generateKeyPair();

@@ -2699,6 +2699,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': 'Gleiche Identität anderswo registriert',
   'settings.devices.push': 'Push',
   'settings.devices.pushNeedsAction': 'Aktion erforderlich',
+  'settings.devices.pushChannel': 'Assistentennachrichten',
   'settings.devices.pushCompletion': 'Abgeschlossen',
   'settings.devices.pushUnreachable': 'Push-Gateway nicht erreichbar',
   'settings.devices.pushRejected': 'Push-Gateway hat die Anfrage abgelehnt',

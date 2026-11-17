@@ -2643,6 +2643,7 @@ export const zhCN = {
   'settings.devices.relayReplaced': '同一身份已在别处注册',
   'settings.devices.push': '推送',
   'settings.devices.pushNeedsAction': '需要处理',
+  'settings.devices.pushChannel': '助理消息',
   'settings.devices.pushCompletion': '任务完成',
   'settings.devices.pushUnreachable': '推送网关不可达',
   'settings.devices.pushRejected': '推送网关拒绝请求',

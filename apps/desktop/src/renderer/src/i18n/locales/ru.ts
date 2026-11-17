@@ -2708,6 +2708,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': 'Та же идентичность зарегистрирована в другом месте',
   'settings.devices.push': 'Push',
   'settings.devices.pushNeedsAction': 'Требуется действие',
+  'settings.devices.pushChannel': 'Сообщения помощника',
   'settings.devices.pushCompletion': 'Завершение',
   'settings.devices.pushUnreachable': 'Push-шлюз недоступен',
   'settings.devices.pushRejected': 'Push-шлюз отклонил запрос',

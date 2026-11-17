@@ -166,6 +166,7 @@ export type ConnectionMethodName =
   | 'notification.subscribe'
   | 'presence.update'
   | 'push.get'
+  | 'push.update'
   | 'push.register'
   | 'push.unregister';
 
@@ -2369,6 +2370,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'channel.get': ({ channelId }) => channels().get(channelId),
     'channel.create': async (params) => ({ channel: await channels().create(params) }),
     'channel.update': async (params) => ({ channel: await channels().update(params) }),
+    'channel.pause': async ({ channelId, paused }) => ({
+      channel: await channels().update({ channelId, paused }),
+    }),
     'channel.delete': async ({ channelId }) => {
       await channels().delete(channelId);
       return {};

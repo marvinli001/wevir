@@ -111,6 +111,15 @@ export default function RootLayout() {
                         sheetGrabberVisible: true,
                       }}
                     />
+                    <Stack.Screen
+                      name="bot-profile"
+                      options={{
+                        title: t('bot.profile'),
+                        presentation: 'formSheet',
+                        sheetAllowedDetents: [0.75, 1],
+                        sheetGrabberVisible: true,
+                      }}
+                    />
                   </Stack>
                 </ToastProvider>
               </NotificationBanners>

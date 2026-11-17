@@ -16,6 +16,7 @@ export interface DeviceRecord {
   pushTokenRef?: string;
   /** 这台设备的推送开关（0025）。 */
   pushEnabled: boolean;
+  pushChannelEnabled?: boolean;
   /** 加密推送用的计数，只增不减（0025）。 */
   pushCounter: number;
   /** `active` / `revoked`。 */
@@ -36,7 +37,13 @@ export interface DeviceRepository {
     patch: Partial<
       Pick<
         DeviceRecord,
-        'name' | 'platform' | 'permissions' | 'lastSeenAt' | 'pushEnabled' | 'pushCounter'
+        | 'name'
+        | 'platform'
+        | 'permissions'
+        | 'lastSeenAt'
+        | 'pushEnabled'
+        | 'pushCounter'
+        | 'pushChannelEnabled'
       > & {
         pushTokenRef: string | null;
       }
@@ -50,10 +57,10 @@ export function createDeviceRepository(db: SqliteDatabase): DeviceRepository {
   const insert = db.prepare(`
     INSERT INTO devices (
       id, name, platform, public_key, permissions, created_at, last_seen_at, push_token_ref, status,
-      push_enabled, push_counter
+      push_enabled, push_counter, push_channel_enabled
     ) VALUES (
       :id, :name, :platform, :publicKey, :permissions, :createdAt, :lastSeenAt, :pushTokenRef, :status,
-      :pushEnabled, :pushCounter
+      :pushEnabled, :pushCounter, :pushChannelEnabled
     )`);
   const get = db.prepare('SELECT * FROM devices WHERE id = ?');
   const findActive = db.prepare("SELECT * FROM devices WHERE public_key = ? AND status = 'active'");
@@ -68,6 +75,7 @@ export function createDeviceRepository(db: SqliteDatabase): DeviceRepository {
     lastSeenAt: 'last_seen_at',
     pushTokenRef: 'push_token_ref',
     pushEnabled: 'push_enabled',
+    pushChannelEnabled: 'push_channel_enabled',
     pushCounter: 'push_counter',
   } as const;
   return {
@@ -84,6 +92,7 @@ export function createDeviceRepository(db: SqliteDatabase): DeviceRepository {
         status: record.status,
         pushEnabled: record.pushEnabled ? 1 : 0,
         pushCounter: record.pushCounter,
+        pushChannelEnabled: record.pushChannelEnabled === false ? 0 : 1,
       });
     },
     get: (id) => fromRow(get.get(id)),
@@ -125,6 +134,7 @@ function fromRow(row: SqlRow | undefined): DeviceRecord | undefined {
     status: text(row, 'status'),
     pushEnabled: integer(row, 'push_enabled') === 1,
     pushCounter: integer(row, 'push_counter'),
+    ...(integer(row, 'push_channel_enabled') === 0 && { pushChannelEnabled: false }),
   };
   const pushTokenRef = optionalText(row, 'push_token_ref');
   if (pushTokenRef !== undefined) record.pushTokenRef = pushTokenRef;

@@ -2630,6 +2630,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': '同一身分已在別處註冊',
   'settings.devices.push': '推播',
   'settings.devices.pushNeedsAction': '需要處理',
+  'settings.devices.pushChannel': '助理訊息',
   'settings.devices.pushCompletion': '任務完成',
   'settings.devices.pushUnreachable': '推播閘道無法連線',
   'settings.devices.pushRejected': '推播閘道拒絕請求',

@@ -5,12 +5,14 @@
 import { NativeTabs } from 'expo-router/native-tabs';
 import { Platform } from 'react-native';
 import { t } from '../../i18n';
+import { useBots } from '../../state/bots';
 import { useInbox } from '../../state/inbox';
 import { useTheme } from '../../theme';
 
 export default function TabsLayout() {
   const theme = useTheme();
   const pending = useInbox().entries.length;
+  const unread = useBots().bots.reduce((sum, bot) => sum + bot.unreadCount, 0);
   return (
     <NativeTabs
       tintColor={theme.foreground}
@@ -26,6 +28,7 @@ export default function TabsLayout() {
       <NativeTabs.Trigger name="(bots)">
         <NativeTabs.Trigger.Icon sf="sparkles" md="auto_awesome" />
         <NativeTabs.Trigger.Label>{t('bots.title')}</NativeTabs.Trigger.Label>
+        {unread > 0 && <NativeTabs.Trigger.Badge>{String(unread)}</NativeTabs.Trigger.Badge>}
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="inbox">
         <NativeTabs.Trigger.Icon sf={{ default: 'tray', selected: 'tray.fill' }} md="inbox" />

@@ -8895,6 +8895,13 @@ export const methodSamples: MethodSamples = {
     },
     result: { valid: [{ channel: channelSample }], invalid: [{}] },
   },
+  'channel.pause': {
+    params: {
+      valid: [{ channelId: ids.channel, paused: true }],
+      invalid: [{ channelId: ids.channel }],
+    },
+    result: { valid: [{ channel: channelSample }], invalid: [{}] },
+  },
   'channel.delete': {
     params: { valid: [{ channelId: ids.channel }], invalid: [{}] },
     result: { valid: [{}], invalid: [null] },
@@ -9167,6 +9174,21 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [pushStateSample, { ...pushStateSample, enabled: false, registered: false }],
       invalid: [{ ...pushStateSample, gatewayUrl: 'wss://push.wevir.si' }, { enabled: true }],
+    },
+  },
+  'push.update': {
+    params: { valid: [{ channel: false }], invalid: [{}, { channel: 'false' }] },
+    result: {
+      valid: [
+        {
+          enabled: true,
+          registered: false,
+          channel: false,
+          gatewayUrl: 'https://push.wevir.si',
+          routeId: 'A'.repeat(43),
+        },
+      ],
+      invalid: [{}],
     },
   },
   'push.register': {

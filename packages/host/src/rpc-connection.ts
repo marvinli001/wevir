@@ -126,7 +126,10 @@ export interface ConnectionHost {
     /** 远程监听（0.109.0）：同样的连接收 `remote.changed`。 */
     readonly listener?: { watch(listener: (status: RemoteStatus) => void): () => void };
     /** 推送（0.112.0）：远程设备的 `push.*`，调过的连接收 `push.changed`。 */
-    readonly push?: Pick<PushService, 'stateFor' | 'register' | 'unregister' | 'onDeviceChange'>;
+    readonly push?: Pick<
+      PushService,
+      'stateFor' | 'register' | 'unregister' | 'onDeviceChange' | 'setChannelEnabled'
+    >;
   };
   /** 通知意图（0.106.0）：调过 `notification.subscribe` 的连接用它收 `notification.intent`。 */
   readonly notifications?: Pick<NotificationService, 'watch'>;
@@ -660,9 +663,12 @@ export class RpcConnection {
         return;
       }
       case 'push.get':
+      case 'push.update':
       case 'push.register':
       case 'push.unregister': {
         const { push, deviceId } = this.#pushTarget();
+        if (method === 'push.update')
+          push.setChannelEnabled(deviceId, (params as MethodParams<'push.update'>).channel);
         const state =
           method === 'push.register'
             ? await push.register(deviceId, params as MethodParams<'push.register'>)

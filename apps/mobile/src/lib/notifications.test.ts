@@ -16,6 +16,12 @@ function intent(patch: Partial<NotificationIntent>): NotificationIntent {
 }
 
 describe('notificationTarget', () => {
+  it('助理通知保留帖子序号，旧载荷没有定位参数', () => {
+    expect(notificationTarget('mac', intent({ channelId: CHANNEL_A, seq: 8 }))).toEqual({
+      pathname: '/bot/[key]',
+      params: { key: `mac/${CHANNEL_A}`, seq: '8' },
+    });
+  });
   it('助理的提醒（含它会话里的审批）打开那个助理', () => {
     expect(notificationTarget('mac', intent({ channelId: CHANNEL_A }))).toEqual({
       pathname: '/bot/[key]',

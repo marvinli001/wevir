@@ -591,6 +591,11 @@ export const ChannelMethodSchemas = {
     result: ChannelResultSchema,
     permission: 'workspace.write',
   },
+  'channel.pause': {
+    params: z.object({ channelId: ChannelIdSchema, paused: z.boolean() }),
+    result: ChannelResultSchema,
+    permission: 'session.write',
+  },
   'channel.delete': {
     params: ChannelIdParamsSchema,
     result: EmptySchema,

@@ -1,10 +1,20 @@
 // 回答的 Markdown（解析在 lib/markdown.ts）：段落与列表用正文字号，标题加粗放大，行内代码与代码块用等宽字，表格可横向滚动，
-// 链接点开系统浏览器（只开 http、https 与 mailto）。整段可选中复制。
+// 链接点开系统浏览器（只开 http、https 与 mailto）。默认可选中复制，助理气泡的长按交给帖子菜单。
 //
 // 还在写的回答（`streaming`）逐字放出（lib/reveal.ts，同桌面端的节奏），末尾没写完的语法先不露出来；每一帧只重画变了的块
 // （按块的内容比较），长回答不卡。
 
-import { Fragment, memo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  Fragment,
+  memo,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Linking, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { type Block, type Inline, parseMarkdown, tableColumnWidths } from '../lib/markdown';
 import { REVEAL_FRAME_MS, revealStep, streamSafe } from '../lib/reveal';
@@ -16,7 +26,17 @@ const HEADING_SIZES = [22, 19, 17, 16, 16, 16];
 // 表格格子：14 号字一个半角字约 7.6 点（表头加粗按这个也够），左右留白共 20；列宽夹在 56 与 240 之间，超出的换行。
 const CELL_METRICS = { charWidth: 7.6, padding: 20, min: 56, max: 240 };
 
-export function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
+const LongPressContext = createContext<(() => void) | undefined>(undefined);
+
+export function Markdown({
+  text,
+  streaming = false,
+  onLongPress,
+}: {
+  text: string;
+  streaming?: boolean;
+  onLongPress?: () => void;
+}) {
   const theme = useTheme();
   const shown = useStreamingReveal(text, streaming);
   const blocks = useMemo(
@@ -26,12 +46,14 @@ export function Markdown({ text, streaming = false }: { text: string; streaming?
   // 块的内容作身份：前面写完的块每一帧都一样，不重画。
   const keys = useMemo(() => blocks.map((block) => JSON.stringify(block)), [blocks]);
   return (
-    <View style={styles.blocks}>
-      {blocks.map((block, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: 块没有别的标识，顺序就是身份
-        <StableBlock key={index} block={block} signature={keys[index] ?? ''} theme={theme} />
-      ))}
-    </View>
+    <LongPressContext.Provider value={onLongPress}>
+      <View style={styles.blocks}>
+        {blocks.map((block, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 块没有别的标识，顺序就是身份
+          <StableBlock key={index} block={block} signature={keys[index] ?? ''} theme={theme} />
+        ))}
+      </View>
+    </LongPressContext.Provider>
   );
 }
 
@@ -88,6 +110,7 @@ function BlockList({ blocks, theme }: { blocks: readonly Block[]; theme: Theme }
 }
 
 function BlockView({ block, theme }: { block: Block; theme: Theme }): ReactNode {
+  const onLongPress = useContext(LongPressContext);
   switch (block.kind) {
     case 'heading':
       return (
@@ -96,7 +119,8 @@ function BlockView({ block, theme }: { block: Block; theme: Theme }): ReactNode 
             styles.heading,
             { color: theme.foreground, fontSize: HEADING_SIZES[block.level - 1] ?? TEXT.body },
           ]}
-          selectable
+          selectable={onLongPress === undefined}
+          onLongPress={onLongPress}
           accessibilityRole="header"
         >
           <Spans inline={block.inline} theme={theme} />
@@ -104,7 +128,11 @@ function BlockView({ block, theme }: { block: Block; theme: Theme }): ReactNode 
       );
     case 'paragraph':
       return (
-        <Text style={[styles.body, { color: theme.foreground }]} selectable>
+        <Text
+          style={[styles.body, { color: theme.foreground }]}
+          selectable={onLongPress === undefined}
+          onLongPress={onLongPress}
+        >
           <Spans inline={block.inline} theme={theme} />
         </Text>
       );
@@ -124,7 +152,11 @@ function BlockView({ block, theme }: { block: Block; theme: Theme }): ReactNode 
                     : '•'}
               </Text>
               <View style={styles.itemBody}>
-                <Text style={[styles.body, { color: theme.foreground }]} selectable>
+                <Text
+                  style={[styles.body, { color: theme.foreground }]}
+                  selectable={onLongPress === undefined}
+                  onLongPress={onLongPress}
+                >
                   <Spans inline={item.inline} theme={theme} />
                 </Text>
                 {item.children.length > 0 && <BlockList blocks={item.children} theme={theme} />}
@@ -146,7 +178,11 @@ function BlockView({ block, theme }: { block: Block; theme: Theme }): ReactNode 
           style={[styles.codeBlock, { backgroundColor: theme.muted }]}
           contentContainerStyle={styles.codeContent}
         >
-          <Text style={[styles.codeText, { color: theme.foreground }]} selectable>
+          <Text
+            style={[styles.codeText, { color: theme.foreground }]}
+            selectable={onLongPress === undefined}
+            onLongPress={onLongPress}
+          >
             {block.text}
           </Text>
         </ScrollView>
@@ -183,7 +219,8 @@ function BlockView({ block, theme }: { block: Block; theme: Theme }): ReactNode 
                       },
                       rowIndex === 0 && styles.headerCell,
                     ]}
-                    selectable
+                    selectable={onLongPress === undefined}
+                    onLongPress={onLongPress}
                   >
                     <Spans inline={cell} theme={theme} />
                   </Text>

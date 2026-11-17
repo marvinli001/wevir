@@ -189,6 +189,19 @@ function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
           get canEdit() {
             return client.can('workspace.write');
           },
+          get canWrite() {
+            return client.can('session.write');
+          },
+          get chat() {
+            return client.supports('channel_chat');
+          },
+          get panel() {
+            return client.supports('channel_panel');
+          },
+          get canPause() {
+            return client.supports('channel_pause') && client.can('session.write');
+          },
+          onAutomationsChanged: (listener) => client.onAutomationsChanged(listener),
           get canReadProviders() {
             return client.can('provider.read');
           },
@@ -234,6 +247,9 @@ function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
     client.supports('remote_push') && client.can('session.read')
       ? {
           get: () => client.request('push.get', {}),
+          ...(client.supports('channel_push') && {
+            update: (params: { channel: boolean }) => client.request('push.update', params),
+          }),
           register: (params) => client.request('push.register', params),
           unregister: () => client.request('push.unregister', {}),
           onChanged: (listener) => client.onPushChanged(listener),

@@ -598,6 +598,8 @@ export const HOST_FEATURES = {
   channel_chat: 'channel_chat',
   /** 资料面板与主动程度（0.197.0）：最近活跃、今日自发额度。 */
   channel_panel: 'channel_panel',
+  channel_pause: 'channel_pause',
+  channel_push: 'channel_push',
   /**
    * iOS 模拟器（0.122.0，domain-model §3.15.9）：`simulator.*` 方法、`simulator.changed` / `simulator.show` / `simulator.orientation`
    * 通知与 RPC 端口上的 `/simulator/stream`；设置的 `iosSimulator` 开着（默认）且有应用级工具时还有 `simulator_control` 与
@@ -793,6 +795,8 @@ export const HostFeaturesSchema = z.looseObject({
   channel_composer: z.boolean().optional(),
   channel_chat: z.boolean().optional(),
   channel_panel: z.boolean().optional(),
+  channel_pause: z.boolean().optional(),
+  channel_push: z.boolean().optional(),
   ios_simulator: z.boolean().optional(),
   turn_wrap_up: z.boolean().optional(),
   engine_prewarm: z.boolean().optional(),

@@ -2644,6 +2644,7 @@ export const messages: Messages = {
   'settings.devices.relayReplaced': '같은 ID가 다른 곳에서 등록됨',
   'settings.devices.push': '푸시',
   'settings.devices.pushNeedsAction': '조치 필요',
+  'settings.devices.pushChannel': '도우미 메시지',
   'settings.devices.pushCompletion': '완료',
   'settings.devices.pushUnreachable': '푸시 게이트웨이에 연결할 수 없음',
   'settings.devices.pushRejected': '푸시 게이트웨이가 요청을 거부함',

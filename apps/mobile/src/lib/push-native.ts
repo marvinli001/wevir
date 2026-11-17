@@ -36,6 +36,8 @@ export const PUSH_CATEGORY = 'wevir.push';
 /** Android 的两个渠道：锁屏显示内容 / 锁屏隐藏内容（渠道建好后可见性改不了，所以分两个）。 */
 export const PUSH_CHANNEL = 'wevir.push';
 export const PUSH_CHANNEL_PRIVATE = 'wevir.push.private';
+export const PUSH_CHANNEL_ASSISTANT = 'wevir.push.assistant';
+export const PUSH_CHANNEL_ASSISTANT_PRIVATE = 'wevir.push.assistant.private';
 
 /** 构建时定下的推送配置（app.config.ts 的 `extra.push`）。 */
 export interface PushBuildConfig {
@@ -98,6 +100,15 @@ export async function ensureAndroidChannels(): Promise<void> {
     importance: Notifications.AndroidImportance.HIGH,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
   });
+  for (const [id, visibility] of [
+    [PUSH_CHANNEL_ASSISTANT, Notifications.AndroidNotificationVisibility.PUBLIC],
+    [PUSH_CHANNEL_ASSISTANT_PRIVATE, Notifications.AndroidNotificationVisibility.PRIVATE],
+  ] as const)
+    await Notifications.setNotificationChannelAsync(id, {
+      name: t('push.assistantMessages'),
+      importance: Notifications.AndroidImportance.HIGH,
+      lockscreenVisibility: visibility,
+    });
 }
 
 /** iOS 的通知类别：用户把“显示预览”设成“解锁时”后，锁屏上显示“需要处理”。 */
@@ -131,7 +142,14 @@ async function presentAndroidPush(payload: string): Promise<void> {
   if (opened.kind === 'replayed') return;
   if (opened.kind === 'ok' && suppressWhileOpen?.(opened.computer.name)) return;
   await ensureAndroidChannels();
-  const channelId = shared.hideOnLockScreen ? PUSH_CHANNEL_PRIVATE : PUSH_CHANNEL;
+  const channelId =
+    opened.kind === 'ok' && opened.message.kind === 'channel'
+      ? shared.hideOnLockScreen
+        ? PUSH_CHANNEL_ASSISTANT_PRIVATE
+        : PUSH_CHANNEL_ASSISTANT
+      : shared.hideOnLockScreen
+        ? PUSH_CHANNEL_PRIVATE
+        : PUSH_CHANNEL;
   if (opened.kind !== 'ok') {
     await Notifications.scheduleNotificationAsync({
       content: { title: 'Wevir', body: t('push.generic'), sound: 'default' },

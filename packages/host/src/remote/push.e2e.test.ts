@@ -172,6 +172,12 @@ describe('推送端到端', () => {
     expect(gateway.stats().bindings).toBe(1);
     // 本机连接调不了 push.*。
     expect((await desktop.call('push.get')).error?.code).toBe(-32600);
+    expect((await desktop.call('push.update', { channel: false })).error?.code).toBe(-32600);
+    expect(await phone.client.request('push.update', { channel: false })).toMatchObject({
+      channel: false,
+    });
+    expect((await phone.client.request('push.get')).channel).toBe(false);
+    expect((await phone.client.request('push.update', { channel: true })).channel).toBeUndefined();
 
     // 电脑前没人：审批变成一条推送。
     const workspaceDir = join(tempDir(), 'workspace');

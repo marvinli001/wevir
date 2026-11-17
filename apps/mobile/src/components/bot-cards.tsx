@@ -6,7 +6,16 @@
 import { type ReactNode, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatBytes, t, timeAgo } from '../i18n';
-import type { BotCard, BotPost, Decision, NeedKind, ThreadStatus } from '../lib/bots';
+import type {
+  Bot,
+  BotCard,
+  BotPost,
+  BotTimelineRow,
+  Decision,
+  NeedKind,
+  ThreadStatus,
+} from '../lib/bots';
+import { botReplyCount } from '../lib/bots';
 import { type DecisionFeedback, decisionFeedback } from '../lib/inbox';
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
 import { BotAvatar } from './bot-avatar';
@@ -16,6 +25,161 @@ import { Badge, Button, Chevron, Icon, type IconName } from './ui';
 
 type Decide = (decision: Exclude<Decision, 'pending'>) => Promise<void>;
 
+export function ChatPost({
+  row,
+  bot,
+  quote,
+  onQuote,
+  onLongPress,
+  onReact,
+  onReplies,
+  onLoadImage,
+  highlighted,
+}: {
+  row: BotTimelineRow;
+  bot: Bot;
+  quote?: string;
+  onQuote: () => void;
+  onLongPress: () => void;
+  onReact: (emoji: string) => void;
+  onReplies: () => void;
+  onLoadImage: LoadImage;
+  highlighted: boolean;
+}) {
+  const theme = useTheme();
+  const { post, first, last } = row;
+  const user = post.author === 'user';
+  const ownReaction = post.reactions?.find((r) => r.by === 'user')?.emoji;
+  return (
+    <View
+      style={[
+        chatStyles.row,
+        { marginTop: first ? 16 : 4 },
+        user && { justifyContent: 'flex-end' },
+      ]}
+    >
+      {!user && (
+        <View style={chatStyles.avatar}>
+          {last && <BotAvatar avatar={post.speaker?.avatar ?? bot.avatar} size={24} />}
+        </View>
+      )}
+      <View style={chatStyles.column}>
+        <Pressable
+          onLongPress={onLongPress}
+          accessibilityActions={[{ name: 'longpress', label: t('bot.actions') }]}
+          onAccessibilityAction={onLongPress}
+          style={[
+            chatStyles.bubble,
+            {
+              backgroundColor: user ? theme.muted : theme.card,
+              borderColor: highlighted ? theme.running : 'transparent',
+              ...(user
+                ? { borderBottomRightRadius: last ? 6 : 20 }
+                : { borderBottomLeftRadius: last ? 6 : 20 }),
+            },
+          ]}
+        >
+          {first && post.speaker && (
+            <Text style={[styles.speakerName, { color: theme.mutedForeground }]}>
+              {post.speaker.name}
+            </Text>
+          )}
+          {quote !== undefined && (
+            <Pressable
+              onPress={onQuote}
+              style={[chatStyles.quote, { borderLeftColor: theme.borderStrong }]}
+            >
+              <Text style={[chatStyles.small, { color: theme.mutedForeground }]} numberOfLines={1}>
+                {quote || t('bot.image')}
+              </Text>
+            </Pressable>
+          )}
+          {post.card.kind === 'text' &&
+            (user ? (
+              <Text onLongPress={onLongPress} style={[styles.body, { color: theme.foreground }]}>
+                {post.card.text}
+              </Text>
+            ) : (
+              <Markdown text={post.card.text} onLongPress={onLongPress} />
+            ))}
+          {post.card.kind === 'images' && (
+            <PostImages
+              images={post.card.images}
+              align={user ? 'end' : 'start'}
+              load={onLoadImage}
+            />
+          )}
+        </Pressable>
+        {(post.reactions?.length ?? 0) > 0 && (
+          <View style={[chatStyles.reactions, user && { justifyContent: 'flex-end' }]}>
+            {[...new Set(post.reactions?.map((r) => r.emoji))].map((emoji) => (
+              <Pressable
+                key={emoji}
+                onPress={() => onReact(emoji)}
+                accessibilityRole="button"
+                accessibilityLabel={emoji}
+                accessibilityState={{ selected: ownReaction === emoji }}
+                style={[
+                  chatStyles.reaction,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: ownReaction === emoji ? theme.borderStrong : theme.border,
+                  },
+                ]}
+              >
+                <Text>
+                  {emoji}
+                  {post.reactions?.filter((r) => r.emoji === emoji).length === 2 ? ' 2' : ''}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        {(post.replyCount ?? 0) > 0 && (
+          <Pressable onPress={onReplies} accessibilityRole="button">
+            <Text style={[chatStyles.small, { color: theme.mutedForeground }]}>
+              {botReplyCount(post.replyCount ?? 0)}
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+export function TypingBubble({ bot }: { bot: Bot }) {
+  const theme = useTheme();
+  return (
+    <View style={chatStyles.typing} accessibilityLiveRegion="polite">
+      <BotAvatar avatar={bot.avatar} size={24} />
+      <View style={[chatStyles.dots, { backgroundColor: theme.card }]}>
+        <Text style={{ color: theme.mutedForeground }}>•••</Text>
+      </View>
+      <Text style={[chatStyles.small, { color: theme.mutedForeground }]}>
+        {t(`bot.activity.${bot.activity ?? 'thinking'}`)}
+      </Text>
+    </View>
+  );
+}
+
+const chatStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  avatar: { width: 24 },
+  column: { maxWidth: '85%', gap: 4 },
+  bubble: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 10, gap: 6 },
+  quote: { borderLeftWidth: 2, paddingLeft: 8, paddingVertical: 2 },
+  small: { fontSize: TEXT.caption },
+  reactions: { flexDirection: 'row', gap: 4, marginTop: -8, paddingHorizontal: 6 },
+  reaction: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  typing: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16 },
+  dots: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
+});
+
 export function PostView({
   post,
   now,
@@ -24,6 +188,7 @@ export function PostView({
   onRetry,
   onLoadImage,
   clientId,
+  compactThread = false,
 }: {
   post: BotPost;
   now: Date;
@@ -32,6 +197,7 @@ export function PostView({
   /** 读帖子里的一张图片，给本机文件的 URI；不给时不画图片（会话页借用这里的文字与审批）。 */
   onLoadImage?: LoadImage;
   clientId?: string | undefined;
+  compactThread?: boolean;
   /** 群没有协调者，不给重试。 */
   onRetry?: () => void;
 }) {
@@ -52,7 +218,13 @@ export function PostView({
         />
       );
     case 'thread':
-      return <ThreadCard card={card} onPress={() => onOpenThread(card.sessionId)} />;
+      return (
+        <ThreadCard
+          card={card}
+          compact={compactThread}
+          onPress={() => onOpenThread(card.sessionId)}
+        />
+      );
     case 'file':
       return <FileCard card={card} />;
     case 'images':
@@ -405,12 +577,47 @@ function threadColor(theme: Theme, status: ThreadStatus): string {
 function ThreadCard({
   card,
   onPress,
+  compact,
 }: {
   card: Extract<BotCard, { kind: 'thread' }>;
   onPress: () => void;
+  compact: boolean;
 }) {
   const theme = useTheme();
   const color = threadColor(theme, card.status);
+  if (compact)
+    return (
+      <Pressable onPress={onPress} accessibilityRole="button" style={compactStyles.row}>
+        {card.status === 'working' ? (
+          <ActivityIndicator size="small" color={color} />
+        ) : (
+          <Icon
+            name={{
+              ios: card.status === 'resolved' ? 'checkmark.circle' : 'circle',
+              android: card.status === 'resolved' ? 'check_circle' : 'circle',
+            }}
+            size={16}
+            color={color}
+          />
+        )}
+        <Text
+          numberOfLines={1}
+          style={[
+            compactStyles.text,
+            { color: card.status === 'resolved' ? theme.mutedForeground : theme.foreground },
+          ]}
+        >
+          {card.status === 'resolved' ? `${t('bot.completed')} · ` : ''}
+          {card.title}
+          {card.status !== 'resolved' && (
+            <Text
+              style={{ color: theme.mutedForeground }}
+            >{` · ${card.line ?? t(`bot.thread.${card.status}`)}`}</Text>
+          )}
+        </Text>
+        <Chevron color={theme.borderStrong} />
+      </Pressable>
+    );
   return (
     <Pressable
       accessibilityRole="button"
@@ -456,6 +663,11 @@ function ThreadCard({
     </Pressable>
   );
 }
+
+const compactStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
+  text: { flex: 1, fontSize: TEXT.small },
+});
 
 /** 助理交给用户的文件：在电脑上，手机只列名字与大小。 */
 function FileCard({ card }: { card: Extract<BotCard, { kind: 'file' }> }) {

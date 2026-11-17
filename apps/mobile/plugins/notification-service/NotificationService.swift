@@ -92,6 +92,7 @@ enum PushRewriter {
       var target: [String: Any] = ["computer": computer.name]
       if let sessionId = message.sessionId { target["sessionId"] = sessionId }
       if let channelId = message.channelId { target["channelId"] = channelId }
+      if let seq = message.seq { target["seq"] = seq }
       var userInfo = content.userInfo
       userInfo["body"] = [targetKey: target]
       userInfo.removeValue(forKey: "p")
@@ -108,7 +109,7 @@ enum PushRewriter {
       let title = message.title.trimmingCharacters(in: .whitespacesAndNewlines)
       content.title = title.isEmpty ? (host.isEmpty ? "Wevir" : host) : title
       content.subtitle = host
-      // agent 的提醒（0.142.0）显示 agent 写的正文，别的种类显示种类文案。
+      // 有正文的 agent 与助理消息显示正文，旧载荷仍显示种类文案。
       let body = message.body?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
       content.body = body.isEmpty
         ? strings["WEVIR_PUSH_KIND_\(message.kind.uppercased())"] ?? strings["WEVIR_PUSH_BODY"] ?? ""

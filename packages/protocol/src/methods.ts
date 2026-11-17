@@ -253,6 +253,7 @@ import {
   PushRegisterParamsSchema,
   PushStateResultSchema,
   PushUnregisterParamsSchema,
+  PushUpdateParamsSchema,
 } from './push.js';
 import {
   ReadinessCancelParamsSchema,
@@ -3096,6 +3097,11 @@ export const MethodSchemas = {
    */
   'push.get': {
     params: PushGetParamsSchema,
+    result: PushStateResultSchema,
+    permission: 'session.read',
+  },
+  'push.update': {
+    params: PushUpdateParamsSchema,
     result: PushStateResultSchema,
     permission: 'session.read',
   },

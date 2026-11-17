@@ -57,6 +57,8 @@ export const NotificationIntentSchema = z.object({
   automationStatus: NotificationAutomationStatusSchema.optional(),
   /** `channel`（0.121.0）：哪个助理；审批与提问出在助理的会话里时也带。 */
   channelId: ChannelIdSchema.optional(),
+  /** 0.198.0：channel 通知对应的帖子。 */
+  seq: z.int().min(1).optional(),
   /** 会话标题（自动化是自动化的标题；`agent` 是 agent 给的标题，没给时是会话标题）；会话没标题时是空串。 */
   title: z.string().max(NOTIFICATION_TITLE_MAX_LENGTH),
   /** 一句说明，同收件箱的 `summary`（打码、截断）；回合完成是空串；`agent` 是 agent 写的正文（打码）。不含密钥。 */

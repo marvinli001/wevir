@@ -13,8 +13,11 @@
       "WEVIR_PUSH_KIND_COMPLETED": "完了",
       "WEVIR_PUSH_KIND_FAILED": "エラー",
       "WEVIR_PUSH_KIND_AUTOMATION": "オートメーション",
-      "WEVIR_PUSH_KIND_CHANNEL": "新着メッセージ",
+      "WEVIR_PUSH_KIND_CHANNEL": "アシスタントのメッセージ",
       "WEVIR_PUSH_KIND_AGENT": "エージェントからの通知"
     }
+  },
+  "android": {
+    "wevir_assistant_messages": "アシスタントのメッセージ"
   }
 }

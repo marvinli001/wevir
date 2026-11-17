@@ -212,3 +212,47 @@ export function usePushSettings(): {
   const { hideOnLockScreen, setHideOnLockScreen } = usePushContext();
   return { hideOnLockScreen, setHideOnLockScreen };
 }
+
+/** 这台设备在某台电脑上的助理消息开关，Host 在后台发送前执行。 */
+export function useChannelPush(name: string) {
+  const registry = useRegistry();
+  const client = useSyncExternalStore(
+    (listener) => registry.subscribe(listener),
+    () => registry.link(name)?.push,
+  );
+  const [enabled, setEnabled] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (client?.update === undefined) return;
+    let stopped = false;
+    const apply = (value: Awaited<ReturnType<typeof client.get>> | undefined) => {
+      if (stopped) return;
+      if (value !== undefined) setEnabled(value.channel !== false);
+    };
+    void client
+      .get()
+      .then(apply)
+      .catch(() => {
+        if (!stopped) setFailed(true);
+      });
+    const off = client.onChanged(apply);
+    return () => {
+      stopped = true;
+      off();
+    };
+  }, [client]);
+  const change = async (value: boolean) => {
+    if (client?.update === undefined) return;
+    setBusy(true);
+    setFailed(false);
+    try {
+      setEnabled((await client.update({ channel: value })).channel !== false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { supported: client?.update !== undefined, enabled, busy, failed, change };
+}

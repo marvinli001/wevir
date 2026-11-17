@@ -206,6 +206,21 @@ describe.skipIf(!hasSwift)('Swift 的解密与 JS 一致', () => {
         computers,
         keys,
       },
+      {
+        name: 'assistant with body and post',
+        payload: seal(17, {
+          ...base,
+          id: 'channel:cpo_9',
+          kind: 'channel',
+          title: 'Inbox',
+          host: 'Mac',
+          channelId: 'chn_1',
+          seq: 9,
+          body: 'Two messages need a reply.',
+        }),
+        computers,
+        keys,
+      },
     ];
     const spec = join(dir, 'cases.json');
     writeFileSync(spec, JSON.stringify(cases));
@@ -264,10 +279,19 @@ describe.skipIf(!hasSwift)('Swift 的解密与 JS 一致', () => {
         target: { computer: 'studio', sessionId: 'ses_4' },
         hasPayload: false,
       },
+      {
+        title: 'Inbox',
+        subtitle: 'Mac',
+        body: 'Two messages need a reply.',
+        category: 'wevir.push',
+        thread: 'studio/chn_1',
+        target: { computer: 'studio', channelId: 'chn_1', seq: 9 },
+        hasPayload: false,
+      },
     ]);
     // 重放状态写回 App Group 里的 replay.json，只记解得开的那台电脑。
     expect(Object.keys(output.replay)).toEqual(['r-studio']);
-    expect(output.replay['r-studio']?.highest).toBe(16);
+    expect(output.replay['r-studio']?.highest).toBe(17);
   }, 180_000);
 });
 
