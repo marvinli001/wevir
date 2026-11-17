@@ -491,6 +491,8 @@ SDK 交出的消息的录制，见 docs/upstream/UPSTREAM.md §4.1。
   packages/adapter-cursor/src/tool-display.ts
   packages/adapter-cursor/src/mapping.ts
   packages/adapter-cursor/src/cursor-adapter.ts
+  packages/adapter-cursor/src/workspace-mcp.ts
+      <- packages/provider-cursor/src/server/workspaceMcpServers.ts（cc973033818e630dec3c5cc14dc924bfbec7277d）
 
 订阅来源 OpenCode 的引擎移植自 packages/provider-opencode/src/server/（1.x 的 OpenCodeRuntime.ts、OpenCodeServerOwner.ts、
 OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.ts、textGeneration.ts），改写成不依赖 Effect 的 TypeScript：
