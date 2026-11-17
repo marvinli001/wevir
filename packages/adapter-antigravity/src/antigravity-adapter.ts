@@ -2,7 +2,8 @@
 // 移植自 pingdotgg/t3code apps/server/src/orchestration-v2/Adapters/AntigravityAdapterV2.ts（权限模式、模型选择、提问）与
 // provider/acp/AntigravityAcpSupport.ts（antigravityPermissionMode、applyAntigravityAcpModelSelection）
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；思考档位照 4432fbef71817c279290f86549be660af25005f2
-// 会话元信息与回合错误照 ab8e488e10d883fa880b0ddcf01917b51839ab07（AntigravityAcpSupport.ts、AntigravityTurnOutcome.ts）
+// 会话元信息与回合错误照 ab8e488e10d883fa880b0ddcf01917b51839ab07（AntigravityAcpSupport.ts、AntigravityTurnOutcome.ts）；
+// 没有动静的回合超时照 3f905cac2e4dd968684298673546aacca3323b1d（AntigravityAdapterV2.ts 的 `promptInactivityTimeout`）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：建在 Wevir 的通用 ACP 适配器（AcpAdapter）上，一个进程承载全部会话；Wevir 的三种权限模式对到 Antigravity 的
 // default / auto_edit / yolo；Wevir 的推理档位对到运行体 1.4 的思考档位（`thinking_level`）；会话中换模型、档位与模式记下、
@@ -49,6 +50,11 @@ import { watchAntigravityPromptOutcome } from './turn-outcome.js';
 const PERMISSION_CANCELLED: RequestPermissionResponse = { outcome: { outcome: 'cancelled' } };
 /** 回合结束时会话库里还有没结束的步骤：隔这么久再读一次（只再读一次，剩下的随下一个回合）。 */
 const USAGE_RETRY_MS = 2_000;
+/**
+ * Antigravity 会让 `session/prompt` 一直挂着、不再发任何更新：这么久没有动静就结束回合并换掉进程（T3 同为 15 分钟）。长时间的
+ * 工具调用与等用户的审批、提问不计时。
+ */
+const PROMPT_INACTIVITY_TIMEOUT_MS = 15 * 60_000;
 
 /** Wevir 的权限模式 → Antigravity 的会话模式（T3 的 antigravityPermissionMode）。 */
 export const ANTIGRAVITY_MODES: Readonly<Record<PermissionMode, string>> = Object.freeze({
@@ -161,6 +167,7 @@ export class AntigravityAdapter extends AcpAdapter {
         return created.process;
       },
       logger,
+      promptInactivityTimeoutMs: PROMPT_INACTIVITY_TIMEOUT_MS,
       ...(options.cancelTimeoutMs !== undefined && { cancelTimeoutMs: options.cancelTimeoutMs }),
       ...(options.appToolsBridge !== undefined && { appToolsBridge: options.appToolsBridge }),
     });

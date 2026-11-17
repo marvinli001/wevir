@@ -56,6 +56,19 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       } }) + '\n');
       reply(id, {});
       break;
+    case 'fixture/update':
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
+        sessionId: 's1', update: params.update
+      } }) + '\n');
+      reply(id, {});
+      break;
+    case 'fixture/requestPermission':
+      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 'perm-1', method: 'session/request_permission', params: {
+        sessionId: 's1', toolCall: { toolCallId: 't1' },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }]
+      } }) + '\n');
+      reply(id, {});
+      break;
     case 'fixture/calls':
       reply(id, calls);
       break;
@@ -98,6 +111,11 @@ afterEach(async () => {
 
 class FixtureAdapter extends AcpAdapter {
   refresh = vi.fn(async () => {});
+  cancels: string[] = [];
+  protected override notifyCancel(id: string) {
+    this.cancels.push(id);
+    return super.notifyCancel(id);
+  }
   protected override refreshUsage() {
     return this.refresh();
   }
@@ -130,6 +148,9 @@ function setup(
   };
   const adapter = new FixtureAdapter({
     engine,
+    ...(typeof fields.promptInactivityTimeoutMs === 'number' && {
+      promptInactivityTimeoutMs: fields.promptInactivityTimeoutMs,
+    }),
     createProcess: (hooks) =>
       new AcpProcess({
         engine,
@@ -304,6 +325,114 @@ describe('ACP 没做完就停下的回合', () => {
     const settled = done.subscribe(session.engineSessionId)[Symbol.asyncIterator]().next();
     await done.send(session.engineSessionId, { content: [{ type: 'text', text: 'hi' }] });
     expect((await settled).value).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+  });
+});
+
+describe('ACP 没有动静的回合超时', () => {
+  const MINUTE = 60_000;
+  const update = (adapter: AcpAdapter, value: Record<string, unknown>) =>
+    adapter.process.connection.agent.request('fixture/update', { update: value });
+  // 假时钟下不用 vi.waitFor（它每次检查都推进假时间）：靠 setImmediate 让出事件循环。
+  const until = async (condition: () => boolean | Promise<boolean>) => {
+    for (let i = 0; i < 500; i += 1) {
+      if (await condition()) return;
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    throw new Error('条件一直不成立');
+  };
+
+  it('只有回答、工具等更新算动静；到期发 session/cancel、回合失败，空闲时重启进程', async () => {
+    const adapter = setup('config_option', { hangPrompt: true, promptInactivityTimeoutMs: MINUTE });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    const restart = vi.spyOn(adapter.process, 'restart').mockResolvedValue(undefined as never);
+    const events: AgentEvent[] = [];
+    const consume = (async () => {
+      for await (const event of adapter.subscribe(id)) events.push(event);
+    })();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      await adapter.send(id, { content: [{ type: 'text', text: 'hi' }] });
+      await vi.advanceTimersByTimeAsync(MINUTE - 10_000);
+      await update(adapter, {
+        sessionUpdate: 'agent_message_chunk',
+        messageId: 'm1',
+        content: { type: 'text', text: 'working' },
+      });
+      // 会话元信息不算动静。
+      await vi.advanceTimersByTimeAsync(MINUTE - 10_000);
+      await update(adapter, { sessionUpdate: 'session_info_update', title: 'x' });
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(events.some((event) => event.type === 'turn.failed')).toBe(false);
+      expect(adapter.cancels).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      await until(() => events.some((event) => event.type === 'engine.exited'));
+      expect(events.find((event) => event.type === 'turn.failed')).toMatchObject({
+        category: 'provider',
+        message: expect.stringContaining('sent nothing for 1 minute,'),
+      });
+      expect(adapter.cancels).toEqual([id]);
+      expect(restart).toHaveBeenCalledOnce();
+      expect(events.at(-1)).toMatchObject({ type: 'engine.exited', reason: 'config_changed' });
+    } finally {
+      vi.useRealTimers();
+    }
+    await adapter.dispose();
+    await consume;
+  });
+
+  it('进行中的工具调用与未决审批暂停计时，结束后重新计时', async () => {
+    const adapter = setup('config_option', { hangPrompt: true, promptInactivityTimeoutMs: MINUTE });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    vi.spyOn(adapter.process, 'restart').mockResolvedValue(undefined as never);
+    const events: AgentEvent[] = [];
+    const consume = (async () => {
+      for await (const event of adapter.subscribe(id)) events.push(event);
+    })();
+    const failed = () => events.some((event) => event.type === 'turn.failed');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      await adapter.send(id, { content: [{ type: 'text', text: 'hi' }] });
+      await update(adapter, {
+        sessionUpdate: 'tool_call',
+        toolCallId: 't1',
+        title: 'sleep',
+        status: 'in_progress',
+      });
+      await vi.advanceTimersByTimeAsync(5 * MINUTE);
+      expect(failed()).toBe(false);
+      await update(adapter, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 't1',
+        status: 'completed',
+      });
+      await adapter.process.connection.agent.request('fixture/requestPermission', {});
+      await until(async () => (await adapter.listPendingApprovals(id)).length === 1);
+      await vi.advanceTimersByTimeAsync(5 * MINUTE);
+      expect(failed()).toBe(false);
+      const [approval] = await adapter.listPendingApprovals(id);
+      await adapter.respondToApproval(id, approval?.requestId ?? '', { optionId: 'allow' });
+      // 审批的回复写出之后重新计时。
+      await vi.advanceTimersByTimeAsync(MINUTE - 1);
+      expect(failed()).toBe(false);
+      await vi.advanceTimersByTimeAsync(MINUTE);
+      await until(failed);
+    } finally {
+      vi.useRealTimers();
+    }
+    await adapter.dispose();
+    await consume;
+  });
+
+  it('默认不开', async () => {
+    const adapter = setup('config_option', { hangPrompt: true });
+    const { engineSessionId: id } = await adapter.createSession(config('a'));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      await adapter.send(id, { content: [{ type: 'text', text: 'hi' }] });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

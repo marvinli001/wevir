@@ -13,14 +13,18 @@ export const COPILOT_META_KEY = 'github.com/copilot';
 export const COPILOT_SESSION_EVENT = 'github.com/copilot/sessionEvent';
 
 /**
- * 订阅的原始会话事件：`assistant.usage` 的额度，以及压缩上下文的 `session.compaction_start` / `session.compaction_complete` 与截掉
- * 旧消息的 `session.truncation`（1.0.105 不发 ACP 的 `compaction_update`；形状取自它随包的 copilot-sdk 的 session-events.d.ts）。
+ * 订阅的原始会话事件：`assistant.usage` 的额度，压缩上下文的 `session.compaction_start` / `session.compaction_complete` 与截掉
+ * 旧消息的 `session.truncation`（1.0.105 不发 ACP 的 `compaction_update`；形状取自它随包的 copilot-sdk 的 session-events.d.ts），
+ * 以及前台工作的 `assistant.turn_start` / `assistant.idle`：后台 shell 还在跑时 Copilot 一直挂着 `session/prompt`
+ * （github/copilot-cli#5293），回合以 `assistant.idle` 结束（T3 Code 7903b487badeba1e53ba0cc5dc8be76a6c3ae0f4）。
  */
 export const COPILOT_SUBSCRIBED_EVENTS = [
   'assistant.usage',
   'session.compaction_start',
   'session.compaction_complete',
   'session.truncation',
+  'assistant.turn_start',
+  'assistant.idle',
 ] as const;
 
 function errorInfo(error: unknown) {

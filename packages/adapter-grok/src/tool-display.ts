@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code packages/provider-grok/src/server/xaiAcpExtension.ts（`isGenericAcpToolTitle`、`resolveXAiAcpToolTitle`）
-// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8，a9752171080f264c7df6a979425d4dc2448a85b8（截断不切开代理对）
+// 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8，a9752171080f264c7df6a979425d4dc2448a85b8（截断不切开代理对），
+// 3c9a54979a0b198a65d7f899c886712803a443ab（`use_tool` 调的 MCP 工具，`normalizeXAiMcpToolCall`）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：T3 只修正工具的标题；这里另按 Grok 的工具名与 `_meta["x.ai/tool"]` 给出 Wevir 的 `ToolDisplay`（展示类型、路径、
 // 命令、查询词、网址），标题的修正只用在摘要上。
@@ -10,7 +11,7 @@
 // `_meta["x.ai/tool"]`（`name`、`kind`、`label`、`read_only`），工具名优先从那里取，其次是 `tool_call` 的标题，再按 ACP 的
 // `kind` 与 `rawInput.variant` 兜底。
 
-import type { AcpSessionUpdate } from '@wevir/adapter-acp';
+import type { AcpSessionNotification, AcpSessionUpdate } from '@wevir/adapter-acp';
 import type { ToolDisplay, ToolDisplayKind } from '@wevir/runtime-adapter';
 
 /** Grok 写待办的工具：完整的列表随后以 ACP `plan` 发出（`isPlanTool`）。 */
@@ -236,4 +237,46 @@ export function grokToolDisplay(
 /** `todo_write` 的调用：它的完整列表随后以 ACP `plan` 发出。 */
 export function isGrokTodoTool(toolName: string): boolean {
   return normalize(toolName) === normalize(GROK_TODO_TOOL);
+}
+
+/**
+ * Grok 经内置的 `use_tool` 调 MCP 工具（T3 的 `normalizeXAiMcpToolCall`，Grok 1.0.77 录到）：`rawInput` 是
+ * `{ tool_name: "<server>__<tool>", tool_input }`，`tool_call` 的标题是 `use_tool`、之后的 `tool_call_update` 的标题是
+ * `<server>__<tool>`；结果在 `rawOutput` 里，`{ type: "MCP", output: { OkayOutput } | { Error } }`，不带 ACP 的 `content`。
+ * 这里改成 Wevir 认的 MCP 形状（引擎描述的 `normalizeUpdate`）：工具名与 `_meta["x.ai/tool"].name` 换成
+ * `mcp__<server>__<tool>`，输入换成 `tool_input`；结果的文本作为 `content`（已有 `content` 时不动），`Error` 的结果算失败。
+ */
+export function normalizeGrokMcpUpdate(
+  notification: AcpSessionNotification,
+): AcpSessionNotification {
+  const update = notification.update;
+  if (update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update') {
+    return notification;
+  }
+  const meta = record(update._meta);
+  const tool = record(meta['x.ai/tool']);
+  const input = record(update.rawInput);
+  const toolName = typeof input.tool_name === 'string' ? input.tool_name : '';
+  const separator = toolName.indexOf('__');
+  const useTool = tool.name === 'use_tool' && separator > 0 && separator + 2 < toolName.length;
+  const rawOutput = record(update.rawOutput);
+  const result = rawOutput.type === 'MCP' ? record(rawOutput.output) : {};
+  const error = typeof result.Error === 'string' ? result.Error : undefined;
+  const text = error ?? (typeof result.OkayOutput === 'string' ? result.OkayOutput : undefined);
+  const hasContent = Array.isArray(update.content) && update.content.length > 0;
+  if (!useTool && (text === undefined || hasContent)) return notification;
+  const next: AcpSessionUpdate = { ...update };
+  if (useTool) {
+    const name = `mcp__${toolName.slice(0, separator)}__${toolName.slice(separator + 2)}`;
+    if (typeof update.title === 'string') next.title = name;
+    next._meta = { ...meta, 'x.ai/tool': { ...tool, name } };
+    next.rawInput = record(input.tool_input);
+  }
+  if (text !== undefined && !hasContent) {
+    next.content = [{ type: 'content', content: { type: 'text', text } }];
+    if (error !== undefined && update.status === 'completed') {
+      next.status = 'failed';
+    }
+  }
+  return { ...notification, update: next };
 }

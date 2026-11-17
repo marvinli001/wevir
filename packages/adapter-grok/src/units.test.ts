@@ -4,13 +4,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { mapAcpUpdate } from '@wevir/adapter-acp';
 import type { ApprovalOption } from '@wevir/runtime-adapter';
 import { afterAll, describe, expect, it } from 'vitest';
-import { classifyResumeError, classifyTurnError } from './engine.js';
+import { classifyResumeError, classifyTurnError, GROK_ENGINE } from './engine.js';
 import { findGrok } from './launch.js';
 import { displayNameFromSlug, modelsFromInitialize, parseGrokModelsOutput } from './models.js';
 import { readTranscript } from './test-fixtures/harness.js';
-import { grokToolDisplay, resolveToolTitle } from './tool-display.js';
+import { grokToolDisplay, normalizeGrokMcpUpdate, resolveToolTitle } from './tool-display.js';
 import {
   askUserQuestionResponse,
   completionOf,
@@ -463,5 +464,101 @@ describe('findGrok：Wevir 自己装的排最后', () => {
       }),
     ).toThrow(/找不到 Grok Build/u);
     expect(() => findGrok({ env: { PATH: '' }, ...windows })).toThrow(/找不到 Grok Build/u);
+  });
+});
+
+describe('use_tool 调的 MCP 工具（T3 Code #35502，Grok 1.0.77 录到的形状）', () => {
+  const meta = { 'x.ai/tool': { version: 1, name: 'use_tool', kind: 'use_tool' } };
+  const grokCall = (
+    toolCallId: string,
+    tool: string,
+    toolInput: Record<string, unknown>,
+    completion: Record<string, unknown>,
+  ) => {
+    const rawInput = { tool_name: tool, tool_input: toolInput };
+    return [
+      { sessionUpdate: 'tool_call', toolCallId, title: 'use_tool', rawInput, _meta: meta },
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId,
+        kind: 'other',
+        title: tool,
+        rawInput: { variant: 'UseTool', ...rawInput },
+        _meta: meta,
+      },
+      { sessionUpdate: 'tool_call_update', toolCallId, ...completion },
+    ].flatMap((update) =>
+      mapAcpUpdate(normalizeGrokMcpUpdate({ sessionId: 's1', update }), GROK_ENGINE.tools),
+    );
+  };
+
+  it('工具名、输入换成 MCP 的；OkayOutput 是输出', () => {
+    const events = grokCall(
+      'call-1',
+      'wevir__html_render',
+      { path: 'a.html' },
+      {
+        status: 'completed',
+        rawOutput: {
+          type: 'MCP',
+          tool_name: 'html_render',
+          server_name: 'wevir',
+          output: { OkayOutput: '{"message":"Shown"}' },
+        },
+      },
+    );
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'tool.started',
+        toolName: 'mcp__wevir__html_render',
+        input: { path: 'a.html' },
+        display: { kind: 'unknown', mcpServer: 'wevir', summary: 'a.html' },
+      }),
+      expect.objectContaining({
+        type: 'tool.updated',
+        input: { path: 'a.html' },
+        display: { kind: 'unknown', mcpServer: 'wevir', summary: 'a.html' },
+      }),
+      expect.objectContaining({
+        type: 'tool.finished',
+        status: 'completed',
+        output: '{"message":"Shown"}',
+      }),
+    ]);
+  });
+
+  it('Error 是失败的输出；带了 content 的结果不动', () => {
+    const failed = grokCall(
+      'call-2',
+      'pencil__browser',
+      { action: 'load-page' },
+      {
+        status: 'completed',
+        rawOutput: { type: 'MCP', output: { Error: 'Page not found' }, is_error: true },
+      },
+    );
+    expect(failed[0]).toMatchObject({ toolName: 'mcp__pencil__browser' });
+    expect(failed.at(-1)).toMatchObject({
+      type: 'tool.finished',
+      status: 'failed',
+      output: 'Page not found',
+    });
+    const update = {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'call-3',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'own' } }],
+      rawOutput: { type: 'MCP', output: { OkayOutput: 'other' } },
+    };
+    expect(normalizeGrokMcpUpdate({ sessionId: 's1', update }).update).toBe(update);
+    // 不是 `<server>__<tool>` 的 use_tool 不改。
+    const plain = {
+      sessionUpdate: 'tool_call',
+      toolCallId: 'c',
+      title: 'use_tool',
+      rawInput: { tool_name: 'x' },
+      _meta: meta,
+    };
+    expect(normalizeGrokMcpUpdate({ sessionId: 's1', update: plain }).update).toBe(plain);
   });
 });

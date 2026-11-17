@@ -5,7 +5,8 @@
 // ab8e488e10d883fa880b0ddcf01917b51839ab07（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 // 没做完就停下的回合算失败参考 pingdotgg/t3code packages/provider-acp/src/server/adapter.ts
 // 0351dbb09204c464bc556c2cfa1b48ceab0d3b21；建会话后总是写一次模型（`alwaysSetModel`）参考同一文件
-// e9e934bb3db7b13c8d09f103a59f317935e0bd72（MIT，Copyright (c) 2026 T3 Tools Inc.）。
+// e9e934bb3db7b13c8d09f103a59f317935e0bd72；没有动静的回合超时（`promptInactivityTimeoutMs`）参考同一文件
+// 3f905cac2e4dd968684298673546aacca3323b1d（MIT，Copyright (c) 2026 T3 Tools Inc.）。
 import { readFile } from 'node:fs/promises';
 import {
   type ContentBlock,
@@ -95,6 +96,12 @@ export interface AcpAdapterOptions<P extends AcpProcess> {
    * `SessionConfig.appTools` 的会话在 `session/new` 与 `session/resume` 的 `mcpServers` 里多一项 `wevir`。
    */
   appToolsBridge?: AppToolsBridge;
+  /**
+   * 回合发出 `session/prompt` 后引擎这么久没有动静（`PROMPT_ACTIVITY_UPDATES` 里的更新）就结束它（T3 Code #30377）：先发
+   * `session/cancel`，回合报 `turn.failed`（`provider`），空闲时换掉引擎进程，挂着的会话下次发消息时恢复到新进程上。有进行中的
+   * 工具调用、未决的审批与提问、引擎发来还没回复的请求时不计时，它们结束后重新计时。默认不开（Antigravity 开 15 分钟，同 T3）。
+   */
+  promptInactivityTimeoutMs?: number;
 }
 
 export interface AcpProcessHooks {
@@ -124,7 +131,30 @@ interface TrackedToolCall {
   kind?: string;
   title?: string;
   rawInput?: unknown;
+  /** ACP 的工具状态；`tool_call` 没给时按 ACP 的缺省记为 `pending`。 */
+  status?: string;
 }
+
+/**
+ * 算作回合有动静的 `session/update`（T3 的 `ACP_PROMPT_ACTIVITY_UPDATES`）：回答、思考、工具、终端、计划与压缩。会话元信息与
+ * 不认识的类型不算。
+ */
+const PROMPT_ACTIVITY_UPDATES: ReadonlySet<string> = new Set([
+  'agent_message',
+  'agent_message_chunk',
+  'agent_thought',
+  'agent_thought_chunk',
+  'tool_call',
+  'tool_call_update',
+  'tool_call_content_chunk',
+  'terminal_output_chunk',
+  'terminal_update',
+  'plan',
+  'plan_update',
+  'plan_removed',
+  'compaction_update',
+  'compaction_summary_chunk',
+]);
 
 interface Turn {
   cancelRequested: boolean;
@@ -132,6 +162,9 @@ interface Turn {
   /** 回合结算（`session/prompt` 成功、失败，引擎报了结束，或被引擎退出打断）后兑现，永不 reject。 */
   done: Promise<void>;
   finish: () => void;
+  /** 最近一次有动静的时刻（`Date.now()`），`promptInactivityTimeoutMs` 用。 */
+  lastProgressAt: number;
+  watchdog?: ReturnType<typeof setTimeout>;
 }
 
 /** `session/new` / `session/resume` 的响应里引擎相关的部分（`afterActivation`）。 */
@@ -163,6 +196,8 @@ interface AcpSession {
    * 不然角色的限制（只看 `kind`）会被绕过（T3 Code #26647）。回合开始与结束时清空。
    */
   readonly toolCalls: Map<string, TrackedToolCall>;
+  /** 引擎发来、属于这个会话、还没回复的请求数（审批、提问、扩展请求），`promptInactivityTimeoutMs` 用。 */
+  openRequests: number;
 }
 
 /** ACP 的工具种类（`ToolKind`）→ 引擎工具的类别；`think`、`switch_mode`、`other` 不归哪一类。 */
@@ -225,6 +260,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   readonly #cancelTimeoutMs: number;
   readonly #mcpServers: McpServer[];
   readonly #appToolsBridge: AppToolsBridge | undefined;
+  readonly #promptInactivityMs: number | undefined;
+  /** 引擎发来、认不出会话的未回复请求数：有它时所有回合都不计没有动静的时间。 */
+  #unscopedRequests = 0;
   #bridgeWritten = false;
   /** 应用级工具（0.30.0）：有桥时才有。 */
   readonly appTools?: boolean;
@@ -251,11 +289,14 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
     this.#mcpServers = [...(options.mcpServers ?? [])];
     this.#appToolsBridge = options.appToolsBridge;
+    this.#promptInactivityMs = options.promptInactivityTimeoutMs;
     if (options.appToolsBridge !== undefined) this.appTools = true;
     this.process = options.createProcess({
       onSessionUpdate: (params) => this.#onSessionUpdate(params),
-      onRequestPermission: (params, signal) => this.#onRequestPermission(params, signal),
-      onElicitation: (params, signal) => this.#onElicitation(params, signal),
+      onRequestPermission: (params, signal) =>
+        this.#trackRequest(params.sessionId, () => this.#onRequestPermission(params, signal)),
+      onElicitation: (params, signal) =>
+        this.#trackRequest(sessionIdOf(params), () => this.#onElicitation(params, signal)),
       onExtNotification: (method, params) => {
         try {
           this.extNotification(method, params);
@@ -266,7 +307,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           });
         }
       },
-      onExtRequest: (method, params, signal) => this.extRequest(method, params, signal),
+      onExtRequest: (method, params, signal) =>
+        this.#trackRequest(sessionIdOf(params), () => this.extRequest(method, params, signal)),
       logger: this.#logger,
     });
     this.process.on('exit', (exit) => this.#onExit(exit));
@@ -496,7 +538,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const done = new Promise<void>((resolve) => {
       finish = resolve;
     });
-    const turn: Turn = { cancelRequested: false, done, finish };
+    const turn: Turn = { cancelRequested: false, done, finish, lastProgressAt: Date.now() };
     session.turn = turn;
     session.toolCalls.clear();
     session.queue.beginTurn();
@@ -526,6 +568,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         this.#settle(session, turn, this.#turnFailed(engineSessionId, error));
       },
     );
+    if (this.#promptInactivityMs !== undefined) {
+      this.#watchInactivity(session, turn, this.#promptInactivityMs);
+    }
   }
 
   async respondToApproval(
@@ -1041,7 +1086,100 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     }
     if (session.turn !== undefined && session.turn.settle === undefined)
       trackToolCall(session.toolCalls, notification.update);
+    if (PROMPT_ACTIVITY_UPDATES.has(params.update.sessionUpdate)) this.#noteProgress(session);
     session.queue.acpUpdate(notification);
+  }
+
+  /** 进行中的回合有了动静：没有动静的计时从现在算起。 */
+  #noteProgress(session: AcpSession): void {
+    const turn = session.turn;
+    if (turn !== undefined && turn.settle === undefined) turn.lastProgressAt = Date.now();
+  }
+
+  /**
+   * 引擎发来的请求（审批、MCP 表单与链接、扩展请求）在回复之前记在它的会话上（认不出会话的记在适配器上），回复之后重新计时：
+   * 等用户的时间不算回合没有动静。
+   */
+  #trackRequest<T>(sessionId: string | undefined, run: () => Promise<T>): Promise<T> {
+    const session = sessionId === undefined ? undefined : this.#sessions.get(sessionId);
+    if (session !== undefined) session.openRequests += 1;
+    else this.#unscopedRequests += 1;
+    let pending: Promise<T>;
+    try {
+      pending = run();
+    } catch (error) {
+      pending = Promise.reject(error);
+    }
+    return pending.finally(() => {
+      if (session !== undefined) {
+        session.openRequests -= 1;
+        this.#noteProgress(session);
+        return;
+      }
+      this.#unscopedRequests -= 1;
+      for (const held of this.#sessions.values()) this.#noteProgress(held);
+    });
+  }
+
+  /** 回合在等别的东西，没有动静不算数：进行中的工具调用、未决的审批与提问、引擎发来还没回复的请求。 */
+  #inactivityPaused(session: AcpSession): boolean {
+    if (session.openRequests > 0 || this.#unscopedRequests > 0) return true;
+    if (session.approvals.size > 0 || session.questions.size > 0) return true;
+    for (const call of session.toolCalls.values()) {
+      if (call.status === 'pending' || call.status === 'in_progress') return true;
+    }
+    return false;
+  }
+
+  /**
+   * `promptInactivityTimeoutMs`（T3 的 `watchPromptInactivity`）：到期时回合仍没有动静、也不在等别的东西，就结束它
+   * （`#retireInactivePrompt`）；在等别的东西时从现在重新计时。回合结算后计时器随之清掉。
+   */
+  #watchInactivity(session: AcpSession, turn: Turn, timeoutMs: number): void {
+    const arm = (delay: number) => {
+      turn.watchdog = setTimeout(check, delay);
+      turn.watchdog.unref?.();
+    };
+    const check = () => {
+      turn.watchdog = undefined;
+      if (session.turn !== turn || turn.settle !== undefined || turn.cancelRequested) return;
+      const now = Date.now();
+      const remaining = turn.lastProgressAt + timeoutMs - now;
+      if (remaining > 0) return arm(remaining);
+      if (this.#inactivityPaused(session)) {
+        turn.lastProgressAt = now;
+        return arm(timeoutMs);
+      }
+      this.#retireInactivePrompt(session, turn, timeoutMs);
+    };
+    turn.lastProgressAt = Date.now();
+    arm(timeoutMs);
+    void turn.done.then(() => {
+      if (turn.watchdog !== undefined) clearTimeout(turn.watchdog);
+      turn.watchdog = undefined;
+    });
+  }
+
+  /**
+   * 没有动静的回合：发 `session/cancel` 让引擎停下，回合报 `turn.failed`，空闲时换掉引擎进程（T3 同样换掉运行体：引擎可能已经
+   * 卡住，取消不一定有回应）。之后到的 `session/prompt` 结果不再上报。
+   */
+  #retireInactivePrompt(session: AcpSession, turn: Turn, timeoutMs: number): void {
+    const minutes = Math.max(1, Math.round(timeoutMs / 60_000));
+    this.#logger.warn(
+      `${this.engine.name} 的回合 ${minutes} 分钟没有动静，结束回合并在空闲时重启进程`,
+      {
+        engineSessionId: session.id,
+      },
+    );
+    void this.notifyCancel(session.id);
+    this.#restartWhenIdle = true;
+    this.#settle(session, turn, {
+      type: 'turn.failed',
+      engineSessionId: session.id,
+      category: 'provider',
+      message: `The agent sent nothing for ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}, so Wevir stopped the turn and restarted the agent. Send a message to continue.`,
+    });
   }
 
   /**
@@ -1512,6 +1650,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       configOptions,
       deniedTools: new Set(deniedTools),
       toolCalls: new Map(),
+      openRequests: 0,
     });
   }
 
@@ -1561,7 +1700,17 @@ function trackToolCall(calls: Map<string, TrackedToolCall>, update: AcpSessionUp
   if (typeof update.kind === 'string') tracked.kind = update.kind;
   if (typeof update.title === 'string') tracked.title = update.title;
   if (update.rawInput !== undefined && update.rawInput !== null) tracked.rawInput = update.rawInput;
+  if (typeof update.status === 'string') tracked.status = update.status;
+  else if (update.sessionUpdate === 'tool_call' && tracked.status === undefined) {
+    tracked.status = 'pending';
+  }
   calls.set(update.toolCallId, tracked);
+}
+
+/** 引擎发来的请求参数里的 `sessionId`；没有时 undefined。 */
+function sessionIdOf(params: unknown): string | undefined {
+  const sessionId = isRecord(params) ? params.sessionId : undefined;
+  return typeof sessionId === 'string' && sessionId !== '' ? sessionId : undefined;
 }
 
 /** 审批请求里没给（或给了 null）的 `kind`、`title`、`rawInput` 用记下的补上；给了的照用。 */

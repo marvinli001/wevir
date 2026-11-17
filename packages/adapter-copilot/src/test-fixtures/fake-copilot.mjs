@@ -236,6 +236,11 @@ function serve() {
     const state = sessions.get(sessionId);
     if (!state) return send({ id, error: sample('notFound') });
     if (!signedIn()) return send({ id, error: sample('authError') });
+    // `async-shell` 挂着的 session/prompt：下一条消息到达时才（失败地）回复，像后台 shell 退出得很晚。
+    if (state.held !== undefined) {
+      send({ id: state.held, error: { code: -32603, message: 'async shell exited late' } });
+      state.held = undefined;
+    }
     let cancel;
     const cancelled = new Promise((resolve) => {
       cancel = () => resolve('cancelled');
@@ -264,6 +269,34 @@ function serve() {
           },
         };
         return send({ id, error: errors[text.slice(6)] });
+      }
+      if (text === 'async-shell') {
+        // 后台 shell 不退出时 Copilot 一直挂着 session/prompt（github/copilot-cli#5293），前台做完报 assistant.idle。
+        // 上一个回合的 idle 可能先到。事件的形状取自 T3 Code 7903b487 的测试。
+        const event = (type, extra = {}) =>
+          send({
+            method: 'github.com/copilot/sessionEvent',
+            params: { sessionId, type, data: {}, ...extra },
+          });
+        event('assistant.idle');
+        event('assistant.turn_start');
+        update(sessionId, {
+          sessionUpdate: 'tool_call',
+          toolCallId: `shell-${id}`,
+          title: 'sleep 120',
+          kind: 'execute',
+          status: 'completed',
+          rawInput: { command: 'sleep 120', mode: 'async', detach: false },
+        });
+        update(sessionId, {
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: 'echo: async-shell' },
+        });
+        // 子 agent 的 idle 不结束回合。
+        event('assistant.idle', { agentId: 'sub-1' });
+        event('assistant.idle');
+        state.held = id;
+        return;
       }
       if (text === 'hang') {
         update(sessionId, {

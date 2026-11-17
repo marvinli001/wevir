@@ -9,7 +9,7 @@ import type {
   ClassifiedTurnError,
 } from '@wevir/adapter-acp';
 import { GROK_DEFAULT_MODEL } from './models.js';
-import { grokToolDisplay, isGrokTodoTool } from './tool-display.js';
+import { grokToolDisplay, isGrokTodoTool, normalizeGrokMcpUpdate } from './tool-display.js';
 import {
   GROK_INITIALIZE_META,
   grokApprovalOptions,
@@ -128,4 +128,6 @@ export const GROK_ENGINE: AcpEngine = Object.freeze<AcpEngine>({
     notifications: [...XAI_PROMPT_COMPLETE_METHODS, ...XAI_SESSION_NOTIFICATION_METHODS],
   },
   approvalOptions: grokApprovalOptions,
+  // `use_tool` 调的 MCP 工具改成 `mcp__<server>__<tool>`，结果的文本作为工具输出（T3 Code #35502）。
+  normalizeUpdate: normalizeGrokMcpUpdate,
 });

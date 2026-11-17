@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // 复用 Wevir adapter-grok 的 ACP 构造与历史 MCP 接法。其来源：pingdotgg/t3code
 // packages/provider-grok/src/server/adapter.ts，提交 ec1313c8f8333292506f05a355bb72d308a455d8。
+// 回合以 `assistant.idle` 结束参考 pingdotgg/t3code packages/provider-acp-registry/src/server/copilotAcp.ts 与
+// packages/provider-acp/src/server/adapter.ts（`reportForegroundWork`），提交 7903b487badeba1e53ba0cc5dc8be76a6c3ae0f4。
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：经 Wevir 的 Devin 适配器改写；Copilot 的完全访问由 Wevir 自动批准它的权限请求，恢复用 session/load 并丢掉它回放的
 // 历史，额度来自它的原始会话事件。
@@ -73,6 +75,8 @@ export class CopilotAdapter extends AcpAdapter {
   /** 报了开始、还没结束的压缩，按引擎会话（`session.compaction_complete` 没带 `compactionAttemptId` 时用）。 */
   readonly #compacting = new Map<string, string>();
   #compactions = 0;
+  /** 本回合报过 `assistant.turn_start` 的会话：只有它们的 `assistant.idle` 结束回合（上一个回合迟到的 idle 不算）。 */
+  readonly #foreground = new Set<string>();
   readonly accounts: CopilotAccounts;
   readonly historyTool: boolean;
   /** 请求批准：Copilot 问的每一项都交给用户；完全访问：Wevir 替用户批准（同 CLI 的 `--allow-all`）。 */
@@ -203,6 +207,7 @@ export class CopilotAdapter extends AcpAdapter {
     const settings = this.#settings.get(id);
     if (this.inTurn(id) || settings?.sending)
       throw new AdapterError('session_busy', 'Session is busy');
+    this.#foreground.delete(id);
     if (settings === undefined) return super.send(id, input);
     settings.sending = true;
     try {
@@ -274,6 +279,10 @@ export class CopilotAdapter extends AcpAdapter {
    * 原始会话事件：`assistant.usage` 里的额度；压缩上下文（`session.compaction_start` → `context.compacting`，成功的
    * `session.compaction_complete` → `context.compacted`）与截掉旧消息的 `session.truncation`（截掉了消息时当作一次完成的压缩：
    * 截掉的可能正是带规则的第一条）。Host 据 `context.compacted` 在下一回合重新补随消息交的规则。没有真实账号核对过。
+   *
+   * 前台工作：本回合 `assistant.turn_start` 之后的 `assistant.idle` 结束回合（`end_turn`）。Copilot 在后台 shell 退出前不回
+   * `session/prompt`（github/copilot-cli#5293），迟到的结果（成功或失败）不再上报，也不碰下一个回合。子 agent 的（带 `agentId`）与
+   * 取消时的（`aborted`）不算，取消照常由 `session/prompt` 的结果结算。
    */
   protected override extNotification(method: string, params: unknown): void {
     if (method !== COPILOT_SESSION_EVENT && method !== `_${COPILOT_SESSION_EVENT}`) return;
@@ -298,6 +307,15 @@ export class CopilotAdapter extends AcpAdapter {
           attempt ?? this.#compacting.get(sessionId) ?? `copilot-compaction-${++this.#compactions}`;
         this.#compacting.delete(sessionId);
         if (data.success === true) this.reportCompaction(sessionId, id, 'compacted');
+        return;
+      }
+      case 'assistant.turn_start':
+      case 'assistant.idle': {
+        if (event.agentId !== undefined || data.aborted === true || !this.inTurn(sessionId)) return;
+        if (event.type === 'assistant.turn_start') this.#foreground.add(sessionId);
+        else if (this.#foreground.delete(sessionId)) {
+          this.completeTurn(sessionId, { stopReason: 'end_turn' });
+        }
         return;
       }
       case 'session.truncation': {

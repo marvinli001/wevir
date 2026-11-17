@@ -98,6 +98,8 @@ describe('Copilot ACP', () => {
             'session.compaction_start',
             'session.compaction_complete',
             'session.truncation',
+            'assistant.turn_start',
+            'assistant.idle',
           ],
         },
       },
@@ -116,6 +118,32 @@ describe('Copilot ACP', () => {
     });
     expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
     expect(readLog(log).some((message) => message.method === 'authenticate')).toBe(false);
+  });
+
+  it('后台 shell 挂着 session/prompt：本回合 turn_start 之后的 assistant.idle 结束回合；迟到的失败结果不碰下一个回合', async () => {
+    const { adapter, config } = setup();
+    const { engineSessionId: id } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(id));
+    await adapter.send(id, text('async-shell'));
+    const first = await events.turn();
+    expect(first.find((event) => event.type === 'assistant.message')).toMatchObject({
+      text: 'echo: async-shell',
+    });
+    expect(first.at(-1)).toMatchObject({
+      type: 'turn.settled',
+      outcome: 'completed',
+      stopReason: 'end_turn',
+    });
+    const from = events.events.length;
+    await adapter.send(id, text('second'));
+    const second = await events.turn(from);
+    expect(second.find((event) => event.type === 'assistant.message')).toMatchObject({
+      text: 'echo: second',
+    });
+    expect(second.filter((event) => event.type.startsWith('turn.'))).toEqual([
+      expect.objectContaining({ type: 'turn.settled', outcome: 'completed' }),
+    ]);
+    expect(events.events.filter((event) => event.type === 'turn.failed')).toEqual([]);
   });
 
   it('压缩上下文：原始会话事件的 compaction_start / 成功的 compaction_complete 报成 compacting / compacted；失败不报完成；截掉旧消息当作压缩', async () => {
