@@ -2,6 +2,7 @@ import type { ProviderProfile, UsageTiming } from '@wevir/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOCALES } from '@/i18n/locales';
 import {
+  aggregateCost,
   approxNote,
   averageFirstToken,
   bucketEdges,
@@ -425,5 +426,27 @@ describe('重读的节流', () => {
     throttle.cancel();
     vi.advanceTimersByTime(5000);
     expect(run).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('aggregateCost', () => {
+  const subtotal = {
+    requests: 2,
+    unpriced: 1,
+    cost: 1,
+    tokens: { input: 1, cacheRead: 0, cacheWrite: 0, output: 1, reasoning: 0 },
+    timing: {
+      timedRequests: 0,
+      outputTokens: 0,
+      durationMs: 0,
+      firstTokenCount: 0,
+      firstTokenMs: 0,
+    },
+  };
+  it('uses the complete estimate and distinguishes an incomplete total from a true zero', () => {
+    expect(aggregateCost({ ...subtotal, missingUsage: 1 })).toBeUndefined();
+    expect(aggregateCost({ ...subtotal, missingUsage: 0 })).toBeUndefined();
+    expect(aggregateCost({ ...subtotal, missingUsage: 0, unpriced: 0, estimatedCost: 0 })).toBe(0);
+    expect(aggregateCost(subtotal)).toBe(1);
   });
 });

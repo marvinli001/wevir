@@ -1,0 +1,98 @@
+{
+  "protocolVersion": "0.203.0",
+  "methods": {
+    "usage.summary": {
+      "params": [
+        {
+          "edges": [1000, 2000],
+          "filter": {
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+          }
+        }
+      ],
+      "result": [
+        {
+          "totals": {
+            "requests": 1,
+            "cost": 0.012,
+            "unpriced": 0,
+            "missingUsage": 0,
+            "subscriptionEstimate": true,
+            "estimatedCost": 0.012,
+            "timing": {
+              "timedRequests": 0,
+              "outputTokens": 0,
+              "durationMs": 0,
+              "firstTokenCount": 0,
+              "firstTokenMs": 0
+            },
+            "tokens": {
+              "input": 1000,
+              "output": 500,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "reasoning": 0
+            }
+          },
+          "buckets": [
+            {
+              "requests": 1,
+              "cost": 0.012,
+              "unpriced": 0,
+              "missingUsage": 0,
+              "subscriptionEstimate": true,
+              "estimatedCost": 0.012,
+              "timing": {
+                "timedRequests": 0,
+                "outputTokens": 0,
+                "durationMs": 0,
+                "firstTokenCount": 0,
+                "firstTokenMs": 0
+              },
+              "tokens": {
+                "input": 1000,
+                "output": 500,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "reasoning": 0
+              }
+            }
+          ],
+          "byProvider": [],
+          "byModel": [],
+          "options": {
+            "sources": [],
+            "providers": [],
+            "models": []
+          },
+          "pricing": {
+            "source": "models.dev",
+            "models": 1,
+            "refreshing": false
+          }
+        }
+      ]
+    },
+    "usage.records": {
+      "params": [
+        {
+          "from": 1000,
+          "to": 2000,
+          "filter": {
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+          }
+        }
+      ],
+      "result": [
+        {
+          "records": [],
+          "total": 0
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

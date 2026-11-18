@@ -76,7 +76,7 @@ it('retains more than 100 unknown child threads and usage records until adoption
   const root = await adapter.createSession(config);
   const gateway = adapter.gateway;
   if (!gateway) throw new Error('no gateway');
-  for (let i = 0; i < 221; i += 1) {
+  const request = async (threadId: string) => {
     const response = await fetch(`${gateway.baseURL('mock')}/responses`, {
       method: 'POST',
       headers: { authorization: `Bearer ${gateway.token}`, 'content-type': 'application/json' },
@@ -84,7 +84,7 @@ it('retains more than 100 unknown child threads and usage records until adoption
         model: MOCK_MODEL,
         input: [],
         client_metadata: {
-          thread_id: i < 101 ? `unknown-${i}` : childId,
+          thread_id: threadId,
           'x-codex-turn-metadata': JSON.stringify({
             agent_name: '/root/child',
             parent_thread_id: root.engineSessionId,
@@ -94,7 +94,8 @@ it('retains more than 100 unknown child threads and usage records until adoption
     });
     expect(response.status).toBe(200);
     await response.text();
-  }
+  };
+  for (let i = 0; i < 221; i += 1) await request(i < 101 ? `unknown-${i}` : childId);
   await vi.waitFor(() => expect(observed).toHaveBeenCalledTimes(221));
   const parent = collectEvents(adapter, root.engineSessionId);
   await adapter.send(root.engineSessionId, {
@@ -105,4 +106,17 @@ it('retains more than 100 unknown child threads and usage records until adoption
   const child = collectEvents(adapter, childId);
   await waitForEvent(child, ofType('turn.settled'), 'child ended');
   expect(child.filter(ofType('usage.recorded'))).toHaveLength(120);
+  await waitForEvent(parent, ofType('turn.settled'), 'parent ended');
+  expect(parent.filter(ofType('usage.recorded'))).toHaveLength(101);
+  await request('unknown-after-turn');
+  await vi.waitFor(() => expect(observed).toHaveBeenCalledTimes(222));
+  await adapter.close(root.engineSessionId);
+  const fallback = parent.filter(ofType('usage.recorded'));
+  expect(fallback).toHaveLength(102);
+  expect(new Set(fallback.map((event) => event.requestId)).size).toBe(102);
+  expect(
+    fallback.every(
+      (event) => event.kind === 'subagent' && event.engineSessionId === root.engineSessionId,
+    ),
+  ).toBe(true);
 });

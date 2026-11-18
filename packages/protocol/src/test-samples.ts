@@ -7523,7 +7523,13 @@ export const methodSamples: MethodSamples = {
         { edges: [1_760_918_400_000, 1_761_004_800_000] },
         {
           edges: [1_760_918_400_000, 1_760_922_000_000, 1_760_925_600_000],
-          filter: { sources: ['claude', 'chatgpt'], providerIds: ['prv_1'], models: [] },
+          filter: {
+            sources: ['claude', 'chatgpt'],
+            providerIds: ['prv_1'],
+            models: [],
+            sessionId: ids.session,
+            workspaceId: ids.workspace,
+          },
         },
       ],
       invalid: [
@@ -7536,7 +7542,7 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [
         {
-          totals: usageAggregate,
+          totals: { ...usageAggregate, missingUsage: 1, subscriptionEstimate: true },
           buckets: [usageAggregate, { ...usageAggregate, requests: 0 }],
           byProvider: [
             {
@@ -7567,7 +7573,13 @@ export const methodSamples: MethodSamples = {
     params: {
       valid: [
         { from: 0, to: 1_761_004_800_000 },
-        { from: 0, to: 1, filter: { models: ['gpt-5.5'] }, offset: 50, limit: 50 },
+        {
+          from: 0,
+          to: 1,
+          filter: { models: ['gpt-5.5'], sessionId: ids.session },
+          offset: 50,
+          limit: 50,
+        },
       ],
       invalid: [{ from: 0 }, { from: 0, to: 1, limit: 0 }],
     },

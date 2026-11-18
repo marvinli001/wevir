@@ -16,6 +16,7 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { useAccounts } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import {
+  aggregateCost,
   averageFirstToken,
   cacheHitRate,
   formatCost,
@@ -253,9 +254,7 @@ function AggregateTable({
                       : undefined
                   }
                 >
-                  {aggregate.requests > 0 && aggregate.unpriced === aggregate.requests
-                    ? MISSING
-                    : formatCost(aggregate.cost, locale)}
+                  {costText(aggregateCost(aggregate), locale)}
                 </td>
                 <td className={cn(TD, NUM)}>
                   {rate === undefined ? MISSING : formatPercent(rate, locale)}

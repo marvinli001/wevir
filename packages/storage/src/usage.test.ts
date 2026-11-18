@@ -23,6 +23,54 @@ function row(overrides: Partial<UsageRow> = {}): UsageRow {
 describe('usage_records', () => {
   const { storage } = useTempStorage();
 
+  it('按项目及会话归属分页，删除审阅会话后其账本仍计入原会话', () => {
+    const s = storage();
+    seedSession(s);
+    seedSession(s, { id: 'ses_child', engineSessionId: 'child', parentSessionId: 'ses_01' });
+    seedSession(s, {
+      id: 'ses_review',
+      engineSessionId: 'review',
+      origin: {
+        kind: 'second_opinion',
+        sessionId: 'ses_01',
+        opinionId: 'opn_review',
+      },
+    });
+    seedSession(s, {
+      id: 'ses_review_child',
+      engineSessionId: 'review_child',
+      parentSessionId: 'ses_review',
+    });
+    seedSession(s, { id: 'ses_other', engineSessionId: 'other', workspaceId: 'ws_other' });
+    for (const sessionId of [
+      'ses_01',
+      'ses_child',
+      'ses_review',
+      'ses_review_child',
+      'ses_other',
+    ]) {
+      const usage = row({
+        sessionId,
+        workspaceId: sessionId === 'ses_other' ? 'ws_other' : 'ws_01',
+      });
+      expect(s.usage.insert(usage)).toBe(true);
+      expect(s.usage.insert(usage)).toBe(false);
+    }
+    s.sessions.remove(['ses_child', 'ses_review', 'ses_review_child']);
+    expect(s.usage.range(0, 2000, { sessionId: 'ses_01' }).map((usage) => usage.sessionId)).toEqual(
+      ['ses_01', 'ses_child', 'ses_review', 'ses_review_child'],
+    );
+    const page = s.usage.page(0, 2000, { sessionId: 'ses_01', workspaceId: 'ws_01' }, 1, 2);
+    expect(page.total).toBe(4);
+    expect(page.rows.map((usage) => usage.sessionId)).toEqual(['ses_review', 'ses_child']);
+    expect(
+      s.usage.page(0, 2000, { sessionId: 'ses_01', workspaceId: 'ws_other' }, 0, 1).total,
+    ).toBe(0);
+    expect(s.usage.range(0, 2000, { workspaceId: 'ws_other' })).toMatchObject([
+      { sessionId: 'ses_other' },
+    ]);
+  });
+
   it('插入与按时间段读取；可选列省略时读出来也省略', () => {
     const s = storage();
     expect(s.usage.insert(row())).toBe(true);

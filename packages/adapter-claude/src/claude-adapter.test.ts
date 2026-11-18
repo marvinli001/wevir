@@ -1010,6 +1010,7 @@ describe('每次请求的用量（0.62.0）', () => {
         type: 'usage.recorded',
         engineSessionId: started.childEngineSessionId,
         requestId: 'msg_011Cg3JxQXEBVKpgHDs8sdEb',
+        kind: 'subagent',
         model: 'claude-haiku-4-5-20251001',
         inputTokens: 10,
         outputTokens: 45,

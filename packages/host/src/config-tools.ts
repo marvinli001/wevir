@@ -21,6 +21,7 @@ import type {
   Session,
   SessionId,
   TurnId,
+  UsageAggregate,
   WorkspaceId,
 } from '@wevir/protocol';
 import { HOOK_EVENTS, MethodSchemas, VerificationTargetSchema } from '@wevir/protocol';
@@ -340,13 +341,15 @@ export class ConfigTools {
       title: 'Read Wevir configuration',
       description:
         'Read Wevir setup: settings (and who may change each), projects, environments, checks (with candidate ' +
-        'commands), approval_rules, usage (cost of the last days, default 30), lsp (language servers, install ' +
+        'commands), approval_rules, usage (last days, default 30, optional sessionId or workspaceId; report only returned costs, state missingUsage or unpriced counts, and label subscriptionEstimate as an API-price estimate), lsp (language servers, install ' +
         'plans) or hooks (lifecycle hooks of every source, status, engines that run each event). The other ' +
         'wevir_config_* tools change it. For checks, target working_tree, staged, or commit (with a SHA) returns Host verification evidence (use format markdown for a PR check section).',
       inputSchema: objectSchema(
         {
           section: { type: 'string', enum: [...READ_SECTIONS] },
           days: { type: 'integer', minimum: 1, maximum: 365 },
+          sessionId: { type: 'string' },
+          workspaceId: { type: 'string' },
           target: { type: 'string', enum: [...VerificationTargetSchema.options] },
           commit: { type: 'string' },
           format: { type: 'string', enum: ['markdown'] },
@@ -427,14 +430,26 @@ export class ConfigTools {
           case 'usage': {
             const days = optionalInt(args, 'days', 1, 365) ?? 30;
             const now = Date.now();
+            const sessionId = optionalString(args, 'sessionId') as SessionId | undefined;
+            const workspaceId = optionalString(args, 'workspaceId') as WorkspaceId | undefined;
             const summary = await this.#host(() =>
-              call('usage.summary', { edges: [now - days * DAY_MS, now] }),
+              call('usage.summary', {
+                edges: [now - days * DAY_MS, now],
+                filter: { sessionId, workspaceId },
+              }),
             );
+            const estimate = <T extends UsageAggregate>(value: T) => {
+              const { cost: _subtotal, estimatedCost, ...usage } = value;
+              return { ...usage, ...(estimatedCost !== undefined && { cost: estimatedCost }) };
+            };
             return jsonResult({
               days,
-              totals: summary.totals,
-              byProvider: summary.byProvider,
-              byModel: summary.byModel,
+              currency: 'USD',
+              ...(sessionId !== undefined && { sessionId }),
+              ...(workspaceId !== undefined && { workspaceId }),
+              totals: estimate(summary.totals),
+              byProvider: summary.byProvider.map(estimate),
+              byModel: summary.byModel.map(estimate),
               pricing: summary.pricing,
             });
           }

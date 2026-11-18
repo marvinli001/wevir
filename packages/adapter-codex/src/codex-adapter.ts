@@ -1224,6 +1224,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
 
   /** 回合结束：报终结事件，结算回合。 */
   #finishTurn(session: CodexSession, turn: Turn, terminal: AgentEvent): void {
+    this.#flushPendingUsage(session.id);
     session.hub.emit(terminal);
     session.turn = undefined;
     if (turn.turnId !== undefined) session.lastTurnId = turn.turnId;
@@ -2010,6 +2011,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         });
       }
     }
+    this.#flushPendingUsage(engineSessionId);
     session.status = 'closed';
     this.#endApprovals(session, 'turn_cancelled');
     this.#endQuestions(session, 'turn_cancelled');
@@ -2021,7 +2023,6 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     session.stoppedTurns?.clear();
     this.#sessions.delete(engineSessionId);
     this.#sessions.set(engineSessionId, session);
-    this.#clearPendingUsage(engineSessionId);
     this.#trimClosedSessions();
   }
 
@@ -2061,16 +2062,35 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     );
   }
 
-  #clearPendingUsage(id: string): void {
-    const family = [id];
-    for (const parent of family) {
-      this.#pendingUsage.delete(parent);
-      for (const [thread, observations] of this.#pendingUsage) {
-        if (observations.some((observation) => observation.parentThreadId === parent)) {
-          this.#pendingUsage.delete(thread);
-          family.push(thread);
+  #flushPendingUsage(parentId?: string): void {
+    const pending = new Map(this.#pendingUsage);
+    for (const [thread, observations] of pending) {
+      const remaining: RequestObservation[] = [];
+      for (const observation of observations) {
+        const seen = new Set([thread]);
+        let owner = observation.parentThreadId;
+        let emitted = false;
+        while (owner !== undefined && !seen.has(owner)) {
+          seen.add(owner);
+          const session = this.#sessions.get(owner);
+          if (session?.status === 'open') {
+            if (parentId === undefined || owner === parentId) {
+              this.#emitGatewayUsage(
+                session,
+                { ...observation, kind: 'subagent' },
+                session.turn?.turnId,
+              );
+              emitted = true;
+              break;
+            }
+            break;
+          }
+          owner = session?.parentId ?? pending.get(owner)?.[0]?.parentThreadId;
         }
+        if (parentId !== undefined && !emitted) remaining.push(observation);
       }
+      if (remaining.length === 0) this.#pendingUsage.delete(thread);
+      else this.#pendingUsage.set(thread, remaining);
     }
   }
 
@@ -2096,14 +2116,15 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       for (const [id, session] of this.#sessions) {
         if (session.parentId === parent) family.add(id);
       }
+      this.#flushPendingUsage(parent);
       this.#sessions.delete(parent);
-      this.#clearPendingUsage(parent);
       this.#launcher.gateway?.forgetThread(parent);
     }
   }
 
   dispose(): Promise<void> {
     this.#disposed ??= (async () => {
+      this.#flushPendingUsage();
       for (const session of this.#sessions.values()) {
         if (session.status === 'open') {
           this.#endApprovals(session, 'disposed');
@@ -2116,7 +2137,6 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       }
       this.#sessions.clear();
       this.#unknownThreads.clear();
-      this.#pendingUsage.clear();
       this.#approvalsByRpc.clear();
       this.#questionsByRpc.clear();
       for (const collector of this.#titleThreads.values()) {
@@ -3243,6 +3263,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * `engine.exited`（该会话订阅的最后一个事件）。生成标题的临时 thread 随进程一起没了。
    */
   #detachAll(exit: Omit<EngineExitedEvent, 'type' | 'engineSessionId'>): void {
+    this.#flushPendingUsage();
     for (const session of this.#sessions.values()) {
       if (session.status !== 'open') continue;
       this.#endApprovals(session, 'engine_exited');
@@ -3255,7 +3276,6 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       session.hub.end();
     }
     this.#unknownThreads.clear();
-    this.#pendingUsage.clear();
     this.#approvalsByRpc.clear();
     this.#questionsByRpc.clear();
     for (const collector of this.#titleThreads.values()) {
@@ -3431,7 +3451,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     const session = this.#sessions.get(threadId);
     if (session === undefined) {
-      if (observation.kind !== 'subagent') {
+      if (observation.kind !== 'subagent' && observation.parentThreadId === undefined) {
         this.#logger.warn('gateway usage has no matching session');
         return;
       }
@@ -3440,6 +3460,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#pendingUsage.set(threadId, held);
       return;
     }
+    this.#emitGatewayUsage(session, observation, observation.turnId);
+  }
+
+  #emitGatewayUsage(
+    session: CodexSession,
+    observation: RequestObservation,
+    engineTurnId: string | undefined,
+  ): void {
     session.hub.emit({
       type: 'usage.recorded',
       engineSessionId: session.id,
@@ -3449,7 +3477,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       kind: observation.kind,
       origin: 'gateway',
       granularity: 'request',
-      engineTurnId: observation.kind === 'auxiliary' ? null : (observation.turnId ?? null),
+      engineTurnId: observation.kind === 'auxiliary' ? null : (engineTurnId ?? null),
       usageReported: observation.usage !== undefined,
       outcome: observation.outcome,
       supply: observation.supply,
