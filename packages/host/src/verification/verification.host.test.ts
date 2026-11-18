@@ -59,7 +59,7 @@ function writeConv(cwd: string, offset: number, note = ''): void {
 }
 
 function git(cwd: string, ...args: string[]): void {
-  execFileSync('git', args, { cwd, stdio: 'ignore' });
+  execFileSync('git', args, { cwd, stdio: ['ignore', 'ignore', 'pipe'] });
 }
 
 function makeRepo(root: string, files: Record<string, string> = {}): string {
@@ -72,8 +72,11 @@ function makeRepo(root: string, files: Record<string, string> = {}): string {
     writeFileSync(join(repo, path), text);
   }
   git(repo, 'init', '-q', '-b', 'main');
-  git(repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', 'add', '-A');
-  git(repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '-m', 'init');
+  git(repo, 'config', 'user.email', 't@example.com');
+  git(repo, 'config', 'user.name', 't');
+  git(repo, 'config', 'commit.gpgsign', 'false');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'init');
   return repo;
 }
 
