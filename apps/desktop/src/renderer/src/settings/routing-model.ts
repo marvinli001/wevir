@@ -3,11 +3,9 @@ import {
   type AccountState,
   isExhausted,
   type ProviderProfile,
-  type RoutingDecision,
   type RoutingSettings,
   type RoutingTarget,
   rateLimitWindows,
-  type WevirEvent,
 } from '@wevir/protocol';
 import { accountOfProvider, isPickable, sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
@@ -122,19 +120,4 @@ export function moveRoutingNode(
 
 export function routingReason(reason: string): string {
   return sharedRoutingReason(reason, t);
-}
-
-export function isRoutingSwitch(event: WevirEvent, decision: RoutingDecision): boolean {
-  if (event.type !== 'session.handoff' && event.type !== 'session.configured') return false;
-  const target =
-    event.type === 'session.handoff'
-      ? event.payload.to
-      : { providerId: decision.from.providerId, modelId: event.payload.modelId };
-  return (
-    target.providerId === decision.to?.providerId &&
-    target.modelId === decision.to.modelId &&
-    event.payload.reason === 'usage_limit' &&
-    event.payload.failover?.originTurnId === decision.originTurnId &&
-    event.payload.failover.attempt === decision.attempt
-  );
 }

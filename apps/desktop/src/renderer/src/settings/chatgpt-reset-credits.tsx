@@ -1,6 +1,7 @@
 import { accountId, type WevirClient } from '@wevir/client-sdk';
 import type { AccountResetCreditOutcome, AccountState } from '@wevir/protocol';
 import { useState } from 'react';
+import { Collapse } from '@/components/collapse';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { currentLocale, t } from '@/i18n';
@@ -19,16 +20,17 @@ export function ChatgptResetCredits({
   const [pending, setPending] = useState<{ idempotencyKey: string; creditId?: string }>();
   const [outcome, setOutcome] = useState<AccountResetCreditOutcome>();
   const summary = account.resetCredits;
-  const credit = nextResetCredit(summary);
+  const [lastSummary, setLastSummary] = useState(summary);
+  if (summary && summary !== lastSummary) setLastSummary(summary);
+  const visible =
+    client.supports('account_reset_credits') &&
+    (summary !== undefined || pending !== undefined || outcome !== undefined);
+  const shown = visible ? summary : lastSummary;
+  const credit = nextResetCredit(shown);
   const canUse =
     pending !== undefined ||
     ((summary?.availableCount ?? 0) > 0 &&
       (summary?.credits === undefined || credit !== undefined));
-  if (
-    !client.supports('account_reset_credits') ||
-    (summary === undefined && pending === undefined && outcome === undefined)
-  )
-    return null;
 
   const status =
     outcome === 'nothingToReset'
@@ -50,68 +52,73 @@ export function ChatgptResetCredits({
         });
 
   return (
-    <div className="space-y-2 rounded-md border border-border px-3 py-2.5" data-reset-credits>
-      <div className="flex items-center gap-3 text-sm">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span>{t('account.chatgpt.reset.title')}</span>
-            {summary !== undefined && (
-              <span className="tabular-nums text-muted-foreground" data-reset-count>
-                {t('account.chatgpt.reset.available', { count: summary.availableCount })}
-              </span>
+    <Collapse open={visible} motion="height">
+      <div
+        className="flex flex-col gap-2 rounded-md border border-border px-3 py-2.5"
+        data-reset-credits
+      >
+        <div className="flex items-center gap-3 text-sm">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span>{t('account.chatgpt.reset.title')}</span>
+              {shown !== undefined && (
+                <span className="tabular-nums text-muted-foreground" data-reset-count>
+                  {t('account.chatgpt.reset.available', { count: shown.availableCount })}
+                </span>
+              )}
+            </div>
+            {expires !== undefined && (
+              <p className="text-xs text-muted-foreground" data-reset-expiry>
+                {t('account.chatgpt.reset.expires', { time: expires })}
+              </p>
             )}
           </div>
-          {expires !== undefined && (
-            <p className="text-xs text-muted-foreground" data-reset-expiry>
-              {t('account.chatgpt.reset.expires', { time: expires })}
-            </p>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!canUse}
+            data-action="use-reset-credit"
+            onClick={() => {
+              if (pending === undefined)
+                setPending({
+                  idempotencyKey: crypto.randomUUID(),
+                  ...(credit !== undefined && { creditId: credit.id }),
+                });
+              setOpen(true);
+            }}
+          >
+            {t('account.chatgpt.reset.use')}
+          </Button>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!canUse}
-          data-action="use-reset-credit"
-          onClick={() => {
-            if (pending === undefined)
-              setPending({
-                idempotencyKey: crypto.randomUUID(),
-                ...(credit !== undefined && { creditId: credit.id }),
+        <Collapse open={status !== undefined} motion="height">
+          <p role="status" className="text-xs text-muted-foreground">
+            {status}
+          </p>
+        </Collapse>
+        {open && pending !== undefined && (
+          <ConfirmDialog
+            open
+            onOpenChange={setOpen}
+            title={t('account.chatgpt.reset.confirmTitle')}
+            confirmLabel={t('account.chatgpt.reset.use')}
+            failure={(error) => t('account.chatgpt.reset.failed', { error })}
+            onConfirm={async () => {
+              const result = await client.request('account.consumeResetCredit', {
+                kind: 'chatgpt',
+                id: accountId(account),
+                ...pending,
               });
-            setOpen(true);
-          }}
-        >
-          {t('account.chatgpt.reset.use')}
-        </Button>
+              onChanged(result.account);
+              setOutcome(result.outcome);
+              setPending(undefined);
+            }}
+          >
+            {t('account.chatgpt.reset.confirmation', {
+              account: account.email ?? accountId(account),
+            })}
+          </ConfirmDialog>
+        )}
       </div>
-      {status !== undefined && (
-        <p role="status" className="text-xs text-muted-foreground">
-          {status}
-        </p>
-      )}
-      {open && pending !== undefined && (
-        <ConfirmDialog
-          open
-          onOpenChange={setOpen}
-          title={t('account.chatgpt.reset.confirmTitle')}
-          confirmLabel={t('account.chatgpt.reset.use')}
-          failure={(error) => t('account.chatgpt.reset.failed', { error })}
-          onConfirm={async () => {
-            const result = await client.request('account.consumeResetCredit', {
-              kind: 'chatgpt',
-              id: accountId(account),
-              ...pending,
-            });
-            onChanged(result.account);
-            setOutcome(result.outcome);
-            setPending(undefined);
-          }}
-        >
-          {t('account.chatgpt.reset.confirmation', {
-            account: account.email ?? accountId(account),
-          })}
-        </ConfirmDialog>
-      )}
-    </div>
+    </Collapse>
   );
 }

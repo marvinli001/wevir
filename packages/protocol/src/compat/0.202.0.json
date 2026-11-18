@@ -1,0 +1,41 @@
+{
+  "protocolVersion": "0.202.0",
+  "methods": {},
+  "notifications": {},
+  "events": [
+    {
+      "type": "opinion.updated",
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "source": "host",
+      "seq": 3,
+      "ts": "2026-11-18T00:00:00.000Z",
+      "payload": {
+        "opinion": {
+          "id": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPRS",
+          "providerId": "mock",
+          "modelId": "fixture",
+          "requestedBy": "user",
+          "basis": {
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          "status": "ready",
+          "outcome": "completed",
+          "findings": [
+            {
+              "title": "Missed retry",
+              "body": "Check the timeout.",
+              "path": "src/login.ts",
+              "startLine": 42,
+              "endLine": 43,
+              "priority": 1
+            }
+          ],
+          "createdAt": "2026-11-18T00:00:00.000Z",
+          "updatedAt": "2026-11-18T00:00:00.000Z"
+        }
+      }
+    }
+  ],
+  "errors": []
+}

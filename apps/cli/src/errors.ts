@@ -23,6 +23,7 @@ export const EXIT = {
   usage: 2,
   inputRequired: 2,
   invalidOutput: 3,
+  checksFailed: 4,
   /** 交互输入时按了 Ctrl-C。 */
   interrupted: 130,
 } as const;

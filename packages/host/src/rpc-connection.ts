@@ -518,6 +518,7 @@ export class RpcConnection {
       deviceId: hello.deviceId,
       clientId: hello.clientId,
       clientKind: hello.clientKind,
+      ...(hello.uiLocale !== undefined && { uiLocale: hello.uiLocale }),
     };
     this.#capabilities = hello.capabilities;
     this.#protocolVersion = negotiation.protocolVersion;

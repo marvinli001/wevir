@@ -122,6 +122,40 @@ const str = (value: string | boolean | undefined): string | undefined =>
 
 const json = { json: { type: 'boolean' } } as const;
 
+const execOptions = {
+  cwd: { type: 'string' },
+  provider: { type: 'string' },
+  model: { type: 'string' },
+  'permission-mode': { type: 'string' },
+  'output-schema': { type: 'string' },
+  ...json,
+} as const;
+
+function optionalCheckNames(args: readonly string[]): string[] {
+  if (!args.includes('--require-checks')) return [...args];
+  const { tokens } = parseArgs({
+    args: [...args],
+    options: { ...execOptions, 'require-checks': { type: 'boolean' } },
+    strict: false,
+    allowPositionals: true,
+    tokens: true,
+  });
+  const positionals = new Set(
+    tokens.filter((token) => token.kind === 'positional').map(({ index }) => index),
+  );
+  const normalized = [...args];
+  for (const token of tokens) {
+    if (token.kind !== 'option' || token.name !== 'require-checks' || token.inlineValue) continue;
+    // Preserve the single required prompt when the optional names are omitted.
+    if (positionals.size < 2 || !positionals.has(token.index + 1)) {
+      normalized[token.index] = '--require-checks=';
+    } else {
+      positionals.delete(token.index + 1);
+    }
+  }
+  return normalized;
+}
+
 /** 检查脚本的选项（0.73.0）：`create`、`update` 与 `test-check` 共用。 */
 const CHECK_OPTIONS: ParseArgsOptionsConfig = {
   check: { type: 'string' },
@@ -398,14 +432,8 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       summary: 'cmd.exec.summary',
       usage: 'cmd.exec.usage',
       help: 'cmd.exec.help',
-      options: {
-        cwd: { type: 'string' },
-        provider: { type: 'string' },
-        model: { type: 'string' },
-        'permission-mode': { type: 'string' },
-        'output-schema': { type: 'string' },
-        ...json,
-      },
+      options: { ...execOptions, 'require-checks': { type: 'string' } },
+      rewriteArgs: optionalCheckNames,
       positionals: { min: 1, max: 1 },
       run: (ctx, v, [prompt]) => {
         const cwd = str(v.cwd);
@@ -413,12 +441,14 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
         const model = str(v.model);
         const permission = str(v['permission-mode']);
         const outputSchema = str(v['output-schema']);
+        const requireChecks = str(v['require-checks']);
         return exec(ctx, prompt as string, {
           ...(cwd !== undefined && { cwd }),
           ...(provider !== undefined && { provider }),
           ...(model !== undefined && { model }),
           ...(permission !== undefined && { permissionMode: parsePermission(permission) }),
           ...(outputSchema !== undefined && { outputSchema }),
+          ...(requireChecks !== undefined && { requireChecks: requireChecks || true }),
           json: v.json === true,
         });
       },

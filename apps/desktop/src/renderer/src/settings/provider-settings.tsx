@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { AnimatedRows } from '@/components/animated-rows';
 import { Collapse } from '@/components/collapse';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
@@ -18,12 +19,10 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { StatusDot } from '@/components/status-dot';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
-import { isPickable, pickerOrder, sourceOf, sourceTitle } from '@/data/sources';
-import { useAccounts, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { ProviderCatalogDialog } from '@/onboarding/provider-catalog-dialog';
-import { modelsOf } from '@/session/model-picker';
 import { type CatalogEntry, catalogEntry, providerLogo } from './provider-catalog';
 import { loadProviderCatalog } from './provider-catalog-form';
 import { ProviderEditor, type SaveOutcome } from './provider-editor';
@@ -43,7 +42,7 @@ import {
   LIST_CARD,
   type Notice,
   NoticeBanner,
-  SettingsLoading,
+  SettingsPlaceholder,
   SettingsSection,
 } from './settings-ui';
 import { SubscriptionSources } from './subscription-sources';
@@ -61,7 +60,7 @@ type TestState = { status: 'running' } | { status: 'done'; result: TestPresentat
  * 设置 → 模型服务（T5.4，U7 改样式）：列表、新增（在与首次引导相同的“模型服务”对话框里选，再填表单）、编辑、删除、测试连接。
  * Key 只在表单里输入一次，之后只显示“已设置”。有 Key、且新建或改了影响连接的字段时，保存后自动测一次连接。
  * 0.19.0 起上面是“订阅”（subscription-sources.tsx：Codex 与五种订阅的格子与详情，ChatGPT 账号也在里面），下面是“API Key”的
- * 列表，每行有在模型选择里显示的开关；页面顶上一行是现在能选的来源与模型数。ZUV API 的登录连接照订阅来源在列表里就地展开
+ * 列表，每行有在模型选择里显示的开关。ZUV API 的登录连接在列表里就地展开
  * （zuv-api-connection.tsx），新增时也在列表上方展开，不另开页面。
  */
 export function ProviderSettings() {
@@ -103,14 +102,15 @@ export function ProviderSettings() {
     [client],
   );
 
-  if (data.status !== 'ready') return <SettingsLoading data={data} />;
-  const providers = data.providers.filter(isEditableProvider);
-  const takenIds = data.providers.map((provider) => provider.id);
-  const sessions = data.workspaces.flatMap((entry) => entry.sessions);
+  const providers = data.status === 'ready' ? data.providers.filter(isEditableProvider) : undefined;
+  const takenIds = data.status === 'ready' ? data.providers.map((provider) => provider.id) : [];
+  const sessions =
+    data.status === 'ready' ? data.workspaces.flatMap((entry) => entry.sessions) : [];
+  const editing = view.kind === 'form' && client !== undefined;
 
   const saved = async (outcome: SaveOutcome) => {
-    await store?.refresh();
     setView({ kind: 'list' });
+    await store?.refresh();
     if (outcome.connectionChanged) setTests(({ [outcome.id]: _stale, ...rest }) => rest);
     if (outcome.engineError !== undefined) {
       setNotice({
@@ -129,18 +129,6 @@ export function ProviderSettings() {
     if (outcome.hasSecret && outcome.connectionChanged) void runTest(outcome.id);
   };
 
-  if (view.kind === 'form' && client) {
-    return (
-      <ProviderEditor
-        client={client}
-        initial={view.form}
-        takenIds={takenIds}
-        onSaved={saved}
-        onCancel={() => setView({ kind: 'list' })}
-      />
-    );
-  }
-
   /** 在“模型服务”对话框里选了一项：DeepSeek 官方只能有一个，已有就编辑它。 */
   const pick = async (entry: CatalogEntry) => {
     if (!client || catalogLoading) return;
@@ -148,7 +136,7 @@ export function ProviderSettings() {
     const source = entry.source;
     if (!source || (entry.id === 'google-vertex' && !vertexAvailable)) return;
     if (source.kind === 'deepseek-official') {
-      const existing = providers.find((provider) => provider.id === DEEPSEEK_OFFICIAL_ID);
+      const existing = providers?.find((provider) => provider.id === DEEPSEEK_OFFICIAL_ID);
       setView({ kind: 'form', form: existing ? editForm(existing) : newDeepSeekForm() });
       return;
     }
@@ -176,81 +164,102 @@ export function ProviderSettings() {
   };
 
   return (
-    <div>
-      {!client && (
-        <div className="mb-6">
-          <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />
-        </div>
+    <>
+      {editing && (
+        <ProviderEditor
+          client={client}
+          initial={view.form}
+          takenIds={takenIds}
+          onSaved={saved}
+          onCancel={() => setView({ kind: 'list' })}
+        />
       )}
-      <SourceSummary providers={data.providers} />
-      {catalogLoading && (
-        <p role="status" className="mb-3 text-sm text-muted-foreground">
-          {t('provider.models.loading')}
-        </p>
-      )}
-      <SettingsSection title={t('provider.section.subscriptions')}>
-        <SubscriptionSources client={client} providers={data.providers} />
-      </SettingsSection>
-      <SettingsSection
-        title={t('provider.section.keyed')}
-        action={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setNotice(undefined);
-              setCatalogOpen(true);
-            }}
-            disabled={!client || catalogLoading}
-            data-action="add-provider"
-          >
-            <Plus data-icon="inline-start" />
-            {t('provider.add')}
-          </Button>
-        }
-      >
-        {notice && (
-          <div className="mb-3">
-            <NoticeBanner notice={notice} />
-          </div>
-        )}
-        {!providers.some(
-          (provider) => /^zuv-api(?:-\d+)?$/.test(provider.id) || providerLogo(provider) === 'zuv',
-        ) && (
-          <ZuvStrip
-            disabled={!client || catalogLoading}
-            expanded={expanded?.kind === 'zuv-add'}
-            onAdd={() => {
-              if (zuvConnection) {
+      <div hidden={editing}>
+        <NoticeBanner
+          notice={!client ? { tone: 'info', text: t('settings.noHost') } : undefined}
+          className="mb-6"
+        />
+        <Collapse open={catalogLoading} motion="height">
+          <p role="status" className="mb-3 text-sm text-muted-foreground">
+            {t('provider.models.loading')}
+          </p>
+        </Collapse>
+        <SettingsSection title={t('provider.section.subscriptions')}>
+          <SubscriptionSources
+            client={client}
+            providers={data.status === 'ready' ? data.providers : []}
+          />
+        </SettingsSection>
+        <SettingsSection
+          title={t('provider.section.keyed')}
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
                 setNotice(undefined);
-                setExpanded((value) =>
-                  value?.kind === 'zuv-add' ? undefined : { kind: 'zuv-add' },
-                );
-                return;
-              }
-              const entry = catalogEntry('zuv');
-              if (entry) void pick(entry);
-            }}
-          >
-            {client && zuvConnection && (
-              <ZuvApiConnectionPanel
-                client={client}
-                onManual={() => {
-                  setExpanded(undefined);
-                  const preset = catalogEntry('zuv')?.source;
-                  void openForm(preset?.kind === 'preset' ? preset.preset : undefined);
+                setCatalogOpen(true);
+              }}
+              disabled={!client || catalogLoading || providers === undefined}
+              data-action="add-provider"
+            >
+              <Plus data-icon="inline-start" />
+              {t('provider.add')}
+            </Button>
+          }
+        >
+          <NoticeBanner
+            notice={
+              notice ?? (data.status === 'error' ? { tone: 'error', text: data.error } : undefined)
+            }
+            className="mb-3"
+          />
+          {providers &&
+            !providers.some(
+              (provider) =>
+                /^zuv-api(?:-\d+)?$/.test(provider.id) || providerLogo(provider) === 'zuv',
+            ) && (
+              <ZuvStrip
+                disabled={!client || catalogLoading}
+                expanded={expanded?.kind === 'zuv-add'}
+                onAdd={() => {
+                  if (zuvConnection) {
+                    setNotice(undefined);
+                    setExpanded((value) =>
+                      value?.kind === 'zuv-add' ? undefined : { kind: 'zuv-add' },
+                    );
+                    return;
+                  }
+                  const entry = catalogEntry('zuv');
+                  if (entry) void pick(entry);
                 }}
-              />
+              >
+                {client && zuvConnection && (
+                  <ZuvApiConnectionPanel
+                    client={client}
+                    onManual={() => {
+                      setExpanded(undefined);
+                      const preset = catalogEntry('zuv')?.source;
+                      void openForm(preset?.kind === 'preset' ? preset.preset : undefined);
+                    }}
+                  />
+                )}
+              </ZuvStrip>
             )}
-          </ZuvStrip>
-        )}
-        {providers.length === 0 ? (
-          <EmptyList>{t('provider.emptyKeyed')}</EmptyList>
-        ) : (
-          <ul className={cn(LIST_CARD, 'overflow-hidden')}>
-            {providers.map((provider) => (
+          <AnimatedRows
+            items={providers}
+            keyOf={(provider) => provider.id}
+            className={cn(LIST_CARD, 'overflow-hidden')}
+            empty={
+              data.status === 'loading' ? (
+                <SettingsPlaceholder className="min-h-[5.375rem]" />
+              ) : data.status === 'ready' ? (
+                <EmptyList>{t('provider.emptyKeyed')}</EmptyList>
+              ) : undefined
+            }
+          >
+            {(provider) => (
               <ProviderCard
-                key={provider.id}
                 provider={provider}
                 test={tests[provider.id]}
                 disabled={!client}
@@ -288,29 +297,29 @@ export function ProviderSettings() {
                 }}
                 onRemove={() => setRemoving(provider)}
               />
-            ))}
-          </ul>
-        )}
-      </SettingsSection>
-      <ProviderCatalogDialog
-        vertexAvailable={vertexAvailable}
-        open={catalogOpen}
-        onOpenChange={setCatalogOpen}
-        onSelect={pick}
-      />
-      {removing && client && (
-        <RemoveProviderDialog
-          provider={removing}
-          sessions={sessions}
-          onClose={() => setRemoving(undefined)}
-          onConfirm={async () => {
-            await removeProvider(client, removing.id);
-            await store?.refresh();
-            setTests(({ [removing.id]: _gone, ...rest }) => rest);
-          }}
+            )}
+          </AnimatedRows>
+        </SettingsSection>
+        <ProviderCatalogDialog
+          vertexAvailable={vertexAvailable}
+          open={catalogOpen}
+          onOpenChange={setCatalogOpen}
+          onSelect={pick}
         />
-      )}
-    </div>
+        {removing && client && (
+          <RemoveProviderDialog
+            provider={removing}
+            sessions={sessions}
+            onClose={() => setRemoving(undefined)}
+            onConfirm={async () => {
+              await removeProvider(client, removing.id);
+              await store?.refresh();
+              setTests(({ [removing.id]: _gone, ...rest }) => rest);
+            }}
+          />
+        )}
+      </div>
+    </>
   );
 }
 
@@ -344,6 +353,9 @@ function ProviderCard({
 }) {
   const expandable = detail !== undefined;
   const running = test?.status === 'running';
+  const result = test?.status === 'done' ? test.result : undefined;
+  const [shownResult, setShownResult] = useState(result);
+  if (result && result !== shownResult) setShownResult(result);
   const [toggling, setToggling] = useState(false);
   const enabled = provider.enabled !== false;
   const host =
@@ -389,7 +401,7 @@ function ProviderCard({
     </>
   );
   return (
-    <li className="group/provider" data-provider-id={provider.id}>
+    <div className="group/provider" data-provider-id={provider.id}>
       <div
         className={cn(
           'relative flex items-center gap-3.5 px-4 py-3',
@@ -460,13 +472,15 @@ function ProviderCard({
           )}
         </div>
       </div>
-      {test?.status === 'done' && (
-        <div className="-mt-3 px-4 pb-3">
-          <TestResultView result={test.result} />
-        </div>
-      )}
+      <Collapse open={result !== undefined} motion="height">
+        {shownResult && (
+          <div className="px-4 pb-3">
+            <TestResultView result={shownResult} />
+          </div>
+        )}
+      </Collapse>
       {expandable && (
-        <Collapse open={expanded}>
+        <Collapse open={expanded} motion="height">
           <div
             className="border-t border-border bg-background/40 px-5 py-4"
             data-provider-detail={provider.id}
@@ -475,44 +489,6 @@ function ProviderCard({
           </div>
         </Collapse>
       )}
-    </li>
-  );
-}
-
-/**
- * 页面顶上的一行（0.19.0）：模型选择里现在能选的来源叠成一排标志，旁边写“可选多少个模型、来自几个来源”。没有可选的来源时
- * 不画。
- */
-function SourceSummary({ providers }: { providers: readonly ProviderProfile[] }) {
-  const accounts = useAccounts();
-  const pickable = pickerOrder(providers.filter((provider) => isPickable(provider, accounts)));
-  if (pickable.length === 0) return null;
-  const models = pickable.reduce((sum, provider) => sum + modelsOf(provider).length, 0);
-  return (
-    <div className="mb-8 flex items-center gap-3" data-source-summary>
-      <span className="flex -space-x-1.5">
-        {pickable.slice(0, 6).map((provider) => {
-          const source = sourceOf(provider);
-          return (
-            <span
-              key={provider.id}
-              className="flex size-7 items-center justify-center rounded-full border border-border bg-card shadow-xs ring-2 ring-background"
-              title={
-                source ? sourceTitle(provider, accounts, t(source.name)) : provider.displayName
-              }
-            >
-              <ProviderLogo
-                logo={source?.logo ?? providerLogo(provider)}
-                fallback={provider.displayName}
-                className="size-3.5"
-              />
-            </span>
-          );
-        })}
-      </span>
-      <p className="text-sm text-muted-foreground">
-        {t('provider.summary', { models, sources: pickable.length })}
-      </p>
     </div>
   );
 }
@@ -531,7 +507,7 @@ function TestResultView({ result }: { result: TestPresentation }) {
     <div
       role="status"
       data-test-result={result.ok ? 'ok' : 'failed'}
-      className="mt-3 ml-12.5 flex gap-2 text-sm animate-in fade-in slide-in-from-top-1"
+      className="ml-12.5 flex gap-2 text-sm"
     >
       <Icon
         className={cn(

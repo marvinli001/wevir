@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useState } from 'react';
+import { Collapse } from '@/components/collapse';
 import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { type PlainMessageKey, t } from '@/i18n';
@@ -54,7 +55,7 @@ export function ShortcutsSettings() {
   const bindings = useKeybindings();
   const { sendShortcut } = composerPrefs.use();
   const [recording, setRecording] = useState<ShortcutId>();
-  const [error, setError] = useState<string>();
+  const [error, setError] = useState<{ id: ShortcutId; message: string }>();
   const fixed: [PlainMessageKey, string][] = [
     [
       'shortcuts.newline',
@@ -67,7 +68,6 @@ export function ShortcutsSettings() {
   ];
   const finish = () => {
     setRecording(undefined);
-    setError(undefined);
   };
   const record = (id: ShortcutId, event: KeyboardEvent<HTMLButtonElement>) => {
     if (recording !== id || event.nativeEvent.isComposing) return;
@@ -77,9 +77,13 @@ export function ShortcutsSettings() {
     if (event.key === 'Escape') return finish();
     if (['Meta', 'Alt', 'Control', 'Shift'].includes(event.key)) return;
     const shortcut = shortcutFromEvent(event);
-    if (!shortcut) return setError(t('shortcuts.unavailable'));
+    if (!shortcut) return setError({ id, message: t('shortcuts.unavailable') });
     const conflict = shortcutConflict(id, shortcut);
-    if (conflict) return setError(t('shortcuts.conflict', { action: shortcutLabel(conflict) }));
+    if (conflict)
+      return setError({
+        id,
+        message: t('shortcuts.conflict', { action: shortcutLabel(conflict) }),
+      });
     setShortcut(id, shortcut);
     finish();
   };
@@ -130,9 +134,9 @@ export function ShortcutsSettings() {
                   <kbd className="font-sans">{formatShortcut(bindings[id])}</kbd>
                 )}
               </Button>
-              {recording === id && error && (
-                <ErrorNote className="text-right text-xs">{error}</ErrorNote>
-              )}
+              <Collapse open={recording === id && error?.id === id} motion="height">
+                <ErrorNote className="justify-end text-right text-xs">{error?.message}</ErrorNote>
+              </Collapse>
             </dd>
           </div>
         ))}

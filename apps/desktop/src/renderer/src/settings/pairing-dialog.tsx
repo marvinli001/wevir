@@ -29,6 +29,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -154,6 +155,11 @@ export function PairingDialog({
       <DialogContent className="sm:max-w-sm" data-pairing-dialog={state.phase}>
         <DialogHeader>
           <DialogTitle>{t(web ? 'settings.devices.addWeb' : 'settings.devices.add')}</DialogTitle>
+          {state.phase === 'open' && !state.request && (
+            <DialogDescription>
+              {t(web ? 'settings.pairing.openInBrowser' : 'settings.pairing.scanPhone')}
+            </DialogDescription>
+          )}
         </DialogHeader>
         <div className="flex flex-col items-center justify-center py-2">
           {state.phase === 'starting' && (
@@ -373,10 +379,16 @@ function EndedView({
   );
 }
 
-function PlatformIcon({ platform, className }: { platform: DevicePlatform; className?: string }) {
+export function PlatformIcon({
+  platform,
+  className,
+}: {
+  platform: DevicePlatform;
+  className?: string;
+}) {
   const Icon =
     platform === 'ios' || platform === 'android' ? Smartphone : platform === 'web' ? Globe : Laptop;
-  return <Icon className={className} />;
+  return <Icon aria-hidden className={className} />;
 }
 
 /**

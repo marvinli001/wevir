@@ -68,7 +68,7 @@ function setup() {
   const events = new EventStore({ storage, deltaWindowMs: 5 });
   const sessions = new SessionManager({ storage, events, adapter: new EchoAdapter() });
   managers.push(sessions);
-  const verification = vi.fn(async () => ({ checks: [], runs: [] }));
+  const verification = vi.fn(async () => ({ checks: [], status: 'unconfigured' as const }));
   const methods = createHostMethods({
     storage,
     events,
@@ -199,7 +199,11 @@ describe('multi-folder changes', () => {
     expect(
       (await methods['workspace.diff']({ ...params, source: { kind: 'branch' } }, context)).patch,
     ).toContain(`+${name} changed`);
-    if (withSession && !selectExtra) expect(verification).toHaveBeenCalledWith(sessionId);
+    if (withSession && !selectExtra)
+      expect(verification).toHaveBeenCalledWith(
+        sessionId,
+        expect.objectContaining({ kind: 'staged' }),
+      );
     else expect(verification).not.toHaveBeenCalled();
   });
 
@@ -251,7 +255,10 @@ describe('multi-folder changes', () => {
     expect(
       await methods['git.status']({ workspaceId, sessionId, folder: primary }, context),
     ).toHaveProperty('verification');
-    expect(verification).toHaveBeenCalledWith(sessionId);
+    expect(verification).toHaveBeenCalledWith(
+      sessionId,
+      expect.objectContaining({ kind: 'staged' }),
+    );
   });
 
   it('旧会话没有 extraRoots 或 worktrees，空数组也回退项目附加目录', async () => {

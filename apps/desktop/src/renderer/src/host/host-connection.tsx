@@ -16,6 +16,7 @@ import {
   useState,
 } from 'react';
 import { bindBrowserLibrary, invalidateBrowserLibrary } from '@/data/browser-library';
+import { currentLocale } from '@/i18n';
 import { capabilities, type HostConnectionSource, hostConnectionSource } from '@/platform/platform';
 import { bindComposerDrafts, unbindComposerDrafts } from '@/session/composer-drafts';
 import type { HostProcessStatus } from '../../../shared/desktop-api.js';
@@ -133,7 +134,7 @@ export function HostConnectionProvider({
         const connected = await WevirClient.connect({
           endpoint,
           transport,
-          identity,
+          identity: { ...identity, uiLocale: currentLocale() },
           onStateChange: (state) => {
             // 被替换掉的旧客户端（关闭后重新连接）不再更新界面。
             if (client !== undefined && client !== connected) return;

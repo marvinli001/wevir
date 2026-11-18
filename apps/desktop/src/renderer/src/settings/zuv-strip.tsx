@@ -61,7 +61,7 @@ export function ZuvStrip({
         {!expanded && <span className={styles.ruler} aria-hidden />}
       </button>
       {children && (
-        <Collapse open={expanded}>
+        <Collapse open={expanded} motion="height">
           <div className="border-t border-border bg-background/40 px-5 py-4">{children}</div>
         </Collapse>
       )}

@@ -318,11 +318,38 @@ describe('配置 Wevir 本身的应用级工具', { timeout: 60_000 }, () => {
     expect(checks.data?.checks.map((check: { name: string }) => check.name)).toEqual([
       'Unit tests',
     ]);
+    expect(checks.data).not.toHaveProperty('evidence');
+    const targeted = await h.tool(session.id, 'wevir_config_read', {
+      section: 'checks',
+      target: 'working_tree',
+    });
+    expect(targeted.data?.evidence).toMatchObject({
+      status: 'unverified',
+      checks: [{ name: 'Unit tests', status: 'not_run' }],
+    });
     const bad = await h.tool(session.id, 'wevir_config_checks', {
       action: 'save',
       check: { name: 'x' },
     });
     expect(bad.isError).toBe(true);
+  });
+
+  it('按会话查询用量时，缺少已记录用量则不给金额', async () => {
+    const h = await boot();
+    const session = await h.create();
+    const result = await h.tool(session.id, 'wevir_config_read', {
+      section: 'usage',
+      sessionId: session.id,
+      workspaceId: h.workspaceId,
+    });
+    expect(result.isError).toBe(false);
+    expect(result.data).toMatchObject({
+      sessionId: session.id,
+      workspaceId: h.workspaceId,
+      currency: 'USD',
+    });
+    expect(result.data?.totals).toMatchObject({ requests: 0, missingUsage: 0, unpriced: 0 });
+    expect(result.data?.totals).not.toHaveProperty('cost');
   });
 
   it('会话：只改自己与自己开出的，不碰权限模式', async () => {

@@ -28,6 +28,7 @@ import {
   type TurnId,
   type VerificationRunId,
 } from '@wevir/protocol';
+import { type EvidenceCheck, evaluateVerification } from '../verification/evidence.js';
 import { clipText, type RetroState, type RetroStateRun, type RetroStateTurn } from './fold.js';
 
 /** 各部分的条数上限；超出时报省略的条数。 */
@@ -53,6 +54,7 @@ export interface RetroLive {
   /** 目录是不是 git 仓库；省略表示不知道。 */
   repo?: boolean;
   codeState?: CodeState;
+  checks?: readonly EvidenceCheck[];
   /** 有快照的回合；省略表示读不出。 */
   checkpoints?: ReadonlyMap<string, RetroLiveCheckpoint>;
   /** 会话的快照被整体删掉了（会话关闭时 Host 删它的快照）。 */
@@ -330,25 +332,35 @@ export function buildRetro(input: BuildRetroInput): SessionRetro {
     list.push(entry);
     byCheck.set(entry.run.checkId, list);
   }
-  const checks: RetroCheck[] = [...byCheck.values()]
-    .sort((a, b) => (a.at(-1) as RetroStateRun).seq - (b.at(-1) as RetroStateRun).seq)
-    .map((list) => {
-      const { seq, run } = list.at(-1) as RetroStateRun;
-      const earlier = list
-        .slice(0, -1)
-        .slice(-RETRO_CHECK_EARLIER_MAX)
-        .map((entry) => ({
-          runId: entry.run.id,
-          status: entry.run.status,
-          ...(entry.run.reason !== undefined && { reason: entry.run.reason }),
-          seq: entry.seq,
-          ...(entry.run.turnId !== undefined && { turnId: entry.run.turnId }),
-        }));
+  const evaluated = evaluateVerification(
+    live.checks ?? [],
+    [...byCheck.values()].flatMap((entries) => entries.map(({ run }) => run)),
+    { kind: 'working_tree', codeState: live.codeState, contentsOnly: true },
+  );
+  const checkedStatuses = new Map(evaluated.checks.map(({ check, status }) => [check.id, status]));
+  const checks: RetroCheck[] = evaluated.checks
+    .flatMap(({ check, run, status }) => {
+      if (run === undefined) return [];
+      const list = byCheck.get(check.id) ?? [];
+      const index = list.findIndex((entry) => entry.run.id === run.id);
+      const selected = list[index];
+      return selected === undefined
+        ? []
+        : [{ ...selected, earlierRuns: list.slice(0, index), status }];
+    })
+    .sort((a, b) => a.seq - b.seq)
+    .map(({ seq, run, earlierRuns, status }) => {
+      const earlier = earlierRuns.slice(-RETRO_CHECK_EARLIER_MAX).map((entry) => ({
+        runId: entry.run.id,
+        status: entry.run.status,
+        ...(entry.run.reason !== undefined && { reason: entry.run.reason }),
+        seq: entry.seq,
+        ...(entry.run.turnId !== undefined && { turnId: entry.run.turnId }),
+      }));
       let evidence: RetroCheck['evidence'];
       if (run.status === 'passed') {
-        const same = sameCode(run.codeState, live.codeState);
-        if (same === true) evidence = 'current';
-        else if (same === false) evidence = 'outdated';
+        if (status === 'passed') evidence = 'current';
+        else if (status === 'stale' || status === 'config_changed') evidence = 'outdated';
         else {
           // 比不出代码状态：看之后有没有改了文件的看得见回合。
           const changedAfter = visible.some(
@@ -388,14 +400,32 @@ export function buildRetro(input: BuildRetroInput): SessionRetro {
   const omittedEarlier = visible.reduce((sum, turn) => sum + turn.omittedCommands, 0);
   const commands = allCommands.slice(-RETRO_MAX_COMMANDS);
   const omittedCommands = allCommands.length - commands.length + omittedEarlier;
+  let deliveryChecks: string = evaluated.status;
+  if (['unconfigured', 'partial', 'unverified'].includes(deliveryChecks)) {
+    if (evaluated.checks.some(({ status }) => status === 'environment_unavailable')) {
+      deliveryChecks = 'environment_unavailable';
+    } else {
+      deliveryChecks =
+        evaluated.checks.some(({ status }) => status === 'stale' || status === 'config_changed') ||
+        checks.some((check) => check.evidence === 'outdated')
+          ? 'outdated'
+          : 'unverified';
+    }
+  }
+  const acceptance =
+    deliveryChecks === 'passed'
+      ? 'accepted'
+      : deliveryChecks === 'running'
+        ? 'verifying'
+        : deliveryChecks === 'failed' || deliveryChecks === 'environment_unavailable'
+          ? deliveryChecks
+          : 'unverified';
   const verification: SessionRetro['verification'] = {
     recorded: checks.length > 0,
     checks,
     ...(state.acceptance !== undefined &&
       checks.length > 0 && {
-        acceptance: state.acceptance.status as NonNullable<
-          SessionRetro['verification']['acceptance']
-        >,
+        acceptance,
       }),
     commands,
     ...(omittedCommands > 0 && { omittedCommands }),
@@ -470,7 +500,7 @@ export function buildRetro(input: BuildRetroInput): SessionRetro {
 
   // ── 交付状态 ──
   const delivery: RetroDelivery = {
-    checks: checksStatus(checks),
+    checks: deliveryChecks,
     commit:
       live.repo === false || live.uncommitted === undefined
         ? 'unknown'
@@ -554,9 +584,10 @@ export function buildRetro(input: BuildRetroInput): SessionRetro {
     ref: { kind: 'verification' as const, runId: check.runId as VerificationRunId, seq: check.seq },
   });
   for (const check of checks) {
-    if (check.status === 'failed' || check.status === 'timed_out') {
+    const status = checkedStatuses.get(check.checkId);
+    if (status === 'failed' || status === 'timed_out') {
       nextOf('fix_check', checkRef(check));
-    } else if (check.status === 'environment_unavailable') {
+    } else if (status === 'environment_unavailable') {
       nextOf('environment', checkRef(check));
     } else if (check.status === 'passed' && check.evidence === 'outdated') {
       nextOf('rerun_check', checkRef(check));
@@ -623,31 +654,6 @@ export function buildRetro(input: BuildRetroInput): SessionRetro {
   };
 }
 
-/**
- * 两个代码状态的内容是不是同一份：都绑上了 git 时比树散列（工作树含未跟踪的文件）。只提交、没改内容时 HEAD 变了但树相同，记录仍对得上
- * 现在的代码（回合后验证的验收状态把 HEAD 也算进去，见 ADR-0009 决策 12；回顾只回答“测的是不是这份代码”）。比不出来时 undefined。
- */
-function sameCode(a: CodeState | undefined, b: CodeState | undefined): boolean | undefined {
-  if (a?.kind !== 'git' || b?.kind !== 'git') return undefined;
-  return a.tree === b.tree;
-}
-
 function seqOf(item: { ref?: RetroDecision['ref'] }): number {
   return item.ref?.kind === 'event' ? item.ref.seq : 0;
-}
-
-/** 本地检查的总体：有在跑的、失败的、环境不可用的依次优先；全部通过且都是当前版本（或比不出版本）才是 `passed`。 */
-function checksStatus(checks: readonly RetroCheck[]): string {
-  if (checks.length === 0) return 'unverified';
-  if (checks.some((check) => check.status === 'running')) return 'running';
-  if (checks.some((check) => check.status === 'failed' || check.status === 'timed_out')) {
-    return 'failed';
-  }
-  if (checks.some((check) => check.status === 'environment_unavailable')) {
-    return 'environment_unavailable';
-  }
-  if (checks.every((check) => check.status === 'passed')) {
-    return checks.some((check) => check.evidence === 'outdated') ? 'outdated' : 'passed';
-  }
-  return 'unverified';
 }

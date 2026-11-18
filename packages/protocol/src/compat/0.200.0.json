@@ -1,0 +1,102 @@
+{
+  "protocolVersion": "0.200.0",
+  "methods": {
+    "verification.status": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "target": "commit",
+          "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "result": [
+        {
+          "verification": {
+            "acceptance": {
+              "status": "unverified",
+              "updatedAt": "2026-11-18T00:00:00.000Z"
+            },
+            "runs": []
+          },
+          "codeState": {
+            "kind": "git",
+            "head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "tree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          "evidence": {
+            "status": "unverified",
+            "commit": "aaaaaaaaaaaa",
+            "checks": [
+              {
+                "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "name": "Tests",
+                "kind": "test",
+                "status": "config_changed",
+                "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "finishedAt": "2026-11-18T00:00:00.000Z",
+                "checkRevisionCurrent": false,
+                "codeState": "bbbbbbbbbbbb",
+                "exitCode": 0,
+                "tests": {
+                  "passed": 3,
+                  "failed": 0,
+                  "skipped": 0
+                },
+                "summary": "3 passed",
+                "outputAvailable": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "verification.output": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "text": "",
+          "from": 0,
+          "next": 0,
+          "more": false,
+          "bytes": 0,
+          "outputAvailable": false
+        }
+      ]
+    },
+    "git.status": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "repo": true,
+          "stagedTree": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verification": {
+            "checks": [
+              {
+                "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "name": "Tests",
+                "status": "stale",
+                "evidenceStatus": "unbound",
+                "outputAvailable": false
+              }
+            ],
+            "status": "unverified",
+            "stagedMatchesWorkingTree": false
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

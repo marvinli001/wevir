@@ -81,12 +81,16 @@ export const zh = {
   --permission-mode <模式>  on_request（默认）、auto_review、full_access
   --json                    JSON Lines，每行一个原协议 WevirEvent
   --output-schema <文件>    最后一条回答的 JSON Schema（draft-07、2019-09、2020-12）
+  --require-checks [名称]   要求全部已配置检查通过，或用逗号指定检查名称
 
 - 从 stdin 读取提示；Host 未运行时自动启动
-人工审批或阻塞提问会取消回合；SIGINT 取消回合；会话保留
-stdout：最后一条回答，或 --json 事件流；诊断写入 stderr
+人工审批或阻塞提问会取消回合；SIGINT 取消回合或正在运行的检查；会话保留
+stdout 输出最后一条回答，--json 输出事件流并在要求检查时附上 exec.checks 结果
+诊断写入 stderr
 
-退出码：0 完成；1 失败或断线；2 需要人工处理或参数错误；3 输出校验失败；130 取消`,
+退出码：0 完成；1 失败或断线；2 需要人工处理或参数错误；3 输出校验失败；4 检查条件未满足；130 取消`,
+  'exec.emptyCheckNames': '检查名称为空',
+  'exec.checksFailed': '检查条件未满足：{checks}',
   'exec.emptyPrompt': '提示为空',
   'exec.badSchema': 'JSON Schema 无效：{file} · {error}',
   'exec.asyncSchema': '不支持异步 JSON Schema',

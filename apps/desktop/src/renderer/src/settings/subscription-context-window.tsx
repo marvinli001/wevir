@@ -1,7 +1,9 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { ProviderModel, ProviderProfile } from '@wevir/protocol';
+import { cn } from 'cn';
 import { LoaderCircle } from 'lucide-react';
 import { type FormEvent, useId, useState } from 'react';
+import { Collapse } from '@/components/collapse';
 import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +12,9 @@ import { useWorkbenchStore } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { NoticeBanner } from './settings-ui';
+
+export const SUBSCRIPTION_SETTING_ROW =
+  'grid grid-cols-[minmax(0,7rem)_minmax(0,18rem)] items-center gap-x-3 text-sm';
 
 export function SubscriptionContextWindow({
   client,
@@ -24,13 +29,13 @@ export function SubscriptionContextWindow({
   if (!client.supports('subscription_context_window') || model === undefined) return null;
   return (
     <div className="mt-4 space-y-2 border-t border-border pt-3" data-subscription-context>
-      <div className="flex items-center gap-3">
-        <span className="shrink-0 text-sm text-muted-foreground">{t('source.context.title')}</span>
+      <div className={SUBSCRIPTION_SETTING_ROW}>
+        <span className="text-muted-foreground">{t('source.context.title')}</span>
         <Select
           value={model.id}
           onValueChange={setSelected}
           aria-label={t('source.context.model')}
-          className="max-w-72"
+          className="min-w-0 w-full"
           options={models.map((entry) => ({
             value: entry.id,
             label:
@@ -91,28 +96,30 @@ function ModelWindowEditor({
     if (valid && value !== initial) void save(value);
   };
   return (
-    <form onSubmit={submit} className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={settings.max}
-          step={1}
-          value={draft}
-          disabled={saving}
-          onChange={(event) => setDraft(event.target.value)}
-          aria-label={t('source.context.title')}
-          aria-describedby={id}
-          aria-invalid={!valid}
-          className="h-8 w-36 tabular-nums"
-          data-context-window
-        />
-        <span className="text-xs text-muted-foreground">tokens</span>
-        <Button type="submit" size="sm" disabled={saving || !valid || value === initial}>
-          {saving && <LoaderCircle className="animate-spin" />}
-          {t('source.account.labelSave')}
-        </Button>
+    <form onSubmit={submit} className={cn(SUBSCRIPTION_SETTING_ROW, 'gap-y-2')}>
+      <div className="col-span-2 flex flex-wrap items-center gap-2 @min-[24rem]:col-span-1 @min-[24rem]:col-start-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={settings.max}
+            step={1}
+            value={draft}
+            disabled={saving}
+            onChange={(event) => setDraft(event.target.value)}
+            aria-label={t('source.context.title')}
+            aria-describedby={id}
+            aria-invalid={!valid}
+            className="h-8 min-w-12 max-w-36 flex-1 tabular-nums"
+            data-context-window
+          />
+          <span className="text-xs text-muted-foreground">tokens</span>
+          <Button type="submit" size="sm" disabled={saving || !valid || value === initial}>
+            {saving && <LoaderCircle className="animate-spin" />}
+            {t('source.account.labelSave')}
+          </Button>
+        </div>
         {settings.override !== undefined && (
           <Button
             type="button"
@@ -125,17 +132,19 @@ function ModelWindowEditor({
           </Button>
         )}
       </div>
-      <p id={id} className="text-xs text-muted-foreground" data-context-limit>
+      <p id={id} className="col-span-2 text-xs text-muted-foreground" data-context-limit>
         {t('source.context.limit', { max: settings.max.toLocaleString() })}
         {valid &&
           ` · ${t('source.context.usable', { value: Math.floor(value * 0.95).toLocaleString() })}`}
       </p>
-      {!valid && (
+      <Collapse open={!valid} motion="height" className="col-span-2 -mt-2">
         <ErrorNote className="text-xs">
           {t('source.context.invalid', { max: settings.max.toLocaleString() })}
         </ErrorNote>
-      )}
-      {error !== undefined && <NoticeBanner notice={{ tone: 'error', text: error }} />}
+      </Collapse>
+      <div className="col-span-2 empty:hidden">
+        <NoticeBanner notice={error === undefined ? undefined : { tone: 'error', text: error }} />
+      </div>
     </form>
   );
 }

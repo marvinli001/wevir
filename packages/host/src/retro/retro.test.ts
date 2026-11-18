@@ -94,6 +94,7 @@ const live = (patch: Partial<RetroLive> = {}): RetroLive => ({
   session: (id) => (id === SESSION ? { title: 'self' } : undefined),
   memories: new Set(),
   review: [],
+  checks: [{ id: 'chk_01JA2B3C4D5E6F7G8H9JKMNPQR', name: 'test', kind: 'test', revision: 1 }],
   uncommitted: 0,
   upstream: true,
   ahead: 0,
@@ -151,6 +152,21 @@ describe('任务回顾：证据语义', () => {
     expect(plain.verification.checks[0]?.evidence).toBe('outdated');
     const before = s.events.filter((event) => event.seq <= 7);
     expect(retroOf(before, live({ repo: false })).verification.checks[0]?.evidence).toBe('unbound');
+  });
+
+  it('改过的检查配置与已删除的检查都不能成为当前通过的证据', () => {
+    const s = stream();
+    created(s);
+    s.run({ status: 'passed', codeState: GIT_A });
+    const facts = live({ codeState: GIT_A });
+    const [check] = facts.checks ?? [];
+    if (check === undefined) throw new Error('missing check fixture');
+    const revised = retroOf(s.events, { ...facts, checks: [{ ...check, revision: 2 }] });
+    expect(revised.verification.checks[0]?.evidence).toBe('outdated');
+    expect(revised.delivery.checks).toBe('outdated');
+    const removed = retroOf(s.events, { ...facts, checks: [] });
+    expect(removed.verification.checks).toEqual([]);
+    expect(removed.delivery.checks).toBe('unverified');
   });
 
   it('Agent 说测试都通过了、命令也跑完了，但没有验证记录：未验证', () => {

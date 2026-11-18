@@ -11,6 +11,7 @@ import {
   type Notice,
   NoticeBanner,
   Segmented,
+  SettingsPlaceholder,
   SettingsRow,
   SettingsSection,
 } from './settings-ui';
@@ -53,7 +54,14 @@ export function WebSettingsPage() {
     return notice ? (
       <NoticeBanner notice={notice} />
     ) : (
-      <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      <>
+        <SettingsSection>
+          <SettingsPlaceholder className="min-h-[7.1875rem]" />
+        </SettingsSection>
+        <SettingsSection>
+          <SettingsPlaceholder />
+        </SettingsSection>
+      </>
     );
   }
 
@@ -104,11 +112,7 @@ export function WebSettingsPage() {
 
   return (
     <>
-      {notice && (
-        <div className="mb-3">
-          <NoticeBanner notice={notice} />
-        </div>
-      )}
+      <NoticeBanner notice={notice} className="mb-3" />
       <SettingsSection>
         <div className={LIST_CARD}>
           <SettingsRow

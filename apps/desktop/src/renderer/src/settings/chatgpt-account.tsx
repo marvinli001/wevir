@@ -2,14 +2,13 @@ import { accountId as idOf, type WevirClient } from '@wevir/client-sdk';
 import type { AccountRateLimitWindow, AccountState, ProviderProfile } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ExternalLink, LoaderCircle, LogIn, LogOut } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { CopyGlyph, CopyLabel, useCopied } from '@/components/copy-glyph';
-import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { accountRef } from '@/data/sources';
-import { useAccounts, useAccountsStore, useWorkbenchStore } from '@/data/workbench-data';
+import { useAccountsError, useAccountsStore, useWorkbenchStore } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
@@ -24,56 +23,29 @@ import {
 } from './chatgpt-account-model';
 import { ChatgptResetCredits } from './chatgpt-reset-credits';
 import { NoticeBanner } from './settings-ui';
+import { SUBSCRIPTION_SETTING_ROW } from './subscription-context-window';
 
-/**
- * 设置 → 模型 Provider 顶部的“ChatGPT 账号”（R6，ADR-0005 决策 4 第 ① 行）：未登录时登录按钮与条款说明，登录中显示进度
- * 与取消（浏览器方式把登录页交给系统浏览器，设备码方式显示网址与一次性码），已登录显示账号、套餐、用量、默认模型与登出。
- * 只在 Host 声明了 `chatgpt_account` 时出现。账号与凭据都在 Host 的 Codex 引擎里，这里只经 `account.*` 读状态。
- */
 export function ChatgptAccountSection({
   client,
-  accountId = 'chatgpt',
+  account,
   provider,
-  embedded = false,
   setupOnly = false,
 }: {
   client: WevirClient;
-  /** 哪个 ChatGPT 账号（0.63.0）：首个是 `chatgpt`，添加的账号状态从账号列表里取。 */
-  accountId?: string;
-  /** 登录成功后 Host 建的 `chatgpt` Provider（还没建时省略）。 */
+  account: AccountState | undefined;
   provider: ProviderProfile | undefined;
-  /** 放在订阅格子的详情里（0.19.0）：不画自己的卡片与标题，名称与状态由详情的头部给出。 */
-  embedded?: boolean;
   setupOnly?: boolean;
 }) {
   const store = useWorkbenchStore();
   const accountsStore = useAccountsStore();
-  const first = accountId === 'chatgpt';
-  const listed = useAccounts()?.find((each) => idOf(each) === accountId);
-  const [watched, setWatched] = useState<AccountState>();
-  // 首个账号照旧单独跟着（旧 Host 也有）；添加的账号跟着账号列表，本端操作的结果合进列表。
-  const account = first ? watched : listed;
-  const setAccount = (next: AccountState) =>
-    first ? setWatched(next) : accountsStore?.merge(next);
-  const ref = accountRef({ kind: 'chatgpt', id: accountId });
+  const accountsError = useAccountsError();
+  const setAccount = (next: AccountState) => accountsStore?.merge(next);
+  const ref = accountRef(account ?? { kind: 'chatgpt' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [confirmLogout, setConfirmLogout] = useState(false);
   /** 本窗口发起的浏览器登录：登录页已经交给系统浏览器打开过。 */
   const opened = useRef(new Set<string>());
-
-  useEffect(() => {
-    if (!first) return;
-    return client.watchAccount(
-      'chatgpt',
-      (next) => {
-        setWatched(next);
-        // 登录成功后 Host 在后台建（或刷新）chatgpt Provider，列表跟着重读。
-        if (next.status === 'signed_in') void store?.refresh();
-      },
-      (reason) => setError(describe(reason)),
-    );
-  }, [client, store, first]);
 
   const run = async (op: () => Promise<{ account: AccountState }>) => {
     setBusy(true);
@@ -102,49 +74,49 @@ export function ChatgptAccountSection({
     void run(() => client.request('account.cancelLogin', { ...ref, loginId }));
 
   const phase = accountPhase(account);
+  const failure =
+    error ??
+    (account === undefined && accountsError !== undefined ? describe(accountsError) : undefined);
   return (
-    <section
-      className={cn('space-y-3', !embedded && 'rounded-xl border border-border bg-card p-4')}
-      data-section="chatgpt-account"
-      data-phase={phase.kind}
-    >
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1 space-y-1">
-          {!embedded && (
-            <div className="flex items-center gap-2">
-              <h3 className="font-medium">{t('account.chatgpt.title')}</h3>
-              <PhaseBadge phase={phase} />
-            </div>
-          )}
+    <section className="flex flex-col gap-3" data-section="chatgpt-account" data-phase={phase.kind}>
+      {phase.kind === 'signed_out' && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() => void login('device_code')}
+            data-action="login-device-code"
+          >
+            {t('account.chatgpt.loginDeviceCode')}
+          </Button>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => void login('browser')}
+            data-action="login-browser"
+          >
+            {busy ? <LoaderCircle className="animate-spin" /> : <LogIn />}
+            {t('account.chatgpt.login')}
+          </Button>
         </div>
-        {phase.kind === 'signed_out' && (
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busy}
-              onClick={() => void login('device_code')}
-              data-action="login-device-code"
-            >
-              {t('account.chatgpt.loginDeviceCode')}
-            </Button>
-            <Button
-              size="sm"
-              disabled={busy}
-              onClick={() => void login('browser')}
-              data-action="login-browser"
-            >
-              {busy ? <LoaderCircle className="animate-spin" /> : <LogIn />}
-              {t('account.chatgpt.login')}
-            </Button>
+      )}
+      <NoticeBanner
+        notice={
+          phase.kind === 'signed_out' && phase.error !== undefined
+            ? { tone: 'error', text: t('account.chatgpt.loginFailed', { error: phase.error }) }
+            : undefined
+        }
+      />
+      {phase.kind === 'loading' && !setupOnly && (
+        <>
+          <div className="h-8" aria-hidden />
+          <UsageCards windows={[]} />
+          <div className={SUBSCRIPTION_SETTING_ROW} aria-hidden>
+            <span className="text-muted-foreground">{t('provider.defaultModel')}</span>
+            <div className="h-8 rounded-md bg-muted" />
           </div>
-        )}
-      </div>
-
-      {phase.kind === 'signed_out' && phase.error !== undefined && (
-        <NoticeBanner
-          notice={{ tone: 'error', text: t('account.chatgpt.loginFailed', { error: phase.error }) }}
-        />
+        </>
       )}
       {phase.kind === 'browser' && (
         <BrowserProgress
@@ -157,7 +129,7 @@ export function ChatgptAccountSection({
       {phase.kind === 'device_code' && (
         <DeviceCodeProgress phase={phase} busy={busy} onCancel={() => cancel(phase.loginId)} />
       )}
-      {phase.kind === 'signed_in' && !setupOnly && (
+      {phase.kind === 'signed_in' && account !== undefined && !setupOnly && (
         <SignedIn
           client={client}
           account={account}
@@ -180,7 +152,7 @@ export function ChatgptAccountSection({
           {t('source.recheck')}
         </Button>
       )}
-      {error !== undefined && <NoticeBanner notice={{ tone: 'error', text: error }} />}
+      <NoticeBanner notice={failure === undefined ? undefined : { tone: 'error', text: failure }} />
       {confirmLogout && (
         <ConfirmDialog
           open
@@ -197,22 +169,6 @@ export function ChatgptAccountSection({
         </ConfirmDialog>
       )}
     </section>
-  );
-}
-
-function PhaseBadge({ phase }: { phase: AccountPhase }) {
-  if (phase.kind === 'loading') return null;
-  const signedIn = phase.kind === 'signed_in';
-  const signingIn = phase.kind === 'browser' || phase.kind === 'device_code';
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-      <StatusDot tone={signedIn ? 'success' : signingIn ? 'accent' : 'neutral'} pulse={signingIn} />
-      {signedIn
-        ? t('account.chatgpt.status.signedIn')
-        : signingIn
-          ? t('account.chatgpt.status.signingIn')
-          : t('account.chatgpt.status.signedOut')}
-    </span>
   );
 }
 
@@ -343,7 +299,7 @@ function SignedIn({
   onAccountChanged,
 }: {
   client: WevirClient;
-  account: AccountState | undefined;
+  account: AccountState;
   phase: Extract<AccountPhase, { kind: 'signed_in' }>;
   provider: ProviderProfile | undefined;
   busy: boolean;
@@ -355,7 +311,7 @@ function SignedIn({
   const modelSelect = useId();
   const [saving, setSaving] = useState(false);
   const plan = planLabel(phase.plan);
-  const windows = usageWindows(account?.rateLimits);
+  const windows = usageWindows(account.rateLimits);
 
   const setDefaultModel = async (defaultModelId: string) => {
     if (provider === undefined) return;
@@ -377,13 +333,8 @@ function SignedIn({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm" data-account-email>
-            {phase.email ?? t('account.chatgpt.emailUnknown')}
-          </p>
-        </div>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-end gap-3">
         {plan !== undefined && (
           <span
             className="shrink-0 rounded-sm bg-muted px-1.5 text-xs leading-5 text-muted-foreground"
@@ -397,71 +348,110 @@ function SignedIn({
           {t('account.chatgpt.logout')}
         </Button>
       </div>
-      {windows.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2" data-usage>
-          {windows.map((window, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: 窗口没有 ID，顺序由引擎给出
-            <UsageBar key={index} window={window} />
-          ))}
-        </div>
-      )}
-      {account !== undefined && (
-        <ChatgptResetCredits
-          key={`${idOf(account)}:${account.email ?? ''}`}
-          client={client}
-          account={account}
-          onChanged={onAccountChanged}
-        />
-      )}
-      <div className="flex items-center gap-3 text-sm">
+      <UsageCards windows={windows} />
+      <ChatgptResetCredits
+        key={`${idOf(account)}:${account.email ?? ''}`}
+        client={client}
+        account={account}
+        onChanged={onAccountChanged}
+      />
+      <div className={SUBSCRIPTION_SETTING_ROW}>
         <label htmlFor={modelSelect} className="shrink-0 text-muted-foreground">
           {t('provider.defaultModel')}
         </label>
         {provider === undefined || provider.models.length === 0 ? (
-          <span className="text-muted-foreground">{t('account.chatgpt.modelsLoading')}</span>
+          <span className="flex min-h-8 items-center text-muted-foreground">
+            {t('account.chatgpt.modelsLoading')}
+          </span>
         ) : (
-          <Select
-            id={modelSelect}
-            className="max-w-72"
-            value={provider.defaultModelId}
-            disabled={saving}
-            onValueChange={(id) => void setDefaultModel(id)}
-            options={provider.models.map((model) => ({
-              value: model.id,
-              label: model.displayName ?? model.id,
-            }))}
-            data-default-model
-          />
+          <div className="relative min-w-0">
+            <Select
+              id={modelSelect}
+              className="w-full min-w-0"
+              value={provider.defaultModelId}
+              disabled={saving}
+              onValueChange={(id) => void setDefaultModel(id)}
+              options={provider.models.map((model) => ({
+                value: model.id,
+                label: model.displayName ?? model.id,
+              }))}
+              data-default-model
+            />
+            {saving && (
+              <LoaderCircle className="pointer-events-none absolute top-1/2 right-8 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+            )}
+          </div>
         )}
-        {saving && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}
       </div>
     </div>
   );
 }
 
-/** 一个用量窗口：名称、已用百分比、进度条与重置时间（订阅来源的详情也用，0.19.0）。 */
-export function UsageBar({ window: usage }: { window: AccountRateLimitWindow }) {
-  const tone = usageTone(usage);
-  const percent = Math.min(100, Math.max(0, usage.usedPercent));
-  const resets = resetLabel(usage.resetsAt);
+function UsageCards({ windows }: { windows: readonly AccountRateLimitWindow[] }) {
+  const placeholders = [
+    t('account.chatgpt.usage.hours', { count: 5 }),
+    t('account.chatgpt.usage.weekly'),
+  ];
+  return (
+    <div
+      className="grid gap-2 sm:grid-cols-2"
+      data-usage
+      aria-busy={windows.length === 0 || undefined}
+    >
+      {windows.length > 0
+        ? windows.map((window, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 用量窗口没有 ID，顺序由引擎给出
+            <UsageBar key={index} window={window} reserveReset />
+          ))
+        : placeholders.map((name, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 与同位置的用量卡片用同一个 key
+            <UsageBar key={index} emptyName={name} reserveReset />
+          ))}
+    </div>
+  );
+}
+
+/** 一个用量窗口：名称、已用百分比、进度条与重置时间。 */
+export function UsageBar({
+  window: usage,
+  emptyName,
+  reserveReset = false,
+}: {
+  window?: AccountRateLimitWindow;
+  emptyName?: string;
+  reserveReset?: boolean;
+}) {
+  const tone = usage && usageTone(usage);
+  const percent = usage && Math.min(100, Math.max(0, usage.usedPercent));
+  const resets = resetLabel(usage?.resetsAt);
   return (
     <div className="space-y-1 rounded-md border border-border px-3 py-2">
       <div className="flex items-baseline justify-between gap-2 text-xs">
-        <span className="text-muted-foreground">{windowName(usage)}</span>
-        <span className="font-medium tabular-nums">
-          {t('account.chatgpt.usage.used', { percent: Math.round(percent) })}
-        </span>
+        <span className="text-muted-foreground">{usage ? windowName(usage) : emptyName}</span>
+        {percent !== undefined && (
+          <span className="font-medium tabular-nums">
+            {t('account.chatgpt.usage.used', { percent: Math.round(percent) })}
+          </span>
+        )}
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-        <div
-          className={cn(
-            'h-full rounded-full',
-            tone === 'danger' ? 'bg-destructive' : tone === 'warning' ? 'bg-warning' : 'bg-primary',
-          )}
-          style={{ width: `${percent}%` }}
-        />
+        {percent !== undefined && (
+          <div
+            className={cn(
+              'h-full rounded-full transition-[width] duration-300 ease-smooth',
+              tone === 'danger'
+                ? 'bg-destructive'
+                : tone === 'warning'
+                  ? 'bg-warning'
+                  : 'bg-primary',
+            )}
+            style={{ width: `${percent}%` }}
+          />
+        )}
       </div>
-      {resets !== undefined && <p className="text-xs text-muted-foreground">{resets}</p>}
+      {(reserveReset || resets !== undefined) && (
+        <p className="min-h-4 text-xs text-muted-foreground">{resets}</p>
+      )}
     </div>
   );
 }

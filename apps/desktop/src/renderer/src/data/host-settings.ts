@@ -8,6 +8,7 @@ export interface HostSettingsState {
   supported: boolean;
   /** 能改：Host 支持，且这条连接有 `host.manage`（远程设备一般没有，这时只读）。 */
   editable: boolean;
+  loaded: boolean;
   /** 还没读到时是默认值。 */
   settings: HostSettings;
   update(patch: Partial<HostSettings>): Promise<void>;
@@ -17,17 +18,17 @@ export interface HostSettingsState {
  * Host 设置（R11，domain-model §3.7）：连上之后 `settings.get`，之后跟着 `settings.updated`（别的客户端改了也会跟上）。
  * CLI 与桌面共用一份，存在 Host。
  */
-export function useHostSettings(): HostSettingsState {
+export function useHostSettings(onReadError?: (error: unknown) => void): HostSettingsState {
   const { client, view } = useHostConnection();
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'host_settings');
   const editable = supported && view.hello.permissions.includes('host.manage');
-  const [settings, setSettings] = useState<HostSettings>(DEFAULT_HOST_SETTINGS);
+  const [settings, setSettings] = useState<HostSettings>();
 
   useEffect(() => {
     if (!client) return;
-    return client.watchSettings(setSettings);
-  }, [client]);
+    return client.watchSettings(setSettings, onReadError);
+  }, [client, onReadError]);
 
   const update = useCallback(
     async (patch: Partial<HostSettings>) => {
@@ -38,5 +39,11 @@ export function useHostSettings(): HostSettingsState {
     [client],
   );
 
-  return { supported, editable, settings, update };
+  return {
+    supported,
+    editable,
+    loaded: settings !== undefined,
+    settings: settings ?? DEFAULT_HOST_SETTINGS,
+    update,
+  };
 }

@@ -2640,7 +2640,9 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       (key) => (final[key] ?? 0) === (request.usage[key] ?? 0),
     );
     if (typeof final.output_tokens === 'number' && same) mergeClaudeUsage(request, final);
-    for (const usage of claudeUsageRecords(child.id, request)) child.hub.emit(usage);
+    for (const usage of claudeUsageRecords(child.id, request)) {
+      child.hub.emit({ ...usage, kind: 'subagent' });
+    }
   }
 
   /**

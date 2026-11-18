@@ -16,8 +16,5 @@
       "WEVIR_PUSH_KIND_CHANNEL": "도우미 메시지",
       "WEVIR_PUSH_KIND_AGENT": "에이전트 알림"
     }
-  },
-  "android": {
-    "wevir_assistant_messages": "도우미 메시지"
   }
 }

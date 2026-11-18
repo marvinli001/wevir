@@ -2,6 +2,7 @@
 
 import {
   type ProviderKind,
+  SUBSCRIPTION_KINDS,
   USAGE_MAX_BUCKETS,
   USAGE_RECORDS_PAGE_MAX,
   type UsageAggregate,
@@ -36,6 +37,7 @@ const SPEED_MIN_DURATION_MS = 1_000;
 const MAX_DURATION_MS = 60 * 60 * 1000;
 /** `usage.changed` 最多每秒一次。 */
 const NOTIFY_INTERVAL_MS = 1_000;
+const SUBSCRIPTIONS = new Set<string>(['chatgpt', ...SUBSCRIPTION_KINDS]);
 
 export interface UsageServiceOptions {
   storage: Storage;
@@ -140,7 +142,7 @@ export class UsageService {
     }
     const from = edges[0] as number;
     const to = edges.at(-1) as number;
-    const rows = this.#storage.usage.range(from, to);
+    const rows = this.#storage.usage.range(from, to, filter);
 
     const precisions = new Set<ReturnType<typeof usagePrecision>>();
     const withoutPrecision = matcher({ ...filter, precision: undefined });
@@ -189,6 +191,12 @@ export class UsageService {
       add(model, row, priced);
     }
 
+    for (const aggregate of [totals, ...buckets, ...byProvider.values(), ...byModel.values()]) {
+      if (aggregate.requests > 0 && aggregate.unpriced === 0 && aggregate.missingUsage === 0) {
+        aggregate.estimatedCost = aggregate.cost;
+      }
+    }
+
     const byRequests = (a: UsageAggregate, b: UsageAggregate) => b.requests - a.requests;
     return {
       totals,
@@ -217,6 +225,8 @@ export class UsageService {
       params.from,
       params.to,
       {
+        sessionId: params.filter?.sessionId,
+        workspaceId: params.filter?.workspaceId,
         ...(params.filter?.precision !== undefined && { precision: params.filter.precision }),
         ...(nonEmpty(params.filter?.sources) && { sources: params.filter?.sources }),
         ...(nonEmpty(params.filter?.providerIds) && { providerIds: params.filter?.providerIds }),
@@ -245,6 +255,7 @@ export class UsageService {
   }
 
   savings(edges: readonly number[], filter: UsageFilter | undefined) {
+    if (filter?.sessionId !== undefined || filter?.workspaceId !== undefined) return undefined;
     return this.#baselineDir === undefined
       ? Promise.resolve(undefined)
       : baselineSavings(this.#baselineDir, edges[0] as number, edges.at(-1) as number, filter);
@@ -439,6 +450,7 @@ function emptyAggregate(): UsageAggregate {
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0 },
     cost: 0,
     unpriced: 0,
+    missingUsage: 0,
     timing: {
       timedRequests: 0,
       outputTokens: 0,
@@ -455,11 +467,16 @@ function add(target: UsageAggregate, row: UsageRow, priced: { cost: UsageCost } 
     const requests = usagePrecision(row) === 'turn' ? row.modelCalls : 1;
     target.modelRequests = requests === undefined ? null : (target.modelRequests ?? 0) + requests;
   }
-  target.tokens.input += row.inputTokens;
-  target.tokens.output += row.outputTokens;
-  target.tokens.cacheRead += row.cacheReadTokens;
-  target.tokens.cacheWrite += row.cacheWriteTokens;
-  target.tokens.reasoning += row.reasoningTokens;
+  if (row.usageReported === false) {
+    target.missingUsage = (target.missingUsage ?? 0) + 1;
+  } else {
+    target.tokens.input += row.inputTokens;
+    target.tokens.output += row.outputTokens;
+    target.tokens.cacheRead += row.cacheReadTokens;
+    target.tokens.cacheWrite += row.cacheWriteTokens;
+    target.tokens.reasoning += row.reasoningTokens;
+  }
+  if (SUBSCRIPTIONS.has(row.source)) target.subscriptionEstimate = true;
   if (priced === undefined) target.unpriced += 1;
   else target.cost += priced.cost.total;
   if (

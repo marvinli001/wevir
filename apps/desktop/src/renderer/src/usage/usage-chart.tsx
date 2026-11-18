@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { type PlainMessageKey, t } from '@/i18n';
 import { Segmented } from '@/settings/settings-ui';
 import {
+  aggregateCost,
   bucketLabel,
   bucketTitle,
   CHART_METRICS,
@@ -71,7 +72,9 @@ const TOOLTIP_HALF = 96;
 
 function metricValue(bucket: UsageAggregate, metric: ChartMetric): number {
   if (metric === 'tokens') return totalTokens(bucket.tokens);
-  return metric === 'requests' ? (bucket.modelRequests ?? bucket.requests) : bucket.cost;
+  return metric === 'requests'
+    ? (bucket.modelRequests ?? bucket.requests)
+    : (aggregateCost(bucket) ?? 0);
 }
 
 function useWidth<T extends HTMLElement>() {
@@ -339,9 +342,13 @@ function BucketValues({
       />
     );
   }
+  const cost = aggregateCost(bucket);
   return (
     <>
-      <ValueRow label={t('usage.cost')} value={formatCost(bucket.cost, locale)} />
+      <ValueRow
+        label={t('usage.cost')}
+        value={cost === undefined ? '—' : formatCost(cost, locale)}
+      />
       {bucket.unpriced > 0 && (
         <p className="mt-1 text-muted-foreground">
           {t('usage.cost.unpriced', { count: bucket.unpriced })}

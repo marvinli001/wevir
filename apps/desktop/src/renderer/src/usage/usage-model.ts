@@ -9,6 +9,7 @@ import type {
   HostFeatures,
   ProviderKind,
   ProviderProfile,
+  UsageAggregate,
   UsageFilter,
   UsageTiming,
   UsageTokens,
@@ -385,6 +386,13 @@ export function formatTokensFit(value: number, locale: string, maxLength = 11): 
 /** 坐标轴刻度：紧凑写法，最多一位小数。 */
 export function formatAxis(value: number, locale: string): string {
   return numberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+}
+
+export function aggregateCost(aggregate: UsageAggregate): number | undefined {
+  if (aggregate.missingUsage !== undefined) return aggregate.estimatedCost;
+  return aggregate.requests > 0 && aggregate.unpriced === aggregate.requests
+    ? undefined
+    : aggregate.cost;
 }
 
 /** 美元成本：1 美元以上两位小数，以下最多四位；比 0.0001 还小（但不是 0）的写“< $0.0001”。 */

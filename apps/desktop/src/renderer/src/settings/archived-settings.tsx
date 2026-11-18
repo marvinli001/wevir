@@ -7,7 +7,13 @@ import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { workspaceLabel } from '@/projects/chats';
-import { EmptyList, LIST_CARD, NoticeBanner, SettingsSection } from './settings-ui';
+import {
+  EmptyList,
+  LIST_CARD,
+  NoticeBanner,
+  SettingsPlaceholder,
+  SettingsSection,
+} from './settings-ui';
 
 /**
  * 设置 → 已归档（U34，照 Codex 桌面端的 Archived chats）：`session.list { archived: true }` 读出的会话按项目分组，顶上是搜索；
@@ -110,13 +116,9 @@ export function ArchivedSettings() {
           )}
         </label>
       </div>
-      {error && (
-        <div className="mb-3">
-          <NoticeBanner notice={{ tone: 'error', text: error }} />
-        </div>
-      )}
+      <NoticeBanner notice={error ? { tone: 'error', text: error } : undefined} className="mb-3" />
       {sessions === undefined ? (
-        !error && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        !error && <SettingsPlaceholder className="min-h-[5.375rem]" />
       ) : groups.length === 0 ? (
         <EmptyList>{t('settings.archived.empty')}</EmptyList>
       ) : (

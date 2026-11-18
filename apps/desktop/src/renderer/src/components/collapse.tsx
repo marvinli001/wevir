@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { useReducedMotion } from '@/fx/motion';
 
 /** 收起动画的时长（与 className 里的 duration-200 一致），过渡事件没来时按它卸载。 */
 const COLLAPSE_MS = 200;
@@ -12,7 +13,8 @@ type Margins = { open: Edge; closed: Edge };
 const NO_EDGE: Edge = { top: 0, bottom: 0 };
 const NO_MARGINS: Margins = { open: NO_EDGE, closed: NO_EDGE };
 
-type Box = { outer: HTMLDivElement; inner: HTMLDivElement; flow: boolean };
+type CollapseMotion = 'full' | 'height' | 'fade';
+type Box = { outer: HTMLElement; inner: HTMLDivElement; flow: boolean; motion: CollapseMotion };
 type Job = Box & {
   from: Visual;
   to: Visual;
@@ -32,25 +34,34 @@ type Job = Box & {
  * 和没包这一层时一模一样（回合进行中就包着，结束时只换 `open`，内容不重新挂载），动画期间同样用边距补上 grid 带来的差值；`flow` 不接 `className`。
  */
 export function Collapse({
+  as: Element = 'div',
   open,
   fromOpen = false,
+  fromClosed = false,
   flow = false,
+  motion = 'full',
   id,
   className,
   children,
+  onExit,
 }: {
+  as?: 'div' | 'li';
   open: boolean;
   fromOpen?: boolean;
+  fromClosed?: boolean;
   flow?: boolean;
+  motion?: CollapseMotion;
   id?: string;
   className?: string;
   children: ReactNode;
+  onExit?: () => void;
 }) {
   const [mounted, setMounted] = useState(open || fromOpen);
-  const outer = useRef<HTMLDivElement>(null);
+  const outer = useRef<HTMLElement>(null);
   const inner = useRef<HTMLDivElement>(null);
+  const reduced = useReducedMotion();
   // 最近一次动画的目标；token 让过时的结束回调失效（动画中途又切换）。卸载时不作废：StrictMode 的模拟卸载会留着同一个节点。
-  const shown = useRef<Visual>(open || fromOpen ? 'open' : 'closed');
+  const shown = useRef<Visual>(fromOpen || (open && !fromClosed) ? 'open' : 'closed');
   const run = useRef({ token: 0, running: false, margins: NO_MARGINS, finish: () => {} });
   const present = open || mounted;
 
@@ -64,23 +75,38 @@ export function Collapse({
     if (!present || !o || !i) return;
     const state = run.current;
     const want: Visual = open ? 'open' : 'closed';
+    const box = { outer: o, inner: i, flow, motion };
+    if (reduced) {
+      state.token++;
+      state.running = false;
+      shown.current = want;
+      if (open) settle(box);
+      else {
+        setMounted(false);
+        onExit?.();
+      }
+      return;
+    }
     if (shown.current === want) {
-      if (want === 'open' && !state.running) settle({ outer: o, inner: i, flow });
+      if (want === 'open' && !state.running) settle(box);
       return;
     }
     shown.current = want;
     const token = ++state.token;
-    const box = { outer: o, inner: i, flow };
     let timer: ReturnType<typeof setTimeout> | undefined;
-    state.finish = () => {
+    const finish = () => {
       if (state.token !== token) return;
       clearTimeout(timer);
       state.running = false;
       if (want === 'open') settle(box);
-      else setMounted(false);
+      else {
+        setMounted(false);
+        onExit?.();
+      }
     };
+    state.finish = finish;
     const go = () => {
-      timer = setTimeout(() => state.finish(), COLLAPSE_MS + 50);
+      timer = setTimeout(finish, COLLAPSE_MS + 50);
     };
     if (state.running) {
       // 动画中途换方向：从当前的样子直接过渡到另一端，沿用量好的补偿。
@@ -99,15 +125,19 @@ export function Collapse({
         go();
       },
     });
-  }, [open, present, flow]);
+  }, [open, present, flow, motion, onExit, reduced]);
 
   if (!present) return null;
   return (
-    <div
-      ref={outer}
+    <Element
+      ref={(node: HTMLElement | null) => {
+        outer.current = node;
+      }}
       id={id}
+      inert={!open && motion !== 'full'}
       className={cn(
         'grid grid-rows-[1fr] transition-[grid-template-rows,opacity,margin-top,margin-bottom] duration-200 ease-expand',
+        motion === 'fade' && '[transition-duration:200ms,120ms,200ms,200ms]',
         !flow && className,
       )}
       onTransitionEnd={(event) => {
@@ -117,11 +147,14 @@ export function Collapse({
     >
       <div
         ref={inner}
-        className="min-h-0 overflow-hidden transition-transform duration-200 ease-expand"
+        className={cn(
+          'min-h-0 overflow-hidden',
+          motion === 'full' && 'transition-transform duration-200 ease-expand',
+        )}
       >
         {children}
       </div>
-    </div>
+    </Element>
   );
 }
 
@@ -135,16 +168,19 @@ function setStyle(element: HTMLElement, styles: Record<string, string>) {
 const px = (value: number) => (value === 0 ? '' : `${value}px`);
 
 /** 动画中的一端：grid 行高、透明度、内容的位移与上下边距补偿。 */
-function paint({ outer, inner }: Box, visual: Visual, margins: Margins) {
+function paint({ outer, inner, motion }: Box, visual: Visual, margins: Margins) {
   const edge = visual === 'open' ? margins.open : margins.closed;
   setStyle(outer, {
     display: 'grid',
     'grid-template-rows': visual === 'open' ? '1fr' : '0fr',
-    opacity: visual === 'open' ? '1' : '0',
+    opacity: motion === 'height' ? '' : visual === 'open' ? '1' : '0',
     'margin-top': px(edge.top),
     'margin-bottom': px(edge.bottom),
   });
-  setStyle(inner, { display: '', translate: visual === 'open' ? '' : '0 -0.25rem' });
+  setStyle(inner, {
+    display: '',
+    translate: visual === 'closed' && motion === 'full' ? '0 -0.25rem' : '',
+  });
 }
 
 /** 展开后静止：回到类名的样子，`flow` 时两层都是 `display: contents`。 */

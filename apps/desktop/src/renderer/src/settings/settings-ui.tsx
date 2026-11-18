@@ -1,8 +1,8 @@
 import { cn } from 'cn';
 import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
-import type { ComponentProps, ReactNode } from 'react';
-import { PageSpinner } from '@/components/spinner';
-import type { WorkbenchData } from '@/data/workbench-model';
+import { type ComponentProps, type ReactNode, useState } from 'react';
+import { Collapse } from '@/components/collapse';
+import { t } from '@/i18n';
 
 export interface Notice {
   tone: 'success' | 'error' | 'warning' | 'info';
@@ -17,32 +17,50 @@ const NOTICE_ICON_COLOR: Record<Notice['tone'], string> = {
 };
 
 /** 设置页里一次操作的结果（添加了、保存了、失败了），显示在列表上方。 */
-export function NoticeBanner({ notice }: { notice: Notice }) {
+export function NoticeBanner({
+  notice,
+  className,
+}: {
+  notice: Notice | undefined;
+  className?: string;
+}) {
+  const [shown, setShown] = useState(notice);
+  if (notice && notice !== shown) setShown(notice);
   const Icon =
-    notice.tone === 'success'
+    shown?.tone === 'success'
       ? CircleCheck
-      : notice.tone === 'info'
+      : shown?.tone === 'info'
         ? Info
-        : notice.tone === 'warning'
+        : shown?.tone === 'warning'
           ? TriangleAlert
           : CircleAlert;
   return (
-    <p
-      role={notice.tone === 'error' ? 'alert' : 'status'}
-      className="flex items-start gap-2 text-sm text-soft-foreground animate-in fade-in slide-in-from-top-1 duration-200 ease-smooth"
-    >
-      <Icon className={cn('mt-0.5 size-4 shrink-0', NOTICE_ICON_COLOR[notice.tone])} aria-hidden />
-      <span className="min-w-0 break-words">{notice.text}</span>
-    </p>
+    <Collapse open={notice !== undefined} motion="height">
+      {shown && (
+        <p
+          role={shown.tone === 'error' ? 'alert' : 'status'}
+          className={cn('flex items-start gap-2 text-sm text-soft-foreground', className)}
+        >
+          <Icon
+            className={cn('mt-0.5 size-4 shrink-0', NOTICE_ICON_COLOR[shown.tone])}
+            aria-hidden
+          />
+          <span className="min-w-0 break-words">{shown.text}</span>
+        </p>
+      )}
+    </Collapse>
   );
 }
 
-/** 列表还没读到（或读失败）时的设置页内容。 */
-export function SettingsLoading({ data }: { data: Exclude<WorkbenchData, { status: 'ready' }> }) {
-  return data.status === 'error' ? (
-    <NoticeBanner notice={{ tone: 'error', text: data.error }} />
-  ) : (
-    <PageSpinner className="py-8" />
+export function SettingsPlaceholder({ className }: { className?: string }) {
+  return (
+    <div
+      role="status"
+      aria-label={t('common.loading')}
+      className={cn('flex min-h-14 items-center rounded-xl border border-border px-4', className)}
+    >
+      <div className="h-3 w-32 rounded-sm bg-muted" />
+    </div>
   );
 }
 

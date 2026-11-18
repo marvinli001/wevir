@@ -16,8 +16,5 @@
       "WEVIR_PUSH_KIND_CHANNEL": "Mensajes del asistente",
       "WEVIR_PUSH_KIND_AGENT": "Aviso del agente"
     }
-  },
-  "android": {
-    "wevir_assistant_messages": "Mensajes del asistente"
   }
 }

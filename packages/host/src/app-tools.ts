@@ -16,6 +16,7 @@ import type {
   ClientIdentity,
   HostId,
   MessageFrom,
+  OpinionId,
   PendingDelivery,
   PendingMessageId,
   PermissionMode,
@@ -1462,7 +1463,7 @@ export class AppTools {
         "session's folder (committed and uncommitted changes, untracked files) into a separate git worktree and " +
         'opens a read-only reviewer session there with your task, goal, checks and the list of changed files; it ' +
         'cannot touch your files. Its review arrives here as a message when it finishes, so end your turn instead of ' +
-        "waiting or polling. Use it when the user asks for a second opinion or for another provider's review; to " +
+        'waiting or polling. Call only at the user’s explicit request, with opinionId to read an existing review. To ' +
         'check your own work, use a built-in subagent instead. Pick providerId (and modelId) from wevir_models, preferably a provider other than ' +
         'yours so the review is independent; focus says what to look at hardest (at most ' +
         `${SECOND_OPINION_FOCUS_MAX_LENGTH} characters). Needs a git repository with at ` +
@@ -1470,15 +1471,32 @@ export class AppTools {
       inputSchema: objectSchema(
         {
           providerId: { type: 'string' },
+          opinionId: { type: 'string' },
           modelId: { type: 'string' },
           reasoningEffort: { type: 'string' },
           focus: { type: 'string', maxLength: SECOND_OPINION_FOCUS_MAX_LENGTH },
         },
-        ['providerId'],
+        [],
       ),
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
       call: async (args, { sessionId }) => {
         this.#callerRecord(sessionId);
+        const opinionId = optionalString(args, 'opinionId');
+        if (opinionId !== undefined) {
+          const opinion = this.#options.events.opinion(sessionId, opinionId as OpinionId);
+          if (opinion === undefined)
+            throw new AppToolError('This opinion was not found in this session.');
+          const { id, providerId, modelId, status, findings, text } = opinion;
+          return jsonResult({
+            opinionId: id,
+            sessionId: opinion.sessionId,
+            providerId,
+            modelId,
+            status,
+            findings,
+            text,
+          });
+        }
         const focus = optionalString(args, 'focus')?.trim();
         if (focus !== undefined && focus.length > SECOND_OPINION_FOCUS_MAX_LENGTH) {
           throw new AppToolError(

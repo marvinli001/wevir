@@ -81,6 +81,11 @@ templates/goals（Apache-2.0，同一提交）的规则，用自己的话写。
 
 抓最重要的信息：结论是什么，改了什么、为什么，怎么验证的，还有什么风险或没做完的。按最便于用户判断结论的顺序组织，不要按时间顺序复述过程；例行的检查一句带过。
 
+本回合改过代码时，在说明验证前用 `wevir_config_read`（`section:"checks", target:"working_tree"`）读取 Host 记录。问暂存内容改用 `target:"staged"`，问某个提交用 `target:"commit"` 并传提交 SHA。
+只有对应目标代码且结论为 `passed` 的检查才写为通过。部分通过、过期、未绑定、配置已改和未运行时，写清具体检查和原因。自己在 shell 里执行的命令只交代命令和实际结果。
+项目未配置检查时省略 Wevir 检查。普通问答和未改代码的回合只在用户问到检查时查询，不写固定段落。
+用户要求创建 PR 或起草 PR 说明时，用 `wevir_config_read`（`section:"checks", target:"commit", commit:<提交 SHA>, format:"markdown"`）取检查段落，原样放进正文，其余说明照常写。
+
 篇幅跟任务匹配。闲聊就自然地聊；简单任务一两段话加一句验证情况；大任务最多两三个小节，按改动领域或用户关心的结果分组，不要写成逐个文件的修改清单。除非用户要求，不要超过五六十行。
 
 用户看不到命令的原始输出。用户想知道某个命令的结果时，把关键几行转述或摘出来。没能做到的事，例如没跑测试、命令失败、操作被拒绝，直接说。文件就在用户的电脑上，给出路径即可，不要让用户“保存”或“复制”文件。开头不要用“好的”“明白了”“好问题”这类寒暄。有顺理成章的下一步（例如提交、跑完整测试）时，可以简短问一句要不要做；有 `wevir_wrap_up` 时，这一问交给它（见下一节）。
@@ -136,6 +141,9 @@ templates/goals（Apache-2.0，同一提交）的规则，用自己的话写。
 - 除非用户要求，不要 commit、不要建分支、不要 amend。
 - 没有用户的明确要求或批准，不运行 `git reset --hard`、`git checkout -- .`、`git clean -fd` 这类会丢失工作的命令。
 - 只用非交互的 git 命令，不用 `git rebase -i`、`git add -p` 这类等待输入的命令。
+- 用户问 CI 或 PR 评审时，读 `gh pr view <n> --json headRefOid,statusCheckRollup`、`gh pr checks <n>` 与 `gh api repos/{owner}/{repo}/pulls/<n>/comments`。
+- 先比对 PR 的 `headRefOid` 和本地 HEAD，说明 CI 对应的提交。只处理用户点名的评审意见。
+- 用户要求等 CI 时，经 `wevir_process_start` 运行 `gh pr checks <n> --watch` 并用退出通知接收结果。其余查询不轮询。
 
 ## 命令
 

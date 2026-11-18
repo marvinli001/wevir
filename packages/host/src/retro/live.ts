@@ -1,12 +1,14 @@
 // 任务回顾里现读的部分（ADR-0012 决策 6）：不在事件里的东西每次 `retro.get` 都重读，不存进投影。每一项单独读，读不出只让那一格
 // 写“未知”，不影响别的格子，也不抛错。
 
+import type { WorkspaceId } from '@wevir/protocol';
 import { checkpointRef, type TurnCheckpoints } from '../checkpoints.js';
 import { repoInfo, runGit } from '../git-diff.js';
 import { readGitStatus } from '../git-status.js';
 import type { MemoryStore } from '../memory.js';
 import type { ReviewService } from '../review/service.js';
 import { readCodeState } from '../verification/code-state.js';
+import type { EvidenceCheck } from '../verification/evidence.js';
 import type { RetroLive, RetroLiveCheckpoint } from './build.js';
 import type { RetroState } from './fold.js';
 
@@ -19,6 +21,7 @@ export interface RetroLiveDeps {
   checkpoints?: TurnCheckpoints;
   review?: ReviewService;
   memory?: MemoryStore;
+  checks?: (workspaceId: WorkspaceId) => Promise<readonly EvidenceCheck[]>;
   /** 会话还在不在、标题（Host 的存储）。 */
   session: (sessionId: string) => { title?: string } | undefined;
   /** 批注所在目录的 realpath（同 `review.list`）。 */
@@ -51,7 +54,7 @@ export async function readRetroLive(
   const repo = await settle(repoInfo(target.cwd));
   const live: RetroLive = { checkedAt, repo: repo !== undefined, session: deps.session };
 
-  const [codeState, checkpoints, status, review, memories] = await Promise.all([
+  const [codeState, checkpoints, status, review, memories, checks] = await Promise.all([
     target.light ? Promise.resolve(undefined) : settle(readCodeState(target.cwd)),
     target.light || repo === undefined || deps.checkpoints === undefined
       ? Promise.resolve(undefined)
@@ -74,8 +77,12 @@ export async function readRetroLive(
     target.light || deps.memory === undefined
       ? Promise.resolve(undefined)
       : settle(deps.memory.list(target.workspaceId)),
+    target.light || deps.checks === undefined
+      ? undefined
+      : settle(deps.checks(target.workspaceId as WorkspaceId)),
   ]);
   if (codeState !== undefined) live.codeState = codeState;
+  if (checks !== undefined) live.checks = checks;
   if (review !== undefined) live.review = review;
   if (memories !== undefined) {
     live.memories = new Set(memories.map((note) => `${note.scope}:${note.name}`));

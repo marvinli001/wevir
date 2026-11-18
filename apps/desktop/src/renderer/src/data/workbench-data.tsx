@@ -204,6 +204,11 @@ export function useAccounts(): AccountState[] | undefined {
   return useSyncExternalStore(store?.subscribe ?? noop, store?.get ?? NO_ACCOUNTS);
 }
 
+export function useAccountsError(): unknown {
+  const store = useContext(StoresContext)?.accounts;
+  return useSyncExternalStore(store?.subscribe ?? noop, store?.error ?? NO_ACCOUNTS, NO_ACCOUNTS);
+}
+
 /** 账号表的写入口（本端操作的结果立即合进来）。 */
 export function useAccountsStore(): AccountsStore | undefined {
   return useContext(StoresContext)?.accounts;

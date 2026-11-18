@@ -1,61 +1,63 @@
 import { hostSupports } from '@wevir/client-sdk';
 import {
   type Device,
+  type MethodParams,
   type Permission,
-  REMOTE_DEFAULT_PORT,
-  type RemoteInterface,
   type RemoteSettings,
   type RemoteStatus,
   relayConfigured,
   WEB_CLIENT_DEFAULT_URL,
+  webClientUrl,
   webDeviceIdleDays,
 } from '@wevir/protocol';
-import { Globe, Smartphone, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { cn } from 'cn';
+import { Bell, ChevronRight, Globe, MonitorSmartphone, Network, Trash2 } from 'lucide-react';
+import { type ReactNode, useCallback, useEffect, useId, useState } from 'react';
+import { AnimatedRows } from '@/components/animated-rows';
+import { Collapse } from '@/components/collapse';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { IconButton } from '@/components/icon-button';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
 import { formatRelativeTime } from '@/session/subagent-model';
+import { ConnectionMethods, listenerError, relayText } from './device-connection-settings';
 import {
   DEVICE_PERMISSION_ORDER,
   idleDayOptions,
-  interfaceLabel,
   PERMISSION_LABEL,
   PLATFORM_LABEL,
-  parsePort,
-  parseRelayUrl,
   parseWebClientUrl,
   pushStatusKey,
-  RELAY_URL_PLACEHOLDER,
-  type RelayChoice,
-  type RelayStatusText,
   RISKY_DEVICE_PERMISSIONS,
   relayChoice,
   relayStatusText,
+  remoteAccessState,
   remoteOf,
-  setLan,
-  setRelayChoice,
-  setRelayUrl,
   setWebClientUrl,
   setWebIdleDays,
-  toggleLanInterface,
   togglePermission,
   visibleDevices,
 } from './devices-model';
-import { PairingDialog, WebRelayDialog } from './pairing-dialog';
+import { PairingDialog, PlatformIcon, WebRelayDialog } from './pairing-dialog';
+import { RemoteAccessCard } from './remote-access-card';
 import {
-  EmptyList,
   LIST_CARD,
   type Notice,
   NoticeBanner,
+  SettingsPlaceholder,
   SettingsRow,
   SettingsSection,
 } from './settings-ui';
@@ -67,17 +69,23 @@ const RISK_BODY: Partial<Record<Permission, PlainMessageKey>> = {
   'git.publish': 'settings.devices.gitPublishScope',
 };
 
-/**
- * 设置 → 设备（0.107.0，domain-model §3.49，desktop-layout.md）：远程访问的总开关、直连的网卡与端口（0.109.0，Host 功能
- * `remote_listener`；旧 Host 显示为不可用）、中继与自建中继的地址（没填地址时开关不可用，0.111.0）；“添加手机”弹窗；配对过的设备，按设备加减权限（终端与审批策略要
- * 确认）、移除。远程访问默认关。网卡逐块列出名称与地址，让用户确认（`100.64/10` 也可能是别的 VPN）。推送（0.112.0，Host 功能
- * `remote_push`）：总开关与“需要处理”“完成”两路、网关状态，每台设备一个开关；配对时在请求里问一次。网页设备（0.117.0，Host 功能
- * `remote_web`）：中继改成关 / Wevir 官方中继 / 自建地址的下拉；“添加网页设备”在中继关着时先让用户选中继，再显示 https 配对链接；
- * 网页客户端的地址（自建网页时改）与闲置自动移除的天数。
- */
+type DevicePanel = 'network' | 'phoneNetwork' | 'push' | 'browser' | 'phone' | 'web' | 'relay';
+
 export function DevicesSettings() {
   const { client, view } = useHostConnection();
-  const { supported: settingsSupported, settings, update } = useHostSettings();
+  const [notice, setNotice] = useState<Notice>();
+  const fail = useCallback(
+    (reason: unknown) =>
+      setNotice({ tone: 'error', text: t('settings.devices.failed', { error: describe(reason) }) }),
+    [],
+  );
+  const {
+    supported: settingsSupported,
+    loaded,
+    editable,
+    settings,
+    update,
+  } = useHostSettings(fail);
   const supported =
     settingsSupported &&
     view.status === 'connected' &&
@@ -89,42 +97,46 @@ export function DevicesSettings() {
   const webSupported = supported && hostSupports(view.hello.features, 'remote_web');
   const [devices, setDevices] = useState<Device[]>();
   const [status, setStatus] = useState<RemoteStatus>();
-  const [notice, setNotice] = useState<Notice>();
   const [saving, setSaving] = useState(false);
-  /** 开着的配对弹窗：手机，或网页设备（中继关着时先选中继）。 */
-  const [pairing, setPairing] = useState<'phone' | 'web' | 'relay'>();
+  const [updatingDevice, setUpdatingDevice] = useState(false);
+  const [panel, setPanel] = useState<DevicePanel>();
+  const [expanded, setExpanded] = useState<Device['id']>();
   const [removing, setRemoving] = useState<Device>();
   const [granting, setGranting] = useState<{ device: Device; permission: Permission }>();
 
-  const fail = (reason: unknown) =>
-    setNotice({ tone: 'error', text: t('settings.devices.failed', { error: describe(reason) }) });
-
   const load = useCallback(async () => {
-    if (!client || !supported) return;
+    if (!client || !supported || !editable) return;
     try {
-      setDevices((await client.request('device.list', {})).devices);
-      if (listenerSupported) setStatus(await client.request('remote.status', {}));
+      await Promise.all([
+        client.request('device.list', {}).then(({ devices }) => setDevices(devices)),
+        listenerSupported && client.request('remote.status', {}).then(setStatus),
+      ]);
     } catch (reason) {
-      setNotice({ tone: 'error', text: t('settings.devices.failed', { error: describe(reason) }) });
+      fail(reason);
     }
-  }, [client, supported, listenerSupported]);
+  }, [client, supported, editable, listenerSupported, fail]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
-    if (!client || !supported) return;
+    if (!client || !supported || !editable) return;
     return client.onRemoteDevicesChanged((change) => {
       if (change === undefined) void load();
       else if (change.kind === 'devices') setDevices(change.devices);
       else if (change.kind === 'listener') setStatus(change.status);
     });
-  }, [client, supported, load]);
+  }, [client, supported, editable, load]);
 
   if (!supported) {
     return <NoticeBanner notice={{ tone: 'info', text: t('settings.devices.unsupported') }} />;
   }
+
+  if (!editable)
+    return <NoticeBanner notice={{ tone: 'info', text: t('rpcError.DEVICE_FORBIDDEN') }} />;
+  if (!loaded)
+    return notice ? <NoticeBanner notice={notice} /> : <SettingsPlaceholder className="min-h-40" />;
 
   const saveRemote = async (next: RemoteSettings) => {
     setSaving(true);
@@ -138,23 +150,16 @@ export function DevicesSettings() {
     }
   };
 
-  const setPermissions = async (device: Device, permissions: Permission[]) => {
+  const updateDevice = async (patch: MethodParams<'device.update'>) => {
     if (!client) return;
+    setUpdatingDevice(true);
     setNotice(undefined);
     try {
-      await client.request('device.update', { id: device.id, permissions });
+      await client.request('device.update', patch);
     } catch (reason) {
       fail(reason);
-    }
-  };
-
-  const setPush = async (device: Device, enabled: boolean) => {
-    if (!client) return;
-    setNotice(undefined);
-    try {
-      await client.request('device.update', { id: device.id, push: { enabled } });
-    } catch (reason) {
-      fail(reason);
+    } finally {
+      setUpdatingDevice(false);
     }
   };
 
@@ -163,310 +168,281 @@ export function DevicesSettings() {
       setGranting({ device, permission });
       return;
     }
-    void setPermissions(device, togglePermission(device.permissions, permission, granted));
+    void updateDevice({
+      id: device.id,
+      permissions: togglePermission(device.permissions, permission, granted),
+    });
   };
 
   const listed = devices && visibleDevices(devices);
   const pushStatus = remote.push.enabled ? pushStatusKey(status?.push) : undefined;
 
+  const access = remoteAccessState(remote.enabled, listenerSupported, status);
+  const canPairPhone = access === 'enabled' || access === 'ready' || access === 'connected';
+  const networkOpen = panel === 'network' || panel === 'phoneNetwork';
+  const optionsOpen = networkOpen || panel === 'push' || panel === 'browser';
+  const optionsTitle = t(
+    panel === 'push'
+      ? 'settings.pairing.push'
+      : panel === 'browser'
+        ? 'settings.devices.web'
+        : 'settings.devices.network',
+  );
+  const networkSummary = [
+    remote.interfaces.lan && t('settings.devices.lan'),
+    remote.interfaces.tailscale && t('settings.devices.tailscale'),
+    relayConfigured(remote) &&
+      t(
+        relayChoice(remote) === 'official'
+          ? 'settings.devices.relayOfficial'
+          : 'settings.devices.relay',
+      ),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const networkError =
+    remote.enabled &&
+    (listenerError(status?.error, remote.port) ??
+      (status?.relay?.error && relayText(relayStatusText(status.relay))));
+
   return (
     <>
-      {notice && (
-        <div className="mb-3">
-          <NoticeBanner notice={notice} />
-        </div>
-      )}
-      <SettingsSection title={t('settings.devices.remote')} data-devices-remote>
-        <div className={LIST_CARD}>
-          <SettingsRow
-            title={t('settings.devices.remote')}
-            data-setting="remote-enabled"
-            control={
-              <Switch
-                label={t('settings.devices.remote')}
-                checked={remote.enabled}
-                disabled={saving}
-                onChange={(enabled) => void saveRemote({ ...remote, enabled })}
-              />
-            }
-          />
-          {(['lan', 'tailscale'] as const).map((key) => {
-            const label = t(key === 'lan' ? 'settings.devices.lan' : 'settings.devices.tailscale');
-            const listed = status?.interfaces.filter((entry) => entry.kind === key) ?? [];
-            return (
-              <div key={key}>
-                <SettingsRow
-                  title={label}
-                  description={
-                    !listenerSupported
-                      ? t('settings.devices.unavailable')
-                      : listed.length === 0
-                        ? t(
-                            key === 'lan'
-                              ? 'settings.devices.noLan'
-                              : 'settings.devices.noTailscale',
-                          )
-                        : undefined
-                  }
-                  data-setting={`remote-${key}`}
-                  control={
-                    <Switch
-                      label={label}
-                      checked={remote.interfaces[key]}
-                      disabled={!listenerSupported || saving}
-                      onChange={(enabled) =>
-                        void saveRemote(
-                          key === 'lan'
-                            ? setLan(remote, enabled, status?.interfaces ?? [])
-                            : {
-                                ...remote,
-                                interfaces: { ...remote.interfaces, tailscale: enabled },
-                              },
-                        )
-                      }
-                    />
-                  }
-                />
-                {listenerSupported &&
-                  listed.map((entry) => (
-                    <InterfaceRow
-                      key={`${entry.name}/${entry.family}`}
-                      entry={entry}
-                      magicDnsName={key === 'tailscale' ? status?.magicDnsName : undefined}
-                      checkable={key === 'lan' && remote.interfaces.lan}
-                      disabled={saving}
-                      onToggle={(checked) =>
-                        void saveRemote(
-                          toggleLanInterface(remote, entry, checked, status?.interfaces ?? []),
-                        )
-                      }
-                    />
-                  ))}
-              </div>
-            );
-          })}
-          {listenerSupported && (
-            <PortRow
-              port={remote.port}
-              error={status?.error}
-              disabled={saving}
-              onSave={(port) => {
-                const { port: _previous, ...rest } = remote;
-                return saveRemote({ ...rest, ...(port !== undefined && { port }) });
-              }}
-            />
-          )}
-        </div>
-      </SettingsSection>
-
-      <SettingsSection title={t('settings.devices.relay')} data-devices-relay>
-        <div className={LIST_CARD}>
-          <SettingsRow
-            title={t('settings.devices.relay')}
-            description={
-              relayText(relayStatusText(status?.relay)) ?? t('settings.devices.relayNote')
-            }
-            data-setting="remote-relay"
-            data-relay-state={status?.relay?.state}
-            control={
-              webSupported ? (
-                <Select<RelayChoice>
-                  className="w-44"
-                  aria-label={t('settings.devices.relay')}
-                  value={relayChoice(remote)}
-                  disabled={saving}
-                  onValueChange={(choice) => void saveRemote(setRelayChoice(remote, choice))}
-                  options={[
-                    { value: 'off', label: t('settings.devices.relayOff') },
-                    { value: 'official', label: t('settings.devices.relayOfficial') },
-                    { value: 'custom', label: t('settings.devices.relayCustom') },
-                  ]}
-                />
-              ) : (
-                // 旧 Host（没有 `remote_web`）不认识官方中继：只有开关与自建地址。
-                <Switch
-                  label={t('settings.devices.relay')}
-                  checked={relayChoice(remote) === 'custom' && remote.relay.url !== undefined}
-                  disabled={saving || remote.relay.url === undefined}
-                  onChange={(enabled) =>
-                    void saveRemote(setRelayChoice(remote, enabled ? 'custom' : 'off'))
-                  }
-                />
-              )
-            }
-          />
-          {(!webSupported || relayChoice(remote) === 'custom') && (
-            <RelayUrlRow
-              url={remote.relay.url}
-              disabled={saving}
-              onSave={(url) => saveRemote(setRelayUrl(remote, url))}
-            />
-          )}
-        </div>
-      </SettingsSection>
-
-      {pushSupported && (
-        <SettingsSection title={t('settings.devices.push')} data-devices-push>
-          <div className={LIST_CARD}>
-            <SettingsRow
-              title={t('settings.devices.push')}
-              description={pushStatus && t(pushStatus)}
-              data-setting="remote-push"
-              data-push-state={status?.push?.state}
-              control={
-                <Switch
-                  label={t('settings.devices.push')}
-                  checked={remote.push.enabled}
-                  disabled={saving}
-                  onChange={(enabled) =>
-                    void saveRemote({ ...remote, push: { ...remote.push, enabled } })
-                  }
-                />
-              }
-            />
-            {remote.push.enabled &&
-              (
-                [
-                  ['needsAction', 'settings.devices.pushNeedsAction'],
-                  ['completion', 'settings.devices.pushCompletion'],
-                ] as const
-              ).map(([key, label]) => (
-                <SettingsRow
-                  key={key}
-                  title={t(label)}
-                  data-setting={`remote-push-${key}`}
-                  control={
-                    <Switch
-                      label={t(label)}
-                      checked={remote.push[key] !== false}
-                      disabled={saving}
-                      onChange={(enabled) =>
-                        void saveRemote({ ...remote, push: { ...remote.push, [key]: enabled } })
-                      }
-                    />
-                  }
-                />
-              ))}
-            {remote.push.enabled && channelPushSupported && (
-              <SettingsRow
-                title={t('settings.devices.pushChannel')}
-                control={
-                  <Switch
-                    label={t('settings.devices.pushChannel')}
-                    checked={remote.push.channel !== false}
-                    disabled={saving}
-                    onChange={(channel) =>
-                      void saveRemote({ ...remote, push: { ...remote.push, channel } })
-                    }
-                  />
-                }
-              />
-            )}
-          </div>
-        </SettingsSection>
-      )}
-
-      {webSupported && (
-        <SettingsSection title={t('settings.devices.web')} data-devices-web>
-          <div className={LIST_CARD}>
-            <WebUrlRow
-              url={remote.web?.url}
-              disabled={saving}
-              onSave={(url) => saveRemote(setWebClientUrl(remote, url))}
-            />
-            <SettingsRow
-              title={t('settings.devices.idle')}
-              data-setting="remote-web-idle"
-              control={
-                <Select
-                  className="w-32"
-                  aria-label={t('settings.devices.idle')}
-                  value={String(webDeviceIdleDays(remote))}
-                  disabled={saving}
-                  onValueChange={(value) => void saveRemote(setWebIdleDays(remote, Number(value)))}
-                  options={idleDayOptions(remote).map((days) => ({
-                    value: String(days),
-                    label:
-                      days === 0
-                        ? t('settings.devices.idleNever')
-                        : t('settings.devices.idleDays', { count: days }),
-                  }))}
-                />
-              }
-            />
-          </div>
-        </SettingsSection>
-      )}
+      <NoticeBanner notice={optionsOpen ? undefined : notice} className="mb-3" />
+      <RemoteAccessCard
+        state={access}
+        connections={status?.connections ?? 0}
+        saving={saving}
+        onEnable={(enabled) => void saveRemote({ ...remote, enabled })}
+        onPhone={() => setPanel(canPairPhone ? 'phone' : 'phoneNetwork')}
+        onWeb={webSupported ? () => setPanel(relayConfigured(remote) ? 'web' : 'relay') : undefined}
+      />
 
       <SettingsSection
-        title={t('settings.devices.list')}
+        title={listed?.length === 0 ? undefined : t('settings.devices.list')}
         data-devices-list
-        action={
-          <div className="flex items-center gap-2">
-            {webSupported && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!remote.enabled}
-                onClick={() => setPairing(relayConfigured(remote) === undefined ? 'relay' : 'web')}
-                data-action="add-web-device"
-              >
-                <Globe />
-                {t('settings.devices.addWeb')}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!remote.enabled}
-              onClick={() => setPairing('phone')}
-              data-action="add-device"
-            >
-              <Smartphone />
-              {t('settings.devices.add')}
-            </Button>
-          </div>
-        }
+        className="mb-7"
       >
-        {listed === undefined ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : listed.length === 0 ? (
-          <EmptyList>{t('settings.devices.empty')}</EmptyList>
-        ) : (
-          <ul className={LIST_CARD}>
-            {listed.map((device) => (
-              <DeviceRow
-                key={device.id}
-                device={device}
-                pushSupported={pushSupported}
-                gitWorkflow={
-                  view.status === 'connected' && hostSupports(view.hello.features, 'git_workflow')
-                }
-                onPush={(enabled) => void setPush(device, enabled)}
-                onToggle={(permission, granted) => toggle(device, permission, granted)}
-                onRemove={() => setRemoving(device)}
-              />
-            ))}
-          </ul>
-        )}
+        <AnimatedRows
+          items={listed}
+          keyOf={(device) => device.id}
+          className={LIST_CARD}
+          empty={
+            listed === undefined ? (
+              <SettingsPlaceholder className="min-h-[5.375rem]" />
+            ) : (
+              <p className="flex items-center gap-2.5 px-1 text-sm text-muted-foreground">
+                <MonitorSmartphone aria-hidden className="size-4" />
+                {t('settings.devices.empty')}
+              </p>
+            )
+          }
+        >
+          {(device) => (
+            <DeviceRow
+              device={device}
+              busy={updatingDevice}
+              expanded={expanded === device.id}
+              onExpand={() => setExpanded(expanded === device.id ? undefined : device.id)}
+              pushSupported={pushSupported}
+              gitWorkflow={
+                view.status === 'connected' && hostSupports(view.hello.features, 'git_workflow')
+              }
+              onPush={(enabled) => void updateDevice({ id: device.id, push: { enabled } })}
+              onToggle={(permission, granted) => toggle(device, permission, granted)}
+              onRemove={() => setRemoving(device)}
+            />
+          )}
+        </AnimatedRows>
       </SettingsSection>
 
-      {pairing === 'relay' && (
+      <SettingsSection title={t('settings.devices.preferences')}>
+        <div className={LIST_CARD}>
+          <OptionRow
+            icon={<Network />}
+            label={t('settings.devices.network')}
+            value={networkError || networkSummary || t('settings.devices.unconfigured')}
+            warning={!!networkError}
+            onClick={() => setPanel('network')}
+          />
+          {pushSupported && (
+            <OptionRow
+              icon={<Bell />}
+              label={t('settings.pairing.push')}
+              value={
+                pushStatus
+                  ? t(pushStatus)
+                  : t(remote.push.enabled ? 'settings.devices.on' : 'settings.devices.off')
+              }
+              warning={!!pushStatus}
+              onClick={() => setPanel('push')}
+            />
+          )}
+          {webSupported && (
+            <OptionRow
+              icon={<Globe />}
+              label={t('settings.devices.web')}
+              value={webClientUrl(remote)}
+              onClick={() => setPanel('browser')}
+            />
+          )}
+        </div>
+      </SettingsSection>
+
+      <Dialog open={optionsOpen} onOpenChange={(open) => !open && setPanel(undefined)}>
+        <DialogContent
+          className="flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-lg"
+          data-device-options={panel}
+        >
+          <DialogHeader className="pr-7">
+            <DialogTitle>{optionsTitle}</DialogTitle>
+            {panel === 'phoneNetwork' && (
+              <DialogDescription>{t('settings.devices.phoneNetwork')}</DialogDescription>
+            )}
+          </DialogHeader>
+          <div className="min-h-0 overflow-y-auto">
+            <NoticeBanner notice={notice?.tone === 'error' ? notice : undefined} className="mb-2" />
+            {networkOpen && (
+              <ConnectionMethods
+                remote={remote}
+                status={status}
+                listenerSupported={listenerSupported}
+                webSupported={webSupported}
+                saving={saving}
+                pairing={panel === 'phoneNetwork'}
+                saveRemote={saveRemote}
+              />
+            )}
+            {panel === 'push' && pushSupported && (
+              <SettingsSection data-devices-push>
+                <div className={LIST_CARD}>
+                  <SettingsRow
+                    title={t('settings.devices.push')}
+                    description={pushStatus && t(pushStatus)}
+                    data-setting="remote-push"
+                    data-push-state={status?.push?.state}
+                    control={
+                      <Switch
+                        label={t('settings.devices.push')}
+                        checked={remote.push.enabled}
+                        disabled={saving}
+                        onChange={(enabled) =>
+                          void saveRemote({ ...remote, push: { ...remote.push, enabled } })
+                        }
+                      />
+                    }
+                  />
+                  <Collapse open={remote.push.enabled} motion="height">
+                    <div className="divide-y divide-border">
+                      {(
+                        [
+                          ['needsAction', 'settings.devices.pushNeedsAction'],
+                          ['completion', 'settings.devices.pushCompletion'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <SettingsRow
+                          key={key}
+                          title={t(label)}
+                          data-setting={`remote-push-${key}`}
+                          control={
+                            <Switch
+                              label={t(label)}
+                              checked={remote.push[key] !== false}
+                              disabled={saving}
+                              onChange={(enabled) =>
+                                void saveRemote({
+                                  ...remote,
+                                  push: { ...remote.push, [key]: enabled },
+                                })
+                              }
+                            />
+                          }
+                        />
+                      ))}
+                      {channelPushSupported && (
+                        <SettingsRow
+                          title={t('settings.devices.pushChannel')}
+                          control={
+                            <Switch
+                              label={t('settings.devices.pushChannel')}
+                              checked={remote.push.channel !== false}
+                              disabled={saving}
+                              onChange={(channel) =>
+                                void saveRemote({ ...remote, push: { ...remote.push, channel } })
+                              }
+                            />
+                          }
+                        />
+                      )}
+                    </div>
+                  </Collapse>
+                </div>
+              </SettingsSection>
+            )}
+
+            {panel === 'browser' && webSupported && (
+              <SettingsSection data-devices-web>
+                <div className={LIST_CARD}>
+                  <WebUrlRow
+                    url={remote.web?.url}
+                    disabled={saving}
+                    onSave={(url) => saveRemote(setWebClientUrl(remote, url))}
+                  />
+                  <SettingsRow
+                    title={t('settings.devices.idle')}
+                    data-setting="remote-web-idle"
+                    control={
+                      <Select
+                        className="w-32"
+                        aria-label={t('settings.devices.idle')}
+                        value={String(webDeviceIdleDays(remote))}
+                        disabled={saving}
+                        onValueChange={(value) =>
+                          void saveRemote(setWebIdleDays(remote, Number(value)))
+                        }
+                        options={idleDayOptions(remote).map((days) => ({
+                          value: String(days),
+                          label:
+                            days === 0
+                              ? t('settings.devices.idleNever')
+                              : t('settings.devices.idleDays', { count: days }),
+                        }))}
+                      />
+                    }
+                  />
+                </div>
+              </SettingsSection>
+            )}
+          </div>
+          {panel === 'phoneNetwork' && (
+            <DialogFooter>
+              <Button
+                disabled={saving || !canPairPhone}
+                onClick={() => setPanel('phone')}
+                data-action="continue-phone-pairing"
+              >
+                {t('settings.pairing.continue')}
+              </Button>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {panel === 'relay' && (
         <WebRelayDialog
           remote={remote}
-          onCancel={() => setPairing(undefined)}
+          onCancel={() => setPanel(undefined)}
           onContinue={async (next) => {
             await update({ remote: next });
-            setPairing('web');
+            setPanel((current) => (current === 'relay' ? 'web' : current));
           }}
         />
       )}
-      {(pairing === 'phone' || pairing === 'web') && (
+      {(panel === 'phone' || panel === 'web') && (
         <PairingDialog
-          web={pairing === 'web'}
-          askPush={pushSupported && pairing === 'phone'}
+          web={panel === 'web'}
+          askPush={pushSupported && panel === 'phone'}
           onClose={(paired) => {
-            setPairing(undefined);
+            setPanel(undefined);
             if (paired) {
               setNotice({
                 tone: 'success',
@@ -513,142 +489,6 @@ export function DevicesSettings() {
   );
 }
 
-/** 一块网卡：名称与地址族、地址（在监听的标出来）；局域网网卡可以勾选，Tailscale 的只列出来确认。 */
-function InterfaceRow({
-  entry,
-  magicDnsName,
-  checkable,
-  disabled,
-  onToggle,
-}: {
-  entry: RemoteInterface;
-  magicDnsName: string | undefined;
-  checkable: boolean;
-  disabled: boolean;
-  onToggle: (checked: boolean) => void;
-}) {
-  const addresses = [...entry.addresses, ...(magicDnsName !== undefined ? [magicDnsName] : [])];
-  return (
-    <div
-      className="flex min-h-10 items-center gap-2.5 py-2 pr-4 pl-8 text-sm"
-      data-interface={`${entry.name}/${entry.family}`}
-    >
-      {checkable && (
-        <Checkbox
-          size="sm"
-          aria-label={interfaceLabel(entry)}
-          checked={entry.selected}
-          disabled={disabled}
-          onCheckedChange={(checked) => onToggle(checked)}
-        />
-      )}
-      <span className="shrink-0 font-medium">{interfaceLabel(entry)}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
-        {addresses.join(', ')}
-      </span>
-      {entry.listening.length > 0 && (
-        <span className="shrink-0 text-xs text-muted-foreground" data-listening>
-          {t('settings.devices.listening')}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function PortRow({
-  port,
-  error,
-  disabled,
-  onSave,
-}: {
-  port: number | undefined;
-  error: RemoteStatus['error'];
-  disabled: boolean;
-  onSave: (port: number | undefined) => Promise<void>;
-}) {
-  const [draft, setDraft] = useState(port === undefined ? '' : String(port));
-  useEffect(() => setDraft(port === undefined ? '' : String(port)), [port]);
-  const parsed = parsePort(draft);
-  const commit = () => {
-    if (parsed === undefined || parsed.port === port) return;
-    void onSave(parsed.port);
-  };
-  const description =
-    parsed === undefined
-      ? t('settings.devices.portInvalid')
-      : error?.reason === 'port_in_use'
-        ? t('settings.devices.portInUse', { port: port ?? REMOTE_DEFAULT_PORT })
-        : error !== undefined
-          ? t('settings.devices.bindFailed', { error: error.message })
-          : t('settings.devices.firewallNote');
-  return (
-    <SettingsRow
-      title={t('settings.devices.port')}
-      description={description}
-      data-setting="remote-port"
-      control={
-        <Input
-          className="w-28"
-          value={draft}
-          disabled={disabled}
-          inputMode="numeric"
-          placeholder={String(REMOTE_DEFAULT_PORT)}
-          aria-label={t('settings.devices.port')}
-          aria-invalid={parsed === undefined}
-          spellCheck={false}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => event.key === 'Enter' && commit()}
-        />
-      }
-    />
-  );
-}
-
-function relayText(text: RelayStatusText | undefined): string | undefined {
-  if (text === undefined) return undefined;
-  return 'code' in text ? t(text.key, { code: text.code }) : t(text.key);
-}
-
-function RelayUrlRow({
-  url,
-  disabled,
-  onSave,
-}: {
-  url: string | undefined;
-  disabled: boolean;
-  onSave: (url: string | undefined) => Promise<void>;
-}) {
-  const [draft, setDraft] = useState(url ?? '');
-  useEffect(() => setDraft(url ?? ''), [url]);
-  const parsed = parseRelayUrl(draft);
-  const commit = () => {
-    if (parsed === undefined || parsed.url === url) return;
-    void onSave(parsed.url);
-  };
-  return (
-    <SettingsRow
-      title={t('settings.devices.relayUrl')}
-      description={parsed === undefined ? t('settings.devices.relayUrlInvalid') : undefined}
-      data-setting="remote-relay-url"
-      control={
-        <Input
-          className="w-64"
-          value={draft}
-          disabled={disabled}
-          placeholder={RELAY_URL_PLACEHOLDER}
-          aria-label={t('settings.devices.relayUrl')}
-          aria-invalid={parsed === undefined}
-          spellCheck={false}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => event.key === 'Enter' && commit()}
-        />
-      }
-    />
-  );
-}
-
 function WebUrlRow({
   url,
   disabled,
@@ -688,8 +528,49 @@ function WebUrlRow({
   );
 }
 
+function OptionRow({
+  icon,
+  label,
+  value,
+  warning,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  warning?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      onClick={onClick}
+      className="flex min-h-12 w-full items-center gap-3 px-4 py-2.5 text-left outline-none transition-colors first:rounded-t-xl last:rounded-b-xl hover:bg-muted/50 focus-visible:focus-field"
+    >
+      <span aria-hidden className="shrink-0 text-muted-foreground [&_svg]:size-4">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 text-sm font-medium">{label}</span>
+      <span
+        className={cn(
+          'max-w-[50%] truncate text-xs',
+          warning ? 'text-foreground' : 'text-muted-foreground',
+        )}
+        title={value}
+      >
+        {value}
+      </span>
+      <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+    </button>
+  );
+}
+
 function DeviceRow({
   device,
+  busy,
+  expanded,
+  onExpand,
   pushSupported,
   gitWorkflow,
   onPush,
@@ -697,68 +578,107 @@ function DeviceRow({
   onRemove,
 }: {
   device: Device;
+  busy: boolean;
+  expanded: boolean;
+  onExpand: () => void;
   pushSupported: boolean;
   gitWorkflow: boolean;
   onPush: (enabled: boolean) => void;
   onToggle: (permission: Permission, granted: boolean) => void;
   onRemove: () => void;
 }) {
+  const id = useId();
   const granted = new Set(device.permissions);
+  const showPush = pushSupported && device.push !== undefined && device.platform !== 'web';
   return (
-    <li className="flex min-h-14 items-center gap-3 px-4 py-2.5" data-device={device.id}>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{device.name}</div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          {t(PLATFORM_LABEL[device.platform])} ·{' '}
-          {t('settings.devices.lastSeen', {
-            time: formatRelativeTime(device.lastSeenAt, Date.now()),
-          })}
-          {device.push?.enabled && !device.push.registered && (
-            <> · {t('settings.devices.pushUnregistered')}</>
-          )}
-        </div>
-      </div>
-      {/* 网页设备收不到推送（浏览器没有 APNs / FCM 令牌）。 */}
-      {pushSupported && device.push !== undefined && device.platform !== 'web' && (
-        <Switch
-          label={t('settings.devices.devicePush', { name: device.name })}
-          checked={device.push.enabled}
-          onChange={onPush}
-          data-action="device-push"
-        />
-      )}
-      <Popover>
-        <PopoverTrigger
-          render={<Button size="sm" variant="ghost" data-action="device-permissions" />}
-        >
-          {t('settings.devices.permissions', { count: device.permissions.length })}
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-64 gap-1 p-1.5">
-          {DEVICE_PERMISSION_ORDER.filter(
-            (permission) => permission !== 'git.publish' || gitWorkflow,
-          ).map((permission) => (
-            <label
-              key={permission}
-              className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2 text-sm hover:bg-muted"
-              data-permission={permission}
-            >
-              <Checkbox
-                size="sm"
-                checked={granted.has(permission)}
-                onCheckedChange={(checked) => onToggle(permission, checked)}
-              />
-              {t(PERMISSION_LABEL[permission])}
-            </label>
-          ))}
-        </PopoverContent>
-      </Popover>
-      <IconButton
-        label={t('settings.devices.remove')}
-        onClick={onRemove}
-        data-action="remove-device"
+    <div data-device={device.id} className="@container">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={id}
+        onClick={onExpand}
+        data-action="device-permissions"
+        className="flex min-h-16 w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:focus-field"
       >
-        <Trash2 />
-      </IconButton>
-    </li>
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/70 text-foreground">
+          <PlatformIcon platform={device.platform} className="size-4.5" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{device.name}</span>
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {t(PLATFORM_LABEL[device.platform])} ·{' '}
+            {t('settings.devices.lastSeen', {
+              time: formatRelativeTime(device.lastSeenAt, Date.now()),
+            })}
+            {showPush && device.push?.enabled && !device.push.registered && (
+              <> · {t('settings.devices.pushUnregistered')}</>
+            )}
+          </span>
+        </span>
+        <span className="hidden shrink-0 text-xs text-muted-foreground @xs:inline">
+          {t('settings.devices.permissions', { count: device.permissions.length })}
+        </span>
+        <ChevronRight
+          aria-hidden
+          className={cn(
+            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-150',
+            expanded && 'rotate-90',
+          )}
+        />
+      </button>
+      <Collapse open={expanded} id={id} motion="height">
+        <div className="flex flex-col gap-3 border-t border-border bg-muted/25 p-4">
+          <fieldset>
+            <legend className="mb-1 text-xs font-medium text-muted-foreground">
+              {t('settings.section.permissions')}
+            </legend>
+            <div className="grid gap-x-3 @xs:grid-cols-2">
+              {DEVICE_PERMISSION_ORDER.filter(
+                (permission) => permission !== 'git.publish' || gitWorkflow,
+              ).map((permission) => (
+                <label
+                  key={permission}
+                  className="flex min-h-8 items-center gap-2 rounded-md px-1 text-sm hover:bg-muted"
+                  data-permission={permission}
+                >
+                  <Checkbox
+                    size="sm"
+                    disabled={busy}
+                    checked={granted.has(permission)}
+                    onCheckedChange={(checked) => onToggle(permission, checked)}
+                  />
+                  {t(PERMISSION_LABEL[permission])}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+            {showPush && device.push && (
+              <div className="inline-flex items-center gap-2 text-sm">
+                <Switch
+                  label={t('settings.devices.devicePush', { name: device.name })}
+                  disabled={busy}
+                  checked={device.push.enabled}
+                  onChange={onPush}
+                  data-action="device-push"
+                />
+                {t('settings.pairing.push')}
+              </div>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto"
+              disabled={busy}
+              onClick={onRemove}
+              data-action="remove-device"
+            >
+              <Trash2 data-icon="inline-start" />
+              {t('settings.devices.remove')}
+            </Button>
+          </div>
+        </div>
+      </Collapse>
+    </div>
   );
 }

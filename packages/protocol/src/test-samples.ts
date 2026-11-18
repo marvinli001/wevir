@@ -371,11 +371,14 @@ export const gitStatusSample: GitStatusResult = {
   stagedTree: GIT_TREE,
   codeState: { kind: 'git', head: SHA1, tree: SHA2 },
   verification: {
+    status: 'unverified',
     checks: [
       {
         checkId: ids.check,
         name: 'Unit tests',
-        status: 'passed',
+        status: 'stale',
+        evidenceStatus: 'config_changed',
+        outputAvailable: false,
         runId: ids.verificationRun,
         finishedAt: TS2,
       },
@@ -1620,6 +1623,16 @@ export const quotedOpinion: SecondOpinion = {
   status: 'ready',
   outcome: 'completed',
   text: '1. src/login.ts:42 重试前没有清掉上一次的 token，第二次提交会带旧 token。',
+  findings: [
+    {
+      title: '重试复用旧 token',
+      body: '第二次提交会带旧 token。',
+      path: 'src/login.ts',
+      startLine: 42,
+      endLine: 43,
+      priority: 1,
+    },
+  ],
   quoted: { at: TS2, turnId: ids.turn },
   updatedAt: TS2,
 };
@@ -2384,7 +2397,7 @@ export const eventPayloads: PayloadSamples = {
       turnId: ids.turn,
       clientMessageId: 'msg-1',
       content: [{ type: 'text', text: '帮我整理本周周报' }, imagePart],
-      sentBy: identity,
+      sentBy: { ...identity, uiLocale: 'zh-TW' },
       pendingId: ids.pending2,
       from: {
         sessionId: ids.opinionSession,
@@ -4327,6 +4340,7 @@ export const methodSamples: MethodSamples = {
           clientKind: 'desktop',
           deviceId: 'dev-6f1c2a',
           clientId: 'desk-81d0aa',
+          uiLocale: 'zh-TW',
           capabilities: {},
         },
       ],
@@ -7509,7 +7523,13 @@ export const methodSamples: MethodSamples = {
         { edges: [1_760_918_400_000, 1_761_004_800_000] },
         {
           edges: [1_760_918_400_000, 1_760_922_000_000, 1_760_925_600_000],
-          filter: { sources: ['claude', 'chatgpt'], providerIds: ['prv_1'], models: [] },
+          filter: {
+            sources: ['claude', 'chatgpt'],
+            providerIds: ['prv_1'],
+            models: [],
+            sessionId: ids.session,
+            workspaceId: ids.workspace,
+          },
         },
       ],
       invalid: [
@@ -7522,7 +7542,7 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [
         {
-          totals: usageAggregate,
+          totals: { ...usageAggregate, missingUsage: 1, subscriptionEstimate: true },
           buckets: [usageAggregate, { ...usageAggregate, requests: 0 }],
           byProvider: [
             {
@@ -7553,7 +7573,13 @@ export const methodSamples: MethodSamples = {
     params: {
       valid: [
         { from: 0, to: 1_761_004_800_000 },
-        { from: 0, to: 1, filter: { models: ['gpt-5.5'] }, offset: 50, limit: 50 },
+        {
+          from: 0,
+          to: 1,
+          filter: { models: ['gpt-5.5'], sessionId: ids.session },
+          offset: 50,
+          limit: 50,
+        },
       ],
       invalid: [{ from: 0 }, { from: 0, to: 1, limit: 0 }],
     },
@@ -7750,12 +7776,35 @@ export const methodSamples: MethodSamples = {
     result: { valid: [{ cancelled: 0 }, { cancelled: 2 }], invalid: [{ cancelled: -1 }] },
   },
   'verification.status': {
-    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    params: {
+      valid: [
+        { sessionId: ids.session },
+        { sessionId: ids.session, target: 'commit', commit: SHA1 },
+      ],
+      invalid: [{}, { sessionId: ids.session, target: 'commit', commit: 'HEAD' }],
+    },
     result: {
       valid: [
         {
           verification: { acceptance, runs: [verificationRun], repair: repairChain },
           codeState: { kind: 'git', head: null, tree: '9d8e7f6a' },
+          evidence: {
+            status: 'failed',
+            commit: SHA1.slice(0, 12),
+            checks: [
+              {
+                checkId: ids.check,
+                name: 'test',
+                kind: 'test',
+                status: 'failed',
+                outputAvailable: false,
+                checkRevisionCurrent: true,
+                codeState: '9d8e7f6a',
+                tests: verificationRun.tests,
+                exitCode: 1,
+              },
+            ],
+          },
         },
         {
           verification: { acceptance: { status: 'unverified', updatedAt: TS }, runs: [] },
@@ -7774,7 +7823,10 @@ export const methodSamples: MethodSamples = {
       invalid: [{ sessionId: ids.session, runId: ids.verificationRun, offset: -1 }],
     },
     result: {
-      valid: [{ text: 'not ok 4\n', from: 0, next: 9, more: false, bytes: 9 }],
+      valid: [
+        { text: 'not ok 4\n', from: 0, next: 9, more: false, bytes: 9 },
+        { text: '', from: 0, next: 0, more: false, bytes: 0, outputAvailable: false },
+      ],
       invalid: [{ text: '' }],
     },
   },

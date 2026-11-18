@@ -77,12 +77,16 @@ export const en: Messages = {
   --permission-mode <mode> on_request (default), auto_review, full_access
   --json                   JSON Lines, one original WevirEvent per line
   --output-schema <file>   JSON Schema for the last answer (draft-07, 2019-09, 2020-12)
+  --require-checks [names]  Require all configured checks or comma-separated names
 
 - reads the prompt from stdin; starts the Host if needed
-Manual approvals or blocking questions cancel the turn; SIGINT cancels the turn; sessions are kept
-stdout: the last answer, or --json events; diagnostics go to stderr
+Manual approvals or blocking questions cancel the turn; SIGINT cancels the turn or active checks; sessions are kept
+stdout: the last answer, or --json events followed by an exec.checks result when checks are required
+Diagnostics go to stderr
 
-Exit codes: 0 completed; 1 failed or disconnected; 2 input required or usage error; 3 invalid output; 130 cancelled`,
+Exit codes: 0 completed; 1 failed or disconnected; 2 input required or usage error; 3 invalid output; 4 required checks unmet; 130 cancelled`,
+  'exec.emptyCheckNames': 'Missing check names',
+  'exec.checksFailed': 'Required checks unmet: {checks}',
   'exec.emptyPrompt': 'Empty prompt',
   'exec.badSchema': 'Invalid JSON Schema: {file} · {error}',
   'exec.asyncSchema': 'Asynchronous JSON Schema is not supported',

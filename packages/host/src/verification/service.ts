@@ -21,6 +21,8 @@ import type {
   ClientIdentity,
   CodeState,
   HostId,
+  MethodParams,
+  MethodResult,
   ReadinessItem,
   RepairChain,
   RepairId,
@@ -28,9 +30,9 @@ import type {
   SessionAcceptance,
   SessionId,
   SessionSnapshot,
-  SessionVerification,
   TurnId,
   TurnOutcome,
+  VerificationEvidence,
   VerificationRoundId,
   VerificationRun,
   VerificationRunId,
@@ -42,13 +44,15 @@ import type { SessionRecord, Storage } from '@wevir/storage';
 import type { TurnCheckpoints } from '../checkpoints.js';
 import { HostError } from '../errors.js';
 import type { AppendInput, EventStore } from '../event-store.js';
+import { readStagedTree } from '../git/service.js';
 import { newId } from '../ids.js';
 import type { ProcessManager } from '../processes.js';
 import type { SessionManager } from '../session-manager.js';
 import { defaultPromptsDir } from '../title.js';
 import { findCandidates, readScript, scriptHash } from './candidates.js';
 import { type ChecksStore, normalizeRelative, type WorkspaceChecks } from './checks-store.js';
-import { readCodeState, sameCodeState } from './code-state.js';
+import { readCodeState, readCommitTree, sameCodeState } from './code-state.js';
+import { type EvidenceTarget, evaluateVerification, redactEvidenceText } from './evidence.js';
 import {
   errorFingerprint,
   judgeOutcome,
@@ -347,7 +351,10 @@ export class VerificationService {
     sessionId: SessionId,
     checkIds?: readonly CheckId[],
   ): Promise<{ roundId: VerificationRoundId; runs: VerificationRun[] }> {
-    const { record, snapshot } = this.#session(sessionId);
+    await this.#tails.get(sessionId);
+    const { record } = this.#session(sessionId);
+    const { checks } = await this.#checks.list(record.workspaceId as WorkspaceId);
+    const { snapshot } = this.#session(sessionId);
     const { state } = snapshot.session;
     if (state !== 'idle') {
       throw new HostError('SESSION_BUSY', 'wait for the turn to finish before running checks', {
@@ -360,7 +367,6 @@ export class VerificationService {
     if (this.#activeRounds(sessionId).length > 0) {
       throw new HostError('SESSION_BUSY', 'checks are already running in this session', { state });
     }
-    const { checks } = await this.#checks.list(record.workspaceId as WorkspaceId);
     let chosen = checks;
     if (checkIds !== undefined) {
       const unknown = checkIds.find((id) => !checks.some((check) => check.id === id));
@@ -383,8 +389,9 @@ export class VerificationService {
   }
 
   /** `verification.cancel`：取消会话里还在跑或排着的检查，停下修复链；修复回合进行中时一并停下它。 */
-  cancel(sessionId: SessionId): { cancelled: number } {
+  async cancel(sessionId: SessionId): Promise<{ cancelled: number }> {
     this.#session(sessionId);
+    await this.#tails.get(sessionId);
     const cancelled = this.#cancelRounds(sessionId, 'user');
     const chain = this.#chains.get(sessionId);
     if (chain !== undefined) {
@@ -422,19 +429,73 @@ export class VerificationService {
   }
 
   /** `verification.status`：重算此刻的代码状态；与验收那一轮的不同时，验收回到 `unverified`（`code_changed`）。 */
-  async status(
-    sessionId: SessionId,
-  ): Promise<{ verification: SessionVerification; codeState: CodeState }> {
+  async status({
+    sessionId,
+    target,
+    commit,
+  }: MethodParams<'verification.status'>): Promise<MethodResult<'verification.status'>> {
     const { record } = this.#session(sessionId);
+    // turn.finished can reach a client before the after-turn checks are scheduled.
+    if (target === 'working_tree') await this.#tails.get(sessionId);
     const codeState = await readCodeState(record.cwd);
     this.#invalidateIfChanged(sessionId, codeState);
     const snapshot = this.#events.snapshot(sessionId);
-    return {
+    const result: MethodResult<'verification.status'> = {
       verification: snapshot?.verification ?? {
         acceptance: { status: 'unverified', updatedAt: isoNow() },
         runs: [],
       },
       codeState,
+    };
+    if (target === 'working_tree') {
+      result.evidence = await this.evidence(sessionId, { kind: target, codeState });
+    } else if (target === 'staged') {
+      result.evidence = await this.evidence(sessionId, {
+        kind: target,
+        tree: await readStagedTree(record.cwd),
+      });
+    } else if (target === 'commit') {
+      if (commit === undefined) {
+        throw new HostError('INVALID_PARAMS', 'a commit SHA is required', {
+          issues: [{ path: ['commit'], message: 'required when target is commit' }],
+        });
+      }
+      const resolved = await readCommitTree(record.cwd, commit);
+      result.evidence = await this.evidence(sessionId, { kind: target, tree: resolved?.tree });
+      if (resolved !== undefined) result.evidence.commit = resolved.commit;
+    }
+    return result;
+  }
+
+  async evidence(sessionId: SessionId, target: EvidenceTarget): Promise<VerificationEvidence> {
+    const { record } = this.#session(sessionId);
+    const { checks } = await this.#checks.list(record.workspaceId as WorkspaceId);
+    const runs = this.#events
+      .readTypes(sessionId, ['verification.updated'])
+      .flatMap((event) => (event.type === 'verification.updated' ? [event.payload.run] : []));
+    const evidence = evaluateVerification(checks, runs, target);
+    return {
+      status: evidence.status,
+      checks: await Promise.all(
+        evidence.checks.map(async ({ check, run, status }) => ({
+          checkId: check.id,
+          name: check.name,
+          kind: check.kind,
+          status,
+          outputAvailable:
+            run !== undefined && (await this.#runner.outputAvailable(sessionId, run.id)),
+          ...(run !== undefined && {
+            runId: run.id,
+            checkRevisionCurrent: run.checkRevision === check.revision,
+            finishedAt: run.finishedAt,
+            codeState: run.codeState?.kind === 'git' ? run.codeState.tree.slice(0, 12) : undefined,
+            exitCode: run.exitCode,
+            tests: run.tests,
+            summary:
+              run.summary === undefined ? undefined : redactEvidenceText(run.summary).slice(-1000),
+          }),
+        })),
+      ),
     };
   }
 
@@ -445,7 +506,13 @@ export class VerificationService {
       snapshot.verification?.runs.some((run) => run.id === runId) === true ||
       [...this.#rounds.values()].some((round) => round.runs.some((run) => run.id === runId));
     const result = await this.#runner.read(sessionId, runId, offset);
-    if (!known && result.bytes === 0) {
+    if (
+      !known &&
+      !result.outputAvailable &&
+      !this.#events
+        .readTypes(sessionId, ['verification.updated'])
+        .some((event) => event.type === 'verification.updated' && event.payload.run.id === runId)
+    ) {
       throw new HostError('INVALID_PARAMS', `verification run ${runId} not found`, {
         issues: [{ path: ['runId'], message: 'not found' }],
       });
@@ -571,11 +638,15 @@ export class VerificationService {
       }
     }
     const environment = await environmentPrecheck(cwd);
+    const before = await readCodeState(round.root, round.abort.signal);
     if (environment !== undefined) {
-      this.#finishRun(round, queued, { status: 'environment_unavailable', reason: environment });
+      this.#finishRun(round, queued, {
+        status: 'environment_unavailable',
+        reason: environment,
+        codeState: before,
+      });
       return;
     }
-    const before = await readCodeState(round.root, round.abort.signal);
     const started: VerificationRun = { ...queued, codeState: before, startedAt: isoNow() };
     this.#replace(round, started);
     this.#write(round.sessionId, [updated(started)]);

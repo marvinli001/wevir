@@ -60,7 +60,7 @@ function repo(dir: string): void {
   writeFileSync(join(dir, 'new.txt'), 'untracked\n');
 }
 
-function setup(options: { git?: boolean; wire?: boolean } = {}) {
+function setup(options: { git?: boolean; wire?: boolean; stepDelayMs?: number } = {}) {
   harnesses += 1;
   const root = join(realpathSync(tempDir()), `h${harnesses}`);
   mkdirSync(root);
@@ -95,7 +95,7 @@ function setup(options: { git?: boolean; wire?: boolean } = {}) {
   const manager = new SessionManager({
     storage,
     events,
-    adapter: new EchoAdapter({ stepDelayMs: 0 }),
+    adapter: new EchoAdapter({ stepDelayMs: options.stepDelayMs ?? 0 }),
     worktreesDir: join(dataDir, 'worktrees'),
     onTurnFinished: (info) => {
       if (options.wire !== false) opinions?.onTurnFinished(info);
@@ -328,6 +328,73 @@ describe('session.secondOpinion', {
     await h.settle(value.sessionId);
     await vi.waitFor(() => expect(h.opinionsOf(originId)[0]?.quoted).toBeDefined());
     await h.settle(originId);
+  });
+
+  it('回传工具报告的发现并在引用与按需查询中保留来源和位置', async () => {
+    const h = setup({ stepDelayMs: 10 });
+    const originId = await h.origin();
+    const tools = new AppTools({
+      storage: h.storage,
+      events: h.events,
+      sessions: h.manager,
+      hostId: 'hst_1',
+      sendWhileBusy: () => 'queue',
+      opinions: h.service,
+    });
+    const ask = tools.tools.find((tool) => tool.name === 'wevir_second_opinion');
+    const report = tools.tools.find((tool) => tool.name === 'wevir_report_findings');
+    if (!ask || !report) throw new Error('missing second opinion tools');
+    expect(ask.description).toMatch(/only at the user’s explicit request/);
+    const { opinion, session } = await h.methods['session.secondOpinion'](
+      { sessionId: originId, providerId: 'other' },
+      context,
+    );
+    expect(opinion.requestedBy).toBe('user');
+    const signal = new AbortController().signal;
+    await report.call(
+      {
+        findings: [
+          {
+            title: 'Retry can be skipped',
+            body: 'The retry count is read before the fallback.',
+            path: 'login.ts',
+            startLine: 1,
+            priority: 1,
+          },
+        ],
+      },
+      { sessionId: session.id, signal },
+    );
+    await h.settle(session.id);
+    const finding = { title: 'Retry can be skipped', path: 'login.ts', startLine: 1, priority: 1 };
+    await vi.waitFor(() =>
+      expect(h.opinionsOf(originId)[0]).toMatchObject({
+        status: 'ready',
+        providerId: 'other',
+        modelId: 'm',
+        findings: [finding],
+      }),
+    );
+    const read = await ask.call({ opinionId: opinion.id }, { sessionId: originId, signal });
+    expect(read.structuredContent).toMatchObject({
+      status: 'ready',
+      providerId: 'other',
+      modelId: 'm',
+      findings: [finding],
+    });
+    const quoted = await h.methods['session.quoteOpinion'](
+      { sessionId: originId, opinionId: opinion.id },
+      context,
+    );
+    const message = h
+      .all(originId)
+      .find((event) => event.type === 'user.message' && event.payload.turnId === quoted.turnId);
+    if (message?.type !== 'user.message') throw new Error('missing quoted opinion');
+    const part = message.payload.content[0];
+    if (part?.type !== 'text') throw new Error('missing quote content');
+    expect(part.text).toContain('other/m');
+    expect(part.text).toContain('[P1] Retry can be skipped (login.ts:1)');
+    expect(part.text.indexOf('[P1]')).toBeLessThan(part.text.indexOf('Echo:'));
   });
 
   it('拒绝：不在 git 仓库、意见会话再要意见、同时进行中的太多', { timeout: 90_000 }, async () => {

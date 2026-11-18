@@ -47,6 +47,8 @@ export interface StoredUsageRow extends UsageRow {
 
 /** 每个数组省略表示不限，空数组表示什么都不要。 */
 export interface UsageRowFilter {
+  sessionId?: string;
+  workspaceId?: string;
   precision?: string;
   sources?: readonly string[];
   providerIds?: readonly string[];
@@ -57,7 +59,11 @@ export interface UsageRepository {
   /** 记一次请求；`(sessionId, requestId)` 已有时不写，返回 false。 */
   insert(row: UsageRow): boolean;
   /** `[from, to)` 里的全部请求，按时间升序。 */
-  range(from: number, to: number): StoredUsageRow[];
+  range(
+    from: number,
+    to: number,
+    scope?: Pick<UsageRowFilter, 'sessionId' | 'workspaceId'>,
+  ): StoredUsageRow[];
   /** `[from, to)` 里符合条件的请求，最新的在前，跳过 `offset` 条后最多 `limit` 条；`total` 是符合条件的总数。 */
   page(
     from: number,
@@ -88,10 +94,20 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
       :modelCalls, :usageReported, :outcome, :toolCount, :toolBytes, :mcpNoteBytes,
       :instructionBytes, :requestBytes, :wevirOutputBytes, :wevirOutputBytesNew
     )`);
-  const range = db.prepare('SELECT * FROM usage_records WHERE at >= ? AND at < ? ORDER BY at, id');
-  // 数组条件用 JSON 传：NULL 表示不限。
-  const where = `
+  const related = `
+    WITH RECURSIVE usage_related(id) AS (
+      SELECT :sessionId WHERE :sessionId IS NOT NULL
+      UNION
+      SELECT rel.session_id FROM usage_session_relations rel JOIN usage_related
+        ON rel.owner_session_id = usage_related.id
+    )`;
+  const scope = `
     WHERE at >= :from AND at < :to
+      AND (:sessionId IS NULL OR session_id IN (SELECT id FROM usage_related))
+      AND (:workspaceId IS NULL OR workspace_id = :workspaceId)`;
+  const range = db.prepare(`${related} SELECT * FROM usage_records ${scope} ORDER BY at, id`);
+  // 数组条件用 JSON 传：NULL 表示不限。
+  const where = `${scope}
       AND (:sources IS NULL OR source IN (SELECT value FROM json_each(:sources)))
       AND (:providerIds IS NULL OR provider_id IN (SELECT value FROM json_each(:providerIds)))
       AND (:models IS NULL OR model IN (SELECT value FROM json_each(:models)))
@@ -99,9 +115,9 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
         WHEN granularity = 'turn' OR (granularity IS NULL AND source IN ('cursor', 'grok')) THEN 'turn'
         WHEN origin = 'gateway' THEN 'exact' ELSE 'engine' END)`;
   const page = db.prepare(
-    `SELECT * FROM usage_records ${where} ORDER BY at DESC, id DESC LIMIT :limit OFFSET :offset`,
+    `${related} SELECT * FROM usage_records ${where} ORDER BY at DESC, id DESC LIMIT :limit OFFSET :offset`,
   );
-  const count = db.prepare(`SELECT COUNT(*) AS n FROM usage_records ${where}`);
+  const count = db.prepare(`${related} SELECT COUNT(*) AS n FROM usage_records ${where}`);
   const deleteProvider = db.prepare('DELETE FROM usage_records WHERE provider_id = ?');
   const sessionTotals = db.prepare(`
     SELECT COUNT(*) AS requests,
@@ -145,11 +161,21 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
         }),
       );
     },
-    range: (from, to) => range.all(from, to).map(fromRow),
+    range: (from, to, scope) =>
+      range
+        .all({
+          from,
+          to,
+          sessionId: scope?.sessionId ?? null,
+          workspaceId: scope?.workspaceId ?? null,
+        })
+        .map(fromRow),
     page(from, to, filter, offset, limit) {
       const params = {
         from,
         to,
+        sessionId: filter.sessionId ?? null,
+        workspaceId: filter.workspaceId ?? null,
         precision: filter.precision ?? null,
         sources: jsonOrNull(filter.sources),
         providerIds: jsonOrNull(filter.providerIds),

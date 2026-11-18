@@ -61,7 +61,7 @@ export function ClaudeIdleCompactionSetting({ providerId }: { providerId?: strin
           )
         }
       />
-      {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
+      <NoticeBanner notice={error ? { tone: 'error', text: error } : undefined} />
     </>
   );
 }

@@ -1,11 +1,10 @@
-// 回合后验证（0.65.0，Host 功能 `verification`）的显示逻辑：验收状态、记录与修复链的文案，最近一轮，每个回合下面那一行的检查结果。
+// 回合后验证（0.65.0，Host 功能 `verification`）的显示逻辑：验收状态、记录与修复链的文案，以及最近一轮。
 // 数据是投影里的 `transcript.verification`（client-sdk 的 projection.ts）。
 
 import type {
   AcceptanceStatus,
   RepairChain,
   SessionVerification,
-  TurnId,
   VerificationRun,
   VerificationStatus,
 } from '@wevir/protocol';
@@ -89,62 +88,6 @@ export function latestRound(verification: SessionVerification | undefined): Veri
   if (roundId === undefined) return [];
   return runs.filter((run) => run.roundId === roundId);
 }
-
-export type ChecksTone = 'running' | 'passed' | 'failed' | 'environment_unavailable' | 'unverified';
-
-/** 一轮的结果：在跑、全部通过、有失败、环境不可用，其余（过期、没跑、取消）是未验证。 */
-export interface ChecksSummary {
-  tone: ChecksTone;
-  passed: number;
-  total: number;
-  /** 比较用（TurnView 按它决定要不要重画）。 */
-  key: string;
-}
-
-export function summarizeRound(runs: readonly VerificationRun[]): ChecksSummary | undefined {
-  if (runs.length === 0) return undefined;
-  const passed = runs.filter((run) => run.status === 'passed').length;
-  const tone: ChecksTone = runs.some((run) => run.status === 'running')
-    ? 'running'
-    : runs.some((run) => run.status === 'failed' || run.status === 'timed_out')
-      ? 'failed'
-      : runs.some((run) => run.status === 'environment_unavailable')
-        ? 'environment_unavailable'
-        : passed === runs.length
-          ? 'passed'
-          : 'unverified';
-  return { tone, passed, total: runs.length, key: `${tone}:${passed}/${runs.length}` };
-}
-
-/**
- * 每个回合下面那一行：这个回合触发的最近一轮（回合后自动运行的一轮记在原来的回合上，修复后复验的一轮记在修复回合上）。手动运行的
- * 不记在回合上。
- */
-export function turnChecks(
-  verification: SessionVerification | undefined,
-): ReadonlyMap<TurnId, ChecksSummary> {
-  const rounds = new Map<string, { turnId: TurnId; runs: VerificationRun[] }>();
-  for (const run of verification?.runs ?? []) {
-    if (run.turnId === undefined || run.trigger === 'manual') continue;
-    const round = rounds.get(run.roundId);
-    if (round) round.runs.push(run);
-    else rounds.set(run.roundId, { turnId: run.turnId, runs: [run] });
-  }
-  const result = new Map<TurnId, ChecksSummary>();
-  for (const { turnId, runs } of rounds.values()) {
-    const summary = summarizeRound(runs);
-    if (summary !== undefined) result.set(turnId, summary);
-  }
-  return result;
-}
-
-export const TURN_CHECK_LABELS: Record<ChecksTone, PlainMessageKey | undefined> = {
-  running: 'turn.checks.running',
-  passed: undefined,
-  failed: undefined,
-  environment_unavailable: 'turn.checks.environment_unavailable',
-  unverified: 'turn.checks.unverified',
-};
 
 /** 这条修复链属于这一轮（链开始的一轮或它复验的一轮），或者还在进行；之后手动运行的一轮不显示旧的链。 */
 export function repairForRound(

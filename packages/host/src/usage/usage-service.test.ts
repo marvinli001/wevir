@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import type { UsageRecordedEvent } from '@wevir/runtime-adapter';
 import { describe, expect, it, vi } from 'vitest';
-import { useStorages, useTempDir } from '../test-utils.js';
+import { seedSession, useStorages, useTempDir } from '../test-utils.js';
 import { PricingStore } from './pricing.js';
 import { costOf, UsageService } from './usage-service.js';
 
@@ -94,6 +94,83 @@ describe('UsageService', () => {
     // 去掉日期找到 gpt-5.5；耗时超过一小时不记。
     expect(records[0]).toMatchObject({ model: 'gpt-5.5-2026-04-01', priceSource: 'openai' });
     expect(records[0]?.durationMs).toBeUndefined();
+  });
+
+  it('按任务合计子代理、第二意见、重试、压缩与辅助请求', async () => {
+    const { storage, service } = await setup();
+    seedSession(storage, 'ses_1');
+    const root = storage.sessions.get('ses_1');
+    if (root === undefined) throw new Error('missing task session fixture');
+    storage.sessions.insert({
+      ...root,
+      id: 'ses_child',
+      parentSessionId: root.id,
+      engineSessionId: 'child',
+    });
+    storage.sessions.insert({
+      ...root,
+      id: 'ses_review',
+      engineSessionId: 'review',
+      origin: { kind: 'second_opinion', sessionId: root.id, opinionId: 'opn_fixture' },
+    });
+    const input = { ...claude, turnId: 'trn_task' };
+    service.record(
+      input,
+      event({ requestId: 'agent', kind: 'agent', outcome: 'client_closed', usageReported: false }),
+    );
+    service.record(input, event({ requestId: 'retry', kind: 'agent' }));
+    service.record(input, event({ requestId: 'retry', outputTokens: 9000 }));
+    service.record(input, event({ requestId: 'compact', kind: 'compaction' }));
+    service.record(claude, event({ requestId: 'title', kind: 'auxiliary' }));
+    service.record(
+      { ...claude, sessionId: 'ses_child' },
+      event({ requestId: 'retry', kind: 'subagent' }),
+    );
+    service.record(
+      { ...chatgpt, sessionId: 'ses_review' },
+      event({ requestId: 'review', kind: 'agent' }),
+    );
+    service.record(chatgpt, event({ requestId: 'unrelated' }));
+    const filter = { sessionId: 'ses_1' } as const;
+    const { totals } = service.summary([0, T0 + 1], filter);
+    expect(totals).toMatchObject({
+      requests: 6,
+      missingUsage: 1,
+      unpriced: 1,
+      subscriptionEstimate: true,
+      tokens: { input: 5000, output: 2500 },
+    });
+    expect(totals).not.toHaveProperty('estimatedCost');
+    const records = service.records({ from: 0, to: T0 + 1, filter });
+    expect(records.total).toBe(totals.requests);
+    expect(records.records.filter((record) => record.requestId === 'retry')).toHaveLength(2);
+    expect(records.records.find((record) => record.outcome === 'client_closed')).not.toHaveProperty(
+      'cost',
+    );
+    const project = { workspaceId: root.workspaceId as `ws_${string}` };
+    expect(service.summary([0, T0 + 1], project).totals).toEqual(totals);
+    const related = new Set([root.id, 'ses_child', 'ses_review']);
+    expect(totals.tokens.output).toBe(
+      storage.usage
+        .range(0, T0 + 1)
+        .filter((row) => related.has(row.sessionId) && row.usageReported !== false)
+        .reduce((sum, row) => sum + row.outputTokens, 0),
+    );
+  });
+
+  it('只提供完整金额，并区分价格缺失和订阅 API 价估算', async () => {
+    const { service } = await setup();
+    service.record(claude, event());
+    const priced = service.summary([0, T0 + 1], undefined).totals;
+    expect(priced).toMatchObject({
+      estimatedCost: priced.cost,
+      missingUsage: 0,
+      subscriptionEstimate: true,
+    });
+    service.record(chatgpt, event({ model: 'unknown-model' }));
+    const unpriced = service.summary([0, T0 + 1], undefined).totals;
+    expect(unpriced).toMatchObject({ unpriced: 1, missingUsage: 0 });
+    expect(unpriced).not.toHaveProperty('estimatedCost');
   });
 
   it('保存回合归属；回合外的记录没有回合', async () => {

@@ -54,6 +54,7 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 const tempDir = useTempDir();
+const DIRECTORY_EVENT_TIMEOUT = process.platform === 'win32' ? 30_000 : 15_000;
 const cleanups: Array<() => Promise<void> | void> = [];
 class SummaryEcho extends EchoAdapter {
   constructor(readonly appTools = false) {
@@ -302,7 +303,9 @@ describe('full Host material synchronization with synthetic identities', () => {
       .poll(async () => (await first.rpc.request('sync.status')).fileIssues, { timeout: 8000 })
       .toBeUndefined();
   });
-  it('waits for filesystem bytes to settle after an early directory event', async () => {
+  it('waits for filesystem bytes to settle after an early directory event', {
+    timeout: DIRECTORY_EVENT_TIMEOUT,
+  }, async () => {
     const { first, second } = await fixture();
     await first.memory.save('global', undefined, {
       name: 'early-write',
@@ -358,7 +361,7 @@ describe('full Host material synchronization with synthetic identities', () => {
         { timeout: 8000 },
       )
       .toBe('After the settled write');
-  }, 15000);
+  });
   it.each([null, undefined])(
     'rescans after a directory notification without a filename (%s)',
     async (filename) => {
@@ -395,9 +398,11 @@ describe('full Host material synchronization with synthetic identities', () => {
         )
         .toBe('Captured without a filename');
     },
-    process.platform === 'win32' ? 30000 : 15000,
+    DIRECTORY_EVENT_TIMEOUT,
   );
-  it('captures a memory created between a scan and new-directory watcher registration', async () => {
+  it('captures a memory created between a scan and new-directory watcher registration', {
+    timeout: DIRECTORY_EVENT_TIMEOUT,
+  }, async () => {
     const { first, second } = await fixture();
     const scope = { enabled: true, categories: ['memory'], projects: [], includeHistory: true };
     const configured = await first.rpc.request('sync.configure', scope);
@@ -439,7 +444,7 @@ describe('full Host material synchronization with synthetic identities', () => {
         { timeout: 8000 },
       )
       .toBe('Captured across registration');
-  }, 15000);
+  });
   it.each(['reset', 'snapshot'] as const)(
     'serializes recovery I/O when %s owns the snapshot job',
     async (owner) => {

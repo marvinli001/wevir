@@ -250,6 +250,46 @@ export const VerificationRunSchema = z.object({
 });
 export type VerificationRun = z.infer<typeof VerificationRunSchema>;
 
+export const VerificationTargetSchema = z.enum(['working_tree', 'staged', 'commit']);
+export const VerificationEvidenceStatusSchema = z.enum([
+  ...VerificationStatusSchema.options,
+  'unbound',
+  'config_changed',
+]);
+export type VerificationEvidenceStatus = z.infer<typeof VerificationEvidenceStatusSchema>;
+
+export const VerificationConclusionSchema = z.enum([
+  'unconfigured',
+  'passed',
+  'failed',
+  'running',
+  'partial',
+  'unverified',
+]);
+export type VerificationConclusion = z.infer<typeof VerificationConclusionSchema>;
+
+export const VerificationEvidenceSchema = z.object({
+  status: VerificationConclusionSchema,
+  commit: z.string().optional(),
+  checks: z.array(
+    z.object({
+      checkId: CheckIdSchema,
+      name: z.string(),
+      kind: CheckKindSchema,
+      status: VerificationEvidenceStatusSchema,
+      runId: VerificationRunIdSchema.optional(),
+      finishedAt: IsoTimeSchema.optional(),
+      checkRevisionCurrent: z.boolean().optional(),
+      codeState: z.string().optional(),
+      exitCode: z.int().nullable().optional(),
+      tests: VerificationTestsSchema.optional(),
+      summary: z.string().max(1000).optional(),
+      outputAvailable: z.boolean(),
+    }),
+  ),
+});
+export type VerificationEvidence = z.infer<typeof VerificationEvidenceSchema>;
+
 /**
  * 会话的验收状态，与引擎的回合状态分开：`unverified` 未验收（没跑过、之后又改了代码、取消、过期）、`verifying` 验证中、`accepted`
  * 最近一轮全部通过且代码没变、`failed` 验证失败、`environment_unavailable` 环境不可用。
@@ -369,10 +409,18 @@ export const VerificationCancelParamsSchema = z.object({ sessionId: SessionIdSch
 export const VerificationCancelResultSchema = z.object({ cancelled: z.int().min(0) });
 
 /** `verification.status`：重算此刻的代码状态，与验收的那一轮不同时验收回到 `unverified`。 */
-export const VerificationStatusParamsSchema = z.object({ sessionId: SessionIdSchema });
+export const VerificationStatusParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  target: VerificationTargetSchema.optional(),
+  commit: z
+    .string()
+    .regex(/^[0-9a-fA-F]{4,64}$/)
+    .optional(),
+});
 export const VerificationStatusResultSchema = z.object({
   verification: SessionVerificationSchema,
   codeState: CodeStateSchema,
+  evidence: VerificationEvidenceSchema.optional(),
 });
 
 /** `verification.output`：一条记录的完整输出，从 `offset` 字节起最多 `VERIFICATION_OUTPUT_PAGE_MAX_BYTES`。 */
@@ -388,4 +436,5 @@ export const VerificationOutputResultSchema = z.object({
   next: z.int().min(0),
   more: z.boolean(),
   bytes: z.int().min(0),
+  outputAvailable: z.boolean().optional(),
 });

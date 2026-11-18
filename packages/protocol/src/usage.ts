@@ -6,6 +6,7 @@
 // 订阅计费，这里的成本是按 API 价格折算的估计。时间一律是 Unix 毫秒。
 
 import { z } from 'zod';
+import { SessionIdSchema, WorkspaceIdSchema } from './common.js';
 import { ProviderKindSchema } from './entities.js';
 
 /** token 用 Anthropic 的口径：`input` 不含缓存命中与缓存写入，`reasoning` 已含在 `output` 里。 */
@@ -183,12 +184,18 @@ export const UsageAggregateSchema = z.object({
   cost: z.number().min(0),
   /** 价格表里找不到模型、没算进 `cost` 的请求数。 */
   unpriced: z.int().min(0),
+  missingUsage: z.int().min(0).optional(),
+  /** Complete USD estimate, omitted if any record cannot be priced or did not report usage. */
+  estimatedCost: z.number().min(0).optional(),
+  subscriptionEstimate: z.literal(true).optional(),
   timing: UsageTimingSchema,
 });
 export type UsageAggregate = z.infer<typeof UsageAggregateSchema>;
 
 /** 只统计符合条件的请求；每个数组省略或为空表示不限。 */
 export const UsageFilterSchema = z.object({
+  sessionId: SessionIdSchema.optional(),
+  workspaceId: WorkspaceIdSchema.optional(),
   precision: UsagePrecisionSchema.optional(),
   sources: z.array(ProviderKindSchema).optional(),
   providerIds: z.array(z.string().min(1)).optional(),

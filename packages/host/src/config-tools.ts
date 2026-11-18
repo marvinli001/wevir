@@ -21,9 +21,10 @@ import type {
   Session,
   SessionId,
   TurnId,
+  UsageAggregate,
   WorkspaceId,
 } from '@wevir/protocol';
-import { HOOK_EVENTS, MethodSchemas } from '@wevir/protocol';
+import { HOOK_EVENTS, MethodSchemas, VerificationTargetSchema } from '@wevir/protocol';
 import { type AgentEvent, APP_TOOLS_SERVER, appToolBaseName } from '@wevir/runtime-adapter';
 import type { Storage } from '@wevir/storage';
 import {
@@ -45,6 +46,8 @@ import { isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import type { HostMethodName, HostMethods } from './host-methods.js';
 import type { SessionManager } from './session-manager.js';
+import { redactEvidenceText } from './verification/evidence.js';
+import { verificationMarkdown } from './verification/pull-request.js';
 
 /** 经 Host 方法表调一个方法：参数按注册表校验，身份是应用级工具。 */
 export type HostCall = <M extends HostMethodName>(
@@ -338,13 +341,18 @@ export class ConfigTools {
       title: 'Read Wevir configuration',
       description:
         'Read Wevir setup: settings (and who may change each), projects, environments, checks (with candidate ' +
-        'commands), approval_rules, usage (cost of the last days, default 30), lsp (language servers, install ' +
+        'commands), approval_rules, usage (last days, default 30, optional sessionId or workspaceId; report only returned costs, state missingUsage or unpriced counts, and label subscriptionEstimate as an API-price estimate), lsp (language servers, install ' +
         'plans) or hooks (lifecycle hooks of every source, status, engines that run each event). The other ' +
-        'wevir_config_* tools change it.',
+        'wevir_config_* tools change it. For checks, target working_tree, staged, or commit (with a SHA) returns Host verification evidence (use format markdown for a PR check section).',
       inputSchema: objectSchema(
         {
           section: { type: 'string', enum: [...READ_SECTIONS] },
           days: { type: 'integer', minimum: 1, maximum: 365 },
+          sessionId: { type: 'string' },
+          workspaceId: { type: 'string' },
+          target: { type: 'string', enum: [...VerificationTargetSchema.options] },
+          commit: { type: 'string' },
+          format: { type: 'string', enum: ['markdown'] },
         },
         ['section'],
       ),
@@ -369,27 +377,79 @@ export class ConfigTools {
             return jsonResult({ environments: environments.map(withoutValues) });
           }
           case 'checks': {
+            const target = optionalEnum(args, 'target', VerificationTargetSchema.options);
+            const format = optionalEnum(args, 'format', ['markdown'] as const);
+            const commit = optionalString(args, 'commit');
+            if (format === 'markdown') {
+              if (target !== 'commit') throw new AppToolError('Markdown requires target commit.');
+              const { evidence } = await this.#host(() =>
+                call('verification.status', { sessionId, target, commit }),
+              );
+              if (!evidence) throw new AppToolError('Host verification evidence is unavailable.');
+              if (evidence.checks.length > 0 && evidence.commit === undefined) {
+                throw new AppToolError('The commit SHA could not be resolved in this session.');
+              }
+              const sent = this.#options.events
+                .readTypes(sessionId, ['user.message', 'user.steered'])
+                .findLast(
+                  (event) =>
+                    (event.type === 'user.message' || event.type === 'user.steered') &&
+                    event.payload.from === undefined,
+                );
+              const markdown = verificationMarkdown(
+                evidence,
+                sent?.type === 'user.message' || sent?.type === 'user.steered'
+                  ? sent.payload.sentBy.uiLocale
+                  : undefined,
+              );
+              return {
+                content: [{ type: 'text', text: markdown }],
+                structuredContent: { markdown },
+              };
+            }
             const [checks, { candidates }] = await this.#host(() =>
               Promise.all([
                 call('checks.list', { workspaceId }),
                 call('checks.candidates', { workspaceId }),
               ]),
             );
-            return jsonResult({ ...checks, candidates });
+            if (target === undefined) return jsonResult({ ...checks, candidates });
+            const { evidence } = await this.#host(() =>
+              call('verification.status', { sessionId, target, commit }),
+            );
+            return jsonResult(
+              JSON.parse(
+                JSON.stringify({ ...checks, candidates, evidence }, (_key, value) =>
+                  typeof value === 'string' ? redactEvidenceText(value) : value,
+                ),
+              ),
+            );
           }
           case 'approval_rules':
             return jsonResult(await this.#host(() => call('approvalRule.list', { workspaceId })));
           case 'usage': {
             const days = optionalInt(args, 'days', 1, 365) ?? 30;
             const now = Date.now();
+            const sessionId = optionalString(args, 'sessionId') as SessionId | undefined;
+            const workspaceId = optionalString(args, 'workspaceId') as WorkspaceId | undefined;
             const summary = await this.#host(() =>
-              call('usage.summary', { edges: [now - days * DAY_MS, now] }),
+              call('usage.summary', {
+                edges: [now - days * DAY_MS, now],
+                filter: { sessionId, workspaceId },
+              }),
             );
+            const estimate = <T extends UsageAggregate>(value: T) => {
+              const { cost: _subtotal, estimatedCost, ...usage } = value;
+              return { ...usage, ...(estimatedCost !== undefined && { cost: estimatedCost }) };
+            };
             return jsonResult({
               days,
-              totals: summary.totals,
-              byProvider: summary.byProvider,
-              byModel: summary.byModel,
+              currency: 'USD',
+              ...(sessionId !== undefined && { sessionId }),
+              ...(workspaceId !== undefined && { workspaceId }),
+              totals: estimate(summary.totals),
+              byProvider: summary.byProvider.map(estimate),
+              byModel: summary.byModel.map(estimate),
               pricing: summary.pricing,
             });
           }

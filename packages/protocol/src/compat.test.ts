@@ -195,6 +195,10 @@ import frozen01960 from './compat/0.196.0.json' with { type: 'json' };
 import frozen01970 from './compat/0.197.0.json' with { type: 'json' };
 import frozen01980 from './compat/0.198.0.json' with { type: 'json' };
 import frozen01990 from './compat/0.199.0.json' with { type: 'json' };
+import frozen02000 from './compat/0.200.0.json' with { type: 'json' };
+import frozen02010 from './compat/0.201.0.json' with { type: 'json' };
+import frozen02020 from './compat/0.202.0.json' with { type: 'json' };
+import frozen02030 from './compat/0.203.0.json' with { type: 'json' };
 import {
   ErrorCode,
   type ErrorCodeName,
@@ -412,6 +416,10 @@ const frozenVersions: FrozenSamples[] = [
   frozen01970,
   frozen01980,
   frozen01990,
+  frozen02000,
+  frozen02010,
+  frozen02020,
+  frozen02030,
   frozen01830,
   frozen01810,
   frozen01840,

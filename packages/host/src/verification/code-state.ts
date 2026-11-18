@@ -3,7 +3,7 @@
 
 import type { CodeState } from '@wevir/protocol';
 import { captureBlocker, workingTreeHash } from '../checkpoints.js';
-import { repoInfo } from '../git-diff.js';
+import { git, repoInfo } from '../git-diff.js';
 
 /** 算一次代码状态的时限（同回合快照）。 */
 export const CODE_STATE_TIMEOUT_MS = 15_000;
@@ -38,4 +38,28 @@ export function sameCodeState(
 ): boolean | undefined {
   if (a?.kind !== 'git' || b?.kind !== 'git') return undefined;
   return a.head === b.head && a.tree === b.tree;
+}
+
+/** Resolve only commit objects, including unambiguous abbreviated SHAs. */
+export async function readCommitTree(cwd: string, sha: string) {
+  const repo = await repoInfo(cwd);
+  if (repo === undefined) return undefined;
+  const signal = AbortSignal.timeout(CODE_STATE_TIMEOUT_MS);
+  try {
+    const { stdout } = await git(
+      repo,
+      ['rev-parse', '--verify', '--end-of-options', `${sha}^{commit}`],
+      { signal },
+    );
+    const commit = stdout.toString('utf8').trim();
+    if (!commit.startsWith(sha.toLowerCase())) return undefined;
+    const tree = await git(
+      repo,
+      ['rev-parse', '--verify', '--end-of-options', `${commit}^{tree}`],
+      { signal },
+    );
+    return { commit: commit.slice(0, 12), tree: tree.stdout.toString('utf8').trim() };
+  } catch {
+    return undefined;
+  }
 }

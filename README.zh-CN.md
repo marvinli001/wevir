@@ -183,11 +183,13 @@
 | iOS | TestFlight 测试版。邀请在 [Telegram 交流群](https://t.me/darkfiber_labs) 中发放。 |
 | Android | 已签名的 APK，随每个桌面端版本发布，版本号与桌面端一致。新版 APK 可直接覆盖安装。 |
 
-配对：**设置 → 设备 → 添加手机**。
+在**设置 → 设备**开启远程访问，选择**配对手机**。
 
 ### 命令行
 
 `wevir` 命令行也单独发布，自带 Node，支持 Linux（x64 与 arm64，glibc 2.28 起，包括没有桌面的服务器）、macOS 与 Windows x64。它与桌面端共用数据目录，已有 Host 在运行时直接连上它。
+
+使用 `wevir exec "提示"` 一次运行一条指令。`--require-checks` 要求最终工作树上的全部已配置检查通过，可用 `--require-checks Lint,Tests` 指定检查名。检查条件未满足时退出码为 4，`--json` 在末行输出各项 `exec.checks` 结果。
 
 ```bash
 curl -fsSL https://dl.edgeweir.com/cli/install.sh | sh
@@ -216,7 +218,7 @@ wevir session new -w ~/my-project "概括这个仓库"
 | 官方托管 | [web.wevir.si](https://web.wevir.si)，Wevir 中继位于同一域名 |
 | 自建 | 站点与中继部署于自有服务器的同一域名：[部署文档与 Agent 提示词](docs/self-hosting/web.zh-CN.md) |
 
-配对：**设置 → 设备 → 添加网页设备**。
+在**设置 → 设备**开启远程访问，选择**配对浏览器**。
 
 ## 从源码运行
 

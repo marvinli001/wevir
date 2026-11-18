@@ -16,8 +16,5 @@
       "WEVIR_PUSH_KIND_CHANNEL": "助理訊息",
       "WEVIR_PUSH_KIND_AGENT": "代理提醒"
     }
-  },
-  "android": {
-    "wevir_assistant_messages": "助理訊息"
   }
 }

@@ -1347,6 +1347,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sessions: manager,
         hostId,
         template: loadOpinionTemplate(options.promptsDir),
+        evidence: (sessionId, target) => verification?.evidence(sessionId, target),
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const fixed = opinions.recover();
@@ -1376,6 +1377,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       events: store,
       checkpoints,
       ...(review !== undefined && { review }),
+      checks: async (workspaceId) => (await checksStore.list(workspaceId)).checks,
       memory,
       resolveDir: (dir) => realpath(dir),
       ...(retroInstructions !== undefined && {
@@ -1494,15 +1496,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         .catch((error: unknown) => logger.warn('tuning trial check failed', { error }));
     }
 
-    // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
+    // 暂存与提交（0.67.0，ADR-0009）：提交状态按暂存内容读取检查结论。
     const sessionStore = storage;
     const git = new GitService({
-      verification: async (sessionId) => {
+      verification: async (sessionId, target) => {
         const record = sessionStore.sessions.get(sessionId);
-        if (verification === undefined || !record) return undefined;
-        const { checks } = await verification.listChecks(record.workspaceId as WorkspaceId);
-        const runs = store.snapshot(sessionId as SessionId)?.verification?.runs ?? [];
-        return { checks, runs };
+        if (record === undefined || record.parentSessionId !== undefined) return undefined;
+        return verification?.evidence(sessionId, target);
       },
     });
 

@@ -30,6 +30,7 @@ import { RangePicker } from './range-picker';
 import { RecordDrawer } from './record-drawer';
 import { UsageChart } from './usage-chart';
 import {
+  aggregateCost,
   approxNote,
   type CustomRange,
   cacheHitRate,
@@ -538,16 +539,18 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
   const total = totalTokens(totals.tokens);
   const approx = approxNote(total, locale);
   const rate = cacheHitRate(totals.tokens);
-  const exactCost = new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency: 'USD',
-    currencyDisplay: 'narrowSymbol',
-    maximumFractionDigits: 6,
-  }).format(totals.cost);
+  const cost = aggregateCost(totals);
   const costTitle =
     totals.unpriced > 0
-      ? `${exactCost}\n${t('usage.cost.unpriced', { count: totals.unpriced })}`
-      : exactCost;
+      ? t('usage.cost.unpriced', { count: totals.unpriced })
+      : cost === undefined
+        ? undefined
+        : new Intl.NumberFormat(locale, {
+            style: 'currency',
+            currency: 'USD',
+            currencyDisplay: 'narrowSymbol',
+            maximumFractionDigits: 6,
+          }).format(cost);
   const tokenStat = (label: PlainMessageKey, value: number) => (
     <Stat
       label={t(label)}
@@ -594,11 +597,7 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
               className="mt-1 flex items-baseline gap-1.5 text-xl font-semibold tabular-nums"
               title={costTitle}
             >
-              {totals.requests > 0 && totals.unpriced === totals.requests ? (
-                '—'
-              ) : (
-                <RollingNumber value={formatCost(totals.cost, locale)} />
-              )}
+              {cost === undefined ? '—' : <RollingNumber value={formatCost(cost, locale)} />}
               {totals.unpriced > 0 && (
                 <CircleAlert className="size-3.5 self-center text-muted-foreground" aria-hidden />
               )}

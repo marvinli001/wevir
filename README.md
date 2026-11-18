@@ -183,11 +183,13 @@ The phone app connects to Wevir on your computers over an end-to-end encrypted c
 | iOS | TestFlight beta. Invitations are issued in the [Telegram group](https://t.me/darkfiber_labs). |
 | Android | Signed APK, published with every desktop release under the same version number. A newer APK installs over the existing one. |
 
-Pairing: **Settings → Devices → Add phone**.
+In **Settings → Devices**, enable remote access and select **Pair a phone**.
 
 ### Command line
 
 The `wevir` CLI also ships on its own, with Node bundled, for Linux (x64 and arm64, glibc 2.28+, servers without a desktop included), macOS, and Windows x64. It uses the same data directory as the desktop app and attaches to a Host that is already running.
+
+Run one prompt with `wevir exec "prompt"`. Add `--require-checks` to require all configured project checks on the final worktree, or `--require-checks Lint,Tests` to require named checks. Unmet requirements return exit code 4. With `--json`, the final `exec.checks` line reports each result.
 
 ```bash
 curl -fsSL https://dl.edgeweir.com/cli/install.sh | sh
@@ -216,7 +218,7 @@ wevir session new -w ~/my-project "Summarize this repository"
 | Hosted | [web.wevir.si](https://web.wevir.si), with the Wevir relay on the same domain |
 | Self-hosted | Site and relay on one domain on your own server: [deployment guide and agent prompt](docs/self-hosting/web.md) |
 
-Pairing: **Settings → Devices → Add web device**.
+In **Settings → Devices**, enable remote access and select **Pair a browser**.
 
 ## Run from source
 

@@ -58,6 +58,7 @@ import {
   LIST_CARD,
   type Notice,
   NoticeBanner,
+  SettingsPlaceholder,
   SettingsRow,
   SettingsSection,
 } from './settings-ui';
@@ -192,7 +193,7 @@ export function MemorySettings() {
         </div>
       )}
       {listing === undefined ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <SettingsPlaceholder className="min-h-[5.375rem]" />
       ) : notes.length === 0 ? (
         <EmptyList>{t('settings.memory.empty')}</EmptyList>
       ) : (
@@ -214,11 +215,7 @@ export function MemorySettings() {
 
   return (
     <>
-      {notice && (
-        <div className="mb-3">
-          <NoticeBanner notice={notice} />
-        </div>
-      )}
+      <NoticeBanner notice={notice} className="mb-3" />
       <SettingsSection>
         <div className={LIST_CARD}>
           <SettingsRow
