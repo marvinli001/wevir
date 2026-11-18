@@ -1,25 +1,11 @@
 // “变更”窗格底部的提交卡片（0.67.0，ADR-0009；外形照 Codex 的输入框）：顶上一行是分支与“已暂存 N/M”（点开是逐个文件
-// 暂存、取消暂存的列表），下面是提交说明、验证记录的小标签与“提交”。不是在这里暂存的内容（之前就暂存的、目录外的）在说明
+// 暂存、取消暂存的列表），下面是提交说明、检查失败提示与“提交”。不是在这里暂存的内容（之前就暂存的、目录外的）在说明
 // 上面单独一条警示，勾“一并提交”才能提交；验证记录只显示、不挡提交；提交失败时显示原因与 git 的输出，什么都不回滚。
 // diff 文件头的勾选框是同一套暂存操作（changes-pane.tsx）。
 
-import type {
-  GitCommitOutcome,
-  GitStatusFile,
-  GitVerificationCheck,
-  MethodParams,
-} from '@wevir/protocol';
+import type { GitCommitOutcome, GitStatusFile, MethodParams } from '@wevir/protocol';
 import { cn } from 'cn';
-import {
-  ChevronDown,
-  Circle,
-  CircleCheck,
-  CircleX,
-  Clock,
-  GitBranch,
-  LoaderCircle,
-  TriangleAlert,
-} from 'lucide-react';
+import { ChevronDown, CircleCheck, CircleX, GitBranch, TriangleAlert } from 'lucide-react';
 import { type ComponentProps, type ReactNode, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { ScrollFade } from '@/components/scroll-fade';
@@ -33,28 +19,18 @@ import { fileIcon } from '@/layout/panes/files-pane';
 import { IS_MAC } from '@/lib/shortcuts';
 import { splitPath } from './changes-model';
 import {
-  type CheckTone,
   canCommit,
   changedCount,
-  checkLabel,
-  checkTone,
   failureLabel,
   groupFiles,
   operationLabel,
+  stagedFailureNames,
   statusLetter,
 } from './commit-model';
 import type { GitState } from './git-data';
 import { GitWorkflowMenu } from './git-workflow';
 
 const SUBMIT_SHORTCUT = IS_MAC ? '⌘↩' : 'Ctrl+↩';
-
-const TONE: Record<CheckTone, { icon: typeof Circle; className: string }> = {
-  passed: { icon: CircleCheck, className: 'text-success' },
-  failed: { icon: CircleX, className: 'text-destructive' },
-  stale: { icon: Clock, className: 'text-warning' },
-  running: { icon: LoaderCircle, className: 'animate-spin text-muted-foreground' },
-  not_run: { icon: Circle, className: 'text-muted-foreground' },
-};
 
 export function CommitPanel({
   git,
@@ -93,8 +69,9 @@ export function CommitPanel({
   const stagedCount = groups.staged.length + groups.external.filter((file) => file.outside).length;
   const clean = total === 0 && groups.external.length === 0;
   const expanded = open && !clean;
-  const checks = status.verification?.checks ?? [];
-  const hasStatus = git.error !== undefined || outcome?.kind === 'committed';
+  const failedChecks = expanded && stagedCount > 0 ? stagedFailureNames(status.verification) : [];
+  const hasStatus =
+    git.error !== undefined || failedChecks.length > 0 || outcome?.kind === 'committed';
 
   return (
     <section className="shrink-0 px-2 pb-2" data-commit-panel>
@@ -214,16 +191,10 @@ export function CommitPanel({
             )}
             {hasStatus && (
               <div className="flex min-w-0 px-3 pb-1.5">
-                <FooterStatus git={git} outcome={outcome} />
+                <FooterStatus git={git} outcome={outcome} failedChecks={failedChecks} />
               </div>
             )}
             <div className="flex min-h-10 shrink-0 items-center gap-1 px-2 pb-2">
-              {checks.length > 0 && (
-                <ChecksChip
-                  checks={checks}
-                  workingTree={status.verification?.stagedMatchesWorkingTree === false}
-                />
-              )}
               <span className="min-w-1 flex-1" />
               <Tooltip>
                 <TooltipTrigger
@@ -249,7 +220,7 @@ export function CommitPanel({
         )}
         {!expanded && !clean && hasStatus && (
           <div className="flex min-w-0 px-3 pb-2">
-            <FooterStatus git={git} outcome={outcome} />
+            <FooterStatus git={git} outcome={outcome} failedChecks={failedChecks} />
           </div>
         )}
       </div>
@@ -294,7 +265,15 @@ function Committed({ outcome }: { outcome: Extract<GitCommitOutcome, { kind: 'co
   );
 }
 
-function FooterStatus({ git, outcome }: { git: GitState; outcome: GitCommitOutcome | undefined }) {
+function FooterStatus({
+  git,
+  outcome,
+  failedChecks,
+}: {
+  git: GitState;
+  outcome: GitCommitOutcome | undefined;
+  failedChecks: readonly string[];
+}) {
   if (git.error?.kind === 'stale') {
     return (
       <span className="min-w-0 truncate text-xs text-warning" role="status">
@@ -309,57 +288,21 @@ function FooterStatus({ git, outcome }: { git: GitState; outcome: GitCommitOutco
       </span>
     );
   }
+  if (failedChecks.length > 0) {
+    const message = t('commit.checksFailed', { names: failedChecks.join('、') });
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={<span className="min-w-0 truncate text-xs text-destructive" role="alert" />}
+        >
+          {message}
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs break-words">{message}</TooltipContent>
+      </Tooltip>
+    );
+  }
   if (outcome?.kind === 'committed') return <Committed outcome={outcome} />;
   return null;
-}
-
-/** 检查的顺序：最该注意的在前，小标签的图标取最前的那一种。 */
-const TONE_ORDER: readonly CheckTone[] = ['failed', 'running', 'stale', 'not_run', 'passed'];
-
-/** 验证记录：一个小标签“检查 通过数/总数”，图标是最该注意的状态；悬停时逐项列出。 */
-function ChecksChip({
-  checks,
-  workingTree,
-}: {
-  checks: readonly GitVerificationCheck[];
-  /** 暂存的不是全部工作树：记录验证的是工作树。 */
-  workingTree: boolean;
-}) {
-  const tones = checks.map((check) => checkTone(check.status));
-  const tone = TONE_ORDER.find((candidate) => tones.includes(candidate)) ?? 'not_run';
-  const { icon: Icon, className } = TONE[tone];
-  const passed = tones.filter((candidate) => candidate === 'passed').length;
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            className="inline-flex h-6 min-w-0 items-center gap-1 rounded-full border border-border px-2 text-xs text-soft-foreground tabular-nums"
-            data-commit-verification
-            data-check-tone={tone}
-          />
-        }
-      >
-        <Icon aria-hidden className={cn('size-3 shrink-0', className)} />
-        <span className="truncate">{t('commit.checks', { passed, total: checks.length })}</span>
-      </TooltipTrigger>
-      <TooltipContent className="flex flex-col items-stretch gap-0.5">
-        {checks.map((check, index) => {
-          const own = TONE[tones[index] ?? 'not_run'];
-          return (
-            <span key={check.checkId} className="flex items-center gap-1.5">
-              <own.icon aria-hidden className={cn('size-3 shrink-0', own.className)} />
-              <span className="min-w-0 truncate">{check.name}</span>
-              <span className="ml-auto pl-3 opacity-70">
-                {checkLabel(tones[index] ?? 'not_run')}
-              </span>
-            </span>
-          );
-        })}
-        {workingTree && <span className="opacity-70">{t('commit.verifiedWorkingTree')}</span>}
-      </TooltipContent>
-    </Tooltip>
-  );
 }
 
 /** “已暂存 N/M ⌄”：点开是两组文件，勾上暂存、取消勾选取消暂存；点文件名在 diff 里滚到它。 */

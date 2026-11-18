@@ -19,6 +19,7 @@ interface Page {
   next: number;
   more: boolean;
   dropped: boolean;
+  outputAvailable?: boolean;
 }
 
 export function VerificationOutputDialog({
@@ -49,6 +50,7 @@ export function VerificationOutputDialog({
         next: result.next,
         more: result.more,
         dropped: previous?.dropped ?? result.from > offset,
+        outputAvailable: result.outputAvailable,
       });
     } catch (reason) {
       setError(t('verification.failed', { error: describe(reason) }));
@@ -84,7 +86,11 @@ export function VerificationOutputDialog({
               <p className="text-xs text-muted-foreground">{t('verification.output.dropped')}</p>
             )}
             <pre className="max-h-[60vh] overflow-auto rounded-lg bg-muted p-3 font-mono text-xs whitespace-pre-wrap break-words">
-              {page.text === '' ? t('verification.output.empty') : page.text}
+              {page.text !== ''
+                ? page.text
+                : page.outputAvailable === false
+                  ? t('verification.output.cleaned')
+                  : t('verification.output.empty')}
             </pre>
             {page.more && (
               <Button

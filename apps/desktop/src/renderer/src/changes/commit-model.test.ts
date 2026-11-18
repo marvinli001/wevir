@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   canCommit,
   changedCount,
-  checkTone,
   groupFiles,
+  stagedFailureNames,
   stageState,
   statusLetter,
 } from './commit-model';
@@ -40,13 +40,36 @@ describe('提交区的分组', () => {
     expect(canCommit(status, groupFiles(status), 'msg', true)).toBe(false);
   });
 
-  it('状态字母与验证记录的五种显示', () => {
+  it('状态字母', () => {
     expect(statusLetter(status.files?.[3] as never, 'unstaged')).toBe('U');
     expect(statusLetter(status.files?.[2] as never, 'staged')).toBe('D');
     expect(statusLetter(status.files?.[4] as never, 'unstaged')).toBe('!');
+  });
+});
+
+describe('提交区检查失败提示', () => {
+  it('只列出 Host 判定为对应暂存内容的失败和超时', () => {
     expect(
-      ['passed', 'timed_out', 'stale', 'cancelled', 'running'].map((s) => checkTone(s as never)),
-    ).toEqual(['passed', 'failed', 'stale', 'not_run', 'running']);
+      stagedFailureNames({
+        stagedMatchesWorkingTree: false,
+        checks: [
+          { checkId: 'chk_1', name: 'Lint', status: 'failed', evidenceStatus: 'failed' },
+          { checkId: 'chk_2', name: 'Types', status: 'timed_out', evidenceStatus: 'timed_out' },
+          { checkId: 'chk_3', name: 'Tests', status: 'stale', evidenceStatus: 'config_changed' },
+          { checkId: 'chk_4', name: 'Other', status: 'stale', evidenceStatus: 'unbound' },
+          { checkId: 'chk_5', name: 'Missing', status: 'not_run', evidenceStatus: 'not_run' },
+          { checkId: 'chk_6', name: 'Legacy', status: 'failed' },
+          { checkId: 'chk_7', name: 'Build', status: 'passed', evidenceStatus: 'passed' },
+          {
+            checkId: 'chk_8',
+            name: 'Environment',
+            status: 'environment_unavailable',
+            evidenceStatus: 'environment_unavailable',
+          },
+        ],
+      }),
+    ).toEqual(['Lint', 'Types']);
+    expect(stagedFailureNames(undefined)).toEqual([]);
   });
 });
 

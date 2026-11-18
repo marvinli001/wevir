@@ -1,7 +1,7 @@
 import type { ChatMessage } from '@wevir/client-sdk';
 import type { PendingMessage, TurnId, TurnOutcome } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight, CircleAlert, CircleCheck, CircleX, LoaderCircle } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { memo, useContext, useEffect, useId, useRef } from 'react';
 import type { OrbState } from 'thinking-orbs';
 import { turnChangeStats } from '@/changes/changes-model';
@@ -35,7 +35,6 @@ import {
   turnHeaderText,
   turnTail,
 } from './turn-model';
-import { type ChecksSummary, TURN_CHECK_LABELS } from './verification-model';
 import { DiffStat } from './work-group';
 import { WrapUpCard } from './wrap-up-card';
 import { turnWrapUp } from './wrap-up-model';
@@ -73,7 +72,6 @@ export const TurnView = memo(
     laterTurn = false,
     steers = NO_STEERS,
     notices = NO_STEERS,
-    checks,
   }: {
     turnId: TurnId;
     messages: readonly ChatMessage[];
@@ -94,8 +92,6 @@ export const TurnView = memo(
     steers?: readonly PendingMessage[];
     /** 进行中的回合：别的会话与后台进程发来、等回合结束再交给模型的消息，画在插话之后（pending-area.tsx）。 */
     notices?: readonly PendingMessage[];
-    /** 这个回合触发的最近一轮检查（0.65.0）。 */
-    checks?: ChecksSummary;
   }) {
     const fold = foldTurn(messages, hasSubagents, turnActive);
     // 回合的清单画在回合末尾、当前动作那一行之前（照 Claude Code）；回合结束收起过程时一起收起。
@@ -276,11 +272,7 @@ export const TurnView = memo(
             )
           )}
           {/* 回合结束时出现的药丸与操作行展开进来；打开会话时已经结束的回合直接是展开的。 */}
-          <Collapse
-            open={fold.finished !== undefined && (changes.files > 0 || checks !== undefined)}
-            flow
-          >
-            {/* 两颗药丸放进同一行 flex 居中：各自 inline-flex 时按基线对齐，“检查”以图标开头，基线落在图标底边，会比“已更改”高。 */}
+          <Collapse open={fold.finished !== undefined && changes.files > 0} flow>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               {changes.files > 0 && (
                 <ChangesChip
@@ -290,7 +282,6 @@ export const TurnView = memo(
                   changes={changes}
                 />
               )}
-              {checks && <ChecksChip checks={checks} />}
             </div>
           </Collapse>
           <Collapse
@@ -335,7 +326,6 @@ export const TurnView = memo(
     prev.laterTurn === next.laterTurn &&
     sameItems(prev.steers ?? NO_STEERS, next.steers ?? NO_STEERS) &&
     sameItems(prev.notices ?? NO_STEERS, next.notices ?? NO_STEERS) &&
-    prev.checks?.key === next.checks?.key &&
     prev.messages.length === next.messages.length &&
     prev.messages.every((message, index) => message === next.messages[index]),
 );
@@ -462,44 +452,5 @@ function ChangesChip({
       {t('turn.changes', { count: changes.files })}
       <DiffStat stats={changes} />
     </button>
-  );
-}
-
-const CHECK_ICONS = {
-  running: LoaderCircle,
-  passed: CircleCheck,
-  failed: CircleX,
-  environment_unavailable: CircleAlert,
-  unverified: CircleAlert,
-} as const;
-
-/** 回答下面的“检查通过 2/2”（0.65.0）：这个回合触发的最近一轮检查；详情在会话侧栏的“检查”卡片里。 */
-function ChecksChip({ checks }: { checks: ChecksSummary }) {
-  const Icon = CHECK_ICONS[checks.tone];
-  const plain = TURN_CHECK_LABELS[checks.tone];
-  const label =
-    plain !== undefined
-      ? t(plain)
-      : t(checks.tone === 'passed' ? 'turn.checks.passed' : 'turn.checks.failed', {
-          passed: checks.passed,
-          total: checks.total,
-        });
-  return (
-    <span
-      data-turn-checks={checks.tone}
-      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
-    >
-      <Icon
-        aria-hidden
-        className={cn(
-          'size-4 shrink-0',
-          checks.tone === 'running' && 'animate-spin text-running',
-          checks.tone === 'passed' && 'text-success',
-          checks.tone === 'failed' && 'text-destructive',
-          checks.tone === 'environment_unavailable' && 'text-warning',
-        )}
-      />
-      {label}
-    </span>
   );
 }

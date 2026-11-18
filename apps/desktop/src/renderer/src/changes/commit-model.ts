@@ -4,7 +4,7 @@ import type {
   GitCommitOutcome,
   GitStatusFile,
   GitStatusResult,
-  VerificationStatus,
+  GitVerificationSummary,
 } from '@wevir/protocol';
 import { t } from '@/i18n';
 
@@ -76,39 +76,10 @@ export function statusLetter(file: GitStatusFile, side: 'staged' | 'unstaged'): 
   }
 }
 
-export type CheckTone = 'passed' | 'failed' | 'stale' | 'running' | 'not_run';
-
-/** 验证记录在提交区只分五种：通过、失败、过期、运行中、未运行（取消的也算未运行）。 */
-export function checkTone(status: VerificationStatus): CheckTone {
-  switch (status) {
-    case 'passed':
-      return 'passed';
-    case 'failed':
-    case 'timed_out':
-    case 'environment_unavailable':
-      return 'failed';
-    case 'stale':
-      return 'stale';
-    case 'running':
-      return 'running';
-    default:
-      return 'not_run';
-  }
-}
-
-export function checkLabel(tone: CheckTone): string {
-  switch (tone) {
-    case 'passed':
-      return t('commit.check.passed');
-    case 'failed':
-      return t('commit.check.failed');
-    case 'stale':
-      return t('commit.check.stale');
-    case 'running':
-      return t('commit.check.running');
-    case 'not_run':
-      return t('commit.check.notRun');
-  }
+export function stagedFailureNames(verification: GitVerificationSummary | undefined): string[] {
+  return (verification?.checks ?? [])
+    .filter(({ evidenceStatus }) => evidenceStatus === 'failed' || evidenceStatus === 'timed_out')
+    .map(({ name }) => name);
 }
 
 export function operationLabel(operation: string): string {
