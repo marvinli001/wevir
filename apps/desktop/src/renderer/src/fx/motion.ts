@@ -16,7 +16,11 @@ function subscribeReduced(listener: () => void): () => void {
 
 /** 系统开了“减弱动态效果”。 */
 export function useReducedMotion(): boolean {
-  return useSyncExternalStore(subscribeReduced, () => window.matchMedia(REDUCED_QUERY).matches);
+  return useSyncExternalStore(
+    subscribeReduced,
+    () => window.matchMedia(REDUCED_QUERY).matches,
+    () => false,
+  );
 }
 
 /** 传给动效库的主题：Wevir 当前生效的浅色 / 深色。 */

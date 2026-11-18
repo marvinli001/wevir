@@ -100,11 +100,7 @@ export function ComputerSettings() {
   return (
     <>
       <SettingsSection>
-        {notice && (
-          <div className="mb-3">
-            <NoticeBanner notice={notice} />
-          </div>
-        )}
+        <NoticeBanner notice={notice} className="mb-3" />
         <div className={LIST_CARD}>
           <SettingsRow
             title={t('settings.computerUse.enabled')}

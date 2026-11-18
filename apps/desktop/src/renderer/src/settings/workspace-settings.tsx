@@ -18,7 +18,7 @@ import {
   EmptyList,
   LIST_CARD,
   NoticeBanner,
-  SettingsLoading,
+  SettingsPlaceholder,
   SettingsSection,
 } from './settings-ui';
 
@@ -32,9 +32,8 @@ export function WorkspaceSettings() {
   const { client } = useHostConnection();
   const manage = useWorkspaceManagement();
 
-  if (data.status !== 'ready') return <SettingsLoading data={data} />;
   // “对话”工作区（0.39.0）不是项目，不列、也不能移除。
-  const projects = projectsOf(data.workspaces);
+  const projects = data.status === 'ready' ? projectsOf(data.workspaces) : [];
 
   return (
     <>
@@ -46,7 +45,7 @@ export function WorkspaceSettings() {
               variant="outline"
               size="sm"
               onClick={() => openCreateProject({ onCreated: () => {} })}
-              disabled={!client}
+              disabled={!client || data.status !== 'ready'}
               data-action="add-workspace"
             >
               <FolderPlus data-icon="inline-start" />
@@ -56,8 +55,14 @@ export function WorkspaceSettings() {
         }
       >
         <div className="space-y-3">
-          {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
-          {projects.length === 0 ? (
+          <NoticeBanner
+            notice={!client ? { tone: 'info', text: t('settings.noHost') } : undefined}
+          />
+          {data.status === 'loading' ? (
+            <SettingsPlaceholder className="min-h-[5.375rem]" />
+          ) : data.status === 'error' ? (
+            <NoticeBanner notice={{ tone: 'error', text: data.error }} />
+          ) : projects.length === 0 ? (
             <EmptyList>{t('project.empty')}</EmptyList>
           ) : (
             <ul className={LIST_CARD}>

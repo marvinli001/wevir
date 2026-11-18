@@ -155,7 +155,7 @@ const TABS: Record<SettingsTab, TabInfo> = {
   routing: {
     label: 'settings.tab.routing',
     icon: Route,
-    keywords: ['routing.chain', 'routing.preferReset', 'routing.decisions'],
+    keywords: ['routing.chain', 'routing.preferReset'],
   },
   personalization: {
     label: 'settings.tab.personalization',
@@ -296,7 +296,7 @@ export function SettingsRoute() {
   useEffect(() => setOverlayOpen(false), [tab]);
   const onBack = () => navigate(from ?? paths.home());
   const nav = (controls: ReactNode) => (
-    <SettingsNav controls={controls} query={query} onQuery={setQuery} state={location.state} />
+    <SettingsNav controls={controls} query={query} onQuery={setQuery} state={from && { from }} />
   );
 
   return (
@@ -382,12 +382,11 @@ export function SettingsRoute() {
           className="surface-card mr-2 mb-2 ml-2 flex min-h-0 flex-1 flex-col overflow-hidden"
         >
           {isSettingsTab(tab) && visible(tab) ? (
-            <ScrollArea className="min-h-0 flex-1">
+            <ScrollArea key={tab} className="min-h-0 flex-1">
               <div
-                key={tab}
                 data-settings-page=""
                 className={cn(
-                  'mx-auto w-full px-4 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10',
+                  'mx-auto w-full px-4 pt-6 pb-16 sm:px-10',
                   tab === 'routing' ? 'max-w-280' : 'max-w-180',
                 )}
               >
@@ -500,7 +499,7 @@ function TabList({ query, state }: { query: string; state: unknown }) {
                     data-settings-tab={id}
                     className={({ isActive }) =>
                       cn(
-                        'flex h-9 items-center gap-2.5 rounded-lg px-2 text-base text-soft-foreground outline-none transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-sidebar-accent/70 focus-visible:focus-ring',
+                        'flex h-9 items-center gap-2.5 rounded-lg px-2 text-base text-soft-foreground outline-none transition-[background-color] duration-100 ease-smooth hover:bg-sidebar-accent/70 focus-visible:focus-ring',
                         isActive &&
                           'bg-sidebar-accent/70 text-sidebar-accent-foreground ring-1 ring-selected-border ring-inset hover:bg-sidebar-accent/70',
                       )

@@ -4,6 +4,7 @@ import { cn } from 'cn';
 import { Check, LoaderCircle, Plus, Tag, Trash2 } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { AccountBadge } from '@/components/account-badge';
+import { AnimatedRows } from '@/components/animated-rows';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,10 @@ export function AccountSwitcher({
   onSelect,
   adding,
   onAdd,
+  labeling,
+  onLabel,
+  onRemove,
+  compact = false,
 }: {
   source: SourceInfo;
   accounts: readonly AccountState[];
@@ -52,77 +57,109 @@ export function AccountSwitcher({
   onSelect: (id: string) => void;
   adding: boolean;
   onAdd: (() => void) | undefined;
+  labeling: boolean;
+  onLabel: ((account: AccountState, label: string | null) => Promise<void>) | undefined;
+  onRemove: ((account: AccountState) => void) | undefined;
+  compact?: boolean;
 }) {
   return (
-    <div
+    <AnimatedRows
+      as="div"
       role="tablist"
       aria-label={t('source.account.list')}
-      className="flex flex-wrap items-center gap-1.5"
+      className="mt-4 flex flex-wrap items-center gap-1.5"
       data-account-switcher
+      items={accounts}
+      keyOf={accountId}
+      tail={
+        onAdd !== undefined ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={adding}
+            onClick={onAdd}
+            data-action="add-account"
+          >
+            {adding ? <LoaderCircle className="animate-spin" /> : <Plus />}
+            {t('source.account.add')}
+          </Button>
+        ) : undefined
+      }
     >
-      {accounts.map((account) => {
+      {(account) => {
         const id = accountId(account);
         const active = id === selected;
+        const text = chipText(source, account, accounts);
         return (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            onClick={() => onSelect(id)}
-            data-account={id}
+          <div
             className={cn(
-              'flex h-7 max-w-56 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs outline-none transition-colors duration-150',
-              'hover:bg-accent/50 focus-visible:focus-field',
-              active && 'bg-selected ring-1 ring-selected-border ring-inset hover:bg-selected',
+              'flex h-7 max-w-56 items-center rounded-md border border-border bg-background transition-colors duration-150',
+              active && 'bg-selected',
             )}
           >
-            {account.label !== undefined ? (
-              <AccountBadge label={account.label} size="sm" />
-            ) : (
-              <StatusDot
-                tone={account.status === 'signed_in' ? 'success' : 'neutral'}
-                label={t(
-                  account.status === 'signed_in'
-                    ? 'source.status.signedIn'
-                    : 'source.status.signedOut',
-                )}
-                className="size-1.5"
+            <button
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onSelect(id)}
+              data-account={id}
+              title={account.label && !compact ? `${account.label} · ${text}` : text}
+              className="flex size-full min-w-0 items-center gap-1.5 rounded-md px-2 text-xs outline-none hover:bg-accent/50 focus-visible:focus-field"
+            >
+              {account.label !== undefined ? (
+                compact ? (
+                  <AccountBadge label={account.label} size="sm" />
+                ) : (
+                  <span className="max-w-[40%] shrink-0 truncate font-medium">{account.label}</span>
+                )
+              ) : (
+                <StatusDot
+                  tone={account.status === 'signed_in' ? 'success' : 'neutral'}
+                  label={t(
+                    account.status === 'signed_in'
+                      ? 'source.status.signedIn'
+                      : 'source.status.signedOut',
+                  )}
+                  className="size-1.5"
+                />
+              )}
+              <span
+                className="truncate"
+                data-account-email={account.email !== undefined || undefined}
+              >
+                {text}
+              </span>
+              {account.localLogin === true && (
+                <span className="shrink-0 text-muted-foreground">{t('source.account.local')}</span>
+              )}
+            </button>
+            {active && onLabel && (
+              <AccountLabelControl
+                account={account}
+                disabled={labeling}
+                onChange={(label) => onLabel(account, label)}
+                onRemove={id !== account.kind && onRemove ? () => onRemove(account) : undefined}
               />
             )}
-            <span className="truncate">{chipText(source, account, accounts)}</span>
-            {account.localLogin === true && (
-              <span className="shrink-0 text-muted-foreground">{t('source.account.local')}</span>
-            )}
-          </button>
+          </div>
         );
-      })}
-      {onAdd !== undefined && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs"
-          disabled={adding}
-          onClick={onAdd}
-          data-action="add-account"
-        >
-          {adding ? <LoaderCircle className="animate-spin" /> : <Plus />}
-          {t('source.account.add')}
-        </Button>
-      )}
-    </div>
+      }}
+    </AnimatedRows>
   );
 }
 
 /** 标签：小弹层里选预设、自己写，或去掉。 */
-export function AccountLabelControl({
+function AccountLabelControl({
   account,
   disabled,
   onChange,
+  onRemove,
 }: {
   account: AccountState;
   disabled: boolean;
   onChange: (label: string | null) => Promise<void>;
+  onRemove?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
@@ -147,11 +184,17 @@ export function AccountLabelControl({
     >
       <PopoverTrigger
         render={
-          <Button variant="ghost" size="sm" disabled={disabled} data-action="account-label" />
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="mr-0.5 shrink-0"
+            aria-label={t('source.account.label')}
+            disabled={disabled}
+            data-action="account-label"
+          />
         }
       >
-        {current !== undefined ? <AccountBadge label={current} /> : <Tag />}
-        {current ?? t('source.account.label')}
+        <Tag />
       </PopoverTrigger>
       <PopoverContent align="start" className="w-56 gap-1.5 p-1.5" data-account-label-editor>
         <ul className="flex flex-col">
@@ -195,6 +238,21 @@ export function AccountLabelControl({
             {t('source.account.labelSave')}
           </Button>
         </form>
+        {onRemove && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="justify-start"
+            data-action="remove-account"
+            onClick={() => {
+              setOpen(false);
+              onRemove();
+            }}
+          >
+            <Trash2 data-icon="inline-start" />
+            {t('source.account.remove')}
+          </Button>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -233,26 +291,5 @@ export function RemoveAccountDialog({
       <p>{t('source.account.remove.body')}</p>
       {open.length > 0 && <p>{t('provider.remove.openSessions', { count: open.length })}</p>}
     </ConfirmDialog>
-  );
-}
-
-export function RemoveAccountButton({
-  disabled,
-  onClick,
-}: {
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      disabled={disabled}
-      onClick={onClick}
-      data-action="remove-account"
-    >
-      <Trash2 />
-      {t('source.account.remove')}
-    </Button>
   );
 }

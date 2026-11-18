@@ -95,11 +95,7 @@ export function DictationSettings() {
 
   return (
     <>
-      {notice && (
-        <div className="mb-3">
-          <NoticeBanner notice={notice} />
-        </div>
-      )}
+      <NoticeBanner notice={notice} className="mb-3" />
       <SettingsSection>
         <div className={LIST_CARD}>
           <SettingsRow

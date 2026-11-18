@@ -62,9 +62,7 @@ export class AccountsStore {
   /** 还没读到时是 undefined。 */
   get = (): AccountState[] | undefined => this.#accounts;
 
-  error(): unknown {
-    return this.#error;
-  }
+  error = (): unknown => this.#error;
 
   /** 本端操作的结果（login、setPath 等的返回值）立即合进来，不等通知。按账号 ID（0.63.0，一种可以有多个账号）。 */
   merge(account: AccountState): void {

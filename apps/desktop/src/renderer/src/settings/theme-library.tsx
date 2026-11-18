@@ -324,7 +324,7 @@ export function ThemeLibrary() {
           {t('settings.appearance.restoreTheme')}
         </Button>
       </div>
-      {notice && <NoticeBanner notice={notice} />}
+      <NoticeBanner notice={notice} />
       {readable && themes === undefined && !notice && (
         <p role="status" className="text-sm text-muted-foreground">
           {t('common.loading')}
@@ -470,7 +470,9 @@ export function ThemeLibrary() {
                   data-theme-id-input
                 />
               </label>
-              {createError && <NoticeBanner notice={{ tone: 'error', text: createError }} />}
+              <NoticeBanner
+                notice={createError ? { tone: 'error', text: createError } : undefined}
+              />
             </div>
             <DialogFooter className="shrink-0">
               <Button
@@ -523,7 +525,7 @@ export function ThemeLibrary() {
                 }}
                 className="max-h-64 min-h-40 overflow-y-auto font-mono text-xs"
               />
-              {pasteError && <NoticeBanner notice={{ tone: 'error', text: pasteError }} />}
+              <NoticeBanner notice={pasteError ? { tone: 'error', text: pasteError } : undefined} />
             </div>
             <DialogFooter className="shrink-0">
               <Button

@@ -111,11 +111,10 @@ export function GeneralSettings() {
   return (
     <>
       <SettingsSection>
-        {error && (
-          <div className="mb-3">
-            <NoticeBanner notice={{ tone: 'error', text: error }} />
-          </div>
-        )}
+        <NoticeBanner
+          notice={error ? { tone: 'error', text: error } : undefined}
+          className="mb-3"
+        />
         <div className={LIST_CARD}>
           <SettingsRow
             title={t('settings.appearance.language')}

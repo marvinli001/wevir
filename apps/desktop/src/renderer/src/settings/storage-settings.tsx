@@ -16,6 +16,7 @@ import { formatFileSize } from '@/session/shared-files-model';
 import {
   CLEANABLE_CATEGORIES,
   type CleanableCategory,
+  STORAGE_CATEGORIES,
   type StorageCategory,
   type StorageUsage,
 } from '../../../shared/storage.js';
@@ -104,11 +105,10 @@ export function StorageSettings() {
   return (
     <>
       <SettingsSection title={t('settings.storage.device')}>
-        {error && (
-          <div className="mb-3">
-            <NoticeBanner notice={{ tone: 'error', text: error }} />
-          </div>
-        )}
+        <NoticeBanner
+          notice={error ? { tone: 'error', text: error } : undefined}
+          className="mb-3"
+        />
         <div data-testid="storage-usage">
           <div className="flex items-center gap-3">
             <span className="min-w-0 flex-1 truncate text-sm font-semibold tabular-nums">
@@ -125,7 +125,6 @@ export function StorageSettings() {
             className={cn(
               'mt-3 flex h-3.5 gap-0.5 overflow-hidden rounded-full',
               segments.length === 0 && 'bg-muted',
-              segments.length === 0 && loading && 'animate-pulse',
             )}
             onPointerLeave={() => setHovered(undefined)}
           >
@@ -140,7 +139,7 @@ export function StorageSettings() {
                         data-storage-segment={category.id}
                         onPointerEnter={() => setHovered(category.id)}
                         className={cn(
-                          'h-full min-w-1 transition-[flex-grow,opacity] duration-500 ease-smooth first:rounded-l-full last:rounded-r-full',
+                          'h-full min-w-1 transition-[flex-grow,opacity] duration-160 ease-smooth first:rounded-l-full last:rounded-r-full',
                           TONE[category.id],
                           hovered !== undefined && hovered !== category.id && 'opacity-35',
                         )}
@@ -156,45 +155,47 @@ export function StorageSettings() {
               ))}
           </div>
           <dl className="mt-4 flex flex-wrap gap-x-7 gap-y-3">
-            {(usage?.categories ?? []).map((category) => (
+            {STORAGE_CATEGORIES.map((id) => (
               <div
-                key={category.id}
+                key={id}
                 className={cn(
-                  'min-w-0 transition-opacity duration-200',
-                  hovered !== undefined && hovered !== category.id && 'opacity-45',
+                  'min-w-0 transition-opacity duration-150',
+                  hovered !== undefined && hovered !== id && 'opacity-45',
                 )}
-                data-storage-category={category.id}
-                onPointerEnter={() => category.bytes > 0 && setHovered(category.id)}
+                data-storage-category={id}
+                onPointerEnter={() => bytesOf(id) > 0 && setHovered(id)}
                 onPointerLeave={() => setHovered(undefined)}
               >
                 <dt className="flex items-center gap-1.5 text-xs text-soft-foreground">
-                  <Dot category={category.id} />
-                  <span className="truncate">{t(`settings.storage.category.${category.id}`)}</span>
+                  <Dot category={id} />
+                  <span className="truncate">{t(`settings.storage.category.${id}`)}</span>
                 </dt>
-                <dd className="mt-0.5 pl-3.5 text-xs text-muted-foreground tabular-nums">
-                  {size(category.bytes)}
+                <dd className="mt-0.5 min-h-4 pl-3.5 text-xs text-muted-foreground tabular-nums">
+                  {usage ? size(bytesOf(id)) : undefined}
                 </dd>
               </div>
             ))}
           </dl>
-          {usage && (
-            <div className="mt-3 flex items-center gap-1">
-              <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
-                {usage.root}
-              </span>
-              <IconButton
-                size="icon-xs"
-                label={t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
-                onClick={() =>
-                  void platformApi()
-                    .revealPath(usage.root)
-                    .catch(() => undefined)
-                }
-              >
-                <FolderOpen />
-              </IconButton>
-            </div>
-          )}
+          <div className="mt-3 flex min-h-6 items-center gap-1">
+            {usage && (
+              <>
+                <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                  {usage.root}
+                </span>
+                <IconButton
+                  size="icon-xs"
+                  label={t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
+                  onClick={() =>
+                    void platformApi()
+                      .revealPath(usage.root)
+                      .catch(() => undefined)
+                  }
+                >
+                  <FolderOpen />
+                </IconButton>
+              </>
+            )}
+          </div>
         </div>
       </SettingsSection>
 
@@ -298,7 +299,9 @@ function ComponentsCard({
     speech.supported && speech.status !== undefined && speech.status.local.state !== 'unsupported'
       ? speech.status.local
       : undefined;
-  if (office === undefined && local === undefined) return null;
+  const officeLoading = engine.supported && engine.status === undefined;
+  const localLoading = speech.supported && speech.status === undefined;
+  if (!office && !local && !officeLoading && !localLoading) return null;
 
   const runSpeech = async (
     method: 'speech.install' | 'speech.cancelInstall' | 'speech.uninstall',
@@ -316,28 +319,33 @@ function ComponentsCard({
 
   return (
     <div className={LIST_CARD} data-storage-components>
-      {office && (
+      {(office || officeLoading) && (
         <SettingsRow
           title={t('settings.storage.officeEngine')}
           data-setting="office-engine"
-          description={engine.error ?? engineStatusText(office, currentLocale())}
-          control={<OfficeEngineAction engine={engine} />}
+          description={
+            engine.error ??
+            (office ? engineStatusText(office, currentLocale()) : t('common.loading'))
+          }
+          control={office ? <OfficeEngineAction engine={engine} /> : undefined}
         />
       )}
-      {local && (
+      {(local || localLoading) && (
         <SettingsRow
           title={t('settings.storage.speechModel')}
           data-setting="speech-local-model"
-          description={localStatusText(local, currentLocale())}
+          description={local ? localStatusText(local, currentLocale()) : t('common.loading')}
           control={
-            <LocalModelAction
-              state={local.state}
-              busy={speechBusy}
-              installVariant="secondary"
-              onInstall={() => void runSpeech('speech.install')}
-              onCancel={() => void runSpeech('speech.cancelInstall')}
-              onRemove={() => void runSpeech('speech.uninstall')}
-            />
+            local && (
+              <LocalModelAction
+                state={local.state}
+                busy={speechBusy}
+                installVariant="secondary"
+                onInstall={() => void runSpeech('speech.install')}
+                onCancel={() => void runSpeech('speech.cancelInstall')}
+                onRemove={() => void runSpeech('speech.uninstall')}
+              />
+            )
           }
         />
       )}
