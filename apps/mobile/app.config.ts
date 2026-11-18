@@ -122,8 +122,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
       },
       // react-native-zeroconf 自己声明组播锁与 Wi-Fi 状态的权限；录音权限由 expo-audio 声明（听写）。
     },
-    // Info.plist 的权限说明，十种语言（与界面同一组）。放在每个文件的 `ios` 下：顶层的键 Expo 也写进 Android 的 strings.xml，
-    // 默认语言里没有它们，release 构建的 lint（ExtraTranslation）会失败。
+    // iOS 的权限说明和通知扩展文案放在各语言文件的 `ios` 下。Android 通知渠道名称由 push-native.ts 随界面语言注册。
     locales: {
       en: './native-strings/en.json',
       'zh-Hans': './native-strings/zh-Hans.json',
