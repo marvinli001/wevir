@@ -159,7 +159,7 @@ export function ChecksSettings({ projects }: { projects: readonly WorkspaceEntry
         data-testid="checks-settings"
       >
         <div className="space-y-3">
-          {notice && <NoticeBanner notice={notice} />}
+          <NoticeBanner notice={notice} />
           {checks === undefined ? (
             <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
           ) : checks.length === 0 ? (

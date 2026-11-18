@@ -12,6 +12,8 @@ import {
 } from '@wevir/protocol';
 import { Globe, Smartphone, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { AnimatedRows } from '@/components/animated-rows';
+import { Collapse } from '@/components/collapse';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Switch } from '@/components/switch';
@@ -56,6 +58,7 @@ import {
   LIST_CARD,
   type Notice,
   NoticeBanner,
+  SettingsPlaceholder,
   SettingsRow,
   SettingsSection,
 } from './settings-ui';
@@ -102,8 +105,10 @@ export function DevicesSettings() {
   const load = useCallback(async () => {
     if (!client || !supported) return;
     try {
-      setDevices((await client.request('device.list', {})).devices);
-      if (listenerSupported) setStatus(await client.request('remote.status', {}));
+      await Promise.all([
+        client.request('device.list', {}).then(({ devices }) => setDevices(devices)),
+        listenerSupported && client.request('remote.status', {}).then(setStatus),
+      ]);
     } catch (reason) {
       setNotice({ tone: 'error', text: t('settings.devices.failed', { error: describe(reason) }) });
     }
@@ -171,11 +176,7 @@ export function DevicesSettings() {
 
   return (
     <>
-      {notice && (
-        <div className="mb-3">
-          <NoticeBanner notice={notice} />
-        </div>
-      )}
+      <NoticeBanner notice={notice} className="mb-3" />
       <SettingsSection title={t('settings.devices.remote')} data-devices-remote>
         <div className={LIST_CARD}>
           <SettingsRow
@@ -295,13 +296,13 @@ export function DevicesSettings() {
               )
             }
           />
-          {(!webSupported || relayChoice(remote) === 'custom') && (
+          <Collapse open={!webSupported || relayChoice(remote) === 'custom'} motion="height">
             <RelayUrlRow
               url={remote.relay.url}
               disabled={saving}
               onSave={(url) => saveRemote(setRelayUrl(remote, url))}
             />
-          )}
+          </Collapse>
         </div>
       </SettingsSection>
 
@@ -324,44 +325,47 @@ export function DevicesSettings() {
                 />
               }
             />
-            {remote.push.enabled &&
-              (
-                [
-                  ['needsAction', 'settings.devices.pushNeedsAction'],
-                  ['completion', 'settings.devices.pushCompletion'],
-                ] as const
-              ).map(([key, label]) => (
-                <SettingsRow
-                  key={key}
-                  title={t(label)}
-                  data-setting={`remote-push-${key}`}
-                  control={
-                    <Switch
-                      label={t(label)}
-                      checked={remote.push[key] !== false}
-                      disabled={saving}
-                      onChange={(enabled) =>
-                        void saveRemote({ ...remote, push: { ...remote.push, [key]: enabled } })
-                      }
-                    />
-                  }
-                />
-              ))}
-            {remote.push.enabled && channelPushSupported && (
-              <SettingsRow
-                title={t('settings.devices.pushChannel')}
-                control={
-                  <Switch
-                    label={t('settings.devices.pushChannel')}
-                    checked={remote.push.channel !== false}
-                    disabled={saving}
-                    onChange={(channel) =>
-                      void saveRemote({ ...remote, push: { ...remote.push, channel } })
+            <Collapse open={remote.push.enabled} motion="height">
+              <div className="divide-y divide-border">
+                {(
+                  [
+                    ['needsAction', 'settings.devices.pushNeedsAction'],
+                    ['completion', 'settings.devices.pushCompletion'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <SettingsRow
+                    key={key}
+                    title={t(label)}
+                    data-setting={`remote-push-${key}`}
+                    control={
+                      <Switch
+                        label={t(label)}
+                        checked={remote.push[key] !== false}
+                        disabled={saving}
+                        onChange={(enabled) =>
+                          void saveRemote({ ...remote, push: { ...remote.push, [key]: enabled } })
+                        }
+                      />
                     }
                   />
-                }
-              />
-            )}
+                ))}
+                {channelPushSupported && (
+                  <SettingsRow
+                    title={t('settings.devices.pushChannel')}
+                    control={
+                      <Switch
+                        label={t('settings.devices.pushChannel')}
+                        checked={remote.push.channel !== false}
+                        disabled={saving}
+                        onChange={(channel) =>
+                          void saveRemote({ ...remote, push: { ...remote.push, channel } })
+                        }
+                      />
+                    }
+                  />
+                )}
+              </div>
+            </Collapse>
           </div>
         </SettingsSection>
       )}
@@ -428,27 +432,31 @@ export function DevicesSettings() {
           </div>
         }
       >
-        {listed === undefined ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : listed.length === 0 ? (
-          <EmptyList>{t('settings.devices.empty')}</EmptyList>
-        ) : (
-          <ul className={LIST_CARD}>
-            {listed.map((device) => (
-              <DeviceRow
-                key={device.id}
-                device={device}
-                pushSupported={pushSupported}
-                gitWorkflow={
-                  view.status === 'connected' && hostSupports(view.hello.features, 'git_workflow')
-                }
-                onPush={(enabled) => void setPush(device, enabled)}
-                onToggle={(permission, granted) => toggle(device, permission, granted)}
-                onRemove={() => setRemoving(device)}
-              />
-            ))}
-          </ul>
-        )}
+        <AnimatedRows
+          items={listed}
+          keyOf={(device) => device.id}
+          className={LIST_CARD}
+          empty={
+            listed === undefined ? (
+              <SettingsPlaceholder className="min-h-[5.375rem]" />
+            ) : (
+              <EmptyList>{t('settings.devices.empty')}</EmptyList>
+            )
+          }
+        >
+          {(device) => (
+            <DeviceRow
+              device={device}
+              pushSupported={pushSupported}
+              gitWorkflow={
+                view.status === 'connected' && hostSupports(view.hello.features, 'git_workflow')
+              }
+              onPush={(enabled) => void setPush(device, enabled)}
+              onToggle={(permission, granted) => toggle(device, permission, granted)}
+              onRemove={() => setRemoving(device)}
+            />
+          )}
+        </AnimatedRows>
       </SettingsSection>
 
       {pairing === 'relay' && (
@@ -705,7 +713,7 @@ function DeviceRow({
 }) {
   const granted = new Set(device.permissions);
   return (
-    <li className="flex min-h-14 items-center gap-3 px-4 py-2.5" data-device={device.id}>
+    <div className="flex min-h-14 items-center gap-3 px-4 py-2.5" data-device={device.id}>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium">{device.name}</div>
         <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -759,6 +767,6 @@ function DeviceRow({
       >
         <Trash2 />
       </IconButton>
-    </li>
+    </div>
   );
 }

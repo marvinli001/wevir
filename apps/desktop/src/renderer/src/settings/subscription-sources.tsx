@@ -11,7 +11,6 @@ import {
   LoaderCircle,
   LogIn,
   LogOut,
-  Plus,
   RotateCw,
 } from 'lucide-react';
 import {
@@ -26,6 +25,7 @@ import { Collapse } from '@/components/collapse';
 import { ProviderLogo } from '@/components/provider-logo';
 import { StatusDot } from '@/components/status-dot';
 import { Switch } from '@/components/switch';
+import { AnimatedHeight, ContentCrossfade } from '@/components/transition-content';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -59,12 +59,7 @@ import { ChatgptAccountSection, UsageBar } from './chatgpt-account';
 import { planLabel, usageWindows } from './chatgpt-account-model';
 import { ClaudeIdleCompactionSetting } from './claude-idle-compaction';
 import { NoticeBanner } from './settings-ui';
-import {
-  AccountLabelControl,
-  AccountSwitcher,
-  RemoveAccountButton,
-  RemoveAccountDialog,
-} from './subscription-accounts';
+import { AccountSwitcher, RemoveAccountDialog } from './subscription-accounts';
 import { SubscriptionContextWindow } from './subscription-context-window';
 import { LoginPanel, UpstreamList } from './subscription-upstreams';
 import { loginPrompt } from './subscription-upstreams-model';
@@ -92,12 +87,10 @@ export function SubscriptionSources({
 }) {
   const accounts = useAccounts();
   const [areaRef, area] = useElementSize();
-  const [selected, setSelected] = useState<AccountKind>();
-  // 详情收起的过程里继续画刚才那一格的内容，动画才不会先清空。
+  const [open, setOpen] = useState(false);
+  // 收起时保留来源，展开时与格子的选中态在同一帧更新。
   const [shown, setShown] = useState<AccountKind>();
-  useEffect(() => {
-    if (selected !== undefined) setShown(selected);
-  }, [selected]);
+  const selected = open ? shown : undefined;
 
   // 每种来源在详情里选中的账号；没选过或选中的被删了时是首个账号。
   const [chosen, setChosen] = useState<Partial<Record<AccountKind, string>>>({});
@@ -132,7 +125,7 @@ export function SubscriptionSources({
     if (selectedProviderId !== undefined) onChoose?.(selectedProviderId);
   }, [selectedProviderId, onChoose]);
 
-  // 来源多于一页时分页：每页末尾一格翻页，翻页时这一页的格子缩回、下一页的错开着长出来；格子数不变，卡片不跳高。
+  // 来源多于一页时，末尾一格翻页，格子数保持不变。
   const kinds = setupOnly
     ? SOURCE_KINDS.filter((kind) => accountsOf(kind).length > 0).sort(
         (a, b) => Number(accountsOf(b).some(ready)) - Number(accountsOf(a).some(ready)),
@@ -155,13 +148,13 @@ export function SubscriptionSources({
   const nextPage = (page + 1) % pages.length;
   const turnPage = () => {
     if (leaving) return;
-    setSelected(undefined);
+    setOpen(false);
     const swap = () => {
       setPage(nextPage);
       setLeaving(false);
-      setEntering(true);
+      setEntering(setupOnly);
     };
-    if (reduced) {
+    if (reduced || !setupOnly) {
       swap();
       return;
     }
@@ -176,11 +169,26 @@ export function SubscriptionSources({
         sm: true,
       }))
     : tileFillers(cells);
-  const motion = (index: number) => cellMotion(leaving, entering && !reduced, index);
+  const motion = (index: number) =>
+    setupOnly ? cellMotion(leaving, entering && !reduced, index) : {};
+  const shownAccount = shown === undefined ? undefined : accountOf(shown);
+  const detail =
+    shown !== undefined && client !== undefined ? (
+      <SourceDetail
+        client={client}
+        source={SOURCES[shown]}
+        accounts={accountsOf(shown)}
+        account={shownAccount}
+        providerOf={providerOf}
+        onSelect={(id) => setChosen((value) => ({ ...value, [shown]: id }))}
+        setupOnly={setupOnly}
+        onBack={setupOnly ? () => setOpen(false) : undefined}
+      />
+    ) : undefined;
 
   return (
     <div
-      ref={areaRef}
+      ref={setupOnly ? areaRef : undefined}
       className={cn(
         setupOnly
           ? 'flex h-full min-h-0 gap-4'
@@ -226,7 +234,10 @@ export function SubscriptionSources({
                 providers.find((provider) => provider.id === activeProviderId)?.kind === kind
               }
               compact={setupOnly}
-              onSelect={() => setSelected((value) => (value === kind ? undefined : kind))}
+              onSelect={() => {
+                setShown(kind);
+                setOpen(selected !== kind);
+              }}
               motion={motion(index)}
             />
           ))}
@@ -277,35 +288,22 @@ export function SubscriptionSources({
               sideBySide ? 'w-80 shrink-0' : 'flex-1',
             )}
           >
-            {shown !== undefined && client !== undefined && (
-              <SourceDetail
-                key={shown}
-                client={client}
-                source={SOURCES[shown]}
-                accounts={accountsOf(shown)}
-                account={accountOf(shown)}
-                providerOf={providerOf}
-                onSelect={(id) => setChosen((value) => ({ ...value, [shown]: id }))}
-                setupOnly={setupOnly}
-                onBack={setupOnly ? () => setSelected(undefined) : undefined}
-              />
-            )}
+            <div key={selected} className="px-4 py-3">
+              {detail}
+            </div>
           </div>
         )
       ) : (
-        <Collapse open={selected !== undefined}>
-          {shown !== undefined && client !== undefined && (
-            <SourceDetail
-              key={shown}
-              client={client}
-              source={SOURCES[shown]}
-              accounts={accountsOf(shown)}
-              account={accountOf(shown)}
-              providerOf={providerOf}
-              onSelect={(id) => setChosen((value) => ({ ...value, [shown]: id }))}
-              setupOnly={setupOnly}
-              onBack={setupOnly ? () => setSelected(undefined) : undefined}
-            />
+        <Collapse open={open} motion="height">
+          {shown !== undefined && detail && (
+            <div
+              className="@container border-t border-border bg-background/40 px-5 pt-4 pb-5"
+              data-subscription-detail
+            >
+              <AnimatedHeight contentKey={shownAccount ? accountId(shownAccount) : shown}>
+                <ContentCrossfade contentKey={shown}>{detail}</ContentCrossfade>
+              </AnimatedHeight>
+            </div>
           )}
         </Collapse>
       )}
@@ -393,7 +391,8 @@ function PageTile({
                   logo={SOURCES[kind].logo}
                   fallback={t(SOURCES[kind].name)}
                   className={cn(
-                    'transition-transform duration-200 ease-smooth group-enabled/tile:group-hover/tile:-translate-y-px',
+                    compact &&
+                      'transition-transform duration-200 ease-smooth group-enabled/tile:group-hover/tile:-translate-y-px',
                     index > 0 && '-ml-3',
                   )}
                 />
@@ -497,8 +496,7 @@ function SourceTile({
         className={cn(
           'group/tile h-full w-full text-left outline-none transition-colors duration-150',
           'focus-visible:bg-accent/60 enabled:hover:bg-accent/40',
-          selected &&
-            'bg-selected ring-1 ring-selected-border ring-inset enabled:hover:bg-selected',
+          selected && 'bg-selected enabled:hover:bg-selected',
           soon && 'cursor-default',
         )}
       >
@@ -515,7 +513,8 @@ function SourceTile({
               logo={source.logo}
               fallback={name}
               className={cn(
-                'transition-transform duration-200 ease-smooth group-enabled/tile:group-hover/tile:-translate-y-px',
+                compact &&
+                  'transition-transform duration-200 ease-smooth group-enabled/tile:group-hover/tile:-translate-y-px',
                 soon && 'opacity-45 grayscale',
               )}
             />
@@ -545,7 +544,7 @@ function SourceTile({
       <span
         aria-hidden
         className={cn(
-          'pointer-events-none absolute inset-x-4 bottom-0 h-0.5 origin-center rounded-full bg-foreground transition-transform duration-200 ease-smooth',
+          'pointer-events-none absolute inset-x-4 bottom-0 h-0.5 origin-center rounded-full bg-foreground transition-transform duration-150 ease-smooth',
           selected || active ? 'scale-x-100' : 'scale-x-0',
         )}
       />
@@ -607,10 +606,7 @@ function phaseText(phase: SourcePhase, source: SourceInfo): string {
   }
 }
 
-/**
- * 展开的详情：头部（标志、名称、账号、在模型选择里显示），下面按状态给登录、安装或账号的内容。有多个账号时头部下面是账号的
- * 切换条；能添加账号的种类（`multiAccount`）在最下面给标签、删除与添加账号。
- */
+/** 展开的详情：来源标题、账号芯片，以及选中账号的登录、安装或设置。 */
 function SourceDetail({
   client,
   source,
@@ -638,7 +634,7 @@ function SourceDetail({
   const [toggling, setToggling] = useState(false);
   const [adding, setAdding] = useState(false);
   const [labeling, setLabeling] = useState(false);
-  const [removing, setRemoving] = useState(false);
+  const [removing, setRemoving] = useState<{ account: AccountState; title: string }>();
   const [error, setError] = useState<string>();
   const phase = sourcePhase(account);
   const name = t(source.name);
@@ -649,7 +645,6 @@ function SourceDetail({
     !setupOnly &&
     client.supports('subscription_accounts') &&
     accounts.some((each) => each.multiAccount === true);
-  const added = account !== undefined && id !== account.kind;
 
   const attempt = async (op: () => Promise<void>) => {
     setError(undefined);
@@ -677,11 +672,10 @@ function SourceDetail({
     });
     setAdding(false);
   };
-  const setLabel = async (label: string | null) => {
-    if (account === undefined) return;
+  const setLabel = async (account: AccountState, label: string | null) => {
     setLabeling(true);
     await attempt(async () => {
-      const result = await client.request('account.setLabel', { id, label });
+      const result = await client.request('account.setLabel', { id: accountId(account), label });
       accountsStore?.merge(result.account);
       // Provider 的显示名跟着标签（“Claude · 工作”）。
       await store?.refresh();
@@ -689,15 +683,39 @@ function SourceDetail({
     setLabeling(false);
   };
 
-  return (
-    <div
-      className={cn(
-        setupOnly
-          ? 'px-4 py-3'
-          : 'border-t border-border bg-background/40 px-5 pt-4 pb-5 animate-in fade-in duration-200',
+  const body = (
+    <>
+      {source.kind === 'chatgpt' ? (
+        client.supports('chatgpt_account') ? (
+          <ChatgptAccountSection
+            client={client}
+            account={account}
+            provider={provider}
+            setupOnly={setupOnly}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">{t('source.soon.body')}</p>
+        )
+      ) : (
+        <SubscriptionBody
+          client={client}
+          kind={source.kind}
+          name={name}
+          account={account}
+          phase={phase}
+          provider={provider}
+          setupOnly={setupOnly}
+        />
       )}
-      data-source-detail={source.kind}
-    >
+      {!setupOnly && source.kind === 'claude' && <ClaudeIdleCompactionSetting providerId={id} />}
+      {!setupOnly && provider !== undefined && account?.status === 'signed_in' && (
+        <SubscriptionContextWindow client={client} provider={provider} />
+      )}
+    </>
+  );
+
+  return (
+    <div data-source-detail={source.kind}>
       <div className="flex items-center gap-3">
         {onBack && (
           <Button variant="ghost" size="icon-sm" aria-label={t('source.back')} onClick={onBack}>
@@ -707,11 +725,11 @@ function SourceDetail({
         <LogoWell logo={source.logo} fallback={name} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">
-            {several && account !== undefined
+            {setupOnly && several && account !== undefined
               ? sourceTitle({ id, kind: source.kind }, accounts, name)
               : name}
           </p>
-          {account?.status === 'signed_in' && account.email !== undefined && (
+          {setupOnly && account?.status === 'signed_in' && account.email !== undefined && (
             <p className="truncate text-xs text-muted-foreground" data-account-email>
               {account.email}
             </p>
@@ -732,88 +750,54 @@ function SourceDetail({
             </div>
           )}
       </div>
-      {several && (
-        <div className="mt-4">
-          <AccountSwitcher
-            source={source}
-            accounts={accounts}
-            selected={id}
-            onSelect={onSelect}
-            adding={adding}
-            onAdd={canAdd ? () => void addAccount() : undefined}
-          />
-        </div>
+      {(setupOnly
+        ? several
+        : accounts.length > 0 && (canAdd || several || account?.status === 'signed_in')) && (
+        <AccountSwitcher
+          source={source}
+          accounts={accounts}
+          selected={id}
+          onSelect={onSelect}
+          adding={adding}
+          onAdd={canAdd ? () => void addAccount() : undefined}
+          labeling={labeling}
+          onLabel={canAdd ? setLabel : undefined}
+          onRemove={
+            canAdd
+              ? (target) =>
+                  setRemoving({
+                    account: target,
+                    title: sourceTitle(
+                      { id: accountId(target), kind: source.kind },
+                      accounts,
+                      name,
+                    ),
+                  })
+              : undefined
+          }
+          compact={setupOnly}
+        />
       )}
       <div className="mt-4">
-        {source.kind === 'chatgpt' ? (
-          client.supports('chatgpt_account') ? (
-            <ChatgptAccountSection
-              key={id}
-              client={client}
-              accountId={id}
-              provider={provider}
-              embedded
-              setupOnly={setupOnly}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('source.soon.body')}</p>
-          )
+        {setupOnly ? (
+          <div key={id}>{body}</div>
         ) : (
-          <SubscriptionBody
-            key={id}
-            client={client}
-            kind={source.kind}
-            name={name}
-            account={account}
-            phase={phase}
-            provider={provider}
-            setupOnly={setupOnly}
-          />
+          <ContentCrossfade contentKey={id}>{body}</ContentCrossfade>
         )}
       </div>
-      {!setupOnly && source.kind === 'claude' && (
-        <ClaudeIdleCompactionSetting key={id} providerId={id} />
-      )}
-      {!setupOnly && provider !== undefined && account?.status === 'signed_in' && (
-        <SubscriptionContextWindow key={id} client={client} provider={provider} />
-      )}
-      {canAdd && account !== undefined && (
-        <div
-          className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border pt-3"
-          data-account-actions
-        >
-          {several && (
-            <AccountLabelControl account={account} disabled={labeling} onChange={setLabel} />
-          )}
-          {added && <RemoveAccountButton disabled={removing} onClick={() => setRemoving(true)} />}
-          {!several && (
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={adding}
-              onClick={() => void addAccount()}
-              data-action="add-account"
-            >
-              {adding ? <LoaderCircle className="animate-spin" /> : <Plus />}
-              {t('source.account.add')}
-            </Button>
-          )}
-        </div>
-      )}
-      {error !== undefined && (
-        <div className="mt-3">
-          <NoticeBanner notice={{ tone: 'error', text: error }} />
-        </div>
-      )}
-      {removing && account !== undefined && (
+      <NoticeBanner
+        notice={error === undefined ? undefined : { tone: 'error', text: error }}
+        className="mt-3"
+      />
+      {removing && (
         <RemoveAccountDialog
           client={client}
-          title={sourceTitle({ id, kind: source.kind }, accounts, name)}
-          account={account}
+          title={removing.title}
+          account={removing.account}
           sessions={
             data.status === 'ready' ? data.workspaces.flatMap((entry) => entry.sessions) : []
           }
-          onClose={() => setRemoving(false)}
+          onClose={() => setRemoving(undefined)}
           onRemoved={async () => {
             onSelect(source.kind);
             await store?.refresh();
@@ -1038,7 +1022,7 @@ export function SubscriptionBody({
             onRun={run}
           />
         )}
-      {notice !== undefined && <NoticeBanner notice={{ tone: 'error', text: notice }} />}
+      <NoticeBanner notice={notice === undefined ? undefined : { tone: 'error', text: notice }} />
     </div>
   );
 }
@@ -1273,7 +1257,7 @@ function Progress({ percent }: { percent: number | undefined }) {
       <div
         className={cn(
           'h-full rounded-full bg-primary transition-[width] duration-300 ease-smooth',
-          percent === undefined && 'w-1/3 animate-pulse',
+          percent === undefined && 'w-1/3',
         )}
         style={percent === undefined ? undefined : { width: `${percent}%` }}
       />
@@ -1413,7 +1397,7 @@ function RuntimeUpdate({
   onRun: (label: string, op: () => Promise<{ account: AccountState }>) => Promise<unknown>;
 }) {
   const [update, setUpdate] = useState<AccountState['runtimeUpdate']>();
-  const [checking, setChecking] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string>();
   const revision = useRef(0);
   const check = useCallback(async () => {
@@ -1435,49 +1419,50 @@ function RuntimeUpdate({
       revision.current += 1;
     };
   }, [check]);
-  if (!checking && !update && !error) return null;
   return (
-    <div data-testid="runtime-update" className="space-y-2 border-t border-border pt-3">
-      <Step
-        title={t(
-          error
-            ? 'source.update.check'
-            : checking
-              ? 'source.update.checking'
-              : update?.available
-                ? 'source.update.available'
-                : 'source.update.current',
-          { version: update?.latestVersion ?? '' },
-        )}
-        actions={
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={checking || busy !== undefined}
-              onClick={() => void check()}
-              data-action="check-runtime-update"
-            >
-              <RotateCw className={checking ? 'animate-spin' : undefined} />
-              {t('source.update.check')}
-            </Button>
-            {update?.available && (
+    <Collapse open={checking || !!update || !!error} motion="height">
+      <div data-testid="runtime-update" className="space-y-2 border-t border-border pt-3">
+        <Step
+          title={t(
+            error
+              ? 'source.update.check'
+              : checking
+                ? 'source.update.checking'
+                : update?.available
+                  ? 'source.update.available'
+                  : 'source.update.current',
+            { version: update?.latestVersion ?? '' },
+          )}
+          actions={
+            <>
               <Button
+                variant="ghost"
                 size="sm"
                 disabled={checking || busy !== undefined}
-                onClick={() =>
-                  void onRun('update', () => client.request('account.install', { kind }))
-                }
-                data-action="update-runtime"
+                onClick={() => void check()}
+                data-action="check-runtime-update"
               >
-                <Download />
-                {t('source.update')}
+                <RotateCw className={checking ? 'animate-spin' : undefined} />
+                {t('source.update.check')}
               </Button>
-            )}
-          </>
-        }
-      />
-      {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
-    </div>
+              {update?.available && (
+                <Button
+                  size="sm"
+                  disabled={checking || busy !== undefined}
+                  onClick={() =>
+                    void onRun('update', () => client.request('account.install', { kind }))
+                  }
+                  data-action="update-runtime"
+                >
+                  <Download />
+                  {t('source.update')}
+                </Button>
+              )}
+            </>
+          }
+        />
+        <NoticeBanner notice={error ? { tone: 'error', text: error } : undefined} />
+      </div>
+    </Collapse>
   );
 }

@@ -1560,13 +1560,7 @@ export const messages: Messages = {
   'routing.reorder': 'Orden',
   'routing.next': 'Siguiente salto',
   'routing.empty': 'Sin fuentes',
-  'routing.decisions': 'Decisiones recientes',
-  'routing.decisions.empty': 'Sin decisiones de enrutamiento',
-  'routing.decisions.more': 'Más',
-  'routing.noTarget': 'Sin fuentes disponibles',
   'routing.failed': 'Error al configurar el enrutamiento: {error}',
-  'routing.readFailed': 'Historial de enrutamiento no disponible: {error}',
-  'routing.openFailed': 'Sesión no disponible: {error}',
   'routing.quota.empty': 'Sin datos de cuota',
   'routing.quota.metered': 'Pago por uso',
   'routing.reason.attempt_limit': 'Límite de intentos',
@@ -1962,8 +1956,6 @@ export const messages: Messages = {
   'provider.section.subscriptions': 'Suscripciones',
   'provider.section.keyed': 'API y cuentas de servicio',
   'provider.enabled': 'Mostrar «{name}» en el selector de modelos',
-  'provider.summary':
-    '{sources, plural, one {# fuente} other {# fuentes}} · {models, plural, one {# modelo} other {# modelos}}',
 
   'source.codex': 'Codex',
   'source.claude': 'Claude',

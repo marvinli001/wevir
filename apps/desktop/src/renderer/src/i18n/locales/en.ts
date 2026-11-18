@@ -1540,13 +1540,7 @@ export const messages: Messages = {
   'routing.reorder': 'Order',
   'routing.next': 'Next hop',
   'routing.empty': 'No sources',
-  'routing.decisions': 'Recent decisions',
-  'routing.decisions.empty': 'No routing decisions',
-  'routing.decisions.more': 'More',
-  'routing.noTarget': 'No available source',
   'routing.failed': 'Routing settings failed: {error}',
-  'routing.readFailed': 'Routing history unavailable: {error}',
-  'routing.openFailed': 'Session unavailable: {error}',
   'routing.quota.empty': 'No quota data',
   'routing.quota.metered': 'Pay as you go',
   'routing.reason.attempt_limit': 'Attempt limit',
@@ -1938,8 +1932,6 @@ export const messages: Messages = {
   'provider.section.subscriptions': 'Subscriptions',
   'provider.section.keyed': 'API & service accounts',
   'provider.enabled': 'Show “{name}” in model picker',
-  'provider.summary':
-    '{sources, plural, one {# source} other {# sources}} · {models, plural, one {# model} other {# models}}',
 
   'source.codex': 'Codex',
   'source.claude': 'Claude',

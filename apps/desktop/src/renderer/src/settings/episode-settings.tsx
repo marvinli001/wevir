@@ -34,6 +34,7 @@ import {
   LIST_CARD,
   type Notice,
   NoticeBanner,
+  SettingsPlaceholder,
   SettingsRow,
   SettingsSection,
 } from './settings-ui';
@@ -115,7 +116,7 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
 
   return (
     <SettingsSection title={t('settings.episodes.title')}>
-      {notice && <NoticeBanner notice={notice} />}
+      <NoticeBanner notice={notice} />
       <div className={LIST_CARD}>
         <SettingsRow
           title={t('settings.episodes.auto')}
@@ -185,7 +186,12 @@ export function EpisodeSettings({ workspaceId }: { workspaceId: WorkspaceId | un
           </div>
         ))}
       </div>
-      {episodes.length === 0 && <EmptyList>{t('settings.episodes.empty')}</EmptyList>}
+      {episodes.length === 0 &&
+        (loaded === undefined && workspaceId !== undefined && !notice ? (
+          <SettingsPlaceholder className="min-h-[5.375rem]" />
+        ) : (
+          <EmptyList>{t('settings.episodes.empty')}</EmptyList>
+        ))}
       {next && workspaceId !== undefined && (
         <Button
           variant="ghost"

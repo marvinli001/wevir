@@ -64,7 +64,6 @@ describe('路由设置页', () => {
     expect(html).toContain('data-action="routing-toggle"');
     expect(html).toContain('draggable="true"');
     expect(html).toContain('data-action="routing-add"');
-    expect(html).toContain('最近决定');
     expect(html).not.toContain('disabled=""');
     expect(update).not.toHaveBeenCalled();
   });

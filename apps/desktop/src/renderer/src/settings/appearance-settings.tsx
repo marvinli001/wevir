@@ -1,6 +1,7 @@
 import { cn } from 'cn';
 import { ChevronDown } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useState } from 'react';
+import { Collapse } from '@/components/collapse';
 import { Switch } from '@/components/switch';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -185,8 +186,8 @@ export function AppearanceSettings() {
             {t('settings.appearance.reset')}
           </button>
         </div>
-        {advancedOpen && (
-          <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-200 ease-smooth">
+        <Collapse open={advancedOpen} motion="height">
+          <div className="space-y-3">
             <div className={LIST_CARD}>
               <SettingsRow
                 title={t('settings.appearance.uiFontSize')}
@@ -284,7 +285,7 @@ export function AppearanceSettings() {
               />
             </div>
           </div>
-        )}
+        </Collapse>
       </section>
     </>
   );

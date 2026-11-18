@@ -1569,13 +1569,7 @@ export const messages: Messages = {
   'routing.reorder': 'Порядок',
   'routing.next': 'Следующий',
   'routing.empty': 'Нет источников',
-  'routing.decisions': 'Последние решения',
-  'routing.decisions.empty': 'Нет решений маршрутизации',
-  'routing.decisions.more': 'Ещё',
-  'routing.noTarget': 'Нет доступных источников',
   'routing.failed': 'Ошибка настроек маршрутизации: {error}',
-  'routing.readFailed': 'История маршрутизации недоступна: {error}',
-  'routing.openFailed': 'Сессия недоступна: {error}',
   'routing.quota.empty': 'Нет данных о квоте',
   'routing.quota.metered': 'Оплата по использованию',
   'routing.reason.attempt_limit': 'Лимит попыток',
@@ -1964,8 +1958,6 @@ export const messages: Messages = {
   'provider.section.subscriptions': 'Подписки',
   'provider.section.keyed': 'API и сервисные аккаунты',
   'provider.enabled': 'Показывать «{name}» в выборе модели',
-  'provider.summary':
-    '{sources, plural, one {# источник} few {# источника} many {# источников} other {# источника}} · {models, plural, one {# модель} few {# модели} many {# моделей} other {# модели}}',
 
   'source.codex': 'Codex',
   'source.claude': 'Claude',

@@ -1555,13 +1555,7 @@ export const messages: Messages = {
   'routing.reorder': 'Reihenfolge',
   'routing.next': 'Nächstes Ziel',
   'routing.empty': 'Keine Quellen',
-  'routing.decisions': 'Letzte Entscheidungen',
-  'routing.decisions.empty': 'Keine Routing-Entscheidungen',
-  'routing.decisions.more': 'Mehr',
-  'routing.noTarget': 'Keine verfügbare Quelle',
   'routing.failed': 'Routing-Einstellungen fehlgeschlagen: {error}',
-  'routing.readFailed': 'Routing-Verlauf nicht verfügbar: {error}',
-  'routing.openFailed': 'Sitzung nicht verfügbar: {error}',
   'routing.quota.empty': 'Keine Kontingentdaten',
   'routing.quota.metered': 'Verbrauchsabhängige Abrechnung',
   'routing.reason.attempt_limit': 'Versuchslimit',
@@ -1955,8 +1949,6 @@ export const messages: Messages = {
   'provider.section.subscriptions': 'Abonnements',
   'provider.section.keyed': 'API und Dienstkonten',
   'provider.enabled': '„{name}“ in der Modellauswahl anzeigen',
-  'provider.summary':
-    '{sources, plural, one {# Quelle} other {# Quellen}} · {models, plural, one {# Modell} other {# Modelle}}',
 
   'source.codex': 'Codex',
   'source.claude': 'Claude',

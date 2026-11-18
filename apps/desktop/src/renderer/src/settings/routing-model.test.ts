@@ -1,14 +1,7 @@
-import type {
-  AccountState,
-  ProviderProfile,
-  RoutingDecision,
-  RoutingSettings,
-  WevirEvent,
-} from '@wevir/protocol';
+import type { AccountState, ProviderProfile, RoutingSettings } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { decideRouting } from '../../../../../../packages/host/src/routing.js';
 import {
-  isRoutingSwitch,
   moveRoutingNode,
   routingMenuProviders,
   routingNodes,
@@ -161,33 +154,7 @@ describe('路由链与 Host 一致', () => {
     expect(moveRoutingNode(chain, 0, -1)).toBe(chain);
   });
 
-  it('仅定位同原回合、同次数的额度切换；未知原因原样保留', () => {
-    const decision: RoutingDecision = {
-      turnId,
-      originTurnId: turnId,
-      attempt: 2,
-      from,
-      to: from,
-      skipped: [],
-      at: new Date(now).toISOString(),
-    };
-    const event: WevirEvent = {
-      seq: 1,
-      sessionId: 'ses_1',
-      ts: new Date(now).toISOString(),
-      source: 'host',
-      type: 'session.configured',
-      payload: {
-        modelId: 'm',
-        reason: 'usage_limit',
-        failover: { originTurnId: turnId, attempt: 2 },
-      },
-    };
-    expect(isRoutingSwitch(event, decision)).toBe(true);
-    expect(isRoutingSwitch(event, { ...decision, attempt: 1 })).toBe(false);
-    expect(isRoutingSwitch({ ...event, payload: { modelId: 'm' } } as WevirEvent, decision)).toBe(
-      false,
-    );
+  it('本地化已知原因，保留未知原因', () => {
     expect(routingReason('signed_out')).toBe('未登录');
     expect(routingReason('future_reason')).toBe('future_reason');
   });

@@ -50,7 +50,14 @@ import {
   updateRow,
 } from './import-model';
 import { ImportSessionIssues } from './import-session-issues';
-import { EmptyList, LIST_CARD, NoticeBanner, Segmented, SettingsSection } from './settings-ui';
+import {
+  EmptyList,
+  LIST_CARD,
+  NoticeBanner,
+  Segmented,
+  SettingsPlaceholder,
+  SettingsSection,
+} from './settings-ui';
 
 type ScanState =
   | { status: 'loading'; app: ImportApp }
@@ -125,6 +132,8 @@ export function ImportSettings() {
   const [applying, setApplying] = useState(false);
   const [summary, setSummary] = useState<ImportSummary>();
   const [error, setError] = useState<string>();
+  const [shownSummary, setShownSummary] = useState(summary);
+  if (summary && summary !== shownSummary) setShownSummary(summary);
   // 导入后加一，触发重新读。
   const [generation, setGeneration] = useState(0);
 
@@ -214,19 +223,26 @@ export function ImportSettings() {
           options={IMPORT_APPS.map((value) => ({ value, label: t(IMPORT_APP_LABEL[value]) }))}
         />
       </div>
-      {(summary || error) && (
-        <div className="mb-6 space-y-2" data-testid="import-result">
-          {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
-          {summary && <ImportSummaryView summary={summary} />}
-        </div>
-      )}
+      <div className="empty:hidden" data-testid={summary || error ? 'import-result' : undefined}>
+        <NoticeBanner
+          notice={error ? { tone: 'error', text: error } : undefined}
+          className={summary ? 'mb-2' : 'mb-6'}
+        />
+        <Collapse open={summary !== undefined} motion="height">
+          {shownSummary && (
+            <div className="mb-6 space-y-2">
+              <ImportSummaryView summary={shownSummary} />
+            </div>
+          )}
+        </Collapse>
+      </div>
       {scan && <ImportSessionIssues issues={scan.sessionIssues} />}
       {state.status === 'error' && state.app === app ? (
         <NoticeBanner
           notice={{ tone: 'error', text: t('settings.import.scanFailed', { error: state.error }) }}
         />
       ) : scan === undefined ? (
-        <p className="text-sm text-muted-foreground">{t('settings.import.scanning')}</p>
+        <SettingsPlaceholder className="min-h-[5.375rem]" />
       ) : !scan.found ? (
         <EmptyList>{t('settings.import.notFound', { app: t(IMPORT_APP_LABEL[app]) })}</EmptyList>
       ) : (
@@ -503,7 +519,7 @@ function CandidateRow({
           )}
         </div>
       )}
-      <Collapse open={open} id={detailId}>
+      <Collapse open={open} motion="height" id={detailId}>
         <div className="mt-3 space-y-2 pl-7 text-sm">
           {kind === 'memory' && (
             <MonoBlock className="max-h-60 overflow-y-auto">

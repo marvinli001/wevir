@@ -170,8 +170,8 @@ export function SessionStorageCard({
     <>
       {(notice || error) && (
         <div className="space-y-2">
-          {notice && <NoticeBanner notice={notice} />}
-          {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
+          <NoticeBanner notice={notice} />
+          <NoticeBanner notice={error ? { tone: 'error', text: error } : undefined} />
         </div>
       )}
       <div className={LIST_CARD} data-testid="storage-manage">
