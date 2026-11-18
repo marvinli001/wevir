@@ -146,14 +146,14 @@ docker compose ps
 
 ## Desktop configuration
 
-**Settings → Devices**:
+Enable remote access in **Settings → Devices**.
 
 | Setting | Value |
 | --- | --- |
-| Relay | Custom address: `wss://wevir.example.com` |
-| Web client address | `https://wevir.example.com` |
+| Connection methods → Relay | Custom address: `wss://wevir.example.com` |
+| Web devices → Web client address | `https://wevir.example.com` |
 
-Pairing: **Add web device** → open the pairing link in the browser → approve on the computer. Pairing is per origin; browsers paired with `web.wevir.si` pair again with the self-hosted address.
+Select **Pair a browser**, open the link in that browser, then approve the request on the computer. Pairing is per origin. Browsers already paired with `web.wevir.si` need to pair again on the self-hosted domain.
 
 ## Updates
 

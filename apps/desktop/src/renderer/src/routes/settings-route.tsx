@@ -129,7 +129,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
       'settings.devices.remote',
       'settings.devices.relay',
       'settings.devices.add',
+      'settings.devices.addWeb',
       'settings.devices.lan',
+      'settings.devices.tailscale',
+      'settings.devices.network',
+      'settings.pairing.push',
     ],
   },
   shortcuts: {

@@ -183,7 +183,7 @@
 | iOS | TestFlight 测试版。邀请在 [Telegram 交流群](https://t.me/darkfiber_labs) 中发放。 |
 | Android | 已签名的 APK，随每个桌面端版本发布，版本号与桌面端一致。新版 APK 可直接覆盖安装。 |
 
-配对：**设置 → 设备 → 添加手机**。
+在**设置 → 设备**开启远程访问，选择**配对手机**。
 
 ### 命令行
 
@@ -216,7 +216,7 @@ wevir session new -w ~/my-project "概括这个仓库"
 | 官方托管 | [web.wevir.si](https://web.wevir.si)，Wevir 中继位于同一域名 |
 | 自建 | 站点与中继部署于自有服务器的同一域名：[部署文档与 Agent 提示词](docs/self-hosting/web.zh-CN.md) |
 
-配对：**设置 → 设备 → 添加网页设备**。
+在**设置 → 设备**开启远程访问，选择**配对浏览器**。
 
 ## 从源码运行
 

@@ -43,6 +43,7 @@ beforeEach(() => {
   vi.mocked(useHostSettings).mockReturnValue({
     supported: true,
     editable: true,
+    loaded: true,
     settings: {
       ...DEFAULT_HOST_SETTINGS,
       routing: {

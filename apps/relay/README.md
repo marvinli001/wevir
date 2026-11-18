@@ -1,10 +1,10 @@
 # wevir-relay
 
-The optional relay for Wevir remote access. A phone or a remote `wevir` CLI normally reaches the desktop directly, over the local network or Tailscale. When the two are on different networks and there is no Tailscale, the desktop can open an outbound connection to a relay and devices reach it through there instead. Relay use is off by default and is turned on per computer in **Settings → Devices**.
+The optional relay for Wevir remote access. A phone or a remote `wevir` CLI normally reaches the desktop directly, over the local network or Tailscale. When the two are on different networks and there is no Tailscale, the desktop can open an outbound connection to a relay and devices reach it through there instead. Relay use is off by default and is turned on per computer in **Settings → Devices → Connection methods**.
 
 The relay only forwards bytes. Every frame between a device and the desktop is Noise ciphertext (`Noise_XXpsk2` for pairing, `Noise_IK` after that), end to end. The relay never has the keys, never decrypts, does not write frames to disk and does not log their contents. If a relay is compromised, the attacker learns metadata (see below) and can drop or delay connections, but cannot read or forge messages.
 
-In **Settings → Devices** the relay is off by default. You can pick the Wevir relay, which runs the same protocol on Cloudflare Workers (see [`apps/relay-worker`](../relay-worker)), or host this one yourself (see [Running it](#running-it)) and enter its address. The browser client can only reach a computer through a relay.
+In **Settings → Devices → Connection methods** the relay is off by default. You can pick the Wevir relay, which runs the same protocol on Cloudflare Workers (see [`apps/relay-worker`](../relay-worker)), or host this one yourself (see [Running it](#running-it)) and enter its address. The browser client can only reach a computer through a relay.
 
 ## What the relay sees
 
