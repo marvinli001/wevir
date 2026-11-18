@@ -47,8 +47,9 @@ describe('命令行解析', () => {
     expect(execHelp.code).toBe(0);
     expect(execHelp.out).toContain('--output-schema');
     expect(execHelp.out).toContain(
-      '0 completed; 1 failed or disconnected; 2 input required or usage error; 3 invalid output; 130 cancelled',
+      '0 completed; 1 failed or disconnected; 2 input required or usage error; 3 invalid output; 4 required checks unmet; 130 cancelled',
     );
+    expect(execHelp.out).toContain('--require-checks [names]');
   });
 
   it('用法错误：退出码 2，中文说明加下一步', async () => {

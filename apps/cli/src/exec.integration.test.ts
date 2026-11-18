@@ -1,12 +1,14 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { webSocketTransport } from '@wevir/client-sdk';
+import { connectLocalHost } from '@wevir/client-sdk/node';
 import { createLogger, type RunningHost, startHost } from '@wevir/host';
-import { type SessionSnapshot, WevirEventSchema } from '@wevir/protocol';
-import type { AgentEvent } from '@wevir/runtime-adapter';
+import { type CheckInput, type SessionSnapshot, WevirEventSchema } from '@wevir/protocol';
+import type { AgentEvent, AgentInput, EngineSession, SessionConfig } from '@wevir/runtime-adapter';
 import { EchoAdapter, type EchoAdapterOptions } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as hostCommands from './commands/host.js';
@@ -43,6 +45,21 @@ class JsonEchoAdapter extends EchoAdapter {
         }
       },
     };
+  }
+}
+
+class FileEchoAdapter extends EchoAdapter {
+  readonly #cwds = new Map<string, string>();
+
+  override async createSession(config: SessionConfig): Promise<EngineSession> {
+    const session = await super.createSession(config);
+    this.#cwds.set(session.engineSessionId, config.cwd);
+    return session;
+  }
+
+  override async send(id: string, input: AgentInput): Promise<void> {
+    writeFileSync(join(this.#cwds.get(id) ?? '', 'tracked.txt'), 'changed\n');
+    await super.send(id, input);
   }
 }
 
@@ -427,4 +444,169 @@ describe('wevir exec', () => {
     },
     15_000,
   );
+});
+
+describe('wevir exec --require-checks', () => {
+  async function checksFixture(checks: Array<Partial<CheckInput>>, Adapter = EchoAdapter) {
+    const fixture = await setup(Adapter);
+    const { home, workspace, userHome } = fixture;
+    const git = (...args: string[]) =>
+      execFileSync('git', args, {
+        cwd: workspace,
+        env: { ...process.env, HOME: userHome, GIT_CONFIG_NOSYSTEM: '1' },
+      });
+    git('init', '-qb', 'main');
+    git('config', 'user.email', 'fixture@example.invalid');
+    git('config', 'user.name', 'Fixture');
+    git('config', 'commit.gpgSign', 'false');
+    writeFileSync(join(workspace, 'tracked.txt'), 'before\n');
+    git('add', 'tracked.txt');
+    git('commit', '-qm', 'Initial');
+    const client = await connectLocalHost({
+      home,
+      transport: webSocketTransport(WebSocket),
+      identity: { clientKind: 'cli', clientId: 'exec-checks-fixture', deviceId: 'exec-fixture' },
+    });
+    try {
+      const { workspace: project } = await client.request('workspace.add', { rootPath: workspace });
+      for (const check of checks) {
+        await client.request('checks.save', {
+          workspaceId: project.id,
+          check: {
+            kind: 'lint',
+            name: 'Lint',
+            command: 'node -e "console.log(42)"',
+            trigger: 'manual',
+            ...check,
+          },
+        });
+      }
+    } finally {
+      client.close();
+    }
+    return fixture;
+  }
+
+  const lines = (out: string) => out.trim().split('\n');
+  const last = (out: string) => JSON.parse(lines(out).at(-1) ?? 'null');
+  const priorEvents = (out: string) => events(lines(out).slice(0, -1).join('\n'));
+
+  it('waits for the after-turn check without repeating it', async () => {
+    const { home, workspace } = await checksFixture([{ trigger: 'after_turn' }], FileEchoAdapter);
+    const result = await run(['exec', '--json', '--require-checks', 'task'], {
+      home,
+      cwd: workspace,
+    });
+    expect(result.code, result.err).toBe(0);
+    expect(last(result.out)).toEqual({
+      type: 'exec.checks',
+      ok: true,
+      checks: [{ name: 'Lint', status: 'passed' }],
+    });
+    const updates = priorEvents(result.out).filter(
+      (event) => event.type === 'verification.updated',
+    );
+    expect(new Set(updates.map(({ payload }) => payload.run.id)).size).toBe(1);
+    expect(updates.at(-1)?.payload.run).toMatchObject({ trigger: 'after_turn', status: 'passed' });
+  });
+
+  it('runs missing checks once and leaves the final answer on stdout', async () => {
+    const { home, workspace } = await checksFixture([{}, { name: 'Types' }]);
+    const result = await run(['exec', 'task', '--require-checks', 'Lint,Types', '--json'], {
+      home,
+      cwd: workspace,
+    });
+    expect(result.code, result.err).toBe(0);
+    expect(last(result.out)).toEqual({
+      type: 'exec.checks',
+      ok: true,
+      checks: [
+        { name: 'Lint', status: 'passed' },
+        { name: 'Types', status: 'passed' },
+      ],
+    });
+    const updates = priorEvents(result.out).filter(
+      (event) => event.type === 'verification.updated',
+    );
+    expect(
+      updates
+        .filter(({ payload }) => payload.run.status === 'passed')
+        .map(({ payload }) => payload.run.trigger),
+    ).toEqual(['manual', 'manual']);
+    const defaultRun = await run(['exec', 'task'], { home, cwd: workspace });
+    expect(defaultRun).toEqual({ code: 0, out: 'Echo: task\n', err: '' });
+    const defaultJson = await run(['exec', 'task', '--json'], { home, cwd: workspace });
+    expect(events(defaultJson.out).at(-1)?.type).toBe('turn.finished');
+    expect(defaultJson.out).not.toContain('exec.checks');
+  });
+
+  it('reports a matching failure and still prints the final answer', async () => {
+    const { home, workspace } = await checksFixture([{ command: 'node -e "process.exit(1)"' }]);
+    const result = await run(['exec', 'task', '--require-checks'], {
+      home,
+      cwd: workspace,
+      lang: 'en',
+    });
+    expect(result).toEqual({
+      code: 4,
+      out: 'Echo: task\n',
+      err: 'Required checks unmet: Lint (failed)\n',
+    });
+  });
+
+  it.each([
+    ['unknown_check', [{ name: 'Lint' }]],
+    ['not_configured', []],
+  ] as const)('reports %s in JSON', async (reason, checks) => {
+    const { home, workspace } = await checksFixture([...checks]);
+    const result = await run(['exec', '--require-checks=Unknown', '--json', 'task'], {
+      home,
+      cwd: workspace,
+    });
+    expect(result.code, result.err).toBe(4);
+    expect(last(result.out)).toEqual({
+      type: 'exec.checks',
+      ok: false,
+      checks: [{ name: 'Unknown', status: 'not_run', reason }],
+    });
+  });
+
+  it('uses the configured check timeout during a rerun', async () => {
+    const { home, workspace } = await checksFixture([
+      { command: 'node -e "setTimeout(() => {}, 60000)"', timeoutMs: 1000 },
+    ]);
+    const result = await run(['exec', '--json', 'task', '--require-checks'], {
+      home,
+      cwd: workspace,
+    });
+    expect(result.code, result.err).toBe(4);
+    expect(last(result.out)).toEqual({
+      type: 'exec.checks',
+      ok: false,
+      checks: [{ name: 'Lint', status: 'timed_out', reason: 'timed_out' }],
+    });
+  }, 25_000);
+
+  it('cancels active checks on SIGINT and exits 130', async () => {
+    const { home, workspace } = await checksFixture([
+      { command: 'node -e "setTimeout(() => {}, 60000)"' },
+    ]);
+    const fake = runFake(['exec', '--json', 'task', '--require-checks'], { home, cwd: workspace });
+    running.push(fake);
+    await fake.waitFor(/"type":"verification.updated".*"startedAt":/, 0, 15_000);
+    fake.interrupt();
+    expect(await fake.exit).toBe(130);
+    expect(fake.out()).not.toContain('exec.checks');
+    const session = await snapshot(home, fake.out());
+    expect(session.verification?.runs).not.toHaveLength(0);
+    const id = session.session.id;
+    await vi.waitFor(
+      async () => {
+        const shown = await run(['session', 'show', id, '--json'], { home });
+        const updated = JSON.parse(shown.out) as SessionSnapshot;
+        expect(updated.verification?.runs.at(-1)?.status).toBe('cancelled');
+      },
+      { timeout: 10_000 },
+    );
+  }, 25_000);
 });

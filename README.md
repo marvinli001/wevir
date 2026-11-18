@@ -189,6 +189,8 @@ Pairing: **Settings → Devices → Add phone**.
 
 The `wevir` CLI also ships on its own, with Node bundled, for Linux (x64 and arm64, glibc 2.28+, servers without a desktop included), macOS, and Windows x64. It uses the same data directory as the desktop app and attaches to a Host that is already running.
 
+Run one prompt with `wevir exec "prompt"`. Add `--require-checks` to require all configured project checks on the final worktree, or `--require-checks Lint,Tests` to require named checks. Unmet requirements return exit code 4. With `--json`, the final `exec.checks` line reports each result.
+
 ```bash
 curl -fsSL https://dl.edgeweir.com/cli/install.sh | sh
 ```

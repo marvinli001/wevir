@@ -189,6 +189,8 @@
 
 `wevir` 命令行也单独发布，自带 Node，支持 Linux（x64 与 arm64，glibc 2.28 起，包括没有桌面的服务器）、macOS 与 Windows x64。它与桌面端共用数据目录，已有 Host 在运行时直接连上它。
 
+使用 `wevir exec "提示"` 一次运行一条指令。`--require-checks` 要求最终工作树上的全部已配置检查通过，可用 `--require-checks Lint,Tests` 指定检查名。检查条件未满足时退出码为 4，`--json` 在末行输出各项 `exec.checks` 结果。
+
 ```bash
 curl -fsSL https://dl.edgeweir.com/cli/install.sh | sh
 ```

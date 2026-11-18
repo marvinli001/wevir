@@ -351,7 +351,10 @@ export class VerificationService {
     sessionId: SessionId,
     checkIds?: readonly CheckId[],
   ): Promise<{ roundId: VerificationRoundId; runs: VerificationRun[] }> {
-    const { record, snapshot } = this.#session(sessionId);
+    await this.#tails.get(sessionId);
+    const { record } = this.#session(sessionId);
+    const { checks } = await this.#checks.list(record.workspaceId as WorkspaceId);
+    const { snapshot } = this.#session(sessionId);
     const { state } = snapshot.session;
     if (state !== 'idle') {
       throw new HostError('SESSION_BUSY', 'wait for the turn to finish before running checks', {
@@ -364,7 +367,6 @@ export class VerificationService {
     if (this.#activeRounds(sessionId).length > 0) {
       throw new HostError('SESSION_BUSY', 'checks are already running in this session', { state });
     }
-    const { checks } = await this.#checks.list(record.workspaceId as WorkspaceId);
     let chosen = checks;
     if (checkIds !== undefined) {
       const unknown = checkIds.find((id) => !checks.some((check) => check.id === id));
@@ -387,8 +389,9 @@ export class VerificationService {
   }
 
   /** `verification.cancel`：取消会话里还在跑或排着的检查，停下修复链；修复回合进行中时一并停下它。 */
-  cancel(sessionId: SessionId): { cancelled: number } {
+  async cancel(sessionId: SessionId): Promise<{ cancelled: number }> {
     this.#session(sessionId);
+    await this.#tails.get(sessionId);
     const cancelled = this.#cancelRounds(sessionId, 'user');
     const chain = this.#chains.get(sessionId);
     if (chain !== undefined) {
@@ -432,6 +435,8 @@ export class VerificationService {
     commit,
   }: MethodParams<'verification.status'>): Promise<MethodResult<'verification.status'>> {
     const { record } = this.#session(sessionId);
+    // turn.finished can reach a client before the after-turn checks are scheduled.
+    if (target === 'working_tree') await this.#tails.get(sessionId);
     const codeState = await readCodeState(record.cwd);
     this.#invalidateIfChanged(sessionId, codeState);
     const snapshot = this.#events.snapshot(sessionId);
@@ -633,11 +638,15 @@ export class VerificationService {
       }
     }
     const environment = await environmentPrecheck(cwd);
+    const before = await readCodeState(round.root, round.abort.signal);
     if (environment !== undefined) {
-      this.#finishRun(round, queued, { status: 'environment_unavailable', reason: environment });
+      this.#finishRun(round, queued, {
+        status: 'environment_unavailable',
+        reason: environment,
+        codeState: before,
+      });
       return;
     }
-    const before = await readCodeState(round.root, round.abort.signal);
     const started: VerificationRun = { ...queued, codeState: before, startedAt: isoNow() };
     this.#replace(round, started);
     this.#write(round.sessionId, [updated(started)]);

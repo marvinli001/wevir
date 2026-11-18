@@ -10,6 +10,7 @@ import { type Context, connect, workspacePath } from '../context.js';
 import { CliError, EXIT, UsageError } from '../errors.js';
 import { t } from '../i18n/index.js';
 import { readStdin } from '../prompt.js';
+import { checkExecResult } from './exec-checks.js';
 import { hostStart, readRuntime } from './host.js';
 import { pickProvider } from './session.js';
 
@@ -20,6 +21,7 @@ export interface ExecOptions {
   permissionMode?: PermissionMode;
   json?: boolean;
   outputSchema?: string;
+  requireChecks?: true | string;
 }
 
 async function outputValidator(ctx: Context, file: string): Promise<ValidateFunction> {
@@ -52,6 +54,20 @@ export async function exec(ctx: Context, input: string, options: ExecOptions): P
     options.outputSchema === undefined
       ? undefined
       : await outputValidator(ctx, options.outputSchema);
+  const requirement =
+    typeof options.requireChecks === 'string'
+      ? [
+          ...new Set(
+            options.requireChecks
+              .split(',')
+              .map((name) => name.trim())
+              .filter(Boolean),
+          ),
+        ]
+      : options.requireChecks;
+  if (Array.isArray(requirement) && requirement.length === 0) {
+    throw new UsageError(t('exec.emptyCheckNames'));
+  }
   let client: WevirClient;
   try {
     client = await connect(ctx);
@@ -79,6 +95,14 @@ export async function exec(ctx: Context, input: string, options: ExecOptions): P
     let connectionError: Error | undefined;
     let cancellationError: unknown;
     let sent = false;
+    let checking = false;
+    const cancelChecks = () =>
+      client.request('verification.cancel', { sessionId: session.id }).then(
+        () => {},
+        (error: unknown) => {
+          cancellationError = error;
+        },
+      );
     const cancel = (): Promise<void> => {
       cancellation ??= client.request('session.cancel', { sessionId: session.id }).then(
         () => {},
@@ -91,7 +115,10 @@ export async function exec(ctx: Context, input: string, options: ExecOptions): P
     };
     const offInterrupt = ctx.io.onInterrupt(() => {
       stopCode ??= EXIT.interrupted;
-      if (sent) void cancel();
+      if (checking) {
+        cancellation ??= cancelChecks();
+        subscription.close();
+      } else if (sent) void cancel();
     });
     const offState = client.onStateChange((state) => {
       if (state.status === 'reconnecting' || state.status === 'closed') {
@@ -193,6 +220,47 @@ export async function exec(ctx: Context, input: string, options: ExecOptions): P
                   EXIT.invalidOutput,
                 );
               }
+            }
+            if (requirement !== undefined) {
+              checking = true;
+              const checks = await checkExecResult(
+                client,
+                session.id,
+                turnId,
+                subscription,
+                requirement,
+                (event) => {
+                  if (options.json) ctx.print(JSON.stringify(event));
+                },
+                () => stopCode !== undefined,
+                cancelChecks,
+              ).catch((error: unknown) => {
+                if (stopCode === undefined) throw error;
+                return undefined;
+              });
+              if (stopCode !== undefined) return stopCode;
+              if (checks === undefined)
+                throw connectionError ?? new CliError(t('exec.disconnected'));
+              const unmet = checks.filter(({ reason }) => reason !== undefined);
+              const ok = unmet.length === 0;
+              if (options.json) {
+                ctx.print(
+                  JSON.stringify({
+                    type: 'exec.checks',
+                    ok,
+                    checks: checks.map(({ name, status, reason }) => ({ name, status, reason })),
+                  }),
+                );
+              } else if (!ok) {
+                ctx.io.stderr.write(
+                  `${t('exec.checksFailed', {
+                    checks: unmet
+                      .map(({ name, reason }) => `${name.replace(/\s+/gu, ' ')} (${reason})`)
+                      .join(', '),
+                  })}\n`,
+                );
+              }
+              return ok ? EXIT.ok : EXIT.checksFailed;
             }
             return EXIT.ok;
           }
