@@ -1,0 +1,45 @@
+{
+  "protocolVersion": "0.201.0",
+  "methods": {
+    "host.hello": {
+      "params": [
+        {
+          "token": "mock-token",
+          "protocolVersion": "0.201.0",
+          "clientKind": "desktop",
+          "clientId": "desktop-fixture",
+          "deviceId": "fixture",
+          "uiLocale": "zh-TW",
+          "capabilities": {}
+        }
+      ],
+      "result": []
+    }
+  },
+  "notifications": {},
+  "events": [
+    {
+      "type": "user.message",
+      "source": "host",
+      "ts": "2026-11-18T00:00:00.000Z",
+      "seq": 2,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "sentBy": {
+          "clientKind": "desktop",
+          "clientId": "desktop-fixture",
+          "deviceId": "fixture",
+          "uiLocale": "zh-TW"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "請建立 PR"
+          }
+        ]
+      }
+    }
+  ],
+  "errors": []
+}

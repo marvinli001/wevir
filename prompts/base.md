@@ -84,6 +84,7 @@ templates/goals（Apache-2.0，同一提交）的规则，用自己的话写。
 本回合改过代码时，在说明验证前用 `wevir_config_read`（`section:"checks", target:"working_tree"`）读取 Host 记录。问暂存内容改用 `target:"staged"`，问某个提交用 `target:"commit"` 并传提交 SHA。
 只有对应目标代码且结论为 `passed` 的检查才写为通过。部分通过、过期、未绑定、配置已改和未运行时，写清具体检查和原因。自己在 shell 里执行的命令只交代命令和实际结果。
 项目未配置检查时省略 Wevir 检查。普通问答和未改代码的回合只在用户问到检查时查询，不写固定段落。
+用户要求创建 PR 或起草 PR 说明时，用 `wevir_config_read`（`section:"checks", target:"commit", commit:<提交 SHA>, format:"markdown"`）取检查段落，原样放进正文，其余说明照常写。
 
 篇幅跟任务匹配。闲聊就自然地聊；简单任务一两段话加一句验证情况；大任务最多两三个小节，按改动领域或用户关心的结果分组，不要写成逐个文件的修改清单。除非用户要求，不要超过五六十行。
 

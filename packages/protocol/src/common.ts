@@ -128,5 +128,11 @@ export const ClientIdentitySchema = z.object({
   deviceId: ClientTokenSchema,
   clientId: ClientTokenSchema,
   clientKind: ClientKindSchema,
+  uiLocale: z
+    .string()
+    .min(2)
+    .max(35)
+    .regex(/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/)
+    .optional(),
 });
 export type ClientIdentity = z.infer<typeof ClientIdentitySchema>;

@@ -2387,7 +2387,7 @@ export const eventPayloads: PayloadSamples = {
       turnId: ids.turn,
       clientMessageId: 'msg-1',
       content: [{ type: 'text', text: '帮我整理本周周报' }, imagePart],
-      sentBy: identity,
+      sentBy: { ...identity, uiLocale: 'zh-TW' },
       pendingId: ids.pending2,
       from: {
         sessionId: ids.opinionSession,
@@ -4330,6 +4330,7 @@ export const methodSamples: MethodSamples = {
           clientKind: 'desktop',
           deviceId: 'dev-6f1c2a',
           clientId: 'desk-81d0aa',
+          uiLocale: 'zh-TW',
           capabilities: {},
         },
       ],

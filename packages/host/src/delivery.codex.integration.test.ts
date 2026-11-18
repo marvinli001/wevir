@@ -65,10 +65,52 @@ describe.skipIf(binary === undefined)('delivery with Codex and a local mock mode
     git('add', 'sample.mjs');
     git('commit', '-qm', 'initial');
 
+    writeFileSync(
+      join(cwd, '.git', 'gh'),
+      [
+        '#!/usr/bin/env node',
+        'const fs = require("node:fs");',
+        'const args = process.argv.slice(2);',
+        'if (args.slice(0, 3).join(" ") !== "pr create --body-file") process.exit(2);',
+        'fs.copyFileSync(args[3], ".git/submitted-body.md");',
+        'console.log("https://example.invalid/pull/1");',
+        '',
+      ].join('\n'),
+      { mode: 0o700 },
+    );
+    let commit = '';
+    let prQuery: Record<string, string> | undefined;
     let query: Record<string, string> | undefined;
     let evidence = '';
     let instructions = '';
     const model = await startMockModel((view) => {
+      if (view.lastUserText.startsWith('[pr]')) {
+        if (view.toolOutputs.length === 0) {
+          prQuery = { section: 'checks', target: 'commit', format: 'markdown', commit };
+          return configRead(view.body, prQuery);
+        }
+        if (view.toolOutputs.length === 1) {
+          const output = (view.toolOutputs[0] ?? '').replace(
+            /^Wall time: [\d.]+ seconds\nOutput:\n/,
+            '',
+          );
+          const markdown = (JSON.parse(output) as { markdown: string }).markdown;
+          const body = Buffer.from(`Update the sample.\n\n${markdown.trim()}\n`).toString('base64');
+          const fakeGh = process.platform === 'win32' ? 'node .git/gh' : './.git/gh';
+          return {
+            toolCalls: [
+              {
+                kind: 'function',
+                name: 'exec_command',
+                args: {
+                  cmd: `node -e "require('node:fs').writeFileSync('.git/pr-body.md', Buffer.from('${body}', 'base64'))" && ${fakeGh} pr create --body-file .git/pr-body.md`,
+                },
+              },
+            ],
+          };
+        }
+        return { text: ['Submitted the fixture PR body.'] };
+      }
       if (!view.lastUserText.startsWith('[delivery]')) return { text: ['Delivery fixture'] };
       if (view.toolOutputs.length === 0) {
         instructions = JSON.stringify(view.body);
@@ -115,7 +157,12 @@ describe.skipIf(binary === undefined)('delivery with Codex and a local mock mode
     cleanups.push(() => host.shutdown());
     const client = await TestRpcClient.connect(host.url);
     cleanups.push(() => client.ws.close());
-    await client.hello(JSON.parse(readFileSync(join(home, 'run', 'host.json'), 'utf8')).token);
+    await client.hello(JSON.parse(readFileSync(join(home, 'run', 'host.json'), 'utf8')).token, {
+      deviceId: 'delivery-test',
+      clientId: 'delivery-test',
+      clientKind: 'desktop',
+      uiLocale: 'zh-CN',
+    });
     await client.request('settings.update', {
       settings: { promptSuggestions: false, sessionRecap: false, sessionInsights: false },
     });
@@ -195,5 +242,26 @@ describe.skipIf(binary === undefined)('delivery with Codex and a local mock mode
         .filter((event) => event.type === 'assistant.message')
         .at(-1)?.payload,
     ).toMatchObject({ text: 'Lint passed on the current worktree. Typecheck was not run.' });
+
+    git('add', 'sample.mjs');
+    git('commit', '-qm', 'updated sample');
+    commit = git('rev-parse', 'HEAD').trim();
+    const pr = await client.request('session.send', {
+      sessionId: session.id,
+      content: [{ type: 'text', text: '[pr] Create a PR for the updated sample.' }],
+    });
+    const prFinished = await client.until(
+      () =>
+        client
+          .events(subscriptionId)
+          .find((event) => event.type === 'turn.finished' && event.payload.turnId === pr.turnId),
+      'PR fixture turn finished',
+      45_000,
+    );
+    expect(prFinished?.payload).toMatchObject({ outcome: 'completed' });
+    expect(prQuery).toEqual({ section: 'checks', target: 'commit', format: 'markdown', commit });
+    expect(readFileSync(join(cwd, '.git', 'submitted-body.md'), 'utf8')).toEqual(
+      `Update the sample.\n\n### 检查 · \`${commit.slice(0, 12)}\`\n\n- Lint · 通过\n- Typecheck · 未运行\n`,
+    );
   }, 60_000);
 });

@@ -41,6 +41,7 @@ import {
 } from './channels.js';
 import {
   ApprovalIdSchema,
+  ClientIdentitySchema,
   ClientKindSchema,
   ClientTokenSchema,
   EnvironmentIdSchema,
@@ -434,6 +435,7 @@ export const HostHelloParamsSchema = z.object({
   deviceId: ClientTokenSchema,
   /** 每个安装持久；同一台设备上的桌面与 CLI 不同。 */
   clientId: ClientTokenSchema,
+  uiLocale: ClientIdentitySchema.shape.uiLocale,
   capabilities: ClientCapabilitiesSchema,
 });
 
