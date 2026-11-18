@@ -23,6 +23,20 @@ export function remoteOf(settings: { remote?: RemoteSettings }): RemoteSettings 
   return settings.remote ?? DEFAULT_REMOTE_SETTINGS;
 }
 
+export function remoteAccessState(
+  enabled: boolean,
+  listenerSupported: boolean,
+  status: RemoteStatus | undefined,
+) {
+  if (!enabled) return 'off';
+  if (!listenerSupported) return 'enabled';
+  if (!status) return 'loading';
+  if (status.connections > 0) return 'connected';
+  if (status.listening || status.relay?.state === 'connected') return 'ready';
+  if (status.relay?.state === 'connecting' && !status.relay.error) return 'connecting';
+  return 'noRoute';
+}
+
 /** 推送网关的状态（0.112.0 的 `remote.status.push`）的说明；正常、还没发过或旧 Host 时 undefined。 */
 export function pushStatusKey(push: RemoteStatus['push']): PlainMessageKey | undefined {
   if (push?.state !== 'unavailable') return undefined;

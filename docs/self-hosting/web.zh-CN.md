@@ -146,14 +146,14 @@ docker compose ps
 
 ## 桌面端配置
 
-**设置 → 设备**：
+在**设置 → 设备**开启远程访问。
 
 | 设置项 | 值 |
 | --- | --- |
-| 中继 | 自建地址：`wss://wevir.example.com` |
-| 网页地址 | `https://wevir.example.com` |
+| 连接方式 → 中继 | 自建地址：`wss://wevir.example.com` |
+| 网页设备 → 网页地址 | `https://wevir.example.com` |
 
-配对：**添加网页设备** → 在浏览器打开配对链接 → 在电脑上批准。配对按来源（origin）区分，已与 `web.wevir.si` 配对的浏览器需在自建地址重新配对。
+选择**配对浏览器**，在目标浏览器打开配对链接，然后在电脑上批准。配对按来源（origin）区分，已与 `web.wevir.si` 配对的浏览器需在自建地址重新配对。
 
 ## 更新
 

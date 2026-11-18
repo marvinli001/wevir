@@ -183,7 +183,7 @@ The phone app connects to Wevir on your computers over an end-to-end encrypted c
 | iOS | TestFlight beta. Invitations are issued in the [Telegram group](https://t.me/darkfiber_labs). |
 | Android | Signed APK, published with every desktop release under the same version number. A newer APK installs over the existing one. |
 
-Pairing: **Settings → Devices → Add phone**.
+In **Settings → Devices**, enable remote access and select **Pair a phone**.
 
 ### Command line
 
@@ -218,7 +218,7 @@ wevir session new -w ~/my-project "Summarize this repository"
 | Hosted | [web.wevir.si](https://web.wevir.si), with the Wevir relay on the same domain |
 | Self-hosted | Site and relay on one domain on your own server: [deployment guide and agent prompt](docs/self-hosting/web.md) |
 
-Pairing: **Settings → Devices → Add web device**.
+In **Settings → Devices**, enable remote access and select **Pair a browser**.
 
 ## Run from source
 

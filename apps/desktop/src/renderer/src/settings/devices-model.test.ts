@@ -23,6 +23,7 @@ import {
   relayChoice,
   relayForWeb,
   relayStatusText,
+  remoteAccessState,
   remoteOf,
   setLan,
   setRelayChoice,
@@ -70,6 +71,37 @@ describe('设备页', () => {
     expect(remoteOf({})).toEqual(DEFAULT_REMOTE_SETTINGS);
     const on = { ...DEFAULT_REMOTE_SETTINGS, enabled: true };
     expect(remoteOf({ remote: on })).toBe(on);
+  });
+
+  it('手机配对区分已开启、线路就绪与已连接，重试中的中继仍需要等待', () => {
+    const idle: RemoteStatus = {
+      listening: false,
+      port: 47830,
+      interfaces: [],
+      advertising: false,
+      connections: 0,
+    };
+    const relay = { state: 'connecting', connections: 0, url: OFFICIAL_RELAY_URL } as const;
+    expect(remoteAccessState(true, false, undefined)).toBe('enabled');
+    expect(remoteAccessState(true, true, undefined)).toBe('loading');
+    expect(remoteAccessState(true, true, idle)).toBe('noRoute');
+    expect(remoteAccessState(true, true, { ...idle, relay })).toBe('connecting');
+    expect(
+      remoteAccessState(true, true, {
+        ...idle,
+        relay: { ...relay, error: { reason: 'unreachable', message: 'offline' } },
+      }),
+    ).toBe('noRoute');
+    expect(
+      remoteAccessState(true, true, { ...idle, relay: { ...relay, state: 'connected' } }),
+    ).toBe('ready');
+    expect(remoteAccessState(true, true, { ...idle, listening: true })).toBe('ready');
+    expect(remoteAccessState(true, true, { ...idle, listening: true, connections: 2 })).toBe(
+      'connected',
+    );
+    expect(remoteAccessState(false, true, { ...idle, listening: true, connections: 2 })).toBe(
+      'off',
+    );
   });
 
   it('勾选权限：按词表顺序、不重复', () => {
