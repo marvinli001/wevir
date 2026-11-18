@@ -194,19 +194,28 @@ export class CheckRunner {
     return { output, bytes: Buffer.byteLength(output), truncated };
   }
 
-  /** `verification.output`：从 `offset` 起最多一页，不截在半个字符上。文件没有时是空的。 */
-  async read(
-    sessionId: SessionId,
-    runId: VerificationRunId,
-    offset = 0,
-  ): Promise<{ text: string; from: number; next: number; more: boolean; bytes: number }> {
-    const path = this.outputPath(sessionId, runId);
-    const size = (await stat(path).catch(() => undefined))?.size ?? 0;
-    const from = Math.min(offset, size);
-    const length = Math.min(size - from, VERIFICATION_OUTPUT_PAGE_MAX_BYTES);
-    if (length <= 0) return { text: '', from, next: from, more: false, bytes: size };
-    const handle = await open(path, 'r');
+  async outputAvailable(sessionId: SessionId, runId: VerificationRunId): Promise<boolean> {
+    return (
+      (await stat(this.outputPath(sessionId, runId)).catch(() => undefined))?.isFile() === true
+    );
+  }
+
+  /** `verification.output`：从 `offset` 起最多一页，不截在半个字符上。 */
+  async read(sessionId: SessionId, runId: VerificationRunId, offset = 0) {
+    const handle = await open(this.outputPath(sessionId, runId), 'r').catch((error) => {
+      if (error.code !== 'ENOENT') throw error;
+      return undefined;
+    });
+    if (handle === undefined) {
+      return { text: '', from: 0, next: 0, more: false, bytes: 0, outputAvailable: false };
+    }
     try {
+      const { size } = await handle.stat();
+      const from = Math.min(offset, size);
+      const length = Math.min(size - from, VERIFICATION_OUTPUT_PAGE_MAX_BYTES);
+      if (length === 0) {
+        return { text: '', from, next: from, more: false, bytes: size, outputAvailable: true };
+      }
       const buffer = Buffer.alloc(length);
       const { bytesRead } = await handle.read(buffer, 0, length, from);
       const usable =
@@ -217,6 +226,7 @@ export class CheckRunner {
         next: from + usable,
         more: from + usable < size,
         bytes: size,
+        outputAvailable: true,
       };
     } finally {
       await handle.close();

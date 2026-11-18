@@ -318,6 +318,15 @@ describe('配置 Wevir 本身的应用级工具', { timeout: 60_000 }, () => {
     expect(checks.data?.checks.map((check: { name: string }) => check.name)).toEqual([
       'Unit tests',
     ]);
+    expect(checks.data).not.toHaveProperty('evidence');
+    const targeted = await h.tool(session.id, 'wevir_config_read', {
+      section: 'checks',
+      target: 'working_tree',
+    });
+    expect(targeted.data?.evidence).toMatchObject({
+      status: 'unverified',
+      checks: [{ name: 'Unit tests', status: 'not_run' }],
+    });
     const bad = await h.tool(session.id, 'wevir_config_checks', {
       action: 'save',
       check: { name: 'x' },

@@ -2,7 +2,7 @@
 // 一个 git 仓库，检查是真的 `node --test`。经 WebSocket 配检查、发消息，从事件流里看记录、验收状态与修复链。
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
 import type { AgentInput, EngineSession, SessionConfig } from '@wevir/runtime-adapter';
@@ -218,6 +218,86 @@ function dirs(files?: Record<string, string>) {
 }
 
 const isMaterial = (text: string) => text.includes('<check-output');
+
+describe('verification evidence over RPC', () => {
+  it('tracks the worktree, index, commit, config revision and deleted log', async () => {
+    const { home, repo } = dirs();
+    const h = await boot(home, repo);
+    const sessionId = await h.create();
+    const evidence = (target = 'working_tree', commit?: string) =>
+      h.client
+        .request('verification.status', { sessionId, target, commit })
+        .then((x) => x.evidence);
+    expect(await evidence()).toEqual({ checks: [], status: 'unconfigured' });
+    const lint = {
+      name: 'Lint',
+      command: 'node -e "console.log(42)"',
+      kind: 'lint',
+      trigger: 'manual',
+    };
+    const first = await h.save(lint);
+    await h.save({ ...lint, name: 'Types', kind: 'typecheck' });
+    expect(await evidence()).toMatchObject({
+      checks: [{ status: 'not_run' }, { status: 'not_run' }],
+    });
+    writeConv(repo, 1);
+    const { runs } = await h.client.request('verification.run', {
+      sessionId,
+      checkIds: [first.id],
+    });
+    const runId = runs[0].id;
+    await h.waitFor(
+      sessionId,
+      () => h.finalRuns(sessionId).find((run) => run.id === runId && run.status === 'passed'),
+      'lint evidence',
+    );
+    expect(await evidence()).toMatchObject({
+      status: 'partial',
+      checks: [
+        { name: 'Lint', status: 'passed', checkRevisionCurrent: true, outputAvailable: true },
+        { name: 'Types', status: 'not_run', outputAvailable: false },
+      ],
+    });
+    expect(await evidence('staged')).toMatchObject({
+      checks: [{ status: 'stale' }, { status: 'not_run' }],
+    });
+    writeFileSync(join(repo, 'new.txt'), 'untracked');
+    expect(await evidence()).toMatchObject({
+      checks: [{ status: 'stale' }, { status: 'not_run' }],
+    });
+    git(repo, 'add', 'src/conv.mjs');
+    expect(await evidence('staged')).toMatchObject({
+      checks: [{ status: 'passed' }, { status: 'not_run' }],
+    });
+    git(repo, 'commit', '-qm', 'verified content');
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim();
+    expect(await evidence('commit', sha)).toMatchObject({
+      commit: sha.slice(0, 12),
+      checks: [{ status: 'passed' }, { status: 'not_run' }],
+    });
+    expect(await h.client.request('verification.output', { sessionId, runId })).toMatchObject({
+      outputAvailable: true,
+      text: '42\n',
+    });
+    rmSync(join(home, 'tool-output', sessionId, 'verification', `${runId}.log`));
+    expect(await h.client.request('verification.output', { sessionId, runId })).toMatchObject({
+      outputAvailable: false,
+      bytes: 0,
+    });
+    await h.save({ ...lint, id: first.id, command: 'node -e "console.log(43)"' });
+    expect(await evidence('commit', sha)).toMatchObject({
+      status: 'unverified',
+      checks: [
+        { status: 'config_changed', checkRevisionCurrent: false, outputAvailable: false },
+        { status: 'not_run' },
+      ],
+    });
+    await h.client.request('checks.remove', { workspaceId: h.workspaceId, checkId: first.id });
+    expect((await evidence('commit', sha)).checks).toEqual([
+      expect.objectContaining({ name: 'Types', status: 'not_run' }),
+    ]);
+  });
+});
 
 describe('检查与手动运行', () => {
   it('检查期间文件变了：记录是 stale，验收不算通过', async () => {

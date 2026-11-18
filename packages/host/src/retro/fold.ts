@@ -88,6 +88,8 @@ export interface RetroStateRun {
     VerificationRun,
     | 'id'
     | 'checkId'
+    | 'checkRevision'
+    | 'queuedAt'
     | 'name'
     | 'command'
     | 'kind'
@@ -535,6 +537,8 @@ function applyEvent(state: RetroState, event: WevirEvent): void {
         run: {
           id: run.id,
           checkId: run.checkId,
+          checkRevision: run.checkRevision,
+          queuedAt: run.queuedAt,
           name: run.name,
           command: clipText(run.command, RETRO_COMMAND_MAX_CHARS),
           kind: run.kind,

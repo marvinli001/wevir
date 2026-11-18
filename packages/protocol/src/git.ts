@@ -15,7 +15,12 @@ import {
   VerificationRunIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
-import { CodeStateSchema, VerificationStatusSchema } from './verification.js';
+import {
+  CodeStateSchema,
+  VerificationConclusionSchema,
+  VerificationEvidenceStatusSchema,
+  VerificationStatusSchema,
+} from './verification.js';
 
 /**
  * 读哪一段改动：`uncommitted` 是工作树加暂存区对 HEAD（含未跟踪文件），`branch` 是工作树对默认分支的 merge-base，`turn` 是
@@ -84,14 +89,13 @@ export const GitStatusFileSchema = z.object({
 });
 export type GitStatusFile = z.infer<typeof GitStatusFileSchema>;
 
-/**
- * 同一代码状态的验证记录（只显示，不阻止提交）：每项检查最近的一条，代码状态与现在相同时是它的状态，不同时是 `stale`，没有记录是
- * `not_run`。
- */
+/** 对应暂存内容的验证记录。evidenceStatus 区分旧 status 只能表示为 stale 的情况。 */
 export const GitVerificationCheckSchema = z.object({
   checkId: CheckIdSchema,
   name: z.string().min(1),
   status: VerificationStatusSchema,
+  evidenceStatus: VerificationEvidenceStatusSchema.optional(),
+  outputAvailable: z.boolean().optional(),
   runId: VerificationRunIdSchema.optional(),
   finishedAt: IsoTimeSchema.optional(),
 });
@@ -99,6 +103,7 @@ export type GitVerificationCheck = z.infer<typeof GitVerificationCheckSchema>;
 
 export const GitVerificationSummarySchema = z.object({
   checks: z.array(GitVerificationCheckSchema),
+  status: VerificationConclusionSchema.optional(),
   /**
    * 暂存的树与工作树（验证记录的代码状态）相同：检查跑的正是要提交的内容。不同时（还有没暂存的改动、未跟踪文件）记录验证的是
    * 工作树，不是这次提交。

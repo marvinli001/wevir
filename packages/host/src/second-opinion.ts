@@ -19,6 +19,7 @@ import type {
   SessionSnapshot,
   TurnId,
   TurnOutcome,
+  VerificationEvidence,
   WevirEvent,
 } from '@wevir/protocol';
 import { SECOND_OPINION_RUNNING_MAX, SECOND_OPINION_TEXT_MAX_LENGTH } from '@wevir/protocol';
@@ -32,6 +33,7 @@ import { newId } from './ids.js';
 import { BUILTIN_ROLES, roleBrief } from './roles.js';
 import type { SessionManager } from './session-manager.js';
 import { defaultPromptsDir } from './title.js';
+import type { EvidenceTarget } from './verification/evidence.js';
 
 /** 给意见用的预设角色。 */
 export const OPINION_ROLE = 'reviewer';
@@ -64,6 +66,10 @@ export interface SecondOpinionServiceOptions {
   hostId: HostId;
   /** 发起意见的消息模板；省略时读仓库里的 `prompts/second-opinion.md`。 */
   template?: string;
+  evidence?: (
+    sessionId: SessionId,
+    target: EvidenceTarget,
+  ) => Promise<VerificationEvidence> | undefined;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }
 
@@ -80,6 +86,7 @@ export class SecondOpinionService {
   readonly #events: EventStore;
   readonly #sessions: SecondOpinionServiceOptions['sessions'];
   readonly #template: string;
+  readonly #evidence: SecondOpinionServiceOptions['evidence'];
   readonly #identity: ClientIdentity;
   readonly #onWarning: NonNullable<SecondOpinionServiceOptions['onWarning']>;
   /** 正在开的意见（还没写 `opinion.updated`），按原会话计数：同时进行中的上限也算它们。 */
@@ -92,6 +99,7 @@ export class SecondOpinionService {
     this.#events = options.events;
     this.#sessions = options.sessions;
     this.#template = options.template ?? loadOpinionTemplate();
+    this.#evidence = options.evidence;
     this.#identity = {
       deviceId: options.hostId,
       clientId: 'wevir-opinions',
@@ -162,6 +170,10 @@ export class SecondOpinionService {
     const branch = await readBranch(repo.cwd);
     const base = branch.repo && branch.base !== repo.head ? branch.base : undefined;
     const files = branch.repo ? (branch.files ?? []) : [];
+    const evidence = await this.#evidence?.(sessionId, {
+      kind: 'working_tree',
+      codeState: { kind: 'git', head: repo.head, tree },
+    });
     const opinionId = newId('opn') as OpinionId;
     let session: Session;
     try {
@@ -217,6 +229,7 @@ export class SecondOpinionService {
       events: this.#events.readTypes(sessionId, ['user.message', 'assistant.message']),
       focus: request.focus,
       requestedBy: request.requestedBy,
+      evidence,
       files,
     });
     const text = renderOpinionMessage(this.#template, {
@@ -453,6 +466,7 @@ export function opinionMaterial(input: {
   events: readonly WevirEvent[];
   focus: string | undefined;
   requestedBy: string;
+  evidence?: VerificationEvidence;
   files: readonly { path: string; status: string; added?: number; removed?: number }[];
 }): string {
   const { origin, events } = input;
@@ -486,15 +500,12 @@ export function opinionMaterial(input: {
     plan.push(`- [${item.status === 'completed' ? 'x' : ' '}] ${item.subject} (${item.status})`);
   }
   if (plan.length > 0) sections.push(`## Plan and task list\n\n${plan.join('\n')}`);
-  const verification = origin.verification;
-  if (verification !== undefined) {
-    const lines = [`Acceptance: ${verification.acceptance.status}`];
-    const latest = new Map<string, (typeof verification.runs)[number]>();
-    for (const run of verification.runs) latest.set(run.checkId, run);
-    for (const run of latest.values()) {
-      const exit =
-        run.exitCode === undefined || run.exitCode === null ? '' : `, exit ${run.exitCode}`;
-      lines.push(`- ${run.name} (\`${run.command}\`): ${run.status}${exit}`);
+  const evidence = input.evidence;
+  if (evidence !== undefined && evidence.status !== 'unconfigured') {
+    const lines = [`Status: ${evidence.status}`];
+    for (const check of evidence.checks) {
+      const exit = check.exitCode == null ? '' : `, exit ${check.exitCode}`;
+      lines.push(`- ${check.name}: ${check.status}${exit}`);
     }
     sections.push(`## Checks configured for this project\n\n${lines.join('\n')}`);
   }

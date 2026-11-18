@@ -22,7 +22,8 @@ import type {
   GitStatusResult,
   GitVerificationSummary,
   MethodResult,
-  VerificationRun,
+  SessionId,
+  VerificationEvidence,
 } from '@wevir/protocol';
 import { GIT_STATUS_MAX_FILES } from '@wevir/protocol';
 import { HostError } from '../errors.js';
@@ -35,7 +36,8 @@ import {
   runGit,
 } from '../git-diff.js';
 import { redactDiagnostics } from '../secret-patterns.js';
-import { readCodeState, sameCodeState } from '../verification/code-state.js';
+import { readCodeState } from '../verification/code-state.js';
+import type { EvidenceTarget } from '../verification/evidence.js';
 import { COMMIT_TIMEOUT_MS, diagnoseCommit, runCommit } from './commit.js';
 import { createPullRequest } from './pull-request.js';
 
@@ -44,15 +46,11 @@ const UNTRACKED_MAX_FILES = 10_000;
 /** 读状态期间索引变了时重读几次。 */
 const STATUS_ATTEMPTS = 3;
 
-/** 一个会话的检查与它最近的验证记录（验证记录的代码状态与现在比）。 */
-export interface GitVerificationSource {
-  checks: readonly { id: string; name: string }[];
-  runs: readonly VerificationRun[];
-}
-
 export interface GitServiceOptions {
-  /** 会话的检查与验证记录；没有验证功能或没给会话时省略。 */
-  verification?: (sessionId: string) => Promise<GitVerificationSource | undefined>;
+  verification?: (
+    sessionId: SessionId,
+    target: EvidenceTarget,
+  ) => Promise<VerificationEvidence | undefined>;
   commitTimeoutMs?: number;
 }
 
@@ -379,7 +377,12 @@ export class GitService {
       readCodeState(repo.cwd),
     ]);
     const verification =
-      sessionId === undefined ? undefined : await this.#options.verification?.(sessionId);
+      sessionId === undefined
+        ? undefined
+        : await this.#options.verification?.(sessionId as SessionId, {
+            kind: 'staged',
+            tree: state.stagedTree,
+          });
     const files = state.files.slice(0, GIT_STATUS_MAX_FILES);
     return {
       repo: true,
@@ -485,7 +488,7 @@ async function readState(repo: Repo, ledger: Map<string, string>): Promise<RepoS
         head,
         index,
         files,
-        ...(stagedTree !== undefined && { stagedTree }),
+        ...(again.token === index.token && stagedTree !== undefined && { stagedTree }),
         ...(operation !== undefined && { operation }),
       };
     }
@@ -624,52 +627,35 @@ function assertExpected(state: RepoState, expected: GitExpectedState): void {
   });
 }
 
-/**
- * 每项检查最近的一条记录：代码状态与现在相同时是它的状态，不同时（或绑不上代码状态）是 `stale`，没有记录是 `not_run`。排队中、
- * 运行中、取消与未运行的照原样。
- */
-export function summarize(
-  source: GitVerificationSource,
+function summarize(
+  evidence: VerificationEvidence,
   codeState: CodeState,
   state: Pick<RepoState, 'head' | 'stagedTree'>,
 ): GitVerificationSummary {
-  const finalStatuses = new Set(['passed', 'failed', 'timed_out', 'environment_unavailable']);
-  const checks = source.checks.map((check) => {
-    let latest: VerificationRun | undefined;
-    for (const run of source.runs) {
-      if (run.checkId !== check.id) continue;
-      if (!latest || runTime(run) >= runTime(latest)) latest = run;
-    }
-    if (!latest)
-      return {
-        checkId: check.id as VerificationRun['checkId'],
-        name: check.name,
-        status: 'not_run' as const,
-      };
-    const status =
-      finalStatuses.has(latest.status) && sameCodeState(latest.codeState, codeState) !== true
-        ? ('stale' as const)
-        : latest.status;
-    return {
-      checkId: latest.checkId,
-      name: check.name,
-      status,
-      runId: latest.id,
-      ...(latest.finishedAt !== undefined && { finishedAt: latest.finishedAt }),
-    };
-  });
   return {
-    checks,
+    status: evidence.status,
+    checks: evidence.checks.map(
+      ({ checkId, name, status, outputAvailable, runId, finishedAt }) => ({
+        checkId,
+        name,
+        status: status === 'unbound' || status === 'config_changed' ? 'stale' : status,
+        evidenceStatus: status,
+        outputAvailable,
+        ...(runId !== undefined && { runId }),
+        ...(finishedAt !== undefined && { finishedAt }),
+      }),
+    ),
     stagedMatchesWorkingTree:
       codeState.kind === 'git' &&
-      state.stagedTree !== undefined &&
       codeState.head === state.head &&
       codeState.tree === state.stagedTree,
   };
 }
 
-function runTime(run: VerificationRun): string {
-  return run.finishedAt ?? run.startedAt ?? run.queuedAt;
+export async function readStagedTree(dir: string): Promise<string | undefined> {
+  const repo = await openRepo(dir);
+  if (repo === undefined) return undefined;
+  return (await readState(repo, new Map()).catch(() => undefined))?.stagedTree;
 }
 
 function notRepoIssue() {

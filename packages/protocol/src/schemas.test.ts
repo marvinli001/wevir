@@ -3783,6 +3783,30 @@ const standaloneCases: Case[] = [
     invalid: [{ kind: 'git', head: 'abc' }, { kind: 'none' }],
   },
   {
+    name: 'VerificationTarget',
+    schema: protocol.VerificationTargetSchema,
+    valid: ['working_tree', 'staged', 'commit'],
+    invalid: ['branch'],
+  },
+  {
+    name: 'VerificationEvidenceStatus',
+    schema: protocol.VerificationEvidenceStatusSchema,
+    valid: ['passed', 'config_changed', 'unbound'],
+    invalid: ['accepted'],
+  },
+  {
+    name: 'VerificationConclusion',
+    schema: protocol.VerificationConclusionSchema,
+    valid: ['unconfigured', 'partial', 'running'],
+    invalid: ['config_changed'],
+  },
+  {
+    name: 'VerificationEvidence',
+    schema: protocol.VerificationEvidenceSchema,
+    valid: [{ status: 'unconfigured', checks: [] }],
+    invalid: [{ status: 'passed' }],
+  },
+  {
     name: 'VerificationStatus',
     schema: protocol.VerificationStatusSchema,
     valid: [

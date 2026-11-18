@@ -371,11 +371,14 @@ export const gitStatusSample: GitStatusResult = {
   stagedTree: GIT_TREE,
   codeState: { kind: 'git', head: SHA1, tree: SHA2 },
   verification: {
+    status: 'unverified',
     checks: [
       {
         checkId: ids.check,
         name: 'Unit tests',
-        status: 'passed',
+        status: 'stale',
+        evidenceStatus: 'config_changed',
+        outputAvailable: false,
         runId: ids.verificationRun,
         finishedAt: TS2,
       },
@@ -7750,12 +7753,35 @@ export const methodSamples: MethodSamples = {
     result: { valid: [{ cancelled: 0 }, { cancelled: 2 }], invalid: [{ cancelled: -1 }] },
   },
   'verification.status': {
-    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    params: {
+      valid: [
+        { sessionId: ids.session },
+        { sessionId: ids.session, target: 'commit', commit: SHA1 },
+      ],
+      invalid: [{}, { sessionId: ids.session, target: 'commit', commit: 'HEAD' }],
+    },
     result: {
       valid: [
         {
           verification: { acceptance, runs: [verificationRun], repair: repairChain },
           codeState: { kind: 'git', head: null, tree: '9d8e7f6a' },
+          evidence: {
+            status: 'failed',
+            commit: SHA1.slice(0, 12),
+            checks: [
+              {
+                checkId: ids.check,
+                name: 'test',
+                kind: 'test',
+                status: 'failed',
+                outputAvailable: false,
+                checkRevisionCurrent: true,
+                codeState: '9d8e7f6a',
+                tests: verificationRun.tests,
+                exitCode: 1,
+              },
+            ],
+          },
         },
         {
           verification: { acceptance: { status: 'unverified', updatedAt: TS }, runs: [] },
@@ -7774,7 +7800,10 @@ export const methodSamples: MethodSamples = {
       invalid: [{ sessionId: ids.session, runId: ids.verificationRun, offset: -1 }],
     },
     result: {
-      valid: [{ text: 'not ok 4\n', from: 0, next: 9, more: false, bytes: 9 }],
+      valid: [
+        { text: 'not ok 4\n', from: 0, next: 9, more: false, bytes: 9 },
+        { text: '', from: 0, next: 0, more: false, bytes: 0, outputAvailable: false },
+      ],
       invalid: [{ text: '' }],
     },
   },

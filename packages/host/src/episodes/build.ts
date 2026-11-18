@@ -10,6 +10,7 @@ import type {
 } from '@wevir/protocol';
 import { clipText, type RetroState } from '../retro/fold.js';
 import { redactSecrets } from '../secret-patterns.js';
+import { concludeVerification } from '../verification/evidence.js';
 
 export const EPISODE_SCHEMA_VERSION = 1;
 
@@ -41,6 +42,17 @@ export function episodeRevision(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 }
 
+function checkHistory(state: RetroState) {
+  const visible = new Set(state.turns.filter((turn) => !turn.hidden).map((turn) => turn.turnId));
+  const runs = state.runs
+    .filter(({ run }) => run.turnId === undefined || visible.has(run.turnId))
+    .sort((a, b) => a.seq - b.seq);
+  const latest = [...new Map(runs.map((entry) => [entry.run.checkId, entry])).values()].sort(
+    (a, b) => a.seq - b.seq,
+  );
+  return { runs, latest };
+}
+
 export function episodeLessons(
   state: RetroState,
   retro: SessionRetro,
@@ -57,12 +69,9 @@ export function episodeLessons(
           .flatMap((turn) => turn.files),
       ),
     ].slice(0, 50);
-  const runs = state.runs.filter(
-    ({ run }) => run.turnId === undefined || visibleIds.has(run.turnId),
-  );
-  for (const check of retro.verification.checks) {
-    if (check.turnId !== undefined && !visibleIds.has(check.turnId)) continue;
-    const earlier = runs.filter(({ run, seq }) => run.checkId === check.checkId && seq < check.seq);
+  const { runs, latest } = checkHistory(state);
+  for (const { run: check, seq: checkSeq } of latest) {
+    const earlier = runs.filter(({ run, seq }) => run.checkId === check.checkId && seq < checkSeq);
     const failure = earlier.findLast(
       ({ run }) => run.status === 'failed' || run.status === 'timed_out',
     );
@@ -70,15 +79,15 @@ export function episodeLessons(
       lessons.push({
         kind: 'check_recovered',
         text: `${check.name}: ${failure.run.status} → passed`,
-        sources: [`v:${failure.run.id}`, check.id],
-        files: filesBetween(failure.seq, check.seq),
+        sources: [`v:${failure.run.id}`, `v:${check.id}`],
+        files: filesBetween(failure.seq, checkSeq),
         verified: true,
       });
     } else if (['failed', 'timed_out', 'environment_unavailable'].includes(check.status)) {
       lessons.push({
         kind: 'check_failed',
         text: `${check.name}: ${check.status}${check.reason ? `: ${check.reason}` : ''}`,
-        sources: [check.id],
+        sources: [`v:${check.id}`],
         verified: true,
       });
     }
@@ -176,6 +185,15 @@ export function buildEpisode(input: {
       ];
     return [];
   });
+  // Episodes describe recorded outcomes without comparing them to the live worktree or configuration.
+  const statuses = checkHistory(state).latest.map(({ run }) => run.status);
+  const recorded = concludeVerification(statuses);
+  const checks =
+    recorded === 'unverified' || recorded === 'partial' || recorded === 'unconfigured'
+      ? statuses.includes('environment_unavailable')
+        ? 'environment_unavailable'
+        : 'unverified'
+      : recorded;
   const goal = retro.goal.goal ?? retro.goal.request;
   const raw: Episode = {
     id: `ep_${retro.sessionId.slice(4)}` as EpisodeId,
@@ -186,6 +204,7 @@ export function buildEpisode(input: {
     ...(goal !== undefined && { goal }),
     outcome: {
       ...retro.delivery,
+      checks,
       ...(turns.at(-1)?.outcome !== undefined && { lastTurn: turns.at(-1)?.outcome }),
       open: retro.open.length,
       checkedAt: retro.checkedAt,

@@ -28,7 +28,7 @@ import {
 } from './verification.js';
 
 /** 投影（归约规则）的版本；改了归约规则就加一，旧投影随之重建。 */
-export const RETRO_SCHEMA_VERSION = 2;
+export const RETRO_SCHEMA_VERSION = 3;
 /** 摘要最多几点、每点多少字（按码点）。 */
 export const RETRO_SUMMARY_MAX_POINTS = 6;
 export const RETRO_SUMMARY_POINT_MAX_CHARS = 200;

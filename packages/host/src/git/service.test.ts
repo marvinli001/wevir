@@ -5,6 +5,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import {
+  type CheckId,
   type CodeState,
   type GitExpectedState,
   type GitStatusResult,
@@ -16,9 +17,14 @@ import { isHostError } from '../errors.js';
 import { readStaged, readUncommitted } from '../git-diff.js';
 import { removeTempDir, useTempDir } from '../test-utils.js';
 import { readCodeState } from '../verification/code-state.js';
+import {
+  type EvidenceCheck,
+  type EvidenceTarget,
+  evaluateVerification,
+} from '../verification/evidence.js';
 import { parseTrace2 } from './commit.js';
 import { createProjectDirectory } from './project.js';
-import { GitService, type GitVerificationSource, summarize } from './service.js';
+import { GitService } from './service.js';
 
 const tempDir = useTempDir();
 
@@ -655,6 +661,31 @@ describe('状态、diff、验证记录与提交指向同一版本', () => {
       finishedAt: '2026-10-20T00:00:01.000Z',
     }) as VerificationRun;
 
+  const definition = (id: string, name: string): EvidenceCheck => ({
+    id: id as CheckId,
+    name,
+    kind: 'other',
+    revision: 1,
+  });
+
+  const evidenceOf =
+    (checks: EvidenceCheck[], runs: VerificationRun[]) =>
+    async (_id: string, target: EvidenceTarget) => {
+      const evidence = evaluateVerification(checks, runs, target);
+      return {
+        status: evidence.status,
+        checks: evidence.checks.map(({ check, run, status }) => ({
+          checkId: check.id,
+          name: check.name,
+          kind: check.kind,
+          status,
+          runId: run?.id,
+          finishedAt: run?.finishedAt,
+          outputAvailable: false,
+        })),
+      };
+    };
+
   it('全部暂存时，验证记录的代码状态就是要提交的树；提交后的树相同', async () => {
     const dir = repo();
     write(dir, 'a.txt', 'a2\n');
@@ -663,25 +694,24 @@ describe('状态、diff、验证记录与提交指向同一版本', () => {
     const types = 'chk_01JA2B3C4D5E6F7G8H9JKMNPQ3';
     const verified = await readCodeState(dir);
     const old: CodeState = { kind: 'git', head: head(dir), tree: 'f'.repeat(40) };
-    const source: GitVerificationSource = {
-      checks: [
-        { id: tests, name: 'Tests' },
-        { id: lint, name: 'Lint' },
-        { id: types, name: 'Types' },
-      ],
-      runs: [runOf(tests, verified, 'passed'), runOf(lint, old, 'failed')],
-    };
-    const git = new GitService({ verification: async () => source });
+    const git = new GitService({
+      verification: evidenceOf(
+        [definition(tests, 'Tests'), definition(lint, 'Lint'), definition(types, 'Types')],
+        [runOf(tests, verified, 'passed'), runOf(lint, old, 'failed')],
+      ),
+    });
     let status = await git.status(dir, 'ses_A');
     status = await git.stage(dir, ['a.txt'], expectedOf(status), 'ses_A');
     validStatus(status);
     expect(status.codeState).toEqual(verified);
-    expect(status.verification).toEqual({
+    expect(status.verification).toMatchObject({
+      status: 'partial',
       checks: [
         {
           checkId: tests,
           name: 'Tests',
           status: 'passed',
+          evidenceStatus: 'passed',
           runId: `vrn_${tests.slice(4)}`,
           finishedAt: '2026-10-20T00:00:01.000Z',
         },
@@ -689,6 +719,7 @@ describe('状态、diff、验证记录与提交指向同一版本', () => {
           checkId: lint,
           name: 'Lint',
           status: 'stale',
+          evidenceStatus: 'stale',
           runId: `vrn_${lint.slice(4)}`,
           finishedAt: '2026-10-20T00:00:01.000Z',
         },
@@ -703,34 +734,47 @@ describe('状态、diff、验证记录与提交指向同一版本', () => {
     const result = await git.commit(dir, { message: 'x', expected: expectedOf(status) }, 'ses_A');
     expect(result.outcome).toMatchObject({ kind: 'committed', tree: status.stagedTree });
     expect(verified.kind === 'git' && verified.tree).toBe(status.stagedTree);
-    // 提交之后 HEAD 变了，同一份记录不再算这个代码状态的。
-    expect(result.status.verification?.checks[0]?.status).toBe('stale');
+    // 提交只移动 HEAD，暂存内容没有改变。
+    expect(result.status.verification?.checks[0]?.evidenceStatus).toBe('passed');
   });
 
-  it('还有没暂存的改动时，验证的是工作树，不是这次提交', async () => {
+  it('部分暂存不匹配，完整暂存后未暂存的进一步修改不影响这份证据', async () => {
     const dir = repo();
+    const id = 'chk_01JA2B3C4D5E6F7G8H9JKMNPQ1';
     write(dir, 'a.txt', 'a2\n');
     write(dir, 'b.txt', 'b2\n');
-    const git = new GitService({ verification: async () => ({ checks: [], runs: [] }) });
-    const status = await git.stage(dir, ['a.txt'], expectedOf(await git.status(dir)), 'ses_A');
-    expect(status.verification).toEqual({ checks: [], stagedMatchesWorkingTree: false });
+    const verified = await readCodeState(dir);
+    const git = new GitService({
+      verification: evidenceOf([definition(id, 'Tests')], [runOf(id, verified, 'failed')]),
+    });
+    const partial = await git.stage(dir, ['a.txt'], expectedOf(await git.status(dir)), 'ses_A');
+    expect(partial.verification).toMatchObject({
+      status: 'unverified',
+      stagedMatchesWorkingTree: false,
+      checks: [{ evidenceStatus: 'stale' }],
+    });
+    const full = await git.stage(dir, ['b.txt'], expectedOf(partial), 'ses_A');
+    expect(full.verification?.checks[0]?.evidenceStatus).toBe('failed');
+    write(dir, 'a.txt', 'a3\n');
+    write(dir, 'untracked.txt', 'untracked\n');
+    expect((await git.status(dir, 'ses_A')).verification).toMatchObject({
+      status: 'failed',
+      stagedMatchesWorkingTree: false,
+      checks: [{ evidenceStatus: 'failed' }],
+    });
   });
 
-  it('summarize：运行中与取消的照原样，绑不上代码状态的完成记录算过期', () => {
-    const check = 'chk_01JA2B3C4D5E6F7G8H9JKMNPQ1';
+  it('保留兼容状态并区分未绑定的运行记录', async () => {
+    const dir = repo();
+    const id = 'chk_01JA2B3C4D5E6F7G8H9JKMNPQ1';
     const none: CodeState = { kind: 'none', reason: 'not_git' };
-    const summary = summarize(
-      { checks: [{ id: check, name: 'x' }], runs: [runOf(check, none, 'passed')] },
-      none,
-      { head: null },
-    );
-    expect(summary.checks[0]?.status).toBe('stale');
-    const running = summarize(
-      { checks: [{ id: check, name: 'x' }], runs: [runOf(check, none, 'running')] },
-      none,
-      { head: null },
-    );
-    expect(running.checks[0]?.status).toBe('running');
+    const git = new GitService({
+      verification: evidenceOf([definition(id, 'Tests')], [runOf(id, none, 'passed')]),
+    });
+    expect((await git.status(dir, 'ses_A')).verification?.checks[0]).toMatchObject({
+      status: 'stale',
+      evidenceStatus: 'unbound',
+    });
   });
 });
 

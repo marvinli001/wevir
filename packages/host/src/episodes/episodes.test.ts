@@ -62,7 +62,7 @@ function fixture() {
       sessionId,
       cwd: '/repo',
       state,
-      live: { checkedAt: at },
+      live: { checkedAt: at, checks: [] },
       builtAt: at,
       build: 'full',
     });
@@ -131,6 +131,7 @@ describe('deterministic episodes', () => {
       }),
     );
     expect(f.build().episode.outcome.comparedToCode).toBe(false);
+    expect(f.build().retro.verification.checks).toEqual([]);
   });
 
   it('records unavailable checks without claiming they passed', () => {

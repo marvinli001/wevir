@@ -2197,7 +2197,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }),
     'verification.run': ({ sessionId, checkIds }) => verification().run(sessionId, checkIds),
     'verification.cancel': ({ sessionId }) => verification().cancel(sessionId),
-    'verification.status': ({ sessionId }) => verification().status(sessionId),
+    'verification.status': (params) => verification().status(params),
     'verification.output': ({ sessionId, runId, offset }) =>
       verification().output(sessionId, runId, offset),
 

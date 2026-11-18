@@ -23,7 +23,7 @@ import type {
   TurnId,
   WorkspaceId,
 } from '@wevir/protocol';
-import { HOOK_EVENTS, MethodSchemas } from '@wevir/protocol';
+import { HOOK_EVENTS, MethodSchemas, VerificationTargetSchema } from '@wevir/protocol';
 import { type AgentEvent, APP_TOOLS_SERVER, appToolBaseName } from '@wevir/runtime-adapter';
 import type { Storage } from '@wevir/storage';
 import {
@@ -45,6 +45,7 @@ import { isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import type { HostMethodName, HostMethods } from './host-methods.js';
 import type { SessionManager } from './session-manager.js';
+import { redactEvidenceText } from './verification/evidence.js';
 
 /** 经 Host 方法表调一个方法：参数按注册表校验，身份是应用级工具。 */
 export type HostCall = <M extends HostMethodName>(
@@ -340,11 +341,13 @@ export class ConfigTools {
         'Read Wevir setup: settings (and who may change each), projects, environments, checks (with candidate ' +
         'commands), approval_rules, usage (cost of the last days, default 30), lsp (language servers, install ' +
         'plans) or hooks (lifecycle hooks of every source, status, engines that run each event). The other ' +
-        'wevir_config_* tools change it.',
+        'wevir_config_* tools change it. For checks, target working_tree, staged, or commit (with a SHA) returns Host verification evidence.',
       inputSchema: objectSchema(
         {
           section: { type: 'string', enum: [...READ_SECTIONS] },
           days: { type: 'integer', minimum: 1, maximum: 365 },
+          target: { type: 'string', enum: [...VerificationTargetSchema.options] },
+          commit: { type: 'string' },
         },
         ['section'],
       ),
@@ -375,7 +378,19 @@ export class ConfigTools {
                 call('checks.candidates', { workspaceId }),
               ]),
             );
-            return jsonResult({ ...checks, candidates });
+            const target = optionalEnum(args, 'target', VerificationTargetSchema.options);
+            if (target === undefined) return jsonResult({ ...checks, candidates });
+            const commit = optionalString(args, 'commit');
+            const { evidence } = await this.#host(() =>
+              call('verification.status', { sessionId, target, commit }),
+            );
+            return jsonResult(
+              JSON.parse(
+                JSON.stringify({ ...checks, candidates, evidence }, (_key, value) =>
+                  typeof value === 'string' ? redactEvidenceText(value) : value,
+                ),
+              ),
+            );
           }
           case 'approval_rules':
             return jsonResult(await this.#host(() => call('approvalRule.list', { workspaceId })));
