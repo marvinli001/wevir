@@ -13,6 +13,7 @@ import {
   InsightIdSchema,
   IsoTimeSchema,
   OpinionIdSchema,
+  PendingDeliverySchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
   QuestionIdSchema,
@@ -30,6 +31,7 @@ import { GitObjectIdSchema } from './git.js';
 import { MarketMirrorPreferenceSchema } from './market.js';
 import { NotificationKindSettingsSchema } from './notifications.js';
 import { ImportedFromSchema } from './plugins.js';
+import { REVIEW_FINDINGS_MAX, ReviewFindingSchema } from './review.js';
 import { RoutingSettingsSchema } from './routing.js';
 import { ProfileVersionRefSchema } from './tuning.js';
 import { RepairFromSchema, SessionVerificationSchema } from './verification.js';
@@ -1133,8 +1135,7 @@ export const DEFAULT_COLLABORATION_MODE: CollaborationMode = 'default';
  * 回合进行中发的消息怎样送达（domain-model §3.3.2）：`steer` 插话，不打断回合，等当前这一步（模型这一段输出或这次
  * 工具调用）结束插进同一个回合；`queue` 排队，回合结束后作为下一个回合发出。
  */
-export const PendingDeliverySchema = z.enum(['steer', 'queue']);
-export type PendingDelivery = z.infer<typeof PendingDeliverySchema>;
+export { type PendingDelivery, PendingDeliverySchema } from './common.js';
 
 /**
  * 待发消息的状态：`waiting` 等待（插话等这一步结束，排队等回合结束）；`held` 暂停（回合以失败或取消结束、会话出错或
@@ -2346,6 +2347,19 @@ export const SecondOpinionSchema = z.object({
   outcome: TurnOutcomeSchema.optional(),
   /** 意见（那个回合最后一段回答，最多 `SECOND_OPINION_TEXT_MAX_LENGTH` 字）；没有回答时省略。 */
   text: z.string().min(1).max(SECOND_OPINION_TEXT_MAX_LENGTH).optional(),
+  findings: z
+    .array(
+      ReviewFindingSchema.pick({
+        title: true,
+        body: true,
+        path: true,
+        startLine: true,
+        endLine: true,
+        priority: true,
+      }),
+    )
+    .max(REVIEW_FINDINGS_MAX)
+    .optional(),
   /** 被引用进原会话的时刻与那条消息开始的回合或成为的待发消息；只引用一次。 */
   quoted: z
     .object({

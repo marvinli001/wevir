@@ -136,3 +136,6 @@ export const ClientIdentitySchema = z.object({
     .optional(),
 });
 export type ClientIdentity = z.infer<typeof ClientIdentitySchema>;
+
+export const PendingDeliverySchema = z.enum(['steer', 'queue']);
+export type PendingDelivery = z.infer<typeof PendingDeliverySchema>;

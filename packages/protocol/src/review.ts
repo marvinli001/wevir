@@ -12,6 +12,7 @@ import { z } from 'zod';
 import {
   ClientTokenSchema,
   IsoTimeSchema,
+  PendingDeliverySchema,
   PendingMessageIdSchema,
   ReviewCommentIdSchema,
   SeqSchema,
@@ -19,7 +20,6 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
-import { PendingDeliverySchema } from './entities.js';
 import { DiffSourceSchema, GitObjectIdSchema } from './git.js';
 
 /** 批注正文的上限（字符）。 */

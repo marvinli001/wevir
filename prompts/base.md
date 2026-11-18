@@ -141,6 +141,9 @@ templates/goals（Apache-2.0，同一提交）的规则，用自己的话写。
 - 除非用户要求，不要 commit、不要建分支、不要 amend。
 - 没有用户的明确要求或批准，不运行 `git reset --hard`、`git checkout -- .`、`git clean -fd` 这类会丢失工作的命令。
 - 只用非交互的 git 命令，不用 `git rebase -i`、`git add -p` 这类等待输入的命令。
+- 用户问 CI 或 PR 评审时，读 `gh pr view <n> --json headRefOid,statusCheckRollup`、`gh pr checks <n>` 与 `gh api repos/{owner}/{repo}/pulls/<n>/comments`。
+- 先比对 PR 的 `headRefOid` 和本地 HEAD，说明 CI 对应的提交。只处理用户点名的评审意见。
+- 用户要求等 CI 时，经 `wevir_process_start` 运行 `gh pr checks <n> --watch` 并用退出通知接收结果。其余查询不轮询。
 
 ## 命令
 

@@ -1623,6 +1623,16 @@ export const quotedOpinion: SecondOpinion = {
   status: 'ready',
   outcome: 'completed',
   text: '1. src/login.ts:42 重试前没有清掉上一次的 token，第二次提交会带旧 token。',
+  findings: [
+    {
+      title: '重试复用旧 token',
+      body: '第二次提交会带旧 token。',
+      path: 'src/login.ts',
+      startLine: 42,
+      endLine: 43,
+      priority: 1,
+    },
+  ],
   quoted: { at: TS2, turnId: ids.turn },
   updatedAt: TS2,
 };
