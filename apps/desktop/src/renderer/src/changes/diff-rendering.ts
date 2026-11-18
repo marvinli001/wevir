@@ -189,13 +189,13 @@ export function buildFileDiffContentVersion(fileDiff: FileDiffMetadata): number 
   return hash;
 }
 
-/** 折叠箭头的颜色跟着文件的变化：新增成功色、删除失败色、修改与重命名说明文字色。 */
+/** 折叠箭头的颜色跟着文件的变化：新增与删除用差异色、修改与重命名说明文字色。 */
 export function getDiffCollapseIconClassName(fileDiff: FileDiffMetadata): string {
   switch (fileDiff.type) {
     case 'new':
-      return 'text-success';
+      return 'text-diff-plus';
     case 'deleted':
-      return 'text-destructive';
+      return 'text-diff-minus';
     default:
       return 'text-muted-foreground';
   }

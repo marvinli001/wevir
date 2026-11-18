@@ -12,6 +12,7 @@ import { ScheduleCard } from '@/automations/automation-dialog';
 import { draftOfSchedule, isRunActive, scheduleOfDraft } from '@/automations/automations-model';
 import { useAutomations } from '@/automations/use-automations';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from '@/components/ui/popover';
@@ -68,9 +69,7 @@ export function AssistantPanel({
       data-assistant-panel={channel.id}
     >
       {error && (
-        <p className="sticky top-0 z-10 bg-popover py-2 text-sm text-destructive" role="alert">
-          {error}
-        </p>
+        <ErrorNote className="sticky top-0 z-10 bg-popover py-2 text-sm">{error}</ErrorNote>
       )}
       <section className="flex flex-col items-center gap-2 border-b border-border pb-5 pt-4 text-center">
         {channel.assistant && (
@@ -128,9 +127,7 @@ export function AssistantPanel({
           )}
         </div>
         {automations.error !== undefined && (
-          <p className="text-xs text-destructive" role="alert">
-            {describe(automations.error)}
-          </p>
+          <ErrorNote className="text-xs">{describe(automations.error)}</ErrorNote>
         )}
         <div className="flex flex-col gap-1">
           {threads.map((thread) => (
@@ -292,11 +289,7 @@ function Routine({
           data-routine-editor={automation.id}
         >
           <PopoverTitle className="px-1 font-medium">{automation.title}</PopoverTitle>
-          {error && (
-            <p className="px-1 text-xs text-destructive" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="px-1 text-xs">{error}</ErrorNote>}
           <fieldset disabled={!manage || busy} className="min-w-0 space-y-2">
             <ScheduleCard
               draft={draft}

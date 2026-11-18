@@ -5,6 +5,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import type { HostProcess, ProcessStopSignal } from '@wevir/protocol';
 import { cn } from 'cn';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import type { StatusTone } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import {
@@ -218,9 +219,9 @@ function OutputView({ client, process }: { client: WevirClient; process: HostPro
         }}
       >
         {output.error !== undefined && (
-          <p role="alert" className="px-3 py-2 font-sans text-destructive">
+          <ErrorNote className="px-3 py-2 font-sans">
             {t('processes.loadFailed', { error: describe(output.error) })}
-          </p>
+          </ErrorNote>
         )}
         {buffer !== undefined && rows.length === 0 && (
           <p className="px-3 py-2 font-sans text-muted-foreground">{t('processes.noOutput')}</p>
@@ -296,14 +297,14 @@ export function ProcessPeek({ client, process }: { client: WevirClient; process:
     >
       <div className="text-muted-foreground">$ {process.command}</div>
       {error !== undefined ? (
-        <p role="alert" className="font-sans text-destructive">
+        <ErrorNote className="font-sans">
           {t('processes.loadFailed', { error: describe(error) })}
-        </p>
+        </ErrorNote>
       ) : (
         lines.length > 0 && <div className="mt-1.5">{lines.join('\n')}</div>
       )}
       {process.error !== undefined && (
-        <p className="mt-1.5 font-sans text-destructive">{process.error}</p>
+        <ErrorNote className="mt-1.5 font-sans">{process.error}</ErrorNote>
       )}
     </div>
   );
@@ -365,9 +366,7 @@ export function StopDialog({
           </DialogDescription>
         </DialogHeader>
         {(error || exited) && (
-          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-            {error ?? t('processes.alreadyExited')}
-          </p>
+          <ErrorNote className="text-sm">{error ?? t('processes.alreadyExited')}</ErrorNote>
         )}
         <DialogFooter className="sm:flex-wrap">
           <Button variant="ghost" disabled={busy} onClick={onClose}>

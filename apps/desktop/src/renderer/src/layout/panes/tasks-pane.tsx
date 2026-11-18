@@ -5,6 +5,7 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
+  CircleAlert,
   SearchX,
   Square,
   Terminal,
@@ -15,6 +16,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router';
 import { Collapse } from '@/components/collapse';
 import { EmptyState } from '@/components/empty-state';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { TruncatedText } from '@/components/truncated-text';
 import { Button } from '@/components/ui/button';
@@ -249,14 +251,7 @@ function TaskList({
     <ScrollArea className="h-full">
       {clear && <PaneHeaderPortal slot="actions">{clear}</PaneHeaderPortal>}
       <div className="space-y-5 px-3 pt-1 pb-3" data-testid="tasks-pane">
-        {error && (
-          <p
-            role="alert"
-            className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="px-1 text-sm">{error}</ErrorNote>}
         {open.length > 0 && (
           <section aria-label={t('tasks.running', { count: open.length })}>
             <h3 className="flex h-7 items-center px-1 text-xs text-muted-foreground">
@@ -404,17 +399,15 @@ function SubagentCard({
           <ChevronRight aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-2 flex-1" />
           {running && summary.pendingApprovals.length > 0 && (
-            <span className="mr-1 shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
+            <span className="mr-1 shrink-0 rounded-sm bg-muted px-1.5 text-xs leading-5 font-medium text-foreground">
               {t('subagent.awaitingApproval')}
             </span>
           )}
           {failed && (
-            <span
-              className={cn(
-                'mr-1 shrink-0 text-xs',
-                summary.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+            <span className="mr-1 flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              {summary.status === 'failed' && (
+                <CircleAlert aria-hidden className="size-3.5 shrink-0 text-icon-danger" />
               )}
-            >
               {statusLabel(summary.status)}
             </span>
           )}
@@ -555,7 +548,10 @@ function ProcessLine({
           <TruncatedText text={process.name} className="min-w-0" />
           <span className="min-w-2 flex-1" />
           {!running && status.tone === 'danger' && (
-            <span className="mr-1 shrink-0 text-xs text-destructive">{status.label}</span>
+            <span className="mr-1 flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              <CircleAlert aria-hidden className="size-3.5 shrink-0 text-icon-danger" />
+              {status.label}
+            </span>
           )}
           <Elapsed ms={end - Date.parse(process.startedAt)} />
           {onStop && <span aria-hidden className="w-7 shrink-0" />}
@@ -692,9 +688,9 @@ function TaskDetail({ summary, onBack }: { summary: SubagentSummary; onBack: () 
       <ScrollArea className="min-h-0 flex-1">
         <div ref={body} className="px-4 pt-1 pb-4">
           {state?.error ? (
-            <p className="py-8 text-center text-sm text-destructive">
+            <ErrorNote className="justify-center py-8 text-sm">
               {t('subagent.detail.failed', { error: state.error })}
-            </p>
+            </ErrorNote>
           ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
             <TaskProcess
               summary={summary}
@@ -807,10 +803,10 @@ function TaskProcess({
           </>
         )}
         {failed && (
-          <span className={summary.status === 'failed' ? 'text-destructive' : undefined}>
+          <>
             {' · '}
             {statusLabel(summary.status)}
-          </span>
+          </>
         )}
       </p>
       {shown.map((message) =>

@@ -15,6 +15,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo, type ProviderLogoId } from '@/components/provider-logo';
@@ -303,13 +304,9 @@ export function WelcomeWork({
         </Column>
       </div>
       {error && (
-        <p
-          role="alert"
-          title={error}
-          className="shrink-0 line-clamp-2 text-sm break-words text-destructive"
-        >
-          {error}
-        </p>
+        <ErrorNote title={error} className="shrink-0 text-sm">
+          <span className="line-clamp-2">{error}</span>
+        </ErrorNote>
       )}
       <div className="flex shrink-0 flex-wrap items-center gap-2 pt-2">
         {choice && needsModel && fromHistory && (

@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -329,9 +330,9 @@ function DraftStrip({
                 data-action="retry-attachment"
                 title={item.failure}
                 onClick={() => onRetry(item.key)}
-                className="flex h-full items-center gap-2 rounded-xl border border-destructive/35 px-3 text-sm text-foreground hover:bg-muted focus-visible:focus-field"
+                className="flex h-full items-center gap-2 rounded-xl border border-border px-3 text-sm text-foreground hover:bg-muted focus-visible:focus-field"
               >
-                <RotateCcw aria-hidden className="size-4" />
+                <RotateCcw aria-hidden className="size-4 shrink-0 text-icon-danger" />
                 <span className="truncate">{item.name ?? t('composer.attachImages')}</span>
                 <span className="text-xs">{t('files.retry')}</span>
               </button>
@@ -366,11 +367,7 @@ function DraftStrip({
           ),
         )}
       </AttachmentStrip>
-      {error && (
-        <p role="alert" className="px-4 text-xs text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote className="px-4 text-xs">{error}</ErrorNote>}
       <ImagePreview
         src={preview?.src}
         {...(preview?.name && { name: preview.name })}
@@ -542,11 +539,7 @@ function PromptHistory({
             <p className="p-3 text-center text-sm text-muted-foreground">{t('search.empty')}</p>
           )}
         </div>
-        {error && (
-          <p role="alert" className="px-2 text-xs text-destructive">
-            {t('search.failed', { error })}
-          </p>
-        )}
+        {error && <ErrorNote className="px-2 text-xs">{t('search.failed', { error })}</ErrorNote>}
         {loading && (
           <p role="status" className="px-2 text-xs text-muted-foreground">
             {t('common.loading')}

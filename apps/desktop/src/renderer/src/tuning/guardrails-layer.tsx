@@ -6,10 +6,11 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { Guardrail, ProfileLayer, WorkspaceId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Ellipsis, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Ellipsis, Pencil, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
@@ -178,9 +179,14 @@ export function GuardrailsLayerRow({
                 ))}
               </ul>
               {data.data.warnings.map((warning) => (
-                <p key={warning} className="mt-1 truncate text-xs text-destructive" title={warning}>
+                <ErrorNote
+                  key={warning}
+                  tone="warning"
+                  className="mt-1 text-xs [&>span]:truncate"
+                  title={warning}
+                >
                   {warning}
-                </p>
+                </ErrorNote>
               ))}
             </Group>
           )}
@@ -324,12 +330,10 @@ function HookRow({ hook, onToggle }: { hook: ListedHook; onToggle: (enabled: boo
     >
       <span className="min-w-0 flex-1 truncate font-mono">{label}</span>
       {status !== undefined && (
-        <span
-          className={cn(
-            'shrink-0',
-            hook.status === 'changed' ? 'text-warning' : 'text-muted-foreground',
+        <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+          {hook.status === 'changed' && (
+            <TriangleAlert aria-hidden className="size-3.5 text-icon-warning" />
           )}
-        >
           {status}
         </span>
       )}

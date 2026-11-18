@@ -136,13 +136,11 @@ export function PermissionPicker({
   const allowed = useAllowedPermissionModes();
   const warning = value === 'full_access';
   // 输入框窄于 30rem（子会话窗格、窄窗口）时只留图标，模式名在 aria-label 与菜单里。
-  const chipClass = cn(
-    'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-colors duration-150 @max-[30rem]/composer:w-7 @max-[30rem]/composer:justify-center @max-[30rem]/composer:px-0',
-    warning ? 'text-warning' : 'text-soft-foreground',
-  );
+  const chipClass =
+    'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs text-soft-foreground outline-none transition-colors duration-150 @max-[30rem]/composer:w-7 @max-[30rem]/composer:justify-center @max-[30rem]/composer:px-0';
   const chip = (
     <>
-      <Icon aria-hidden className="size-3.5 shrink-0" />
+      <Icon aria-hidden className={cn('size-3.5 shrink-0', warning && 'text-icon-warning')} />
       <span className="truncate @max-[30rem]/composer:sr-only">{t(label)}</span>
     </>
   );
@@ -164,10 +162,7 @@ export function PermissionPicker({
               aria-label={t('permission.label', { mode: t(label) })}
               className={cn(
                 chipClass,
-                'focus-visible:focus-ring',
-                warning
-                  ? 'hover:bg-warning/10 aria-expanded:bg-warning/10'
-                  : 'hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground',
+                'hover:bg-muted hover:text-foreground focus-visible:focus-ring aria-expanded:bg-muted aria-expanded:text-foreground',
               )}
             />
           }
@@ -195,7 +190,8 @@ export function PermissionPicker({
                 data-mode={mode}
                 className={cn(
                   'gap-2.5 pl-2',
-                  mode === 'full_access' && 'text-warning focus:**:text-warning focus:text-warning',
+                  mode === 'full_access' &&
+                    '[&>svg]:text-icon-warning focus:[&>svg]:text-icon-warning',
                 )}
               >
                 <ModeIcon aria-hidden className="size-4" />

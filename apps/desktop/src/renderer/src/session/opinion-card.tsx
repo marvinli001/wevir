@@ -4,6 +4,7 @@ import { cn } from 'cn';
 import { ChevronRight, MessagesSquare } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
@@ -80,9 +81,7 @@ export function OpinionCard({ part }: { part: ChatPartOf<'opinion'> }) {
         {t('opinion.running')}
       </span>
     ) : failed ? (
-      <span className="text-destructive">
-        {t(opinion.outcome === 'cancelled' ? 'opinion.cancelled' : 'opinion.failed')}
-      </span>
+      <span>{t(opinion.outcome === 'cancelled' ? 'opinion.cancelled' : 'opinion.failed')}</span>
     ) : opinion.quoted ? (
       <span>{t('opinion.quoted')}</span>
     ) : undefined;
@@ -108,11 +107,7 @@ export function OpinionCard({ part }: { part: ChatPartOf<'opinion'> }) {
       )}
       {(opinion.status === 'ready' || reviewer !== undefined || error !== undefined) && (
         <footer className="flex min-h-10 items-center gap-2 border-t border-border px-3 py-1.5">
-          {error !== undefined && (
-            <Hint label={error} whenClipped>
-              <p className="min-w-0 flex-1 truncate text-xs text-destructive">{error}</p>
-            </Hint>
-          )}
+          {error !== undefined && <ErrorNote className="min-w-0 flex-1 text-xs">{error}</ErrorNote>}
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {origin && reviewer && (
               <Link

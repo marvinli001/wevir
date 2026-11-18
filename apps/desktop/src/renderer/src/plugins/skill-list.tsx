@@ -5,6 +5,7 @@ import { cn } from 'cn';
 import { FolderOpen } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
@@ -217,9 +218,9 @@ function SkillPreview({ path }: { path: string }) {
   }
   if (state.status === 'error') {
     return (
-      <p role="alert" className="text-sm break-words text-destructive">
+      <ErrorNote className="text-sm">
         {t('plugins.skill.previewFailed', { error: state.error })}
-      </p>
+      </ErrorNote>
     );
   }
   return (

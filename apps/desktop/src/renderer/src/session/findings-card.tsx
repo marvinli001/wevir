@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { openChanges } from '@/changes/changes-store';
 import { useReviewSupported } from '@/changes/review-data';
 import { Collapse } from '@/components/collapse';
+import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
@@ -162,11 +163,7 @@ export function FindingsCard({ part }: { part: ChatPartOf<'findings'> }) {
         </button>
       )}
       {error !== undefined && (
-        <Hint label={error} whenClipped>
-          <p className="truncate border-t border-border px-3 py-1.5 text-xs text-destructive">
-            {error}
-          </p>
-        </Hint>
+        <ErrorNote className="border-t border-border px-3 py-1.5 text-xs">{error}</ErrorNote>
       )}
     </section>
   );
@@ -175,10 +172,10 @@ export function FindingsCard({ part }: { part: ChatPartOf<'findings'> }) {
 /** 收起时显示的条数（照 Codex 桌面端的评论卡片），其余在“再显示 N 条”里。 */
 const PREVIEW_ROWS = 3;
 
-/** P0 红、P1 黄的淡底；P2、P3 与没有优先级的只描边。 */
+/** P0、P1 用淡底、前景色字；P2、P3 与没有优先级的只描边。 */
 const PRIORITY_CLASS = [
-  'border-transparent bg-destructive/10 text-destructive',
-  'border-transparent bg-warning/15 text-warning',
+  'border-transparent bg-muted text-foreground',
+  'border-transparent bg-muted text-foreground',
   'border-border text-muted-foreground',
   'border-border text-muted-foreground',
 ];
@@ -243,7 +240,9 @@ function FindingItem({
           <span className="shrink-0 text-xs text-muted-foreground">{t(label)}</span>
         )}
         {state === 'outdated' && (
-          <span className="shrink-0 text-xs text-warning">{t('comments.state.outdated')}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {t('comments.state.outdated')}
+          </span>
         )}
         {row.location !== '' && (
           <Hint label={row.location} whenClipped>

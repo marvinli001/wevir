@@ -1,5 +1,6 @@
 import { ReviewCommitShaSchema, ReviewInstructionsSchema, type TurnCommand } from '@wevir/protocol';
 import { type FormEvent, useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -102,9 +103,9 @@ export function ReviewTargetDialog({
               />
             )}
             {error && (
-              <p id={errorId} role="alert" className="text-xs text-destructive">
+              <ErrorNote id={errorId} className="text-xs">
                 {error}
-              </p>
+              </ErrorNote>
             )}
           </div>
           <DialogFooter>

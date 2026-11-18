@@ -33,9 +33,9 @@ export function NewSessionQuota({
     <div
       role="status"
       data-testid="new-session-quota"
-      className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning"
+      className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-soft-foreground"
     >
-      <CircleAlert aria-hidden className="size-4 shrink-0" />
+      <CircleAlert aria-hidden className="size-4 shrink-0 text-icon-warning" />
       <span className="min-w-0 flex-1">
         {t('session.quota.exhausted', { name: title(provider) })}
         {resets && ` · ${resets}`}

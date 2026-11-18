@@ -327,11 +327,11 @@ function PricingStatus({ pricing }: { pricing: UsagePricing }) {
   if (pricing.fetchedAt === undefined) {
     return (
       <span
-        className="flex items-center gap-1.5 text-xs text-warning"
+        className="flex items-center gap-1.5 text-xs text-muted-foreground"
         title={pricing.lastError}
         data-testid="usage-pricing"
       >
-        <CircleAlert className="size-3.5" aria-hidden />
+        <CircleAlert className="size-3.5 text-icon-warning" aria-hidden />
         {t('usage.pricing.missing')}
       </span>
     );
@@ -348,7 +348,7 @@ function PricingStatus({ pricing }: { pricing: UsagePricing }) {
       data-testid="usage-pricing"
     >
       {pricing.lastError !== undefined && (
-        <CircleAlert className="size-3.5 text-warning" aria-hidden />
+        <CircleAlert className="size-3.5 text-icon-warning" aria-hidden />
       )}
       {t('usage.pricing.status', { source: pricing.source, time })}
     </span>

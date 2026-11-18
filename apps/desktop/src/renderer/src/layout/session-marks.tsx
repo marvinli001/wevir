@@ -11,7 +11,7 @@ export function DoneMark({ at }: { at: number }) {
       viewBox="0 0 16 16"
       aria-hidden
       data-slot="done-mark"
-      className="size-3.5 done-mark text-success"
+      className="size-3.5 done-mark text-icon-success"
       style={motionElapsed(at)}
     >
       <circle

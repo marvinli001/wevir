@@ -11,6 +11,7 @@
 import { cn } from 'cn';
 import { MessageSquare, Trash2 } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -117,9 +118,7 @@ export function DiffCommentDraft({
       />
       <div className="flex items-center gap-1 px-2 pb-2">
         {error !== undefined ? (
-          <span className="mr-auto truncate text-xs text-destructive" role="alert">
-            {error}
-          </span>
+          <ErrorNote className="mr-auto text-xs">{error}</ErrorNote>
         ) : (
           <kbd className="mr-auto pl-0.5 font-sans text-[11px] text-muted-foreground">
             {IS_MAC ? '⌘↩' : 'Ctrl+↩'}
@@ -148,7 +147,6 @@ export function DiffCommentNote({
   tag,
   rangeLabel,
   stateLabel,
-  outdated,
   onDelete,
 }: {
   text: string;
@@ -159,17 +157,12 @@ export function DiffCommentNote({
   rangeLabel: string;
   /** 位置状态（改动前、已移动），没有时不写。 */
   stateLabel: string | undefined;
-  outdated?: boolean;
   onDelete: () => void;
 }) {
   return (
     <CommentCard data-diff-comment className="group/comment">
       <CardHead label={rangeLabel}>
-        {stateLabel !== undefined && (
-          <span className={cn('shrink-0', outdated === true && 'text-warning')}>
-            · {stateLabel}
-          </span>
-        )}
+        {stateLabel !== undefined && <span className="shrink-0">· {stateLabel}</span>}
         {tag !== undefined && <span className="shrink-0">· {tag}</span>}
         <span className="ml-auto flex shrink-0 opacity-0 transition-opacity group-hover/comment:opacity-100 focus-within:opacity-100">
           <IconButton label={t('comments.delete')} size="icon-xs" onClick={onDelete}>

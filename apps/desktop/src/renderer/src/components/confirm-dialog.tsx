@@ -1,5 +1,6 @@
 import { LoaderCircle } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -71,11 +72,7 @@ export function ConfirmDialog({
             </DialogDescription>
           )}
         </DialogHeader>
-        {error && (
-          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <DialogFooter>
           <Button variant="outline" onClick={() => change(false)} disabled={busy}>
             {t('common.cancel')}

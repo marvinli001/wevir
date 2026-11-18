@@ -1,6 +1,7 @@
 import { cn } from 'cn';
 import { ExternalLink } from 'lucide-react';
 import { useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { t } from '@/i18n';
@@ -55,7 +56,7 @@ export function VertexFields({
             aria-invalid={!!errors['vertex.project']}
           />
           {errors['vertex.project'] && (
-            <p className="text-sm text-destructive">{errors['vertex.project']}</p>
+            <ErrorNote className="text-sm">{errors['vertex.project']}</ErrorNote>
           )}
         </div>
         <div className="space-y-1.5">
@@ -77,7 +78,7 @@ export function VertexFields({
             aria-invalid={!!errors['vertex.location']}
           />
           {errors['vertex.location'] && (
-            <p className="text-sm text-destructive">{errors['vertex.location']}</p>
+            <ErrorNote className="text-sm">{errors['vertex.location']}</ErrorNote>
           )}
         </div>
       </div>
@@ -147,9 +148,9 @@ export function VertexFields({
         />
         {email && <p className="break-all text-sm text-soft-foreground">{email}</p>}
         {(errors.serviceAccountJson || fileError) && (
-          <p className="text-sm text-destructive">
+          <ErrorNote className="text-sm">
             {errors.serviceAccountJson ?? t('provider.vertex.accountInvalid')}
-          </p>
+          </ErrorNote>
         )}
       </div>
     </div>

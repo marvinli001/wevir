@@ -113,7 +113,7 @@ export function FxGallery() {
               </div>
             </Beam>
             <Beam preset="approval" className="block">
-              <div className="rounded-xl border border-warning/40 bg-card px-3 py-6 text-sm">
+              <div className="rounded-xl border border-input bg-card px-3 py-6 text-sm">
                 approval · pulse-inner · gold
               </div>
             </Beam>

@@ -2,6 +2,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import type { ProviderModel, ProviderProfile } from '@wevir/protocol';
 import { LoaderCircle } from 'lucide-react';
 import { type FormEvent, useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -130,9 +131,9 @@ function ModelWindowEditor({
           ` · ${t('source.context.usable', { value: Math.floor(value * 0.95).toLocaleString() })}`}
       </p>
       {!valid && (
-        <p role="alert" className="text-xs text-destructive">
+        <ErrorNote className="text-xs">
           {t('source.context.invalid', { max: settings.max.toLocaleString() })}
-        </p>
+        </ErrorNote>
       )}
       {error !== undefined && <NoticeBanner notice={{ tone: 'error', text: error }} />}
     </form>

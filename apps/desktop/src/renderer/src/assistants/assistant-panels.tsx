@@ -20,6 +20,7 @@ import { Circle, CircleCheck, LoaderCircle, Sun, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { scheduleText } from '@/automations/automations-model';
 import { useAutomations } from '@/automations/use-automations';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Switch } from '@/components/switch';
 import { Input } from '@/components/ui/input';
@@ -78,7 +79,7 @@ export function TasksPanel({
           {busy === task.id ? (
             <LoaderCircle aria-hidden className="size-4.5 animate-spin text-muted-foreground" />
           ) : completed ? (
-            <CircleCheck aria-hidden className="size-4.5 text-success" />
+            <CircleCheck aria-hidden className="size-4.5 text-icon-success" />
           ) : (
             <Circle aria-hidden className="size-4.5 text-muted-foreground hover:text-foreground" />
           )}
@@ -273,7 +274,9 @@ function Schedules({
         <ul className={LIST_CARD}>
           {items.map((automation) => (
             <li key={automation.id} className={ROW} data-automation-id={automation.id}>
-              {automation.brief && <Sun aria-hidden className="size-4 shrink-0 text-warning" />}
+              {automation.brief && (
+                <Sun aria-hidden className="size-4 shrink-0 text-icon-warning" />
+              )}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm">
                   {automation.brief ? t('assistants.schedule.brief') : automation.title}
@@ -361,11 +364,7 @@ export function MemoryPanel({
   });
   const content = (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
       {listing === undefined ? null : notes.length === 0 ? (
         <EmptyList>{t('assistants.memory.empty')}</EmptyList>
       ) : (

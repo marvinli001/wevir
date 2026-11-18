@@ -66,7 +66,7 @@ function TaskRow({ row, open, onToggle }: { row: BoardRow; open: boolean; onTogg
         className={cn(
           'size-4 shrink-0 text-muted-foreground',
           task.status === 'in_progress' && 'text-running',
-          task.status === 'completed' && 'text-success',
+          task.status === 'completed' && 'text-icon-success',
         )}
       />
       <span
@@ -80,7 +80,7 @@ function TaskRow({ row, open, onToggle }: { row: BoardRow; open: boolean; onTogg
         {task.subject}
       </span>
       {row.ready && (
-        <span className="shrink-0 text-xs text-success">{t('rail.taskBoard.ready')}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{t('rail.taskBoard.ready')}</span>
       )}
       {row.waitingFor.length > 0 && (
         <span className="shrink-0 text-xs text-muted-foreground">

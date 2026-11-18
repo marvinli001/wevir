@@ -2,6 +2,7 @@ import type { Environment, EnvironmentFolder, WorkspaceId } from '@wevir/protoco
 import { cn } from 'cn';
 import { ArrowLeft, ArrowUp, ChevronRight, Folder, Layers } from 'lucide-react';
 import { type FormEvent, useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -192,14 +193,7 @@ function EnvironmentForm({
           />
           <p className="text-xs text-muted-foreground">{t('env.variables.format')}</p>
         </div>
-        {variablesError && (
-          <p
-            role="alert"
-            className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {variablesError}
-          </p>
-        )}
+        {variablesError && <ErrorNote className="text-sm">{variablesError}</ErrorNote>}
         <div className="flex justify-end">
           <Button type="button" onClick={finishVariables}>
             {t('env.variables.done')}
@@ -311,21 +305,13 @@ function EnvironmentForm({
             <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
           </button>
         )}
-        {error && (
-          <p
-            role="alert"
-            className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <div className="flex items-center gap-2">
           {environment && (
             <Button
               type="button"
-              variant="ghost"
+              variant="destructive"
               disabled={busy}
-              className="text-destructive hover:text-destructive"
               onClick={() => void run(() => remove(environment.id))}
             >
               {t('env.delete')}

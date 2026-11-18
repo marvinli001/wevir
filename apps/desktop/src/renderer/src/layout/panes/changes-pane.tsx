@@ -537,7 +537,6 @@ function SessionChanges({
               })}
               rangeLabel={lineLabel(entry.range.startLine, entry.range.endLine)}
               stateLabel={commentState(entry.comment)}
-              outdated={entry.comment.anchor.state === 'outdated'}
               onDelete={() => void removeComment([entry.comment.id]).catch(() => {})}
             />
           ),
@@ -895,8 +894,8 @@ function FolderMenu({
 function Stats({ added, removed }: { added: number; removed: number }) {
   return (
     <span className="shrink-0 font-mono text-xs tabular-nums" data-testid="changes-stats">
-      <span className="text-success">+{added.toLocaleString('en-US')}</span>{' '}
-      <span className="text-destructive">−{removed.toLocaleString('en-US')}</span>
+      <span className="text-diff-plus">+{added.toLocaleString('en-US')}</span>{' '}
+      <span className="text-diff-minus">−{removed.toLocaleString('en-US')}</span>
     </span>
   );
 }
@@ -986,8 +985,8 @@ function ScopeMenu({
                           t('changes.turnLive')
                         ) : (
                           <>
-                            <span className="text-success">+{turn.added ?? 0}</span>{' '}
-                            <span className="text-destructive">−{turn.removed ?? 0}</span>
+                            <span className="text-diff-plus">+{turn.added ?? 0}</span>{' '}
+                            <span className="text-diff-minus">−{turn.removed ?? 0}</span>
                           </>
                         )}
                       </span>
@@ -1125,7 +1124,7 @@ function FileHeader({
           </span>
         )}
         {stage === 'conflicted' && (
-          <span className="shrink-0 rounded-full bg-destructive/10 px-1.5 text-[11px] leading-[18px] text-destructive">
+          <span className="shrink-0 rounded-full bg-muted px-1.5 text-[11px] leading-[18px] text-muted-foreground">
             {t('commit.conflicted')}
           </span>
         )}
@@ -1140,8 +1139,8 @@ function FileHeader({
         </span>
       )}
       <span className="shrink-0 font-mono text-xs tabular-nums">
-        <span className="text-success">+{stat.additions}</span>{' '}
-        <span className="text-destructive">−{stat.deletions}</span>
+        <span className="text-diff-plus">+{stat.additions}</span>{' '}
+        <span className="text-diff-minus">−{stat.deletions}</span>
       </span>
       {onOpen && (
         <IconButton
@@ -1180,8 +1179,8 @@ function OmittedFiles({ files }: { files: readonly DiffFile[] }) {
             </span>
             {file.added !== undefined && file.removed !== undefined && (
               <span className="shrink-0 font-mono tabular-nums">
-                <span className="text-success">+{file.added}</span>{' '}
-                <span className="text-destructive">−{file.removed}</span>
+                <span className="text-diff-plus">+{file.added}</span>{' '}
+                <span className="text-diff-minus">−{file.removed}</span>
               </span>
             )}
           </li>

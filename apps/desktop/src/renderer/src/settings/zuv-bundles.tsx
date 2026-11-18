@@ -7,6 +7,7 @@ import {
 import type { MethodResult } from '@wevir/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -229,11 +230,7 @@ export function ZuvBundles({
           <DialogHeader className="shrink-0">
             <DialogTitle>{t('sync.bundles')}</DialogTitle>
           </DialogHeader>
-          {error && (
-            <p role="alert" className="break-words text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote>{error}</ErrorNote>}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-1">
             {vaults.length > 1 && (
               <Select

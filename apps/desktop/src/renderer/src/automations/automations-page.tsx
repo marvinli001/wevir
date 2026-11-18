@@ -56,7 +56,7 @@ export const STATE_META: Record<
   { label: PlainMessageKey; icon: typeof Clock; tone?: string }
 > = {
   running: { label: 'automations.state.running', icon: LoaderCircle, tone: 'text-running' },
-  waiting: { label: 'automations.state.waiting', icon: Hand, tone: 'text-warning' },
+  waiting: { label: 'automations.state.waiting', icon: Hand, tone: 'text-icon-warning' },
   scheduled: { label: 'automations.state.scheduled', icon: CalendarClock },
   manual: { label: 'automations.state.manual', icon: Hand },
   paused: { label: 'automations.state.paused', icon: Pause },
@@ -289,14 +289,12 @@ function AutomationRow({
               {scheduleText(automation.schedule, automation.timezone)}
             </span>
             <span aria-hidden>·</span>
-            <span className={cn('shrink-0', STATE_META[state].tone)}>
-              {t(STATE_META[state].label)}
-            </span>
+            <span className="shrink-0">{t(STATE_META[state].label)}</span>
             {failed && state !== 'running' && (
               <>
                 <span aria-hidden>·</span>
-                <span className="flex shrink-0 items-center gap-1 text-destructive">
-                  <TriangleAlert aria-hidden className="size-3" />
+                <span className="flex shrink-0 items-center gap-1">
+                  <TriangleAlert aria-hidden className="size-3 text-icon-danger" />
                   {t('automations.lastFailed')}
                 </span>
               </>

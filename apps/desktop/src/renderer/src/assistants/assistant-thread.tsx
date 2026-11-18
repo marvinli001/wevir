@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import {
   DropdownMenu,
@@ -156,9 +157,9 @@ function ThreadMenu({
         </DropdownMenuItem>
       </DropdownMenuContent>
       {error !== undefined && (
-        <p className="max-w-40 truncate text-xs text-destructive" title={error} role="alert">
+        <ErrorNote className="max-w-40 text-xs [&>span]:truncate" title={error}>
           {error}
-        </p>
+        </ErrorNote>
       )}
     </DropdownMenu>
   );

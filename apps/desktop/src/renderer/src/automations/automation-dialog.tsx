@@ -12,10 +12,11 @@ import type {
   Session,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronDown, LoaderCircle, Play, TriangleAlert } from 'lucide-react';
+import { ChevronDown, LoaderCircle, Play } from 'lucide-react';
 import { type FormEvent, type ReactNode, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Collapse } from '@/components/collapse';
+import { ErrorNote } from '@/components/error-note';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -296,10 +297,9 @@ function AutomationForm({
           </div>
         </div>
         {permissionMode === 'full_access' && (
-          <p className="-mt-2 flex items-start gap-1.5 text-xs text-warning">
-            <TriangleAlert aria-hidden className="mt-px size-3.5 shrink-0" />
+          <ErrorNote tone="warning" className="-mt-2 text-xs">
             {t('automations.dialog.fullAccessWarning')}
-          </p>
+          </ErrorNote>
         )}
 
         <ScheduleCard draft={draft.schedule} timezone={draft.timezone} onChange={patchSchedule} />
@@ -385,11 +385,7 @@ function AutomationForm({
           </Collapse>
         </div>
 
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onDone}>
             {t('common.cancel')}
@@ -498,11 +494,7 @@ function CheckRows({
               {t('automations.check.test')}
             </Button>
           </div>
-          {testError && (
-            <p className="text-xs text-destructive" role="alert">
-              {testError}
-            </p>
-          )}
+          {testError && <ErrorNote className="text-xs">{testError}</ErrorNote>}
           {result && <CheckResult result={result} />}
         </div>
       )}
@@ -524,15 +516,7 @@ function CheckResult({ result }: { result: AutomationCheckResult }) {
       data-decision={result.decision}
     >
       <p className="flex flex-wrap items-baseline gap-x-2 text-xs">
-        <span
-          className={cn(
-            'font-medium',
-            result.decision === 'wake' && 'text-success',
-            result.decision === 'failed' && 'text-destructive',
-          )}
-        >
-          {t(DECISION_LABEL[result.decision])}
-        </span>
+        <span className="font-medium">{t(DECISION_LABEL[result.decision])}</span>
         <span className="text-muted-foreground">
           {t('automations.check.exitCode', { code: result.exitCode ?? '—' })}
         </span>

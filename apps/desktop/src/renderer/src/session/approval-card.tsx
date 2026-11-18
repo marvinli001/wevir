@@ -22,6 +22,7 @@ import { cn } from 'cn';
 import { ChevronDown, ChevronRight, MessageSquareText } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -152,19 +153,17 @@ export function ApprovalDock({
 
   return (
     <>
-      {notice && (notice.tone === 'neutral' || !current) && (
-        <p
-          role="status"
-          className={cn(
-            'mb-2 rounded-lg px-3 py-2 text-sm',
-            notice.tone === 'error'
-              ? 'bg-destructive/10 text-destructive'
-              : 'bg-muted text-muted-foreground',
-          )}
-        >
-          {notice.text}
-        </p>
-      )}
+      {notice &&
+        (notice.tone === 'error' ? (
+          !current && <ErrorNote className="mb-2 text-sm">{notice.text}</ErrorNote>
+        ) : (
+          <p
+            role="status"
+            className="mb-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
+          >
+            {notice.text}
+          </p>
+        ))}
       {current && (
         // 金色的内侧呼吸光（U3，border-beam 的 pulse-inner）：等待审批时注意力在这里。
         <Beam preset="approval" className="mb-2 block">
@@ -351,13 +350,15 @@ function ApprovalCard({
             {presentation.title}
           </h3>
           {remaining > 0 && (
-            <span className="shrink-0 rounded-md bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
+            <span className="shrink-0 rounded-md bg-muted px-1.5 text-xs leading-5 font-medium text-muted-foreground">
               {t('approval.more', { count: remaining })}
             </span>
           )}
         </div>
         {presentation.confirmation && (
-          <p className="mt-1.5 text-sm text-warning">{presentation.confirmation}</p>
+          <ErrorNote tone="warning" className="mt-1.5 text-sm">
+            {presentation.confirmation}
+          </ErrorNote>
         )}
         {presentation.reason && (
           <p className="mt-1.5 whitespace-pre-wrap text-soft-foreground">{presentation.reason}</p>
@@ -366,9 +367,9 @@ function ApprovalCard({
           <p className="mt-1.5 text-soft-foreground">{presentation.justification}</p>
         )}
         {presentation.permission && (
-          <p className="mt-1.5 text-sm text-warning">
+          <ErrorNote tone="warning" className="mt-1.5 text-sm">
             {t('approval.permission', { permission: presentation.permission })}
-          </p>
+          </ErrorNote>
         )}
         {presentation.target && (
           <pre
@@ -406,7 +407,7 @@ function ApprovalCard({
             </pre>
           </Disclosure>
         )}
-        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+        {error && <ErrorNote className="mt-2 text-sm">{error}</ErrorNote>}
         {noting && (
           <textarea
             ref={noteRef}

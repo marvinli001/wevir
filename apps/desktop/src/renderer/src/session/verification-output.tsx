@@ -2,6 +2,7 @@
 
 import type { SessionId, VerificationRun } from '@wevir/protocol';
 import { useEffect, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -75,7 +76,7 @@ export function VerificationOutputDialog({
           </DialogDescription>
         </DialogHeader>
         {error ? (
-          <p className="text-sm text-destructive">{error}</p>
+          <ErrorNote className="text-sm">{error}</ErrorNote>
         ) : page === undefined ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : (

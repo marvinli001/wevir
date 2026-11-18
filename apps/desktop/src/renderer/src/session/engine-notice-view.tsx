@@ -33,7 +33,7 @@ export function EngineNoticeView({ detail }: { detail: EngineNotice }) {
         aria-hidden
         className={cn(
           'mt-0.5 size-4 shrink-0',
-          detail.kind !== 'output_buffering' && 'text-warning',
+          detail.kind !== 'output_buffering' && 'text-icon-warning',
         )}
       />
       <div className="min-w-0 break-words">
@@ -89,7 +89,7 @@ function ApprovalReviewView({ review }: { review: ApprovalReview }) {
         onClick={() => setOpen(!open)}
         className="flex min-h-7 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
       >
-        <Icon aria-hidden className={cn('size-4 shrink-0', denied && 'text-warning')} />
+        <Icon aria-hidden className={cn('size-4 shrink-0', denied && 'text-icon-warning')} />
         <span className="shrink-0" aria-live="polite">
           {t(`engineNotice.review.${status}`)}
         </span>

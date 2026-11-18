@@ -26,15 +26,15 @@ function render(action: string, extra: Partial<ChatPartOf<'hook'>['outcome']> = 
 }
 
 describe('钩子结果', () => {
-  it('拦下、改判与上下文使用不同图标与状态色，默认折叠详情', () => {
+  it('拦下、改判与上下文使用不同图标与图标状态色，默认折叠详情', () => {
     state.open = false;
     const blocked = render('blocked');
     const changed = render('continued');
     const context = render('context');
     expect(blocked).toContain('lucide-shield-ban');
-    expect(blocked).toContain('text-destructive');
+    expect(blocked).toContain('text-icon-danger');
     expect(changed).toContain('lucide-replace');
-    expect(changed).toContain('text-warning');
+    expect(changed).toContain('text-icon-warning');
     expect(context).toContain('lucide-message-square-plus');
     expect(context).toContain('text-running');
     for (const html of [blocked, changed, context]) {
@@ -54,8 +54,8 @@ describe('钩子结果', () => {
 
   it('错误、上限与未来动作保留状态，无详情时不可展开', () => {
     state.open = false;
-    expect(render('failed')).toContain('text-destructive');
-    expect(render('limit')).toContain('text-warning');
+    expect(render('failed')).toContain('text-icon-danger');
+    expect(render('limit')).toContain('text-icon-warning');
     expect(render('future-action')).toContain('future-action');
     const html = render('allowed', { command: undefined, reason: undefined });
     expect(html).toContain('disabled');

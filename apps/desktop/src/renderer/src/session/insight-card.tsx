@@ -4,7 +4,7 @@
 import type { SessionId, SessionInsight } from '@wevir/protocol';
 import { CircleAlert, Lightbulb, X } from 'lucide-react';
 import { useState } from 'react';
-import { Hint } from '@/components/hint';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { describe, useHostConnection } from '@/host/host-connection';
@@ -74,11 +74,7 @@ export function InsightCard({
         </IconButton>
       </div>
       <div className="mt-1.5 flex items-center gap-1 pl-5.5">
-        {error !== undefined && (
-          <Hint label={error} whenClipped>
-            <p className="min-w-0 flex-1 truncate text-xs text-destructive">{error}</p>
-          </Hint>
-        )}
+        {error !== undefined && <ErrorNote className="min-w-0 flex-1 text-xs">{error}</ErrorNote>}
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <Button
             size="xs"

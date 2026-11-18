@@ -1,5 +1,6 @@
 import { SESSION_TITLE_MAX_LENGTH } from '@wevir/protocol';
 import { type FormEvent, useEffect, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -71,11 +72,7 @@ export function RenameDialog() {
             aria-label={t('session.rename')}
             data-testid="rename-input"
           />
-          {error && (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote>{error}</ErrorNote>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={close} disabled={busy}>
               {t('common.cancel')}

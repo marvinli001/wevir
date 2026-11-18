@@ -18,6 +18,7 @@ import { ChevronDown, ExternalLink } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { Collapse } from '@/components/collapse';
+import { ErrorNote } from '@/components/error-note';
 import { PageSpinner } from '@/components/spinner';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -601,7 +602,7 @@ function VersionDetail({
           {diff === undefined ? (
             <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
           ) : 'error' in diff ? (
-            <p className="text-xs text-destructive">{diff.error}</p>
+            <ErrorNote className="text-xs">{diff.error}</ErrorNote>
           ) : (
             <ProfileDiffList client={client} layers={diff.layers} />
           )}
@@ -699,7 +700,7 @@ function ComparePanel({
       {result === undefined ? (
         <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
       ) : 'error' in result ? (
-        <p className="text-xs text-destructive">{result.error}</p>
+        <ErrorNote className="text-xs">{result.error}</ErrorNote>
       ) : (
         <ProfileDiffList client={client} layers={result.layers} />
       )}

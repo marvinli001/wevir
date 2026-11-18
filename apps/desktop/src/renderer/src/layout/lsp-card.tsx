@@ -13,6 +13,7 @@ import type {
 import { cn } from 'cn';
 import { Copy, RotateCw } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
@@ -150,7 +151,7 @@ function LspDetails({
   };
   return (
     <div data-testid="rail-lsp">
-      {error && <p className="mb-2 text-xs text-destructive">{t('lsp.failed', { error })}</p>}
+      {error && <ErrorNote className="mb-2 text-xs">{t('lsp.failed', { error })}</ErrorNote>}
       {status === undefined ? (
         !error && <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
       ) : status.servers.length === 0 ? (
@@ -369,11 +370,7 @@ function ServerDialog({
             )}
           </div>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <DialogFooter>
           {log !== undefined ? (
             <Button variant="outline" onClick={() => setLog(undefined)}>
@@ -465,9 +462,7 @@ function InstallRunView({ server }: { server: LspServerStatus }) {
         </p>
       )}
       {run.reason && run.status !== 'succeeded' && (
-        <pre className="font-mono text-xs whitespace-pre-wrap break-words text-destructive">
-          {run.reason}
-        </pre>
+        <ErrorNote className="font-mono text-xs whitespace-pre-wrap">{run.reason}</ErrorNote>
       )}
       {run.output !== '' && (
         <pre className="max-h-48 overflow-auto rounded-lg bg-muted p-2 font-mono text-xs whitespace-pre-wrap break-words">
@@ -563,11 +558,7 @@ function InstallPlans({ server, target }: { server: LspServerStatus; target: Tar
           <span>{t('lsp.confirmGlobal')}</span>
         </label>
       )}
-      {error && (
-        <p role="alert" className="text-xs text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote className="text-xs">{error}</ErrorNote>}
       <Button
         size="sm"
         disabled={

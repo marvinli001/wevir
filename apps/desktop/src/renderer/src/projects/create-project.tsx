@@ -8,6 +8,7 @@ import { cn } from 'cn';
 import { Folder, FolderPlus, GitFork, LoaderCircle } from 'lucide-react';
 import { type FormEvent, useEffect, useId, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -288,11 +289,7 @@ function CreateProjectForm({
           )}
         </fieldset>
 
-        {error && (
-          <p role="alert" className="text-sm break-words text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
 
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" disabled={busy} onClick={onDone}>

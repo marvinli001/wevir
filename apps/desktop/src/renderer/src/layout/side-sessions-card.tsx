@@ -1,6 +1,7 @@
 import type { Session } from '@wevir/protocol';
 import { MessageSquare } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { StatusDot } from '@/components/status-dot';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -50,7 +51,7 @@ function useSideSessionsCard({ sessionId, visible }: RailContext) {
     summary: sides.length,
     details: (
       <div data-testid="rail-side-sessions">
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        {error && <ErrorNote className="text-xs">{error}</ErrorNote>}
         {sides.map((side) => (
           <button
             key={side.id}

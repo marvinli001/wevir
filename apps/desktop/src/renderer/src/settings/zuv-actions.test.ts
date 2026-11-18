@@ -3,6 +3,7 @@ import { type AccountState, ErrorCode } from '@wevir/protocol';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from '../components/confirm-dialog';
+import { ErrorNote } from '../components/error-note';
 import { findElement, hooks } from '../test-hooks.test-utils';
 import { ZuvBundles } from './zuv-bundles';
 import { ZuvMemoryConflicts } from './zuv-memory-conflicts';
@@ -218,7 +219,7 @@ describe('completed sync actions', () => {
     const tree = hooks.render(() =>
       Component({ client, disabled: false, onResolved: async () => {} }),
     );
-    const alert = findElement(tree, (element) => element.props.role === 'alert');
+    const alert = findElement(tree, (element) => element.type === ErrorNote);
     expect(() =>
       findElement(alert, (element) => typeof element.props.onClick === 'function'),
     ).toThrow('missing test element');

@@ -3,6 +3,7 @@ import type { Session, SessionId, SessionUsage } from '@wevir/protocol';
 import { FolderOpen, GitBranch } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -273,12 +274,7 @@ export function SessionStorageCard({
                         ]
                           .filter(Boolean)
                           .join(' · ')}
-                        {row.dirtyWorktrees > 0 && (
-                          <span className="text-warning">
-                            {' · '}
-                            {t('settings.storage.dirty')}
-                          </span>
-                        )}
+                        {row.dirtyWorktrees > 0 && ` · ${t('settings.storage.dirty')}`}
                       </span>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -327,9 +323,9 @@ export function SessionStorageCard({
           >
             <p>{t('settings.storage.deleteSize', { size: size(chosenBytes) })}</p>
             {chosenDirty > 0 && (
-              <p className="text-warning">
+              <ErrorNote tone="warning">
                 {t('settings.storage.deleteDirty', { count: chosenDirty })}
-              </p>
+              </ErrorNote>
             )}
             <p>{t('settings.storage.deleteIrreversible')}</p>
           </ConfirmDialog>
@@ -366,12 +362,7 @@ export function SessionStorageCard({
                         .filter(Boolean)
                         .join(' · ')}
                       {row.snapshot && ` · ${t('settings.storage.snapshot')}`}
-                      {row.dirty && (
-                        <span className="text-warning">
-                          {' · '}
-                          {t('settings.storage.dirty')}
-                        </span>
-                      )}
+                      {row.dirty && ` · ${t('settings.storage.dirty')}`}
                     </span>
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">

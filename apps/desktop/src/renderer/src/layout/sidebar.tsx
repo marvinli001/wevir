@@ -23,6 +23,7 @@ import { assistantsAvailability } from '@/assistants/assistants-model';
 import { ThreadAssistantMark, ThreadAssistants } from '@/assistants/thread-mark';
 import { automationsAvailability } from '@/automations/automations-model';
 import { Collapse } from '@/components/collapse';
+import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { ArchiveIcon, PinIcon } from '@/components/session-icons';
@@ -322,9 +323,9 @@ function StatusTree() {
   if (data.status === 'loading') return null;
   if (data.status === 'error') {
     return (
-      <p className="px-2 py-1 text-sm break-words text-destructive">
+      <ErrorNote className="px-2 py-1 text-sm">
         {t('sidebar.loadFailed', { error: data.error })}
-      </p>
+      </ErrorNote>
     );
   }
   // 置顶的会话（U34，本机）单独一组排在最前，不再出现在别的组里。
@@ -408,9 +409,9 @@ function ProjectTree() {
   if (data.status === 'loading') return null;
   if (data.status === 'error') {
     return (
-      <p className="px-2 py-1 text-sm break-words text-destructive">
+      <ErrorNote className="px-2 py-1 text-sm">
         {t('sidebar.loadFailed', { error: data.error })}
-      </p>
+      </ErrorNote>
     );
   }
   // 按手动排的顺序（本机，拖动或上移、下移），置顶的项目（本机）再排在前面。
@@ -1054,7 +1055,7 @@ const SessionRow = memo(function SessionRow({
                   {badge ? (
                     <span
                       className={cn(
-                        'shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning',
+                        'shrink-0 rounded-sm bg-muted px-1.5 text-xs leading-5 font-medium text-foreground',
                         jumpAt !== undefined && 'status-jump',
                       )}
                       style={jumpAt === undefined ? undefined : motionElapsed(jumpAt)}

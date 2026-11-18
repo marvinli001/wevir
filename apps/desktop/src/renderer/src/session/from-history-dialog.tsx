@@ -9,6 +9,7 @@ import type {
 import { compareProtocolVersions } from '@wevir/protocol';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/ui/dialog';
@@ -259,11 +260,7 @@ export function FromHistoryDialog({
             ))}
           </div>
         )}
-        {error && (
-          <p role="alert" className="text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote>{error}</ErrorNote>}
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={() => void close()}>
             {t('common.cancel')}

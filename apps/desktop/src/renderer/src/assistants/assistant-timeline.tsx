@@ -632,15 +632,15 @@ function HostNotice({
   return (
     <div
       className={cn(
-        'flex max-w-[85%] items-center gap-2 rounded-lg px-3 py-1.5 text-sm',
+        'flex max-w-[85%] items-center gap-2 rounded-lg bg-muted px-3 py-1.5 text-sm',
         reason === 'failed' || reason === 'budget' || reason === 'blocked'
-          ? 'bg-warning/10 text-warning'
-          : 'bg-muted text-muted-foreground',
+          ? 'text-foreground'
+          : 'text-muted-foreground',
       )}
       data-notice={reason}
     >
       {(reason === 'failed' || reason === 'budget' || reason === 'blocked') && (
-        <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
+        <TriangleAlert aria-hidden className="size-3.5 shrink-0 text-icon-warning" />
       )}
       <span className="min-w-0 whitespace-pre-line break-words">
         {[about, category, label, text]
@@ -671,7 +671,7 @@ function BriefCard({ card }: { card: Extract<ChannelCard, { kind: 'brief' }> }) 
   return (
     <section className={cn(CARD, 'flex flex-col gap-3')} data-card="brief">
       <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-        <Sun aria-hidden className="size-4 text-warning" />
+        <Sun aria-hidden className="size-4 text-icon-warning" />
         {t('assistants.brief.title', { day })}
       </h3>
       {sections.map((section) => (
@@ -709,7 +709,7 @@ function NeedsCard({ card }: { card: Extract<ChannelCard, { kind: 'needs' }> }) 
         {card.items.map((item) => (
           <li key={`${item.kind}:${item.label}`} className="flex items-start gap-2">
             {item.ready ? (
-              <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
+              <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-icon-success" />
             ) : (
               <Circle aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             )}
@@ -738,7 +738,7 @@ function SuggestionCard({
   return (
     <section className={cn(CARD, 'flex flex-col gap-2')} data-card="suggestion">
       <p className="flex items-start gap-2 text-sm">
-        <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
+        <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-icon-warning" />
         <span className="min-w-0 break-words">{card.text}</span>
       </p>
       {card.status === 'open' ? (
@@ -804,7 +804,7 @@ function ThreadCard({
         ) : (
           <GitBranch
             aria-hidden
-            className={cn('size-4 shrink-0', thread.status === 'waiting' && 'text-warning')}
+            className={cn('size-4 shrink-0', thread.status === 'waiting' && 'text-icon-warning')}
           />
         )}
         <span className="min-w-0 truncate">
@@ -839,7 +839,7 @@ function ThreadCard({
             aria-hidden
             className={cn(
               'mt-0.5 size-4 shrink-0',
-              thread.status === 'waiting' ? 'text-warning' : 'text-muted-foreground',
+              thread.status === 'waiting' ? 'text-icon-warning' : 'text-muted-foreground',
             )}
           />
         )}

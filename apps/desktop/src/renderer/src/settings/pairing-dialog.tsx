@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Fragment, useEffect, useReducer, useRef, useState } from 'react';
 import { CopyGlyph, CopyLabel, useCopied } from '@/components/copy-glyph';
+import { ErrorNote } from '@/components/error-note';
 import { QrCode } from '@/components/qr-code';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -189,11 +190,7 @@ export function PairingDialog({
                   {t('settings.pairing.push')}
                 </label>
               )}
-              {respondError && (
-                <p role="alert" className="text-sm text-destructive">
-                  {respondError}
-                </p>
-              )}
+              {respondError && <ErrorNote className="text-sm">{respondError}</ErrorNote>}
             </div>
           )}
           {state.phase === 'ended' && (
@@ -264,10 +261,7 @@ function OfferView({ offer, now }: { offer: PairingOffer; now: number }) {
             style={{ width: `${Math.min(100, (left / PAIRING_WINDOW_MS) * 100)}%` }}
           />
         </div>
-        <div
-          className={cn('text-xs tabular-nums', urgent ? 'text-warning' : 'text-muted-foreground')}
-          data-pairing-countdown
-        >
+        <div className="text-xs tabular-nums text-muted-foreground" data-pairing-countdown>
           {t('settings.pairing.expiresIn', { time: formatCountdown(left) })}
         </div>
       </div>
@@ -348,7 +342,7 @@ const ENDED_ICON: Record<Exclude<PairingEndReason, 'paired'>, LucideIcon> = {
   failed: CircleX,
 };
 
-/** 窗口结束：图标与一行结果，握手失败用错误色。 */
+/** 窗口结束：图标与一行结果，握手失败时图标用错误色。 */
 function EndedView({
   reason,
   text,
@@ -368,15 +362,13 @@ function EndedView({
     >
       <div
         className={cn(
-          'flex size-14 items-center justify-center rounded-full',
-          failed ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground',
+          'flex size-14 items-center justify-center rounded-full bg-muted',
+          failed ? 'text-icon-danger' : 'text-muted-foreground',
         )}
       >
         <Icon className="size-6" />
       </div>
-      <div className={cn('text-sm', failed ? 'text-destructive' : 'text-muted-foreground')}>
-        {text}
-      </div>
+      <div className="text-sm text-muted-foreground">{text}</div>
     </div>
   );
 }
@@ -458,15 +450,11 @@ export function WebRelayDialog({
               data-setting="web-relay-url"
             />
             {invalid && (
-              <p className="text-xs text-destructive">{t('settings.devices.relayUrlInvalid')}</p>
+              <ErrorNote className="text-xs">{t('settings.devices.relayUrlInvalid')}</ErrorNote>
             )}
           </div>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <DialogFooter>
           <Button variant="outline" disabled={saving} onClick={onCancel}>
             {t('common.cancel')}

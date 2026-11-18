@@ -59,9 +59,9 @@ const RUN_META: Record<
 > = {
   checking: { label: 'automations.run.checking', icon: LoaderCircle, tone: 'text-running' },
   running: { label: 'automations.run.running', icon: LoaderCircle, tone: 'text-running' },
-  waiting: { label: 'automations.run.waiting', icon: Hand, tone: 'text-warning' },
-  completed: { label: 'automations.run.completed', icon: CircleCheck, tone: 'text-success' },
-  failed: { label: 'automations.run.failed', icon: CircleX, tone: 'text-destructive' },
+  waiting: { label: 'automations.run.waiting', icon: Hand, tone: 'text-icon-warning' },
+  completed: { label: 'automations.run.completed', icon: CircleCheck, tone: 'text-icon-success' },
+  failed: { label: 'automations.run.failed', icon: CircleX, tone: 'text-icon-danger' },
   cancelled: { label: 'automations.run.cancelled', icon: Ban, tone: 'text-muted-foreground' },
   skipped: { label: 'automations.run.skipped', icon: SkipForward, tone: 'text-muted-foreground' },
   silent: { label: 'automations.run.silent', icon: CircleMinus, tone: 'text-muted-foreground' },
@@ -123,7 +123,7 @@ export function AutomationDetail({
               </h1>
               <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
                 <StateIcon state={state} className="size-3.5" />
-                <span className={STATE_META[state].tone}>{t(STATE_META[state].label)}</span>
+                <span>{t(STATE_META[state].label)}</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -345,14 +345,7 @@ function RunRow({ run, timezone }: { run: AutomationRun; timezone: string }) {
           </span>
         </span>
         {detail && (
-          <span
-            className={cn(
-              'mt-0.5 line-clamp-2 block text-sm text-muted-foreground',
-              run.error !== undefined && 'text-destructive',
-            )}
-          >
-            {detail}
-          </span>
+          <span className="mt-0.5 line-clamp-2 block text-sm text-muted-foreground">{detail}</span>
         )}
       </span>
     </>

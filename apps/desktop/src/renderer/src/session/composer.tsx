@@ -21,6 +21,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router';
 import { splitPath } from '@/changes/changes-model';
+import { ErrorNote } from '@/components/error-note';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -815,10 +816,8 @@ export const Composer = memo(function Composer({
             那 1 px，内容的位置与底板对齐。 */}
         <div className="@container/composer relative col-start-1 row-start-1 min-w-0 rounded-3xl border border-transparent">
           {dictation.errorKey && (
-            <div className="flex items-center gap-2 px-4 pt-3 text-xs" role="alert">
-              <p className="min-w-0 text-destructive" data-testid="composer-dictation-error">
-                {dictation.error}
-              </p>
+            <div className="flex items-center gap-2 px-4 pt-3 text-xs">
+              <ErrorNote data-testid="composer-dictation-error">{dictation.error}</ErrorNote>
               {dictation.errorKey === 'dictation.error.modelMissing' && (
                 <button
                   type="button"
@@ -832,13 +831,9 @@ export const Composer = memo(function Composer({
           )}
           {input.strip}
           {(issue || input.error) && (
-            <p
-              role="alert"
-              className="px-4 pt-1.5 text-xs text-destructive"
-              data-testid="composer-image-error"
-            >
+            <ErrorNote className="px-4 pt-1.5 text-xs" data-testid="composer-image-error">
               {issue ?? input.error}
-            </p>
+            </ErrorNote>
           )}
           <div className="relative">
             <Textarea

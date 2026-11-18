@@ -13,6 +13,7 @@ import type {
 import { cn } from 'cn';
 import { Download, FilePlus2, Lightbulb, RefreshCw, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
@@ -153,11 +154,7 @@ export function RetroView({ session }: { session: Session }) {
             })}
           </p>
         )}
-        {(actions.error || error) && (
-          <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-destructive">
-            {actions.error ?? error}
-          </p>
-        )}
+        {(actions.error || error) && <ErrorNote>{actions.error ?? error}</ErrorNote>}
         {actions.notice && (
           <p className="text-xs text-muted-foreground" data-testid="retro-notice">
             {actions.notice}
@@ -445,9 +442,9 @@ function SummarySection({
       {summary && (
         <div className="mt-1 rounded-lg border border-border px-3 py-2">
           {summary.unavailableRefs && (
-            <p className="mb-2 text-xs text-warning" role="status">
+            <ErrorNote tone="warning" className="mb-2 text-xs">
               {t('sync.missingRefs', { count: summary.unavailableRefs })}
-            </p>
+            </ErrorNote>
           )}
           <ul className="space-y-1.5">
             {summary.points.map((point) => (

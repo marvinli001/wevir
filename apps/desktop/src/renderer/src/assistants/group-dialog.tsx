@@ -10,6 +10,7 @@ import {
 } from '@wevir/protocol';
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -151,11 +152,7 @@ function GroupForm({
             );
           })}
         </fieldset>
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onDone}>
             {t('common.cancel')}

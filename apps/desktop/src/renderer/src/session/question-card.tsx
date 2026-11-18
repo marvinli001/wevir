@@ -3,6 +3,7 @@ import type { QuestionRequest, UserQuestion } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
@@ -245,11 +246,7 @@ function QuestionCard({
               </li>
             )}
           </ul>
-          {error && (
-            <p role="alert" className="px-3.5 pt-2 text-sm text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="px-3.5 pt-2 text-sm">{error}</ErrorNote>}
           <footer className="flex items-center justify-end gap-2 px-3.5 pt-3 pb-3">
             {request.autoAnswerAt && <AutoAnswerCountdown at={request.autoAnswerAt} />}
             <Button size="sm" variant="secondary" disabled={busy} onClick={skip}>

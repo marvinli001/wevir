@@ -18,8 +18,8 @@ const ACTION_KEYS = {
 } as const satisfies Record<string, PlainMessageKey>;
 
 const ACTION_TONES: Record<string, string> = {
-  denied: 'text-destructive',
-  continued: 'text-warning',
+  denied: 'text-icon-danger',
+  continued: 'text-icon-warning',
 };
 
 export function GuardrailPart({ part }: { part: ChatPartOf<'guardrail'> }) {
@@ -45,8 +45,11 @@ export function GuardrailPart({ part }: { part: ChatPartOf<'guardrail'> }) {
         onClick={() => setOpen(!open)}
         className="flex min-h-6 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none enabled:hover:text-foreground focus-visible:focus-ring"
       >
-        <ShieldAlert aria-hidden className="size-3.5 shrink-0 opacity-85" />
-        <span className={cn('shrink-0', ACTION_TONES[blocked.action])}>{action}</span>
+        <ShieldAlert
+          aria-hidden
+          className={cn('size-3.5 shrink-0', ACTION_TONES[blocked.action] ?? 'opacity-85')}
+        />
+        <span className="shrink-0">{action}</span>
         <span className="shrink-0">{guardrailKindName(blocked.kind)}</span>
         {target !== undefined && (
           <Hint label={target} whenClipped>

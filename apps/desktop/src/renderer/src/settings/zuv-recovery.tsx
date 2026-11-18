@@ -7,6 +7,7 @@ import {
 } from '@wevir/protocol';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -130,11 +131,7 @@ export function ZuvRecoverySection({
           <DialogHeader>
             <DialogTitle>{t('portable.recovery')}</DialogTitle>
           </DialogHeader>
-          {error && (
-            <p role="alert" className="break-words text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote>{error}</ErrorNote>}
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
             <div className="flex flex-wrap gap-2">
               <Button disabled={busy} size="sm" onClick={() => setConfirm('export')}>

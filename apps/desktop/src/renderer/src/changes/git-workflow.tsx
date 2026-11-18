@@ -10,6 +10,7 @@ import {
   LoaderCircle,
 } from 'lucide-react';
 import { type FormEvent, type RefObject, useEffect, useId, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -234,7 +235,7 @@ function WorkflowDialog({
         {success ? (
           <>
             <p role="status" className="flex items-center gap-2 break-all text-sm">
-              <Check className="size-4 shrink-0 text-success" aria-hidden />
+              <Check className="size-4 shrink-0 text-icon-success" aria-hidden />
               {success.kind === 'pr'
                 ? t('git.prCreated')
                 : t('git.pushed', { branch: success.branch, remote: success.remote })}
@@ -254,11 +255,7 @@ function WorkflowDialog({
                 <ExternalLink aria-hidden className="size-3.5 shrink-0" />
               </a>
             )}
-            {error && (
-              <p role="alert" className="text-sm text-destructive">
-                {error}
-              </p>
-            )}
+            {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
           </>
         ) : (
           <form className="flex min-w-0 flex-col gap-3" onSubmit={submit}>
@@ -332,12 +329,9 @@ function WorkflowDialog({
               </p>
             )}
             {error && (
-              <p
-                role="alert"
-                className="max-h-40 overflow-auto text-sm whitespace-pre-wrap break-words text-destructive"
-              >
+              <ErrorNote className="max-h-40 overflow-auto text-sm whitespace-pre-wrap">
                 {error}
-              </p>
+              </ErrorNote>
             )}
             <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>

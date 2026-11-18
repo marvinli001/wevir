@@ -14,6 +14,7 @@ import { CHECK_COMMAND_MAX_LENGTH, CHECK_NAME_MAX_LENGTH } from '@wevir/protocol
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useId, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
@@ -491,7 +492,7 @@ function CheckEditor({
               onChange={(event) => set({ expectOutput: event.target.value })}
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
               {t('common.cancel')}

@@ -238,7 +238,10 @@ function EnvironmentSettings({ rootPath }: { rootPath: string | undefined }) {
           )}
           {rootPath &&
             (copied ? (
-              <Check aria-label={t('environment.copied')} className="confirm-pop text-success" />
+              <Check
+                aria-label={t('environment.copied')}
+                className="confirm-pop text-icon-success"
+              />
             ) : (
               <Copy aria-hidden />
             ))}

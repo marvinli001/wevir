@@ -213,6 +213,12 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-destructive: var(--destructive);
+  /* 状态色只给图标、圆点与 diff 计数，文字一律用前景色（ui-rules.test.ts）。 */
+  --color-icon-danger: var(--destructive);
+  --color-icon-warning: var(--warning);
+  --color-icon-success: var(--success);
+  --color-diff-minus: var(--destructive);
+  --color-diff-plus: var(--success);
   --color-diff-added: var(--diff-added);
   --color-diff-removed: var(--diff-removed);
   --color-sidebar: var(--sidebar);

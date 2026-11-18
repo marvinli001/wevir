@@ -275,16 +275,7 @@ function MetricBlock({
       <div className="mt-0.5 flex items-baseline gap-1.5 tabular-nums">
         <span className="text-base font-medium">{metric.value ?? '—'}</span>
         {metric.delta !== undefined && (
-          <span
-            className={cn(
-              'text-xs',
-              metric.trend === 'better' && 'text-success',
-              metric.trend === 'worse' && 'text-destructive',
-              metric.trend === 'same' && 'text-muted-foreground',
-            )}
-          >
-            {metric.delta}
-          </span>
+          <span className="text-xs text-muted-foreground">{metric.delta}</span>
         )}
       </div>
       {detail !== undefined && (

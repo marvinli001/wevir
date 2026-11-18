@@ -2,6 +2,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import type { SessionId } from '@wevir/protocol';
 import { FilePenLine } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/ui/dialog';
 import { watchBrowserLibrary } from '@/data/browser-library';
@@ -73,14 +74,7 @@ export function EditRecoveryPanel({
     void removeSavedEdit(scope, draft).catch(() => setError(t('message.editStorageFailed')));
   }, [draft, sending, read, scope, canRewind, fromSeq]);
   if (sending) return null;
-  if (!draft)
-    return (
-      error && (
-        <p role="alert" className="mb-2 text-xs text-destructive">
-          {error}
-        </p>
-      )
-    );
+  if (!draft) return error && <ErrorNote className="mb-2 text-xs">{error}</ErrorNote>;
   const state = () => editRecoveryMode(draft, read(), canRewind, fromSeq);
   const act = async (discard: boolean) => {
     if (busy || !mode) return;
@@ -132,11 +126,7 @@ export function EditRecoveryPanel({
             {mode === 'accepted' && (
               <p className="text-xs text-muted-foreground">{t('message.editAccepted')}</p>
             )}
-            {error && (
-              <p role="alert" className="text-xs text-destructive">
-                {error}
-              </p>
-            )}
+            {error && <ErrorNote className="text-xs">{error}</ErrorNote>}
             <DialogFooter>
               {mode !== 'accepted' && (
                 <Button size="sm" variant="ghost" disabled={busy} onClick={() => void act(true)}>

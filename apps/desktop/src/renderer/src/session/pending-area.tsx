@@ -14,6 +14,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
@@ -279,7 +280,9 @@ function PendingRow({ message, actions }: { message: PendingMessage; actions: Re
         )}
         {note && (
           <Hint label={message.fallback?.message}>
-            <p className="mt-0.5 text-xs text-warning">{note}</p>
+            <ErrorNote tone="warning" className="mt-0.5 text-xs">
+              {note}
+            </ErrorNote>
           </Hint>
         )}
       </div>

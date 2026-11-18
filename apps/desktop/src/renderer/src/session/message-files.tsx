@@ -2,6 +2,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import type { UserFilePart } from '@wevir/protocol';
 import { Download, FileText, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { formatFileSize } from './shared-files-model';
@@ -83,11 +84,7 @@ function AttachedFile({ file }: { file: UserFilePart }) {
         </span>
         <Download aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       </button>
-      {error && (
-        <p role="alert" className="mt-1 text-xs text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote className="mt-1 text-xs">{error}</ErrorNote>}
     </li>
   );
 }

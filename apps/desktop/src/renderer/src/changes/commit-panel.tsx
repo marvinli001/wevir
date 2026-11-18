@@ -20,7 +20,8 @@ import {
   LoaderCircle,
   TriangleAlert,
 } from 'lucide-react';
-import { type ComponentProps, type ReactNode, useState } from 'react';
+import { type ComponentProps, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { ScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
@@ -49,9 +50,9 @@ import { GitWorkflowMenu } from './git-workflow';
 const SUBMIT_SHORTCUT = IS_MAC ? '⌘↩' : 'Ctrl+↩';
 
 const TONE: Record<CheckTone, { icon: typeof Circle; className: string }> = {
-  passed: { icon: CircleCheck, className: 'text-success' },
-  failed: { icon: CircleX, className: 'text-destructive' },
-  stale: { icon: Clock, className: 'text-warning' },
+  passed: { icon: CircleCheck, className: 'text-icon-success' },
+  failed: { icon: CircleX, className: 'text-icon-danger' },
+  stale: { icon: Clock, className: 'text-icon-warning' },
   running: { icon: LoaderCircle, className: 'animate-spin text-muted-foreground' },
   not_run: { icon: Circle, className: 'text-muted-foreground' },
 };
@@ -156,10 +157,10 @@ export function CommitPanel({
         {expanded && (
           <div className="flex min-h-0 flex-col overflow-y-auto">
             {status.operation !== undefined && (
-              <Callout tone="warning">{operationLabel(status.operation)}</Callout>
+              <Callout>{operationLabel(status.operation)}</Callout>
             )}
             {groups.external.length > 0 && (
-              <Callout tone="warning" data-commit-external>
+              <Callout data-commit-external>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span>{t('commit.external', { count: groups.external.length })}</span>
                   <span className="truncate font-mono text-[11px] text-muted-foreground">
@@ -196,17 +197,12 @@ export function CommitPanel({
               data-commit-message
             />
             {outcome?.kind === 'failed' && (
-              <div
-                className="mx-2 mb-1.5 flex flex-col gap-1.5 rounded-xl border border-destructive/25 bg-destructive/5 px-2.5 py-2"
-                role="alert"
-                data-commit-failure={outcome.reason}
-              >
-                <p className="flex items-center gap-1.5 text-xs font-medium text-destructive">
-                  <CircleX aria-hidden className="size-3.5 shrink-0" />
+              <div className="flex flex-col gap-1 px-3 pb-1.5">
+                <ErrorNote className="text-xs" data-commit-failure={outcome.reason}>
                   {failureLabel(outcome)}
-                </p>
+                </ErrorNote>
                 {outcome.output !== undefined && outcome.output !== '' && (
-                  <pre className="max-h-32 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-soft-foreground">
+                  <pre className="max-h-32 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
                     {outcome.output}
                   </pre>
                 )}
@@ -257,23 +253,14 @@ export function CommitPanel({
   );
 }
 
-function Callout({
-  tone,
-  children,
-  className,
-  ...props
-}: { tone: 'warning'; children: ReactNode } & ComponentProps<'div'>) {
+function Callout({ children, className, ...props }: ComponentProps<'div'>) {
   return (
     <div
-      className={cn(
-        'mx-2 mb-1.5 flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs',
-        tone === 'warning' && 'border-warning/30 bg-warning/5 text-warning',
-        className,
-      )}
+      className={cn('flex items-center gap-2 px-3 py-1 text-xs text-soft-foreground', className)}
       role="status"
       {...props}
     >
-      <TriangleAlert aria-hidden className="size-3.5 shrink-0" />
+      <TriangleAlert aria-hidden className="size-3.5 shrink-0 text-icon-warning" />
       {children}
     </div>
   );
@@ -285,7 +272,7 @@ function Committed({ outcome }: { outcome: Extract<GitCommitOutcome, { kind: 'co
       className="flex min-w-0 items-center gap-1 truncate text-xs text-muted-foreground"
       role="status"
     >
-      <CircleCheck aria-hidden className="size-3.5 shrink-0 text-success" />
+      <CircleCheck aria-hidden className="size-3.5 shrink-0 text-icon-success" />
       <span className="truncate">
         {t('commit.committed', { commit: outcome.commit.slice(0, 7) })}
         {outcome.treeChanged === true && <> · {t('commit.treeChanged')}</>}
@@ -297,16 +284,16 @@ function Committed({ outcome }: { outcome: Extract<GitCommitOutcome, { kind: 'co
 function FooterStatus({ git, outcome }: { git: GitState; outcome: GitCommitOutcome | undefined }) {
   if (git.error?.kind === 'stale') {
     return (
-      <span className="min-w-0 truncate text-xs text-warning" role="status">
+      <span className="min-w-0 truncate text-xs text-muted-foreground" role="status">
         {t('commit.stale')}
       </span>
     );
   }
   if (git.error?.kind === 'failed') {
     return (
-      <span className="min-w-0 truncate text-xs text-destructive" role="alert">
+      <ErrorNote className="text-xs">
         {t('commit.requestFailed', { error: git.error.message })}
-      </span>
+      </ErrorNote>
     );
   }
   if (outcome?.kind === 'committed') return <Committed outcome={outcome} />;
@@ -531,11 +518,11 @@ function FileRow({
         )}
       </button>
       {conflicted ? (
-        <span className="shrink-0 text-xs text-destructive">{t('commit.conflicted')}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{t('commit.conflicted')}</span>
       ) : entry?.added !== undefined && entry.removed !== undefined ? (
         <span className="shrink-0 font-mono text-[11px] tabular-nums">
-          <span className="text-success">+{entry.added}</span>{' '}
-          <span className="text-destructive">−{entry.removed}</span>
+          <span className="text-diff-plus">+{entry.added}</span>{' '}
+          <span className="text-diff-minus">−{entry.removed}</span>
         </span>
       ) : (
         <span className="w-3 shrink-0 text-center font-mono text-[11px] text-muted-foreground">

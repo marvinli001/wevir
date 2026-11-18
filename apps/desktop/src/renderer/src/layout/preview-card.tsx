@@ -13,6 +13,7 @@ import type {
 } from '@wevir/protocol';
 import { Ellipsis, Plus } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
@@ -349,9 +350,9 @@ function PreviewDetails({
 
       {notice && (
         <div className="mt-2 flex min-w-0 items-start gap-2 text-xs">
-          <p className={notice.kind === 'error' ? 'text-destructive' : 'text-warning'} role="alert">
+          <ErrorNote tone={notice.kind === 'error' ? 'danger' : 'warning'} role="alert">
             {notice.text}
-          </p>
+          </ErrorNote>
           {notice.kind === 'port' && capabilities().browserPane && (
             <Button
               size="xs"
@@ -364,7 +365,7 @@ function PreviewDetails({
           )}
         </div>
       )}
-      {error && list && <p className="mt-2 text-xs text-destructive">{error}</p>}
+      {error && list && <ErrorNote className="mt-2 text-xs">{error}</ErrorNote>}
 
       {editing !== undefined && (
         <PreviewDialog
@@ -542,14 +543,7 @@ function PreviewDialog({
             {field('port', t('preview.field.port'), true)}
             {field('url', t('preview.field.url'), true)}
           </div>
-          {error && (
-            <p
-              role="alert"
-              className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onClose(false)} disabled={busy}>
               {t('common.cancel')}

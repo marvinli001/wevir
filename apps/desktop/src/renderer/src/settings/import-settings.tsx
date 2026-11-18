@@ -9,10 +9,11 @@ import {
   type ImportScanResult,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, TriangleAlert } from 'lucide-react';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useLocation } from 'react-router';
 import { Collapse } from '@/components/collapse';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -284,7 +285,7 @@ function ImportSummaryView({ summary }: { summary: ImportSummary }) {
                   {t(GROUP_TITLE[failure.kind])}
                 </span>
               )}
-              <span className="ml-auto min-w-0 text-right text-xs break-words text-destructive">
+              <span className="ml-auto min-w-0 text-right text-xs break-words text-soft-foreground">
                 {failure.reason === undefined
                   ? t('settings.import.failed')
                   : reasonText(failure.reason)}
@@ -435,7 +436,7 @@ function CandidateRow({
                 </span>
               )}
               {connector && needsValues(connector) && (
-                <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-[11px] leading-4.5 text-warning">
+                <span className="shrink-0 rounded-sm bg-muted px-1.5 text-[11px] leading-4.5 text-muted-foreground">
                   {t('plugins.secret.missing')}
                 </span>
               )}
@@ -447,8 +448,15 @@ function CandidateRow({
             )}
             <CandidateMeta candidate={candidate} connector={connector} />
             {candidate.problem !== undefined && (
-              <span className="mt-1 block text-xs text-warning" data-import-problem>
-                {reasonText(candidate.problem)}
+              <span
+                className="mt-1 flex items-start gap-1.5 text-xs text-soft-foreground"
+                data-import-problem
+              >
+                <TriangleAlert
+                  aria-hidden
+                  className="mt-[0.2em] size-[1.1em] shrink-0 text-icon-warning"
+                />
+                <span className="min-w-0">{reasonText(candidate.problem)}</span>
               </span>
             )}
           </span>
@@ -490,16 +498,16 @@ function CandidateRow({
             className="h-8 max-w-64 font-mono text-xs"
             data-field="rename"
           />
-          {error !== undefined && (
-            <p
-              className={cn(
-                'mt-1 text-xs',
-                error === 'required' ? 'text-muted-foreground' : 'text-destructive',
-              )}
-              data-rename-error={error}
-            >
+          {error === 'required' ? (
+            <p className="mt-1 text-xs text-muted-foreground" data-rename-error={error}>
               {t(RENAME_ERROR[kind][error])}
             </p>
+          ) : (
+            error !== undefined && (
+              <ErrorNote className="mt-1 text-xs" data-rename-error={error}>
+                {t(RENAME_ERROR[kind][error])}
+              </ErrorNote>
+            )
           )}
         </div>
       )}
@@ -552,9 +560,7 @@ function CandidateMeta({
           </time>
           <span>{t('settings.import.turns', { count: candidate.turns })}</span>
           {candidate.skipped > 0 && (
-            <span className="text-warning">
-              {t('settings.import.skippedLines', { count: candidate.skipped })}
-            </span>
+            <span>{t('settings.import.skippedLines', { count: candidate.skipped })}</span>
           )}
         </span>
       )}
@@ -600,7 +606,7 @@ function ConnectorConfigLines({
             {keys.map((key) => (
               <div key={key} className="flex gap-3">
                 <span className="min-w-0 flex-1">{key}</span>
-                <span className="shrink-0 font-sans text-warning">
+                <span className="shrink-0 font-sans text-muted-foreground">
                   {t('plugins.secret.missing')}
                 </span>
               </div>

@@ -3,6 +3,7 @@ import { cn } from 'cn';
 import { CircleAlert, History, Lock, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
@@ -56,23 +57,14 @@ export function RecoveryPanel({
       data-testid="recovery-panel"
       data-kind={readOnly ? 'read-only' : 'error'}
       aria-labelledby="recovery-title"
-      className={cn(
-        'mb-2 rounded-xl border px-3.5 py-3 text-sm',
-        imported
-          ? 'border-border bg-muted/30'
-          : readOnly
-            ? 'border-destructive/30 bg-destructive/5'
-            : 'border-warning/30 bg-warning/5',
-      )}
+      className="mb-2 rounded-xl border border-border bg-muted/30 px-3.5 py-3 text-sm"
     >
-      <h2
-        id="recovery-title"
-        className={cn(
-          'flex items-center gap-2 font-medium',
-          imported ? 'text-foreground' : readOnly ? 'text-destructive' : 'text-warning',
+      <h2 id="recovery-title" className="flex items-center gap-2 font-medium text-foreground">
+        {readOnly ? (
+          <Lock className={cn('size-4', !imported && 'text-icon-danger')} />
+        ) : (
+          <CircleAlert className="size-4 text-icon-warning" />
         )}
-      >
-        {readOnly ? <Lock className="size-4" /> : <CircleAlert className="size-4" />}
         {t(readOnly ? 'recovery.readOnlyTitle' : 'recovery.errorTitle')}
       </h2>
       <div className="mt-1.5 space-y-1 text-muted-foreground">
@@ -102,11 +94,7 @@ export function RecoveryPanel({
           )
         )}
       </div>
-      {failure && (
-        <p role="alert" className="mt-2 text-destructive">
-          {failure}
-        </p>
-      )}
+      {failure && <ErrorNote className="mt-2">{failure}</ErrorNote>}
       <div className="mt-2.5 flex flex-wrap gap-2">
         {readOnly ? (
           <>

@@ -15,12 +15,6 @@ import {
 } from './handoff-model';
 import { effortLabel } from './model-picker';
 
-const TONE = {
-  success: 'text-success',
-  warning: 'text-warning',
-  muted: 'text-muted-foreground',
-} as const;
-
 export function HandoffDetailDialog({
   notice,
   target,
@@ -85,7 +79,7 @@ export function HandoffDetailDialog({
               <dd
                 className={cn(
                   'min-w-0 break-words',
-                  'tone' in row && row.tone !== undefined && TONE[row.tone],
+                  'tone' in row && row.tone === 'muted' && 'text-muted-foreground',
                 )}
               >
                 {row.value}

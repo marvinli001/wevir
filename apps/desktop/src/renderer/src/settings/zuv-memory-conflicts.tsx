@@ -2,6 +2,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import type { MethodResult } from '@wevir/protocol';
 import { useId, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -147,9 +148,7 @@ export function ZuvMemoryConflicts({
           </DialogHeader>
           {error && (
             <div className="flex items-start gap-2">
-              <p role="alert" className="min-w-0 flex-1 break-words text-destructive">
-                {error}
-              </p>
+              <ErrorNote className="flex-1">{error}</ErrorNote>
               <Button
                 variant="outline"
                 size="sm"

@@ -3,6 +3,7 @@ import type { PendingDelivery, SessionId } from '@wevir/protocol';
 import { Plus } from 'lucide-react';
 import { useMemo } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useWorkspaceManagement } from '@/data/workspace-actions';
@@ -163,14 +164,7 @@ function Home({
       hero={<NewSessionHero current={entry} workspaces={workspaces} onSelect={rememberWorkspace} />}
       footer={
         <>
-          {error && (
-            <p
-              role="alert"
-              className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="mb-2 px-3 text-sm">{error}</ErrorNote>}
           <NewSessionQuota providers={providers} choice={choice} choose={choose} />
           <Composer
             variant="home"

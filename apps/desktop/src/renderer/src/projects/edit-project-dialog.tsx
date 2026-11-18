@@ -2,6 +2,7 @@ import { WORKSPACE_NAME_MAX_LENGTH, type Workspace } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Folder } from 'lucide-react';
 import { type FormEvent, useEffect, useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useWorkbenchStore } from '@/data/workbench-data';
@@ -142,11 +143,7 @@ export function EditProjectDialog() {
               />
             </div>
 
-            {error && (
-              <p role="alert" className="text-sm break-words text-destructive">
-                {error}
-              </p>
-            )}
+            {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
 
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={close} disabled={busy}>

@@ -1,6 +1,7 @@
 import type { SessionUsage } from '@wevir/protocol';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { deleteRequest, deleteSessionPermanently } from '@/data/session-actions';
 import { useWorkbenchStore } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
@@ -61,7 +62,7 @@ export function DeleteSessionDialog() {
         </p>
       )}
       {dirty > 0 && (
-        <p className="text-warning">{t('settings.storage.deleteDirty', { count: dirty })}</p>
+        <ErrorNote tone="warning">{t('settings.storage.deleteDirty', { count: dirty })}</ErrorNote>
       )}
       <p>{t('settings.storage.deleteIrreversible')}</p>
     </ConfirmDialog>

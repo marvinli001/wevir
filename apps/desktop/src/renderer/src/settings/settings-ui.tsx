@@ -1,5 +1,5 @@
 import { cn } from 'cn';
-import { CircleAlert, CircleCheck, Info } from 'lucide-react';
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 import { PageSpinner } from '@/components/spinner';
 import type { WorkbenchData } from '@/data/workbench-model';
@@ -9,27 +9,30 @@ export interface Notice {
   text: string;
 }
 
-const NOTICE_STYLE: Record<Notice['tone'], string> = {
-  success: 'bg-success/10 text-success',
-  error: 'bg-destructive/10 text-destructive',
-  warning: 'bg-warning/10 text-warning',
-  info: 'bg-muted text-muted-foreground',
+const NOTICE_ICON_COLOR: Record<Notice['tone'], string> = {
+  success: 'text-icon-success',
+  error: 'text-icon-danger',
+  warning: 'text-icon-warning',
+  info: 'text-muted-foreground',
 };
 
 /** 设置页里一次操作的结果（添加了、保存了、失败了），显示在列表上方。 */
 export function NoticeBanner({ notice }: { notice: Notice }) {
   const Icon =
-    notice.tone === 'success' ? CircleCheck : notice.tone === 'info' ? Info : CircleAlert;
+    notice.tone === 'success'
+      ? CircleCheck
+      : notice.tone === 'info'
+        ? Info
+        : notice.tone === 'warning'
+          ? TriangleAlert
+          : CircleAlert;
   return (
     <p
       role={notice.tone === 'error' ? 'alert' : 'status'}
-      className={cn(
-        'flex items-start gap-2 rounded-lg px-3 py-2 text-sm break-words animate-in fade-in slide-in-from-top-1 duration-200 ease-smooth',
-        NOTICE_STYLE[notice.tone],
-      )}
+      className="flex items-start gap-2 text-sm text-soft-foreground animate-in fade-in slide-in-from-top-1 duration-200 ease-smooth"
     >
-      <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
-      <span className="min-w-0">{notice.text}</span>
+      <Icon className={cn('mt-0.5 size-4 shrink-0', NOTICE_ICON_COLOR[notice.tone])} aria-hidden />
+      <span className="min-w-0 break-words">{notice.text}</span>
     </p>
   );
 }

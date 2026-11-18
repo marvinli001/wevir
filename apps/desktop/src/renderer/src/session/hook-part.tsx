@@ -30,10 +30,10 @@ export function HookPart({ part }: { part: ChatPartOf<'hook'> }) {
   const Icon = blocked ? ShieldBan : changed ? Replace : context ? MessageSquarePlus : CircleAlert;
   const tone =
     blocked || outcome.action === 'failed'
-      ? 'text-destructive'
+      ? 'text-icon-danger'
       : context
         ? 'text-running'
-        : 'text-warning';
+        : 'text-icon-warning';
   const hasDetail = Boolean(outcome.command || outcome.reason);
   const target = outcome.tool ?? outcome.command;
   return (
@@ -47,7 +47,7 @@ export function HookPart({ part }: { part: ChatPartOf<'hook'> }) {
         className="flex min-h-6 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none enabled:hover:text-foreground focus-visible:focus-ring"
       >
         <Icon aria-hidden className={cn('size-3.5 shrink-0', tone)} />
-        <span className={cn('shrink-0', tone)}>{action}</span>
+        <span className="shrink-0">{action}</span>
         <code className="shrink-0 font-mono text-xs">{outcome.event}</code>
         {target && (
           <Hint label={target} whenClipped>

@@ -7,6 +7,7 @@ import {
 import type { Session, WevirEvent } from '@wevir/protocol';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -243,10 +244,10 @@ export function OfflineLibrary() {
           </DialogHeader>
           {libraryStatus === 'loading' && <p role="status">{t('common.loading')}</p>}
           {(error || transcript.failed || libraryStatus === 'failed') && (
-            <p role="alert" className="break-words text-destructive">
+            <ErrorNote>
               {error ??
                 t(libraryStatus === 'failed' ? 'portable.storageError' : 'portable.readError')}
-            </p>
+            </ErrorNote>
           )}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
             <div className="flex flex-wrap gap-2">

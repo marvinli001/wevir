@@ -2,6 +2,7 @@ import { hostSupports } from '@wevir/client-sdk';
 import type { Plugin, PluginPreview } from '@wevir/protocol';
 import { FileArchive, FolderPlus, LoaderCircle } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { describe } from '@/host/host-connection';
@@ -283,9 +284,5 @@ function AddDialogBody({
 }
 
 function ErrorText({ children }: { children: string }) {
-  return (
-    <p role="alert" className="text-sm break-words whitespace-pre-line text-destructive">
-      {children}
-    </p>
-  );
+  return <ErrorNote className="text-sm whitespace-pre-line">{children}</ErrorNote>;
 }

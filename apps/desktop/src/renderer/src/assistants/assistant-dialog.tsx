@@ -12,6 +12,7 @@ import {
 import { Dices } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -158,11 +159,7 @@ function AssistantForm({ onDone }: { onDone: () => void }) {
           </div>
         )}
         <BrainLimitLine limit={limit} />
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onDone}>
             {t('common.cancel')}
@@ -287,11 +284,7 @@ function EditForm({ channel, onDone }: { channel: Channel; onDone: () => void })
             />
           </div>
         )}
-        {error && (
-          <p className="text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onDone}>
             {t('common.cancel')}

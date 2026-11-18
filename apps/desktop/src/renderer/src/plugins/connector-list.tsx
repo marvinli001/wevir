@@ -5,6 +5,7 @@ import { cn } from 'cn';
 import { Pencil } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { StatusDot } from '@/components/status-dot';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
@@ -103,7 +104,6 @@ function ConnectorRow({
             <Button
               variant="outline"
               size="xs"
-              className="border-warning/40 text-warning"
               onClick={() => editConnector(connector)}
               data-action="fill-connector"
             >
@@ -141,9 +141,9 @@ function ConnectorDetail({ connector, plugin }: { connector: Connector; plugin?:
   return (
     <>
       {missing.length > 0 && (
-        <p className="text-sm text-warning" data-missing-inputs>
+        <ErrorNote tone="warning" className="text-sm" data-missing-inputs>
           {t('plugins.connector.missing', { keys: missing.join(', ') })}
-        </p>
+        </ErrorNote>
       )}
       <DetailSection title={t('plugins.connector.tools')}>
         {tools.length === 0 ? (
@@ -325,7 +325,7 @@ function ConnectorConfig({ connector }: { connector: Connector }) {
               <div key={key} className="flex gap-3">
                 <span className="min-w-0 flex-1">{key}</span>
                 {missing.has(key) ? (
-                  <span className="shrink-0 font-sans text-warning" data-secret-missing={key}>
+                  <span className="shrink-0 font-sans text-foreground" data-secret-missing={key}>
                     {t('plugins.secret.missing')}
                   </span>
                 ) : (

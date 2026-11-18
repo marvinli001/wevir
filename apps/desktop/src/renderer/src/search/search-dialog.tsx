@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useMatches, useNavigate } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { useScrollFade } from '@/components/scroll-fade';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useWorkbenchData } from '@/data/workbench-data';
@@ -276,9 +277,9 @@ function SearchPanel() {
   const status: ReactNode = !supported ? (
     <p className="px-3 py-8 text-center text-sm text-muted-foreground">{t('search.unsupported')}</p>
   ) : failure !== undefined ? (
-    <p className="px-3 py-8 text-center text-sm text-destructive">
+    <ErrorNote className="justify-center px-3 py-8 text-sm">
       {t('search.failed', { error: failure })}
-    </p>
+    </ErrorNote>
   ) : trimmed === '' ? null : results?.key === key && rows.length === 0 ? (
     <p className="px-3 py-8 text-center text-sm text-muted-foreground" data-search-empty>
       {partialResult(results.last) ? t('search.emptyPartial') : t('search.empty')}

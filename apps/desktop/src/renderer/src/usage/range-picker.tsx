@@ -6,6 +6,7 @@
 import { cn } from 'cn';
 import { CalendarRange, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -154,11 +155,7 @@ export function RangePicker({
               />
               {t('usage.range.followNow')}
             </label>
-            {invalid && (
-              <p className="text-xs text-destructive" role="alert">
-                {t('usage.range.invalid')}
-              </p>
-            )}
+            {invalid && <ErrorNote className="text-xs">{t('usage.range.invalid')}</ErrorNote>}
             <div className="mt-auto flex gap-2 pt-1">
               <Button variant="ghost" size="sm" className="flex-1" onClick={() => setOpen(false)}>
                 {t('common.cancel')}

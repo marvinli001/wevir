@@ -5,6 +5,7 @@ import type { ReviewComment, Session, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
 import { MessageSquare, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { ScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
@@ -136,11 +137,7 @@ export function ReviewPanel({
             ))}
           </ScrollFade>
         )}
-        {error !== undefined && (
-          <p className="px-3 pb-1.5 text-xs text-destructive" role="alert">
-            {error}
-          </p>
-        )}
+        {error !== undefined && <ErrorNote className="px-3 pb-1.5 text-xs">{error}</ErrorNote>}
         <div className="flex items-center gap-1.5 border-t border-border bg-muted/30 p-2">
           <Select
             value={chosen}
@@ -236,11 +233,7 @@ function CommentRow({
       >
         <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
           <span className="shrink-0 tabular-nums">{lineLabel(lines.start, lines.end)}</span>
-          {state !== undefined && (
-            <span className={cn('shrink-0', comment.anchor.state === 'outdated' && 'text-warning')}>
-              · {state}
-            </span>
-          )}
+          {state !== undefined && <span className="shrink-0">· {state}</span>}
           {tag !== undefined && <span className="shrink-0">· {tag}</span>}
         </span>
         <span className="line-clamp-2 text-sm leading-5">

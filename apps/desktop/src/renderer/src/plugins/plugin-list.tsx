@@ -86,7 +86,7 @@ function PluginRow({
         <>
           {meta}
           {missing && (
-            <span className="text-warning" data-missing-inputs>
+            <span className="text-foreground" data-missing-inputs>
               {meta && ' · '}
               {t('plugins.plugin.missingInputs')}
             </span>

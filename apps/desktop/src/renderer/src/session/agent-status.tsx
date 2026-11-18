@@ -11,7 +11,7 @@ export function RunClock({ since, className }: { since: string | undefined; clas
   return <span className={cn('tabular-nums', className)}>{formatClock(elapsed)}</span>;
 }
 
-/** 当前动作的一行：进行中的扫光，等用户处理时用待审批色；目标（文件名、命令）等宽。 */
+/** 当前动作的一行：进行中的扫光，等用户处理时不闪、用前景色；目标（文件名、命令）等宽。 */
 export function ActivityText({
   activity,
   className,
@@ -21,7 +21,9 @@ export function ActivityText({
 }) {
   return (
     <span className={cn('flex min-w-0 items-baseline gap-1.5', className)}>
-      <span className={cn('shrink-0', activity.tone === 'awaiting' ? 'text-warning' : 'shimmer')}>
+      <span
+        className={cn('shrink-0', activity.tone === 'awaiting' ? 'text-foreground' : 'shimmer')}
+      >
         {activity.label}
       </span>
       {activity.target && (

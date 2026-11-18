@@ -354,7 +354,7 @@
   .markdown [data-math-error] {
     font-family: var(--font-code);
     font-size: var(--text-sm);
-    color: var(--destructive);
+    color: var(--muted-foreground);
   }
 
   /* 会话目录里的图片（文件窗格的 Markdown）：不超出正文宽度。 */

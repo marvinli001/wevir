@@ -9,6 +9,7 @@ import {
 import { useEffect, useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import {
@@ -306,15 +307,19 @@ function EpisodeEditor({ initial, onClose }: { initial: Episode; onClose: () => 
         <DialogHeader>
           <DialogTitle>{t('settings.episodes.title')}</DialogTitle>
         </DialogHeader>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         {Object.keys(initial.overrides).length > 0 && (
           <p className="text-xs text-muted-foreground">{t('settings.episodes.edited')}</p>
         )}
-        {initial.stale && <p className="text-xs text-warning">{t('episodes.stale')}</p>}
+        {initial.stale && (
+          <ErrorNote tone="warning" className="text-xs">
+            {t('episodes.stale')}
+          </ErrorNote>
+        )}
         {initial.unavailableRefs && (
-          <p className="text-xs text-warning" role="status">
+          <ErrorNote tone="warning" className="text-xs">
             {t('sync.missingRefs', { count: initial.unavailableRefs })}
-          </p>
+          </ErrorNote>
         )}
         <label className="grid gap-1 text-sm" htmlFor={`${fieldId}-name`}>
           {t('settings.episodes.name')}

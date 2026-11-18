@@ -15,6 +15,7 @@ import type {
 import { cn } from 'cn';
 import { KeyRound, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
@@ -262,7 +263,7 @@ function ReadinessDetails({
                 className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
                 data-action="set-credential"
               >
-                <KeyRound className="size-4 shrink-0 text-warning" aria-hidden />
+                <KeyRound className="size-4 shrink-0 text-icon-warning" aria-hidden />
                 <span className="min-w-0 flex-1 truncate font-mono text-xs">{name}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {t('readiness.credential.missing')}
@@ -283,7 +284,7 @@ function ReadinessDetails({
             >
               <span className="min-w-0 flex-1 truncate font-mono">{registry.url}</span>
               {registry.auth !== 'none' && (
-                <span className={cn('shrink-0', registry.auth === 'missing' && 'text-warning')}>
+                <span className="shrink-0">
                   {t(
                     registry.auth === 'missing'
                       ? 'readiness.credential.missing'
@@ -313,7 +314,7 @@ function ReadinessDetails({
       )}
 
       {(actionError ?? error) && (
-        <p className="mt-2 text-xs text-destructive">{actionError ?? error}</p>
+        <ErrorNote className="mt-2 text-xs">{actionError ?? error}</ErrorNote>
       )}
 
       {evidence && <EvidenceDialog item={evidence} onClose={() => setEvidence(undefined)} />}

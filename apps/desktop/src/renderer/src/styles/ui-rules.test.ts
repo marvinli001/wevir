@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 // 控件一致性（desktop-tokens.md §62）：界面代码里的勾选框、单选与滑块只用 components/ui 的原语，不用浏览器原生的；
-// 圆角只用阶梯里的类名，阴影不写字面色值。components/ui 本身不查（原语在那里定义）。
+// 圆角只用阶梯里的类名，阴影不写字面色值；状态色不上文字。components/ui 本身不查（原语在那里定义）。
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -34,6 +34,21 @@ const RULES: { name: string; pattern: RegExp }[] = [
     name: '粗焦点环（用 focus-ring / focus-field，§63）',
     pattern:
       /focus(-visible|-within)?:(ring-(2|3|\[)|ring-(sidebar-)?ring(\/|(?![\w-]))|outline-(\d|ring)|border-ring\b)/,
+  },
+  {
+    // 照 Codex app / Claude Code 桌面端：状态色只上图标（text-icon-*）、圆点与 diff 计数（text-diff-*），
+    // 出错与提醒用 components/error-note.tsx，删除类动作用 Button / 菜单项的 destructive 变体。
+    name: '状态色文字（text-destructive / text-warning / text-success）',
+    pattern: /(?<![\w-])text-(destructive|warning|success)(?![\w-])/,
+  },
+  {
+    name: '状态色铺底或描边的提示框（bg-destructive/… 等）',
+    pattern: /(?<![\w-])(bg|border)-(destructive|warning|success)\//,
+  },
+  {
+    name: '图标色用在文字上（text-icon-* 与字号、截断或 role="alert" 同在）',
+    pattern:
+      /text-icon-[\s\S]*(role="alert"|text-(xs|sm|base)\b|truncate|break-words|font-medium)|(role="alert"|text-(xs|sm|base)\b|truncate|break-words|font-medium)[\s\S]*text-icon-/,
   },
   {
     name: '写死颜色的阴影（shadow-[…rgb / #…]）',

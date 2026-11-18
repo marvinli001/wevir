@@ -40,7 +40,7 @@ export function SubagentMarker({ part }: { part: ChatPartOf<'subagent'> }) {
       />
       <span className="truncate">{markerText(subagent, ended)}</span>
       {waiting && (
-        <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
+        <span className="shrink-0 rounded-sm bg-muted px-1.5 text-xs leading-5 font-medium text-foreground">
           {t('subagent.awaitingApproval')}
         </span>
       )}

@@ -7,6 +7,7 @@ import { cn } from 'cn';
 import { Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
@@ -217,7 +218,7 @@ function VerificationDetails({
           </span>
         </p>
       )}
-      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
+      {error && <ErrorNote className="mt-2 text-xs">{error}</ErrorNote>}
       <div className="mt-3 flex h-6 items-center gap-2">
         {running ? (
           <Button

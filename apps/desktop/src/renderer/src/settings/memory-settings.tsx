@@ -14,6 +14,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { type FormEvent, Fragment, useEffect, useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
@@ -161,16 +162,13 @@ export function MemorySettings() {
       aria-busy={pending || undefined}
     >
       {unreadable.length > 0 && (
-        <div
-          className="rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning"
-          data-memory-unreadable={scope}
-        >
-          <p>
+        <div className="text-sm" data-memory-unreadable={scope}>
+          <ErrorNote tone="warning">
             {t('settings.memory.unreadable', {
               count: unreadable.length,
               names: unreadable.join(t('common.listSeparator')),
             })}
-          </p>
+          </ErrorNote>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {unreadable.map((name) => (
               <Button
@@ -336,16 +334,16 @@ function MemoryRow({
             {t(MEMORY_TYPE_LABELS[note.type])}
           </span>
           {note.validity?.invalidAt !== undefined && (
-            <span className="shrink-0 text-warning">{t('settings.memory.invalid')}</span>
+            <span className="shrink-0">{t('settings.memory.invalid')}</span>
           )}
           {note.freshness !== undefined &&
             !['fresh', 'unanchored', 'unknown'].includes(note.freshness.state) && (
-              <span className="shrink-0 text-warning">
+              <span className="shrink-0">
                 {t(`settings.memory.freshness.${note.freshness.state}`)}
               </span>
             )}
           {!note.enabled && (
-            <span className="shrink-0 rounded bg-warning/10 px-1.5 py-px text-warning">
+            <span className="shrink-0 rounded bg-muted px-1.5 py-px">
               {t('settings.memory.disabled')}
             </span>
           )}
@@ -513,10 +511,10 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
             <div className="space-y-3">
               {conflict && (
                 <div
-                  className="space-y-2 rounded-lg bg-warning/10 px-3 py-2 text-sm"
+                  className="space-y-2 rounded-lg bg-muted/50 px-3 py-2 text-sm"
                   data-memory-conflict
                 >
-                  <p className="text-warning">{t('settings.memory.conflict')}</p>
+                  <ErrorNote tone="warning">{t('settings.memory.conflict')}</ErrorNote>
                   <p className="text-xs font-medium">{t('settings.memory.conflict.current')}</p>
                   <p className="text-xs">{conflict.description}</p>
                   <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-card p-2 font-mono text-xs">
@@ -623,11 +621,7 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
               {note && <MemorySources note={note} onOpened={onClose} />}
             </div>
           )}
-          {error && (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote>{error}</ErrorNote>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
               {conflict || gone ? t('common.close') : t('common.cancel')}
@@ -757,19 +751,13 @@ function MemorySources({ note, onOpened }: { note: MemoryNote; onOpened: () => v
           · {time}
         </span>
         {deleted ? (
-          <span
-            className="rounded bg-warning/10 px-1.5 py-px text-warning"
-            data-source-status="deleted"
-          >
+          <span className="rounded bg-muted px-1.5 py-px" data-source-status="deleted">
             {t('settings.memory.source.deleted')}
           </span>
         ) : (
           <>
             {source.status === 'withdrawn' && (
-              <span
-                className="rounded bg-warning/10 px-1.5 py-px text-warning"
-                data-source-status="withdrawn"
-              >
+              <span className="rounded bg-muted px-1.5 py-px" data-source-status="withdrawn">
                 {t('settings.memory.source.withdrawn')}
               </span>
             )}
@@ -799,11 +787,7 @@ function MemorySources({ note, onOpened }: { note: MemoryNote; onOpened: () => v
           </Fragment>
         ))}
       </dl>
-      {error && (
-        <p role="alert" className="text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote>{error}</ErrorNote>}
     </div>
   );
 }

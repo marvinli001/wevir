@@ -531,19 +531,17 @@ function TestResultView({ result }: { result: TestPresentation }) {
     <div
       role="status"
       data-test-result={result.ok ? 'ok' : 'failed'}
-      className={cn(
-        'mt-3 ml-12.5 flex gap-2 rounded-lg px-3 py-2 text-sm animate-in fade-in slide-in-from-top-1',
-        result.ok ? 'bg-success/10' : 'bg-destructive/10',
-      )}
+      className="mt-3 ml-12.5 flex gap-2 text-sm animate-in fade-in slide-in-from-top-1"
     >
       <Icon
-        className={cn('mt-0.5 size-4 shrink-0', result.ok ? 'text-success' : 'text-destructive')}
+        className={cn(
+          'mt-0.5 size-4 shrink-0',
+          result.ok ? 'text-icon-success' : 'text-icon-danger',
+        )}
         aria-hidden
       />
       <div className="min-w-0 space-y-1">
-        <p className={cn('font-medium', result.ok ? 'text-success' : 'text-destructive')}>
-          {result.title}
-        </p>
+        <p className="font-medium">{result.title}</p>
         {result.hint && <p className="text-foreground">{result.hint}</p>}
         {result.detail && (
           <p className="font-mono text-xs break-all text-muted-foreground">{result.detail}</p>

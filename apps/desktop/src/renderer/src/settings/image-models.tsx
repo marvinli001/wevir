@@ -1,6 +1,7 @@
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type { MethodParams } from '@wevir/protocol';
 import { useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { t } from '@/i18n';
@@ -94,7 +95,7 @@ export function ImageModelsField({
         )}
       </div>
       {error ? (
-        <p className="text-sm text-destructive">{error}</p>
+        <ErrorNote className="text-sm">{error}</ErrorNote>
       ) : status === 'none' || status === 'failed' ? (
         <p role="status" className="text-sm text-muted-foreground">
           {status === 'none'

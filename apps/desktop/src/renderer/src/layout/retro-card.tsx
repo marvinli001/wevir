@@ -2,6 +2,7 @@
 // 把回顾放进新会话的输入框。只在顶层会话里有，设置里打开后才显示（默认不显示），侧栏看得见时才读（`retro.get` 按需生成，不在后台跑）。
 
 import type { SessionId } from '@wevir/protocol';
+import { ErrorNote } from '@/components/error-note';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
@@ -63,7 +64,7 @@ function useRetroCard({ sessionId, session, visible }: RailContext) {
         ) : (
           <p className="h-7 text-xs leading-7 text-muted-foreground">{t('retro.loading')}</p>
         )}
-        {actions.error && <p className="mt-2 text-xs text-destructive">{actions.error}</p>}
+        {actions.error && <ErrorNote className="mt-2 text-xs">{actions.error}</ErrorNote>}
         <div className="mt-3 flex h-6 items-center gap-2">
           <Button
             size="xs"

@@ -27,6 +27,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import {
@@ -638,7 +639,7 @@ function RecordingButton({ recording, onStop }: { recording: Recording; onStop: 
       title={`${t('simulator.stopRecording')} ${formatShortcut(SIMULATOR_SHORTCUTS.record)}`}
       disabled={recording.stopping}
       onClick={onStop}
-      className="rounded-full font-mono text-destructive tabular-nums"
+      className="rounded-full font-mono tabular-nums"
       data-testid="simulator-stop-recording"
     >
       <span aria-hidden className="size-2 animate-pulse rounded-full bg-destructive" />
@@ -1175,14 +1176,7 @@ function NewDeviceDialog({
               options={runtimes.map((runtime) => ({ value: runtime.id, label: runtime.name }))}
             />
           </div>
-          {error && (
-            <p
-              role="alert"
-              className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
               {t('common.cancel')}

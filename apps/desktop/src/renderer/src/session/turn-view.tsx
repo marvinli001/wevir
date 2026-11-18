@@ -46,13 +46,6 @@ function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
   return a.length === b.length && a.every((item, index) => item === b[index]);
 }
 
-const HEADER_TONES: Record<TurnOutcome, string> = {
-  completed: '',
-  failed: 'text-destructive',
-  cancelled: '',
-  interrupted: 'text-warning',
-};
-
 /**
  * 一个回合（U2，照 Codex 桌面端 design-refs/10–12）：用户消息、助手消息与中间的插话。正常完成的回合默认把过程收进一行
  * “已处理 2 分 31 秒”，只留最后的回答、错误与插话，回答下面是“N 个文件已更改”；出错、被停止、被中断的回合不自动收起，
@@ -342,7 +335,7 @@ export const TurnView = memo(
 
 /**
  * “已处理 2 分 31 秒 ›”，下面一条横线把它与回答隔开（照 Codex 桌面端）：点它展开或收起整个过程。不标失败、被拒绝等计数
- * （失败的那一行在过程里自己用失败色）。
+ * （失败的那一行在过程里自己用失败色的图标）。
  */
 function TurnHeader({
   controls,
@@ -367,7 +360,7 @@ function TurnHeader({
         onClick={onToggle}
         className="flex min-h-6 max-w-full items-center gap-1.5 rounded-lg text-left text-sm text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:focus-ring"
       >
-        <span className={cn('shrink-0', HEADER_TONES[outcome])}>{text}</span>
+        <span className="shrink-0">{text}</span>
         <ChevronRight
           aria-hidden
           className={cn(
@@ -494,9 +487,9 @@ function ChecksChip({ checks }: { checks: ChecksSummary }) {
         className={cn(
           'size-4 shrink-0',
           checks.tone === 'running' && 'animate-spin text-running',
-          checks.tone === 'passed' && 'text-success',
-          checks.tone === 'failed' && 'text-destructive',
-          checks.tone === 'environment_unavailable' && 'text-warning',
+          checks.tone === 'passed' && 'text-icon-success',
+          checks.tone === 'failed' && 'text-icon-danger',
+          checks.tone === 'environment_unavailable' && 'text-icon-warning',
         )}
       />
       {label}

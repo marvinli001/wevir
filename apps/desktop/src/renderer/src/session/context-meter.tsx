@@ -15,8 +15,8 @@ import { composerPrefs } from './composer-prefs';
 
 const TONE_TEXT: Record<ContextUsage['tone'], string> = {
   normal: 'text-muted-foreground',
-  warning: 'text-warning',
-  danger: 'text-destructive',
+  warning: 'text-icon-warning',
+  danger: 'text-icon-danger',
 };
 
 const RADIUS = 6.25;

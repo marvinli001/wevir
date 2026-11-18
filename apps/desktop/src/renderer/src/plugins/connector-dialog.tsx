@@ -2,8 +2,9 @@
 // 校验失败与名字冲突就地显示在对话框里。纯逻辑在 connector-form.ts、connector-import.ts。
 
 import type { Connector, WorkspaceId } from '@wevir/protocol';
-import { Plus, Undo2, X } from 'lucide-react';
+import { CircleAlert, Plus, Undo2, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useMemo, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -245,11 +246,7 @@ function ConnectorDialogBody({
             )}
           </>
         )}
-        {error && (
-          <p role="alert" className="text-sm break-words whitespace-pre-line text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm whitespace-pre-line">{error}</ErrorNote>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
             {t('common.cancel')}
@@ -283,7 +280,7 @@ function Field({
     <label className="block space-y-1.5">
       <span className="text-sm font-medium">{label}</span>
       {children}
-      {error && <span className="block text-xs text-destructive">{error}</span>}
+      {error && <ErrorNote className="text-xs">{error}</ErrorNote>}
     </label>
   );
 }
@@ -447,7 +444,7 @@ function KeyValueEditor({
           </IconButton>
         </div>
       ))}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <ErrorNote className="text-xs">{error}</ErrorNote>}
       <Button
         type="button"
         variant="ghost"
@@ -501,10 +498,14 @@ function JsonFields({
             <li
               // biome-ignore lint/suspicious/noArrayIndexKey: 同名的问题可能不止一条，列表每次整份重算。
               key={index}
-              className="break-words text-destructive"
+              className="flex items-start gap-1.5"
               data-import-issue={issue.reason}
             >
-              {issueText(issue)}
+              <CircleAlert
+                aria-hidden
+                className="mt-[0.2em] size-[1.1em] shrink-0 text-icon-danger"
+              />
+              <span className="min-w-0 break-words">{issueText(issue)}</span>
             </li>
           ))}
         </ul>

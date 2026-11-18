@@ -1,5 +1,6 @@
 import type { HandoffConfigure, MethodResult, SessionId } from '@wevir/protocol';
 import { useEffect, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import {
@@ -91,11 +92,7 @@ export function HandoffPreviewDialog({
             />
           </div>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         {!result && !error && (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
         )}
@@ -106,9 +103,7 @@ export function HandoffPreviewDialog({
               {result.preview.budgetBytes} B
             </p>
             {result.preview.overBudget && (
-              <p role="alert" className="text-sm text-destructive">
-                {t('handoff.preview.overBudget')}
-              </p>
+              <ErrorNote className="text-sm">{t('handoff.preview.overBudget')}</ErrorNote>
             )}
             <pre
               // biome-ignore lint/a11y/noNoninteractiveTabindex: 可滚动的正文需要键盘访问。

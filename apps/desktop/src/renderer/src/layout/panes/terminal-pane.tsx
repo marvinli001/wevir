@@ -5,6 +5,7 @@ import type { TerminalOutput, WevirClient } from '@wevir/client-sdk';
 import type { SessionId, Terminal, TerminalId, WorkspaceId } from '@wevir/protocol';
 import { RotateCcw, Square, SquareTerminal } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import {
@@ -432,11 +433,7 @@ function EndDialog({
             </dl>
           </DialogDescription>
         </DialogHeader>
-        {error && (
-          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-            {error}
-          </p>
-        )}
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <DialogFooter>
           <Button variant="ghost" disabled={busy} onClick={onClose}>
             {t('common.cancel')}

@@ -1,7 +1,8 @@
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
 import { inferredReasoningEfforts, ProviderReasoningLevelSchema } from '@wevir/protocol';
-import { ArrowLeft, ExternalLink, Plus, X } from 'lucide-react';
+import { ArrowLeft, CircleAlert, ExternalLink, Plus, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -317,18 +318,18 @@ export function ProviderEditor({
       {!keyFirst && keyField}
 
       {failure && (
-        <div
-          role="alert"
-          className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          <p>{failure.title}</p>
-          {failure.items.length > 0 && (
-            <ul className="mt-1 list-disc pl-5">
-              {failure.items.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          )}
+        <div role="alert" className="flex gap-1.5 text-sm text-soft-foreground">
+          <CircleAlert aria-hidden className="mt-[0.2em] size-[1.1em] shrink-0 text-icon-danger" />
+          <div className="min-w-0 break-words">
+            <p>{failure.title}</p>
+            {failure.items.length > 0 && (
+              <ul className="mt-1 list-disc pl-5">
+                {failure.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
 
@@ -377,7 +378,7 @@ function FormField({
       </label>
       {children}
       {error ? (
-        <p className="text-sm text-destructive">{error}</p>
+        <ErrorNote className="text-sm">{error}</ErrorNote>
       ) : (
         hint && <p className="text-sm text-muted-foreground">{hint}</p>
       )}
@@ -445,7 +446,7 @@ export function ModelsField({
                   aria-invalid={!!idError}
                   onChange={(event) => setRow(index, { id: event.target.value })}
                 />
-                {idError && <p className="mt-1 text-sm text-destructive">{idError}</p>}
+                {idError && <ErrorNote className="mt-1 text-sm">{idError}</ErrorNote>}
               </div>
               <div>
                 <Input
@@ -458,7 +459,7 @@ export function ModelsField({
                   onChange={(event) => setRow(index, { contextWindow: event.target.value })}
                 />
                 {contextError ? (
-                  <p className="mt-1 text-sm text-destructive">{contextError}</p>
+                  <ErrorNote className="mt-1 text-sm">{contextError}</ErrorNote>
                 ) : (
                   contextWindowMissing(row) && (
                     <p className="mt-1 text-xs text-muted-foreground" data-context-missing={index}>
@@ -549,7 +550,7 @@ export function ModelsField({
         <Plus />
         {t('provider.form.addModel')}
       </Button>
-      {general && <p className="text-sm text-destructive">{general}</p>}
+      {general && <ErrorNote className="text-sm">{general}</ErrorNote>}
     </fieldset>
   );
 }

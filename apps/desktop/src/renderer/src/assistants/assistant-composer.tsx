@@ -5,6 +5,7 @@ import { cn } from 'cn';
 import { Reply, X } from 'lucide-react';
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Textarea } from '@/components/ui/textarea';
 import { describe, useHostConnection } from '@/host/host-connection';
@@ -363,10 +364,10 @@ export function AssistantComposer({
           </div>
         )}
         {dictation.errorKey && (
-          <div className="flex items-center gap-2 px-2 pt-1 text-xs" role="alert">
-            <p className="min-w-0 text-destructive" data-testid="composer-dictation-error">
+          <div className="flex items-center gap-2 px-2 pt-1 text-xs">
+            <ErrorNote className="min-w-0" data-testid="composer-dictation-error">
               {dictation.error}
-            </p>
+            </ErrorNote>
             {dictation.errorKey === 'dictation.error.modelMissing' && (
               <button
                 type="button"
@@ -380,13 +381,9 @@ export function AssistantComposer({
         )}
         {input.strip}
         {input.error && (
-          <p
-            role="alert"
-            className="px-2 text-xs text-destructive"
-            data-testid="composer-image-error"
-          >
+          <ErrorNote className="px-2 text-xs" data-testid="composer-image-error">
             {input.error}
-          </p>
+          </ErrorNote>
         )}
         {/* 单行时输入框与两边的按钮同高（32px），文字和按钮在同一条中线上。 */}
         <div className="flex flex-wrap items-end gap-1 @min-[15rem]:flex-nowrap">

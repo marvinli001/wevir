@@ -24,6 +24,7 @@ import {
   AppWindow,
   Check,
   ChevronDown,
+  CircleAlert,
   Code,
   Copy,
   Download,
@@ -425,8 +426,11 @@ function OfficeEngineAction({ engine }: { engine: OfficeEngine }) {
   return (
     <>
       {failure !== undefined && (
-        <span className="min-w-0 truncate text-destructive" title={failure}>
-          {t('files.officeEngine.failed', { error: failure })}
+        <span className="flex min-w-0 items-center gap-1.5 text-soft-foreground" title={failure}>
+          <CircleAlert aria-hidden className="size-3.5 shrink-0 text-icon-danger" />
+          <span className="min-w-0 truncate">
+            {t('files.officeEngine.failed', { error: failure })}
+          </span>
         </span>
       )}
       <Button
@@ -581,13 +585,13 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
           : t('files.saveFailed');
   return (
     <span
-      className={cn(
-        'shrink-0 px-1 text-xs text-muted-foreground',
-        (status === 'conflict' || status === 'failed') && 'text-destructive',
-      )}
+      className="flex shrink-0 items-center gap-1 px-1 text-xs text-muted-foreground"
       aria-live="polite"
       data-save-status={status}
     >
+      {(status === 'conflict' || status === 'failed') && (
+        <CircleAlert aria-hidden className="size-3.5 shrink-0 text-icon-danger" />
+      )}
       {text}
     </span>
   );

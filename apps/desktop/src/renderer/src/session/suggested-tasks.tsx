@@ -4,6 +4,7 @@ import { cn } from 'cn';
 import { ChevronRight, CircleCheck, CircleX } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
+import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
 import { useSession, useSessionsById, useWorkbenchStore } from '@/data/workbench-data';
@@ -77,17 +78,14 @@ function TaskRow({
     <li className="flex min-h-11 items-center gap-3 px-3 py-1.5" data-task={task.status}>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-foreground">{task.title}</p>
-        {(error ?? task.reason) && (
-          <Hint label={error ?? task.reason} whenClipped>
-            <p
-              className={cn(
-                'truncate text-xs',
-                error ? 'text-destructive' : 'text-muted-foreground',
-              )}
-            >
-              {error ?? task.reason}
-            </p>
-          </Hint>
+        {error ? (
+          <ErrorNote className="text-xs">{error}</ErrorNote>
+        ) : (
+          task.reason && (
+            <Hint label={task.reason} whenClipped>
+              <p className="truncate text-xs text-muted-foreground">{task.reason}</p>
+            </Hint>
+          )
         )}
       </div>
       {task.status === 'suggested' ? (
@@ -139,10 +137,8 @@ function TaskStatus({
         <ChevronRight aria-hidden className="size-3.5" />
       </>
     );
-  const className = cn(
-    'inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs outline-none transition-colors focus-visible:focus-ring',
-    failed ? 'text-destructive' : 'text-muted-foreground hover:text-foreground',
-  );
+  const className =
+    'inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring';
   if (!workspaceId || !task.sessionId) return <span className={className}>{content}</span>;
   const link = (
     <Link
@@ -161,7 +157,7 @@ function TaskStatus({
 }
 
 /**
- * 消息流里的回报（`task_report`）：同子智能体的“已完成”小标签，对勾加“〈任务〉已完成”，失败与停止用失败色；点它打开那个
+ * 消息流里的回报（`task_report`）：同子智能体的“已完成”小标签，对勾加“〈任务〉已完成”，失败与停止的图标用失败色；点它打开那个
  * 会话。
  */
 export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) {
@@ -176,13 +172,11 @@ export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) 
         ? 'suggest.report.cancelled'
         : 'suggest.report.failed';
   const Icon = ok ? CircleCheck : CircleX;
-  const className = cn(
-    'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm outline-none',
-    ok ? 'text-soft-foreground' : 'text-destructive',
-  );
+  const className =
+    'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground outline-none';
   const content = (
     <>
-      <Icon aria-hidden className="size-4 shrink-0" />
+      <Icon aria-hidden className={cn('size-4 shrink-0', !ok && 'text-icon-danger')} />
       <span className="truncate">{t(key, { title: task.title })}</span>
     </>
   );
@@ -195,8 +189,7 @@ export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) 
             to={paths.session(parent.workspaceId, task.sessionId)}
             className={cn(
               className,
-              'hover:border-border-strong focus-visible:focus-field',
-              ok && 'hover:text-foreground',
+              'hover:border-border-strong hover:text-foreground focus-visible:focus-field',
             )}
           >
             {content}

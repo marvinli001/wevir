@@ -1,5 +1,6 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import { useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { t } from '@/i18n';
@@ -59,11 +60,7 @@ export function ZuvModels({
           {t('provider.models.count', { count: form.models.length })}
         </span>
       </div>
-      {failed && (
-        <p role="alert" className="text-sm text-destructive">
-          {t('provider.models.loadFailed')}
-        </p>
-      )}
+      {failed && <ErrorNote className="text-sm">{t('provider.models.loadFailed')}</ErrorNote>}
     </div>
   );
 }

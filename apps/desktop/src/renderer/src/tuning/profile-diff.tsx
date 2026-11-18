@@ -12,6 +12,7 @@ import { resolveDiffThemeName } from '@/changes/diff-rendering';
 import { PREFERRED_HIGHLIGHTER } from '@/changes/diff-worker-pool';
 import { StyledDiffCodeView } from '@/changes/styled-code-view';
 import { Collapse } from '@/components/collapse';
+import { ErrorNote } from '@/components/error-note';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { useTheme } from '@/theme/theme';
@@ -60,9 +61,9 @@ export function ProfileDiffList({
                       aria-hidden
                       className={cn(
                         'w-3 shrink-0 text-center font-mono',
-                        item.change === 'added' && 'text-success',
-                        item.change === 'removed' && 'text-destructive',
-                        item.change === 'modified' && 'text-warning',
+                        item.change === 'added' && 'text-diff-plus',
+                        item.change === 'removed' && 'text-diff-minus',
+                        item.change === 'modified' && 'text-muted-foreground',
                       )}
                     >
                       {MARKS[item.change]}
@@ -150,7 +151,7 @@ function TextDiff({
     return <p className="px-1.5 py-2 text-xs text-muted-foreground">{t('common.loading')}</p>;
   }
   if ('error' in texts) {
-    return <p className="px-1.5 py-2 text-xs text-destructive">{texts.error}</p>;
+    return <ErrorNote className="px-1.5 py-2 text-xs">{texts.error}</ErrorNote>;
   }
   return (
     <div

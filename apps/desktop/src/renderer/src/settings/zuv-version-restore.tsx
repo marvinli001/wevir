@@ -2,6 +2,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import type { MethodResult } from '@wevir/protocol';
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -109,11 +110,7 @@ export function ZuvVersionRestore({
           <DialogHeader className="shrink-0">
             <DialogTitle>{t('portable.restoreVersion')}</DialogTitle>
           </DialogHeader>
-          {error && (
-            <p role="alert" className="break-words text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote>{error}</ErrorNote>}
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-1">
             {!preview ? (
               busy && <p>{t('common.loading')}</p>

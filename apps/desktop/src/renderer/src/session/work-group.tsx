@@ -78,13 +78,14 @@ const SESSION_ICONS: Record<SessionToolKind, LucideIcon> = {
   session_read: Eye,
 };
 
-const LINE_TONES: Record<WorkLineView['tone'], string> = {
-  done: '',
+const LINE_TONES: Partial<Record<WorkLineView['tone'], string>> = {
   running: 'shimmer',
-  awaiting: 'text-warning',
-  failed: 'text-destructive',
-  muted: '',
-  unknown: 'text-warning',
+};
+
+const ICON_TONES: Partial<Record<WorkLineView['tone'], string>> = {
+  awaiting: 'text-icon-warning',
+  failed: 'text-icon-danger',
+  unknown: 'text-icon-warning',
 };
 
 /** 会话的工作目录：逐条里的路径相对它显示（transcript-view.tsx 提供）。 */
@@ -94,8 +95,8 @@ export const WorkspaceRoot = createContext<string | undefined>(undefined);
 export function DiffStat({ stats }: { stats: LineStats }) {
   return (
     <span className="inline-flex shrink-0 overflow-hidden rounded-sm font-mono text-xs leading-[18px] tabular-nums">
-      <span className="bg-diff-added px-1.5 text-success">+{stats.added}</span>
-      <span className="bg-diff-removed px-1.5 text-destructive">−{stats.removed}</span>
+      <span className="bg-diff-added px-1.5 text-diff-plus">+{stats.added}</span>
+      <span className="bg-diff-removed px-1.5 text-diff-minus">−{stats.removed}</span>
     </span>
   );
 }
@@ -349,7 +350,7 @@ function WorkLine({
             KIND_ICONS[entry.display.kind]);
   const stats = entry.type === 'tool' && view.tone === 'done' ? editStats(entry) : undefined;
   const hasDetail = entry.type !== 'reasoning' || entry.text.trim() !== '';
-  // 失败与被拒绝的那条醒目标出：标签用失败色，下面带结果的第一行。
+  // 失败与被拒绝的那条醒目标出：图标用失败色，下面带结果的第一行。
   const problem =
     entry.type === 'tool' && view.tone === 'failed' ? outputSummary(entry) : undefined;
   // 只涉及一个文件的那行，右键弹文件菜单。
@@ -375,7 +376,10 @@ function WorkLine({
           onContextMenu={onContextMenu}
           className="group/line flex min-h-6 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none enabled:hover:text-foreground focus-visible:focus-ring"
         >
-          <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />
+          <Icon
+            aria-hidden
+            className={cn('size-3.5 shrink-0', ICON_TONES[view.tone] ?? 'opacity-85')}
+          />
           <span className={cn('shrink-0', LINE_TONES[view.tone])}>{view.label}</span>
           {view.target && (
             <Hint label={view.targetTitle} whenClipped>
@@ -402,7 +406,7 @@ function WorkLine({
         </button>
       )}
       {problem && !open && (
-        <p className="ml-5.5 truncate font-mono text-xs text-destructive">{problem}</p>
+        <p className="ml-5.5 truncate font-mono text-xs text-muted-foreground">{problem}</p>
       )}
       <Collapse open={open && hasDetail} id={id}>
         <div className="mt-1 mb-2 ml-5.5">
@@ -458,7 +462,10 @@ function SessionWorkLine({
         onClick={onToggle}
         className="flex shrink-0 items-center gap-2 rounded-lg text-left outline-none enabled:hover:text-foreground focus-visible:focus-ring"
       >
-        <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />
+        <Icon
+          aria-hidden
+          className={cn('size-3.5 shrink-0', ICON_TONES[view.tone] ?? 'opacity-85')}
+        />
         <span className={LINE_TONES[view.tone]}>{view.label}</span>
       </button>
       {session && (

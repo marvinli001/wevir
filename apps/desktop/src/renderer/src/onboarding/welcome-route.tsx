@@ -1,8 +1,16 @@
 import { cn } from 'cn';
-import { ArrowRight, Check, ChevronDown, ExternalLink, LoaderCircle } from 'lucide-react';
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  ExternalLink,
+  LoaderCircle,
+} from 'lucide-react';
 import { type FormEvent, type ReactNode, useId, useRef, useState } from 'react';
 import { Navigate } from 'react-router';
 import { BrandMark } from '@/components/brand-mark';
+import { ErrorNote } from '@/components/error-note';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -313,8 +321,8 @@ function ProviderStep({
         </p>
       )}
       {catalogFailed && entry && (
-        <div role="alert" className="space-y-3">
-          <p className="text-sm text-destructive">{t('provider.models.loadFailed')}</p>
+        <div className="space-y-3">
+          <ErrorNote className="text-sm">{t('provider.models.loadFailed')}</ErrorNote>
           <Button variant="outline" onClick={() => void choose(entry)}>
             {t('provider.models.refresh')}
           </Button>
@@ -324,20 +332,20 @@ function ProviderStep({
         <form key={entry.id} onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-3">
           <ProviderFields entry={entry} form={form} errors={errors} onChange={update} />
           {failure && (
-            <div
-              role="alert"
-              className="rounded-lg bg-destructive/8 px-3.5 py-3 text-sm animate-in fade-in"
-            >
-              <p className="font-medium text-destructive">{failure.title}</p>
-              {failure.hint && <p className="mt-1 text-soft-foreground">{failure.hint}</p>}
-              {failure.detail && (
-                <p
-                  className="mt-1.5 line-clamp-2 font-mono text-xs break-words text-muted-foreground"
-                  title={failure.detail}
-                >
-                  {failure.detail}
-                </p>
-              )}
+            <div role="alert" className="flex gap-2 text-sm animate-in fade-in">
+              <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-icon-danger" />
+              <div className="min-w-0">
+                <p className="font-medium">{failure.title}</p>
+                {failure.hint && <p className="mt-1 text-soft-foreground">{failure.hint}</p>}
+                {failure.detail && (
+                  <p
+                    className="mt-1.5 line-clamp-2 font-mono text-xs break-words text-muted-foreground"
+                    title={failure.detail}
+                  >
+                    {failure.detail}
+                  </p>
+                )}
+              </div>
             </div>
           )}
           <Footer className="mt-auto shrink-0">
@@ -609,7 +617,7 @@ function Field({
         {aside}
       </div>
       {children(id)}
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <ErrorNote className="text-xs">{error}</ErrorNote>}
     </div>
   );
 }

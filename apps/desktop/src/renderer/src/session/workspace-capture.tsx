@@ -7,6 +7,7 @@ import {
 } from '@wevir/protocol';
 import { Camera } from 'lucide-react';
 import { useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -124,11 +125,7 @@ export function WorkspaceCaptureButton({
               {t('sync.workspaceSaved')}
             </p>
           )}
-          {error && (
-            <p role="alert" className="break-words text-sm text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={() => setOpen(false)}>
               {t('common.close')}

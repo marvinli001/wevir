@@ -29,6 +29,7 @@ import { useBrowserReveal } from '@/browser/browser-store';
 import { useCheckpoints } from '@/changes/changes-data';
 import { openChanges } from '@/changes/changes-store';
 import { EmptyState } from '@/components/empty-state';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { reportActionFailure } from '@/data/action-notices';
 import { useHostSettings } from '@/data/host-settings';
@@ -1263,14 +1264,7 @@ export function SessionView({
                 {t(session.origin.via === 'native' ? 'history.native' : 'history.summary')}
               </p>
             )}
-            {notice && (
-              <p
-                role="alert"
-                className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-              >
-                {notice}
-              </p>
-            )}
+            {notice && <ErrorNote className="mb-2 text-sm">{notice}</ErrorNote>}
             {planReady && <PlanReadyBanner title={proposedPlanTitle(latestPlan.text)} />}
             {transcript && (
               <PendingArea
@@ -1644,14 +1638,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
       hero={<NewSessionHero current={entry} workspaces={workspaces} onSelect={selectProject} />}
       footer={
         <>
-          {error && (
-            <p
-              role="alert"
-              className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="mb-2 text-sm">{error}</ErrorNote>}
           {origin && (
             <p
               data-testid="draft-from-history"
@@ -1670,10 +1657,8 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             </p>
           )}
           {noProvider && (
-            <div
-              role="alert"
-              className="mb-2 flex items-center gap-3 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning"
-            >
+            <div role="alert" className="mb-2 flex items-center gap-3 text-sm text-soft-foreground">
+              <TriangleAlert aria-hidden className="size-4 shrink-0 text-icon-warning" />
               <span className="min-w-0 flex-1">
                 {t(providerRead ? 'session.noProvider' : 'home.noProviderAccess')}
               </span>

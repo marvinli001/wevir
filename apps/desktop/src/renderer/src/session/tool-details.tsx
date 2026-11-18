@@ -32,12 +32,7 @@ export function ToolDetails({ part, root }: { part: ToolPart; root?: string }) {
       {!hostedSearchWithoutResults(part) && (
         <Section label={t('tool.output')}>
           {part.exitCode !== undefined && (
-            <p
-              className={cn(
-                'mb-1 text-xs text-muted-foreground',
-                part.exitCode !== 0 && 'text-destructive',
-              )}
-            >
+            <p className="mb-1 text-xs text-muted-foreground">
               {t('tool.exitCode', { code: part.exitCode })}
             </p>
           )}

@@ -9,6 +9,7 @@ import type {
   WorkspaceId,
 } from '@wevir/protocol';
 import { type ReactNode, useEffect, useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -115,9 +116,7 @@ export function InstallDialog({
                     {plan.credentials.map((item) => (
                       <li key={item.name} data-credential-source={item.source}>
                         <span className="font-mono">{item.name}</span> ·{' '}
-                        <span className={item.source === 'missing' ? 'text-warning' : undefined}>
-                          {t(CREDENTIAL_LABELS[item.source])}
-                        </span>
+                        <span>{t(CREDENTIAL_LABELS[item.source])}</span>
                       </li>
                     ))}
                   </ul>
@@ -126,18 +125,15 @@ export function InstallDialog({
             </dl>
           </DialogDescription>
         </DialogHeader>
-        <p
+        <ErrorNote
+          tone="warning"
           role="note"
-          className="rounded-md bg-warning/10 px-3 py-2 text-sm text-foreground"
+          className="text-sm"
           data-testid="readiness-scripts-warning"
         >
           {t('readiness.install.scriptsWarning')}
-        </p>
-        {error && (
-          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-            {error}
-          </p>
-        )}
+        </ErrorNote>
+        {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
         <DialogFooter>
           <Button variant="outline" onClick={() => onClose(false)} disabled={busy}>
             {t('common.cancel')}
@@ -205,7 +201,7 @@ export function InstallOutputDialog({ run, onClose }: { run: InstallRun; onClose
           </DialogDescription>
         </DialogHeader>
         {error ? (
-          <p className="text-sm text-destructive">{error}</p>
+          <ErrorNote className="text-sm">{error}</ErrorNote>
         ) : page === undefined ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : (
@@ -362,11 +358,7 @@ export function CredentialDialog({
               autoFocus
             />
           </div>
-          {error && (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onClose(false)} disabled={busy}>
               {t('common.cancel')}

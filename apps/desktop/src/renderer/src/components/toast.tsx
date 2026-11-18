@@ -216,9 +216,9 @@ export function Toast({
             className={cn(
               'mt-0.5 size-4 shrink-0',
               tone === 'progress' && 'animate-spin text-muted-foreground',
-              tone === 'success' && 'text-success',
-              tone === 'danger' && 'text-destructive',
-              tone === 'attention' && 'text-warning',
+              tone === 'success' && 'text-icon-success',
+              tone === 'danger' && 'text-icon-danger',
+              tone === 'attention' && 'text-icon-warning',
             )}
           />
           <div className="min-w-0 flex-1 space-y-1">

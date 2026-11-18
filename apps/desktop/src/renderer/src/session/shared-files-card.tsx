@@ -1,7 +1,7 @@
 import type { ChatPartOf } from '@wevir/client-sdk';
 import type { SharedFile } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Check, Download, ExternalLink, FolderOpen } from 'lucide-react';
+import { Check, CircleAlert, Download, ExternalLink, FolderOpen } from 'lucide-react';
 import { useContext, useEffect, useState } from 'react';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
@@ -63,7 +63,7 @@ function SharedFileRow({
   const local = !synchronized && capabilities().localFiles;
   const external = local && canOpenExternally(absolute);
   const onContextMenu = useFileContextMenu(absolute);
-  const Icon = fileIcon(file.name);
+  const Icon = state?.kind === 'error' ? CircleAlert : fileIcon(file.name);
   const type = fileTypeLabel(file.name);
 
   useEffect(() => {
@@ -119,16 +119,14 @@ function SharedFileRow({
           className="flex min-w-0 flex-1 items-center gap-3 self-stretch py-2 pl-3 text-left outline-none transition-colors duration-150 hover:bg-muted/60 focus-visible:bg-muted"
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-            <Icon aria-hidden className="size-4" />
+            <Icon
+              aria-hidden
+              className={cn('size-4', state?.kind === 'error' && 'text-icon-danger')}
+            />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm text-foreground">{file.name}</span>
-            <span
-              className={cn(
-                'block truncate text-xs tabular-nums',
-                state?.kind === 'error' ? 'text-destructive' : 'text-muted-foreground',
-              )}
-            >
+            <span className="block truncate text-xs text-muted-foreground tabular-nums">
               {state?.kind === 'error'
                 ? state.message
                 : [formatFileSize(file.size, currentLocale()), type].filter(Boolean).join(' · ')}
@@ -156,7 +154,7 @@ function SharedFileRow({
           data-action="save-shared-file"
         >
           {state?.kind === 'saved' ? (
-            <Check aria-label={t('sharedFile.saved')} className="confirm-pop text-success" />
+            <Check aria-label={t('sharedFile.saved')} className="confirm-pop text-icon-success" />
           ) : (
             <Download />
           )}

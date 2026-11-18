@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import { type PlainMessageKey, t } from '@/i18n';
 import {
@@ -130,9 +131,7 @@ export function ShortcutsSettings() {
                 )}
               </Button>
               {recording === id && error && (
-                <span role="alert" className="text-right text-xs text-destructive">
-                  {error}
-                </span>
+                <ErrorNote className="text-right text-xs">{error}</ErrorNote>
               )}
             </dd>
           </div>

@@ -4,6 +4,7 @@ import type { WevirClient } from '@wevir/client-sdk';
 import type { WorkspaceId } from '@wevir/protocol';
 import { GUARDRAIL_COMMAND_MAX_LENGTH, GUARDRAIL_PATTERN_MAX_LENGTH } from '@wevir/protocol';
 import { type FormEvent, type ReactNode, useId, useState } from 'react';
+import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -142,9 +143,9 @@ export function GuardrailDialog({
               data-testid="guardrail-value"
             />
             {badRegex !== undefined && (
-              <p className="col-start-2 text-xs text-destructive" role="alert">
+              <ErrorNote className="col-start-2 text-xs">
                 {t('tuning.guardrails.regexInvalid', { error: badRegex })}
-              </p>
+              </ErrorNote>
             )}
             {draft.kind === 'stop_check' && (
               <>
@@ -178,14 +179,7 @@ export function GuardrailDialog({
               </>
             )}
           </div>
-          {error && (
-            <p
-              role="alert"
-              className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {error}
-            </p>
-          )}
+          {error && <ErrorNote className="text-sm">{error}</ErrorNote>}
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={busy} onClick={() => onClose()}>
               {t('common.cancel')}

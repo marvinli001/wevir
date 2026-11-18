@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useSearchParams } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
+import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import {
@@ -266,7 +267,7 @@ function AssistantRow({
           </span>
           {channel.pendingCount !== undefined ? (
             <span
-              className="shrink-0 rounded-full bg-warning/15 px-1.5 text-xs leading-5 font-medium text-warning"
+              className="shrink-0 rounded-full bg-muted px-1.5 text-xs leading-5 font-medium text-foreground"
               data-pending={channel.pendingCount}
             >
               {channel.pendingCount}
@@ -456,11 +457,7 @@ function AssistantPane({
           {tabs}
         </div>
       )}
-      {error && (
-        <p className="shrink-0 bg-destructive/10 px-5 py-1.5 text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote className="shrink-0 px-5 py-1.5 text-sm">{error}</ErrorNote>}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {panel || tab === 'conversation' ? (
@@ -653,11 +650,7 @@ function GroupPane({
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
-      {error && (
-        <p className="shrink-0 bg-destructive/10 px-5 py-1.5 text-sm text-destructive" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote className="shrink-0 px-5 py-1.5 text-sm">{error}</ErrorNote>}
       <AssistantTimeline
         client={client}
         view={view}
