@@ -5,6 +5,7 @@ import type { PaneController } from '@/layout/pane-controller';
 import { createPersistedStore, createStore } from '@/lib/store';
 import { platformApi } from '@/platform/platform';
 import type { EditorInfo } from '../../../shared/desktop-api.js';
+import type { TreePosition } from './files-tabs';
 
 export interface FileReveal {
   line: number;
@@ -53,11 +54,36 @@ export interface FilePrefs {
   renderOffice: boolean;
   /** 上次用的外部编辑器（`EditorInfo.id`）。 */
   editor?: string;
+  /** “文件”窗格显示文件树，默认是。 */
+  tree: boolean;
+  /** 文件树在哪一侧，默认自动（files-tabs.ts 的 treeSide）。 */
+  treePosition: TreePosition;
+  /** 单击树里的文件只换掉预览中的标签，默认是。 */
+  previewTabs: boolean;
+  /** 源码能滚到最后一行之后，默认否。 */
+  scrollPastEnd: boolean;
+  /** 制表符宽度，默认 4。 */
+  tabSize: TabSize;
 }
+
+export const TAB_SIZES = [2, 4, 8] as const;
+export type TabSize = (typeof TAB_SIZES)[number];
+const TREE_POSITIONS: readonly TreePosition[] = ['auto', 'left', 'right'];
 
 export const filePrefs = createPersistedStore<FilePrefs>(
   'wevir.files.v1',
-  { wrap: false, renderMarkdown: true, renderHtml: true, renderTable: true, renderOffice: true },
+  {
+    wrap: false,
+    renderMarkdown: true,
+    renderHtml: true,
+    renderTable: true,
+    renderOffice: true,
+    tree: true,
+    treePosition: 'auto',
+    previewTabs: true,
+    scrollPastEnd: false,
+    tabSize: 4,
+  },
   (raw) => {
     if (raw === null || typeof raw !== 'object') return undefined;
     const value = raw as Partial<Record<keyof FilePrefs, unknown>>;
@@ -67,6 +93,13 @@ export const filePrefs = createPersistedStore<FilePrefs>(
       renderHtml: value.renderHtml !== false,
       renderTable: value.renderTable !== false,
       renderOffice: value.renderOffice !== false,
+      tree: value.tree !== false,
+      treePosition: TREE_POSITIONS.includes(value.treePosition as TreePosition)
+        ? (value.treePosition as TreePosition)
+        : 'auto',
+      previewTabs: value.previewTabs !== false,
+      scrollPastEnd: value.scrollPastEnd === true,
+      tabSize: TAB_SIZES.includes(value.tabSize as TabSize) ? (value.tabSize as TabSize) : 4,
       ...(typeof value.editor === 'string' && { editor: value.editor }),
     };
   },

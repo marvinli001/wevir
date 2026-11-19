@@ -42,6 +42,10 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'portable.restoreProjectConsequence',
   'portable.restoreSessionConsequence',
   'portable.restoreDeletedConsequence',
+  // 窗格空状态下一行写从哪里开始（维护者 2026-11-20 定，照 Claude Code 桌面端）。
+  'browser.emptyHint',
+  'files.openEmptyHint',
+  'files.treeHiddenHint',
   'connection.waitingHint',
   'pending.heldHint',
   'engineError.hint.missing_credentials',

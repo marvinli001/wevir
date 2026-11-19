@@ -5,14 +5,14 @@ import { type CSSProperties, useEffect, useReducer, useRef, useState } from 'rea
 import { Outlet, useLocation, useMatch, useNavigate, useParams } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
-import { useRouteTarget, useWorkbenchStore } from '@/data/workbench-data';
+import { useRouteTarget, useWorkbenchSelector, useWorkbenchStore } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { formatShortcut, getShortcut, matchesShortcut, useKeybindings } from '@/lib/shortcuts';
 import { useElementHeight } from '@/lib/use-element-size';
 import { ProjectBackdropLayer } from '@/projects/backdrop';
-import { workspaceLabel } from '@/projects/chats';
-import { useRememberLocation } from '@/routes/last-location';
+import { useChatsSupported, workspaceLabel } from '@/projects/chats';
+import { homeWorkspace, useLastLocation, useRememberLocation } from '@/routes/last-location';
 import { paths, ROUTE_PATTERNS } from '@/routes/paths';
 import { EngineTrail } from '@/session/engine-trail';
 import { ThemeBackdropLayer } from '@/theme/theme-backdrop';
@@ -113,9 +113,16 @@ export function WorkbenchLayout() {
   usePrunePanes();
   useWindowResizing();
 
-  // 当前会话的窗格：拖动分隔条时尺寸先用草稿，松开再写回本机。
-  const scopeKey = header.panes ? paneScopeKey(workspaceId, sessionId) : undefined;
-  const storedScope = useScopePanes(scopeKey, workspaceId);
+  // 当前会话的窗格：拖动分隔条时尺寸先用草稿，松开再写回本机。首页、插件这类页面用首页所选项目的草稿窗格集，顶栏的终端、
+  // 浏览器、文件按钮一直在。
+  const home = useHomePaneOwner(header.homePanes);
+  const paneWorkspaceId = header.panes ? workspaceId : home?.workspace.id;
+  const paneEntry = header.panes ? header.entry : home;
+  const scopeKey =
+    header.panes || home
+      ? paneScopeKey(paneWorkspaceId, header.panes ? sessionId : undefined)
+      : undefined;
+  const storedScope = useScopePanes(scopeKey, paneWorkspaceId);
   const [draftSizes, setDraftSizes] = useState<PaneSizes>();
   const scope = storedScope && draftSizes ? { ...storedScope, sizes: draftSizes } : storedScope;
   const docked = sidebarPlan.sidebar === 'docked';
@@ -165,7 +172,7 @@ export function WorkbenchLayout() {
   const plan = arrange(arrangeWidth, railDocked ? 1 : 2);
   const panes = usePaneController(
     scopeKey,
-    workspaceId,
+    paneWorkspaceId,
     scope,
     plan,
     maximized,
@@ -261,8 +268,8 @@ export function WorkbenchLayout() {
 
   const commitScope = (update: Parameters<typeof updateScope>[2]) => {
     setDraftSizes(undefined);
-    if (scopeKey !== undefined && workspaceId !== undefined)
-      updateScope(scopeKey, workspaceId, update);
+    if (scopeKey !== undefined && paneWorkspaceId !== undefined)
+      updateScope(scopeKey, paneWorkspaceId, update);
   };
   const auxDragStart = useRef(0);
   const auxRatio = (delta: number) =>
@@ -274,7 +281,11 @@ export function WorkbenchLayout() {
     onCancel: () => setDraftSizes(undefined),
     onReset: (key) => commitScope((current) => resetSplitRatios(current, key)),
   };
-  const paneContext: PaneContext = { entry: header.entry, sessionId, childId };
+  const paneContext: PaneContext = {
+    entry: paneEntry,
+    sessionId: header.panes ? sessionId : undefined,
+    childId,
+  };
   const tree = (node: NonNullable<AuxPlan['tree']>) => (
     <PaneTree node={node} context={paneContext} resize={splitResize} />
   );
@@ -401,6 +412,11 @@ export function WorkbenchLayout() {
               )}
               {header.role && <RoleLabel role={header.role} data-testid="header-role" />}
             </div>
+            {!panes && header.homePanes && (
+              <div className="flex shrink-0 items-center gap-0.5">
+                <PaneLaunchers panes={undefined} />
+              </div>
+            )}
             {panes && (
               <div className="flex shrink-0 items-center gap-0.5">
                 <PaneLaunchers panes={panes} />
@@ -866,8 +882,21 @@ interface Header {
   entry?: WorkspaceEntry;
   /** 会话页的会话（会话侧栏用）；草稿页没有。 */
   session?: Session;
-  /** 会话与新会话草稿有窗格区；首页、未找到没有。 */
+  /** 会话与新会话草稿有自己的窗格区。 */
   panes: boolean;
+  /** 首页、插件、调优这类不属于某个会话的页面：用首页所选项目的草稿窗格集；未找到与加载中没有。 */
+  homePanes?: boolean;
+}
+
+/** 首页所选的项目（last-location.ts 的 homeWorkspace），不在项目里或没有项目时是 undefined。 */
+function useHomePaneOwner(enabled: boolean | undefined): WorkspaceEntry | undefined {
+  const last = useLastLocation();
+  const chats = useChatsSupported();
+  const id = useWorkbenchSelector((data) =>
+    enabled && data.status === 'ready' ? homeWorkspace(data, last, chats)?.workspace.id : undefined,
+  );
+  const target = useRouteTarget(id, undefined);
+  return target?.kind === 'draft' ? target.entry : undefined;
 }
 
 /** 顶栏标题：会话标题 · 工作区名；草稿页是“新会话”；插件页是“插件”，调优页是“调优”；首页、设置、未找到等页面不显示标题。 */
@@ -875,9 +904,9 @@ function useHeader(workspaceId: string | undefined, sessionId: string | undefine
   const target = useRouteTarget(workspaceId, sessionId);
   const onPlugins = useMatch(`${ROUTE_PATTERNS.plugins}/*`) !== null;
   const onTuning = useMatch(`${ROUTE_PATTERNS.tuning}/*`) !== null;
-  if (onPlugins) return { title: t('plugins.title'), panes: false };
-  if (onTuning) return { title: t('tuning.title'), panes: false };
-  if (target === undefined) return { title: '', panes: false };
+  if (onPlugins) return { title: t('plugins.title'), panes: false, homePanes: true };
+  if (onTuning) return { title: t('tuning.title'), panes: false, homePanes: true };
+  if (target === undefined) return { title: '', panes: false, homePanes: true };
   switch (target.kind) {
     case 'session':
       return {

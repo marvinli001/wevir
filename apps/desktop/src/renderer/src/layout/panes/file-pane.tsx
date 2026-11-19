@@ -103,11 +103,21 @@ import {
   ZoomableImage,
 } from './file-viewers';
 import { fileIcon, Note, useFileScope, useScopeRefreshKey } from './files-pane';
+import { ScrollPastEnd, SOURCE_SCROLLER, sourceSurfaceStyle } from './source-surface';
 
 /** 与 DIFF_SURFACE_THEME_UNSAFE_CSS 里的 --diffs-line-height 一致，估算行的位置用。 */
 const LINE_HEIGHT = 20;
 
-export function FilePane({ tab, context }: { tab: PaneTab; context: PaneContext }) {
+export function FilePane({
+  tab,
+  context,
+  embedded = false,
+}: {
+  tab: PaneTab;
+  context: PaneContext;
+  /** 在“文件”窗格里：文件名已在标签上，顶上一行只写相对路径。 */
+  embedded?: boolean;
+}) {
   const supported = useFilesSupported();
   const artifactsSupported = useSyncArtifactsSupported();
   const multiFolder = useMultiFolderFilesSupported();
@@ -156,6 +166,7 @@ export function FilePane({ tab, context }: { tab: PaneTab; context: PaneContext 
       path={target.path}
       revealKey={param}
       refreshKey={refreshKey}
+      embedded={embedded}
     />
   );
 }
@@ -172,9 +183,11 @@ function FilePreview({
   path,
   revealKey,
   refreshKey,
+  embedded,
 }: {
   scope: FileScope;
   path: string;
+  embedded: boolean;
   /** 打开时带的行号按窗格参数里的路径记（files-store.ts 的 `openFile`）。 */
   revealKey: string;
   refreshKey: string;
@@ -324,12 +337,25 @@ function FilePreview({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="file-pane" data-file-path={path}>
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border pr-2 pl-3">
-        <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-        <p className="flex min-w-0 flex-1 items-baseline gap-1.5" title={path}>
-          <span className="shrink-0 truncate text-sm font-medium">{name}</span>
-          {dir && <span className="min-w-0 truncate text-xs text-muted-foreground">{dir}</span>}
-        </p>
+      <div
+        className={cn(
+          'flex shrink-0 items-center gap-1 border-b border-border pr-2 pl-3',
+          embedded ? 'h-9' : 'h-10',
+        )}
+      >
+        {embedded ? (
+          <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground" title={path}>
+            {path}
+          </p>
+        ) : (
+          <>
+            <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            <p className="flex min-w-0 flex-1 items-baseline gap-1.5" title={path}>
+              <span className="shrink-0 truncate text-sm font-medium">{name}</span>
+              {dir && <span className="min-w-0 truncate text-xs text-muted-foreground">{dir}</span>}
+            </p>
+          </>
+        )}
         <SaveIndicator status={saveStatus} />
         {toggle !== undefined && (view !== 'html' || preview) && (
           <IconButton
@@ -357,7 +383,8 @@ function FilePreview({
             {pages ? view === 'spreadsheet' ? <Table2 /> : <AlignLeft /> : <FileText />}
           </IconButton>
         )}
-        {showsSource && (
+        {/* “文件”窗格的更多菜单里有自动换行。 */}
+        {showsSource && !embedded && (
           <IconButton
             label={t('changes.wrap')}
             aria-pressed={prefs.wrap}
@@ -670,12 +697,17 @@ function SourceView({
     return () => window.clearTimeout(timer);
   }, [line, reveal?.id]);
 
+  const prefs = filePrefs.use();
   return (
     <DiffWorkerPoolProvider>
-      <div ref={wrapper} className="h-full min-h-0 bg-(--code-background)">
+      <div
+        ref={wrapper}
+        className="h-full min-h-0 bg-(--code-background)"
+        style={sourceSurfaceStyle(prefs.tabSize)}
+      >
         <Virtualizer
           key={`${name}:${theme}`}
-          className="h-full min-h-0 overflow-auto"
+          className={SOURCE_SCROLLER}
           config={{ overscrollSize: 600, intersectionObserverMargin: 1200 }}
         >
           <File
@@ -691,6 +723,7 @@ function SourceView({
             }}
             className="min-h-full"
           />
+          {prefs.scrollPastEnd && <ScrollPastEnd />}
         </Virtualizer>
       </div>
     </DiffWorkerPoolProvider>

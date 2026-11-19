@@ -1,4 +1,5 @@
-// 顶栏右侧的“终端”“浏览器”“文件”按钮（照 Claude Code 桌面端）：这几种窗格都在窗格区里，常用到值得一键打开。
+// 顶栏右侧的“终端”“浏览器”“文件”按钮（照 Claude Code 桌面端）：这几种窗格都在窗格区里，常用到值得一键打开。工作台的每一页
+// 都有：首页、插件这类页面开在首页所选项目的草稿窗格集里，不在项目里时按钮不可用。
 
 import { cn } from 'cn';
 import { IconButton } from '@/components/icon-button';
@@ -21,7 +22,7 @@ export function showPaneKind(panes: PaneController, kind: LauncherKind): void {
   else panes.open({ kind });
 }
 
-export function PaneLaunchers({ panes }: { panes: PaneController }) {
+export function PaneLaunchers({ panes }: { panes: PaneController | undefined }) {
   const { client } = useHostConnection();
   const access = usePaneAccess();
   const bindings = useKeybindings();
@@ -31,7 +32,7 @@ export function PaneLaunchers({ panes }: { panes: PaneController }) {
   ).map((kind) => {
     const Icon = paneIcon(kind);
     // 按下的样子：这种窗格正显示着（窗格区看得见、是某个窗格当前的标签）。
-    const shown = panes.auxShown && findKindTab(panes.scope, kind)?.shown === true;
+    const shown = panes?.auxShown === true && findKindTab(panes.scope, kind)?.shown === true;
     return (
       <IconButton
         key={kind}
@@ -39,7 +40,8 @@ export function PaneLaunchers({ panes }: { panes: PaneController }) {
         shortcut={formatShortcut(bindings[kind])}
         aria-pressed={shown}
         className={cn(shown && 'bg-accent')}
-        onClick={() => showPaneKind(panes, kind)}
+        disabled={panes === undefined}
+        onClick={() => panes && showPaneKind(panes, kind)}
         tooltipSide="bottom"
         data-testid={`launch-${kind}`}
       >

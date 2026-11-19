@@ -1,7 +1,7 @@
 import { hostSupports } from '@wevir/client-sdk';
-import type { PendingDelivery, SessionId } from '@wevir/protocol';
+import type { PendingDelivery, Session, SessionId } from '@wevir/protocol';
 import { Plus } from 'lucide-react';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { ErrorNote } from '@/components/error-note';
 import { useWorkbenchData } from '@/data/workbench-data';
@@ -11,6 +11,8 @@ import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environm
 import type { FileScope } from '@/files/files-data';
 import { useCan, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { draftScopeKey } from '@/layout/pane-state';
+import { movePaneScope } from '@/layout/pane-store';
 import { onboardingDone } from '@/onboarding/onboarding-state';
 import { needsWelcome } from '@/onboarding/welcome-model';
 import { useChatsSupported } from '@/projects/chats';
@@ -82,10 +84,19 @@ function Home({
   const environment = useActiveEnvironment(workspace?.id);
   const worktree = useWorktreeChoice(workspace?.id);
   const manage = useWorkspaceManagement();
+  // 首页打开的窗格（开在所选项目的草稿窗格集里）跟着搬到新会话，同草稿页（desktop-layout.md §2.2）。
+  const workspaceId = workspace?.id;
+  const movePanes = useCallback(
+    (session: Session) => {
+      if (workspaceId !== undefined && session.workspaceId === workspaceId)
+        movePaneScope(draftScopeKey(workspaceId), session.id);
+    },
+    [workspaceId],
+  );
   const { start, error, goals, ready } = useStartSession(
     workspace?.id,
     choice,
-    undefined,
+    movePanes,
     permission.mode,
     environment?.id,
     worktree.active,

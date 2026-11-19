@@ -22,10 +22,12 @@ import { DiffWorkerPoolProvider, PREFERRED_HIGHLIGHTER } from '@/changes/diff-wo
 import { Button } from '@/components/ui/button';
 import { FileSaveCoordinator } from '@/files/file-save-coordinator';
 import { type FileScope, rememberWrittenFile, scopeParams } from '@/files/files-data';
+import { filePrefs } from '@/files/files-store';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { useTheme } from '@/theme/theme';
 import { SurfaceNotice } from './file-viewers';
+import { ScrollPastEnd, SOURCE_SCROLLER, sourceSurfaceStyle } from './source-surface';
 
 const FILE_SAVE_DEBOUNCE_MS = 500;
 
@@ -105,6 +107,7 @@ function EditableSurface({
   onReload,
 }: Parameters<typeof EditableSource>[0]) {
   const { resolved: theme } = useTheme();
+  const prefs = filePrefs.use();
   const { client } = useHostConnection();
   // 编辑基于的那一版；写回成功后换成新的。
   const baseMtime = useRef(mtimeMs);
@@ -235,11 +238,14 @@ function EditableSurface({
           </span>
         </SurfaceNotice>
       )}
-      <div className="min-h-0 flex-1 bg-(--code-background)">
+      <div
+        className="min-h-0 flex-1 bg-(--code-background)"
+        style={sourceSurfaceStyle(prefs.tabSize)}
+      >
         <EditProvider createEditor={createFileEditor}>
           <Virtualizer
             key={`${name}:${theme}`}
-            className="h-full min-h-0 overflow-auto"
+            className={SOURCE_SCROLLER}
             config={{ overscrollSize: 600, intersectionObserverMargin: 1200 }}
           >
             <File
@@ -257,6 +263,7 @@ function EditableSurface({
               }}
               className="min-h-full"
             />
+            {prefs.scrollPastEnd && <ScrollPastEnd />}
           </Virtualizer>
         </EditProvider>
       </div>

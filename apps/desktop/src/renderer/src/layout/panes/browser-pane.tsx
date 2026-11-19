@@ -428,7 +428,9 @@ function Viewport({ sessionId, tab }: { sessionId: string; tab: BrowserTabState 
           <span className="mt-1 block font-mono text-xs">{tab.loadError.description}</span>
         </Note>
       ) : blank ? (
-        <Note icon={Globe}>{t('browser.empty')}</Note>
+        <Note icon={Globe} hint={t('browser.emptyHint')}>
+          {t('browser.empty')}
+        </Note>
       ) : null}
     </div>
   );

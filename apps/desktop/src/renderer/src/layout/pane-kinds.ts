@@ -51,8 +51,8 @@ export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
   },
   // 0.20.0：当前会话目录的 diff（desktop-layout.md §18）。
   changes: { minWidth: 360, minHeight: 240, shape: 'tall', multiple: false, available: true },
-  // 0.22.0（U32）：会话目录的文件树，点开的文件在“文件预览”里（按路径多开）。
-  files: { minWidth: 260, minHeight: 200, shape: 'tall', multiple: false, available: true },
+  // 0.22.0（U32）：会话目录的文件树；2026-11-20 起点开的文件就在这个窗格里预览（文件链接仍开“文件预览”，按路径多开）。
+  files: { minWidth: 360, minHeight: 200, shape: 'tall', multiple: false, available: true },
   file: {
     minWidth: 360,
     minHeight: 240,
