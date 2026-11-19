@@ -1,8 +1,10 @@
 import { randomBytes } from 'node:crypto';
+import type { ProviderModel } from '@wevir/protocol';
 import { jcs, schemas } from '@wevir/protocol/sync';
 import { type ExecutionState, executionStateSchema } from '@wevir/protocol/sync-execution-state';
 import type { SecretStore } from '@wevir/storage';
 import { sha256 } from '../sync/crypto.js';
+import { parseZuvSubscriptionModels } from '../zuv-models.js';
 import {
   deviceProof,
   newZuvDeviceKey,
@@ -352,23 +354,11 @@ export class ZuvClient {
     }
   }
 
-  async models(): Promise<string[]> {
+  async models(): Promise<ProviderModel[]> {
     const proof = await this.#proof();
     return this.transport.json(
       { method: 'GET', path: '/api/wevir/v1/models', proof },
-      {
-        parse(value: unknown) {
-          const result = value as { object?: unknown; data?: Array<{ id?: unknown }> };
-          if (result?.object !== 'list' || !Array.isArray(result.data) || result.data.length > 2000)
-            throw new Error('invalid model catalog');
-          const ids = result.data.map((model) => {
-            if (typeof model.id !== 'string' || model.id.length < 1 || model.id.length > 256)
-              throw new Error('invalid model id');
-            return model.id;
-          });
-          return [...new Set(ids)];
-        },
-      },
+      { parse: parseZuvSubscriptionModels },
     );
   }
 

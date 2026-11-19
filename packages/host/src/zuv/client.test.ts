@@ -328,7 +328,7 @@ describe('Host-owned ZUV identity', () => {
       await expect(h.client.models()).rejects.toMatchObject({ code });
       expect(h.request.mock.calls).toHaveLength(before);
       h.advance(1001);
-      expect(await h.client.models()).toEqual(['synthetic-model']);
+      expect(await h.client.models()).toEqual([{ id: 'synthetic-model', reasoningEfforts: [] }]);
       const refreshes = h.request.mock.calls.filter(([url]) => String(url).endsWith('/refresh'));
       expect(refreshes).toHaveLength(2);
       expect(
@@ -478,7 +478,7 @@ describe('Host-owned ZUV identity', () => {
         expires_in: 900,
       }),
     );
-    expect(await h.client.models()).toEqual(['synthetic-model']);
+    expect(await h.client.models()).toEqual([{ id: 'synthetic-model', reasoningEfforts: [] }]);
     expect(h.request.mock.calls.some(([url]) => String(url).includes('/executions/claim'))).toBe(
       false,
     );
@@ -744,7 +744,7 @@ describe('Host-owned ZUV identity', () => {
     expect(h.client.enrollment).toBeUndefined();
     expect(h.client.deviceId).toBe('device_fixture');
     expect(h.client.entitlements).toEqual(h.entitlements());
-    expect(await h.client.models()).toEqual(['synthetic-model']);
+    expect(await h.client.models()).toEqual([{ id: 'synthetic-model', reasoningEfforts: [] }]);
     const restored = new ZuvClient(h.options);
     await restored.load();
     expect(restored.signedIn).toBe(true);

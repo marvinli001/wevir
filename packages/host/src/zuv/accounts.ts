@@ -98,10 +98,10 @@ export class ZuvAccounts implements EngineAccounts {
 
   async models(_kind: AccountKind): Promise<AccountModels> {
     if (this.client.entitlements?.subscriptionState !== 'active') return { models: [] };
-    const ids = await this.client.models();
+    const models = await this.client.models();
     return {
-      models: ids.map((id) => ({ id })),
-      ...(ids[0] !== undefined && { defaultModelId: ids[0] }),
+      models,
+      ...(models[0] !== undefined && { defaultModelId: models[0].id }),
     };
   }
 

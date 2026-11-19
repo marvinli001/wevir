@@ -17,7 +17,10 @@ afterEach(async () => {
 
 describe('ZUV account on isolated Hosts', () => {
   it('enrolls through Host RPC without exposing secrets or enabling content sync, and gates old clients', async () => {
-    const mock = await startMockZuv();
+    const mock = await startMockZuv([
+      { id: 'openai/gpt-5.6-terra', reasoning_efforts: ['none', 'low', 'high', 'max'] },
+      { id: 'google/gemini-4-argon-high', reasoning_efforts: [] },
+    ]);
     cleanups.push(() => mock.close());
     const boot = async (name: string) => {
       const home = join(tempDir(), name, 'wevir');
@@ -94,7 +97,11 @@ describe('ZUV account on isolated Hosts', () => {
     expect(provider).toMatchObject({
       id: 'zuv',
       hasSecret: false,
-      models: [{ id: 'synthetic-model' }],
+      defaultModelId: 'openai/gpt-5.6-terra',
+      models: [
+        { id: 'openai/gpt-5.6-terra', reasoningEfforts: ['off', 'low', 'high', 'max'] },
+        { id: 'google/gemini-4-argon-high', reasoningEfforts: [] },
+      ],
     });
     expect(await first.client.request('sync.status')).not.toHaveProperty('binding');
     expect(mock.requests.some((path) => path.includes('/sync/'))).toBe(false);

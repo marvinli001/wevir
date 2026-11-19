@@ -9,7 +9,9 @@ const digest = (value: string | Uint8Array) =>
   createHash('sha256').update(value).digest('base64url');
 const id = (prefix: string) => `${prefix}_${randomUUID()}`;
 
-export async function startMockZuv() {
+export async function startMockZuv(
+  models: { id: string; reasoning_efforts?: string[] }[] = [{ id: 'synthetic-model' }],
+) {
   const sync = new MockSyncGateway();
   const enrollments = new Map<
     string,
@@ -136,7 +138,7 @@ export async function startMockZuv() {
         } else if (path === '/api/wevir/v1/models')
           response = {
             object: 'list',
-            data: [{ id: 'synthetic-model', object: 'model', owned_by: 'synthetic' }],
+            data: models.map((model) => ({ ...model, object: 'model', owned_by: 'synthetic' })),
           };
         else {
           const result = sync.handle(

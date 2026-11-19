@@ -164,6 +164,7 @@ describe('ZUV through the existing model gateway', () => {
     ]);
     const body = JSON.stringify({
       model: 'synthetic-model',
+      reasoning: { effort: 'high' },
       input: 'synthetic '.repeat(1000),
       stream: true,
       client_metadata: { localId: 'never forwarded' },
@@ -177,7 +178,9 @@ describe('ZUV through the existing model gateway', () => {
     const response = await send('zuv');
     const responseText = await response.text();
     expect(response.status, responseText).toBe(200);
-    expect(calls[0]?.body.toString()).not.toBe(body);
+    expect(calls.map((call) => JSON.parse(call.body.toString()).reasoning)).toEqual([
+      { effort: 'high' },
+    ]);
     const other = await send('other');
     expect(other.status).toBe(200);
     await other.text();

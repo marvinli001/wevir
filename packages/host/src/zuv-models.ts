@@ -1,4 +1,9 @@
-import { type MethodResult, type ProviderApi, ProviderModelSchema } from '@wevir/protocol';
+import {
+  type MethodResult,
+  type ProviderApi,
+  type ProviderModel,
+  ProviderModelSchema,
+} from '@wevir/protocol';
 
 const CATALOG_URL = 'https://zuv.wevir.si/api/public/models';
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -23,6 +28,34 @@ export function isZuvApiBaseURL(baseURL: string): boolean {
   } catch {
     return false;
   }
+}
+
+function reasoningEfforts(item: Record<string, unknown>): unknown {
+  const efforts = item.reasoningEfforts ?? item.reasoning_efforts ?? [];
+  return Array.isArray(efforts)
+    ? efforts.map((effort) => (effort === 'none' ? 'off' : effort))
+    : efforts;
+}
+
+export function parseZuvSubscriptionModels(value: unknown): ProviderModel[] {
+  if (
+    !isObject(value) ||
+    value.object !== 'list' ||
+    !Array.isArray(value.data) ||
+    value.data.length > 2000
+  )
+    throw new Error('invalid model catalog');
+  const models = new Map<string, ProviderModel>();
+  for (const item of value.data as unknown[]) {
+    if (!isObject(item)) throw new Error('invalid model');
+    const model = ProviderModelSchema.parse({
+      id: item.id,
+      reasoningEfforts: reasoningEfforts(item),
+    });
+    if (model.id.length > 256) throw new Error('invalid model id');
+    if (!models.has(model.id)) models.set(model.id, model);
+  }
+  return [...models.values()];
 }
 
 export async function discoverZuvModels(
@@ -84,7 +117,6 @@ export async function discoverZuvModels(
         return { ok: false, models: [], reason: 'protocol' };
       const api = Object.keys(PROTOCOLS).find((protocol) => protocols.includes(protocol));
       const inputModalities = item.inputModalities ?? item.input_modalities;
-      const efforts = item.reasoningEfforts ?? item.reasoning_efforts ?? [];
       const parsed = ProviderModelSchema.safeParse({
         id: item.id,
         displayName: item.name,
@@ -98,9 +130,7 @@ export async function discoverZuvModels(
         capabilities: item.capabilities,
         families: item.families ?? item.endpoints,
         supportsImages: Array.isArray(inputModalities) && inputModalities.includes('image'),
-        reasoningEfforts: Array.isArray(efforts)
-          ? efforts.map((effort) => (effort === 'none' ? 'off' : effort))
-          : efforts,
+        reasoningEfforts: reasoningEfforts(item),
       });
       if (!parsed.success || api === undefined)
         return { ok: false, models: [], reason: 'protocol' };
