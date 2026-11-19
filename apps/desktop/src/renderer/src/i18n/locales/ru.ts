@@ -2781,7 +2781,6 @@ export const messages: Messages = {
   'settings.devices.enable': 'Включить удалённый доступ',
   'settings.devices.on': 'Включено',
   'settings.devices.off': 'Выключено',
-  'settings.devices.ready': 'Ожидание подключения устройства',
   'settings.devices.noRoute': 'Нет доступных способов подключения',
   'settings.devices.connections': 'Активных подключений: {count}',
   'settings.devices.network': 'Способы подключения',

@@ -2700,7 +2700,6 @@ export const messages: Messages = {
   'settings.devices.enable': '開啟遠端存取',
   'settings.devices.on': '已開啟',
   'settings.devices.off': '已關閉',
-  'settings.devices.ready': '等待裝置連線',
   'settings.devices.noRoute': '目前沒有可用的連線方式',
   'settings.devices.connections': '目前連線數 {count}',
   'settings.devices.network': '連線方式',

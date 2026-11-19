@@ -2713,7 +2713,6 @@ export const zhCN = {
   'settings.devices.enable': '开启远程访问',
   'settings.devices.on': '已开启',
   'settings.devices.off': '已关闭',
-  'settings.devices.ready': '等待设备连接',
   'settings.devices.noRoute': '暂无可用连接方式',
   'settings.devices.connections': '当前连接数 {count}',
   'settings.devices.network': '连接方式',

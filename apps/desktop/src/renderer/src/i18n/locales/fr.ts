@@ -2784,7 +2784,6 @@ export const messages: Messages = {
   'settings.devices.enable': 'Activer l’accès à distance',
   'settings.devices.on': 'Activé',
   'settings.devices.off': 'Désactivé',
-  'settings.devices.ready': 'En attente de connexion d’un appareil',
   'settings.devices.noRoute': 'Aucun mode de connexion disponible',
   'settings.devices.connections': 'Connexions actives : {count}',
   'settings.devices.network': 'Modes de connexion',

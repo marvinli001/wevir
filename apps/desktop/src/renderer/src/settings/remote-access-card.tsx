@@ -8,12 +8,11 @@ import type { remoteAccessState } from './devices-model';
 
 type AccessState = ReturnType<typeof remoteAccessState>;
 
-const STATE_LABEL: Record<Exclude<AccessState, 'connected'>, PlainMessageKey> = {
+const STATE_LABEL: Record<Exclude<AccessState, 'connected' | 'ready'>, PlainMessageKey> = {
   off: 'settings.devices.scope',
   enabled: 'settings.devices.on',
   loading: 'common.loading',
   connecting: 'settings.devices.relayConnecting',
-  ready: 'settings.devices.ready',
   noRoute: 'settings.devices.noRoute',
 };
 
@@ -56,20 +55,29 @@ export function RemoteAccessCard({
               />
             )}
           </div>
-          <p role="status" className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
-            {enabled && (
-              <span
-                aria-hidden
-                className={cn(
-                  'size-1.5 shrink-0 rounded-full',
-                  ready ? 'bg-success' : state === 'noRoute' ? 'bg-warning' : 'bg-muted-foreground',
-                )}
-              />
-            )}
-            {state === 'connected'
-              ? t('settings.devices.connections', { count: connections })
-              : t(STATE_LABEL[state])}
-          </p>
+          {state !== 'ready' && (
+            <p
+              role="status"
+              className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground"
+            >
+              {enabled && (
+                <span
+                  aria-hidden
+                  className={cn(
+                    'size-1.5 shrink-0 rounded-full',
+                    state === 'connected'
+                      ? 'bg-success'
+                      : state === 'noRoute'
+                        ? 'bg-warning'
+                        : 'bg-muted-foreground',
+                  )}
+                />
+              )}
+              {state === 'connected'
+                ? t('settings.devices.connections', { count: connections })
+                : t(STATE_LABEL[state])}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {enabled ? (

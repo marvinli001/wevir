@@ -2718,7 +2718,6 @@ export const messages: Messages = {
   'settings.devices.enable': '원격 접근 켜기',
   'settings.devices.on': '켜짐',
   'settings.devices.off': '꺼짐',
-  'settings.devices.ready': '기기 연결 대기 중',
   'settings.devices.noRoute': '사용 가능한 연결 방식 없음',
   'settings.devices.connections': '활성 연결 수: {count}',
   'settings.devices.network': '연결 방식',

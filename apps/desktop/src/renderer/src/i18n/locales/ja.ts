@@ -2730,7 +2730,6 @@ export const messages: Messages = {
   'settings.devices.enable': 'リモートアクセスを有効にする',
   'settings.devices.on': 'オン',
   'settings.devices.off': 'オフ',
-  'settings.devices.ready': 'デバイスの接続待ち',
   'settings.devices.noRoute': '利用できる接続方法がありません',
   'settings.devices.connections': '接続数：{count}',
   'settings.devices.network': '接続方法',

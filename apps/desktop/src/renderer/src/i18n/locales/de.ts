@@ -2772,7 +2772,6 @@ export const messages: Messages = {
   'settings.devices.enable': 'Fernzugriff aktivieren',
   'settings.devices.on': 'Ein',
   'settings.devices.off': 'Aus',
-  'settings.devices.ready': 'Warten auf eine Geräteverbindung',
   'settings.devices.noRoute': 'Keine Verbindungsmethode verfügbar',
   'settings.devices.connections': 'Aktive Verbindungen: {count}',
   'settings.devices.network': 'Verbindungsarten',

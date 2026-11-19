@@ -2776,7 +2776,6 @@ export const messages: Messages = {
   'settings.devices.enable': 'Attiva accesso remoto',
   'settings.devices.on': 'Attivo',
   'settings.devices.off': 'Disattivato',
-  'settings.devices.ready': 'In attesa della connessione di un dispositivo',
   'settings.devices.noRoute': 'Nessun metodo di connessione disponibile',
   'settings.devices.connections': 'Connessioni attive: {count}',
   'settings.devices.network': 'Metodi di connessione',
