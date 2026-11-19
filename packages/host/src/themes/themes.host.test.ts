@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ErrorCode, type ThemeFile } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -19,6 +19,28 @@ const theme: ThemeFile = {
   name: 'Lagoon',
   dark: { background: '#101820', foreground: '#f1f5f9' },
 };
+
+it('serves the scene and poster when the Host data directory has a path alias', async () => {
+  const target = join(temp(), 'target');
+  const home = join(temp(), 'home');
+  await mkdir(target);
+  await symlink(target, home, 'junction');
+  const host = await startHost({
+    home,
+    engine: 'echo',
+    adapter: new EchoAdapter(),
+    logger: createLogger({ level: 'error', mirror: () => {} }),
+  });
+  hosts.push(host);
+  const client = await TestRpcClient.connect(host.url);
+  clients.push(client);
+  const { token } = JSON.parse(await readFile(host.runtimeFile.path, 'utf8'));
+  expect((await client.hello(token)).error).toBeUndefined();
+  const { assets } = await client.request('themes.get', { id: 'night-orbit' });
+  for (const url of [assets.file, assets.poster]) {
+    expect((await fetch(url, { method: 'HEAD' })).status).toBe(200);
+  }
+});
 
 it('publishes changes to subscribed windows and persists the active theme across Host restarts', async () => {
   const home = join(temp(), 'home');

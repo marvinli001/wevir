@@ -6,7 +6,17 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { constants, type FSWatcher, watch } from 'node:fs';
-import { chmod, lstat, mkdir, mkdtemp, open, readdir, rename, rm } from 'node:fs/promises';
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readdir,
+  realpath,
+  rename,
+  rm,
+} from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -140,7 +150,8 @@ export class ThemeService {
 
   async load(): Promise<void> {
     await directory(this.directory);
-    const cacheRoot = join(this.directory, '.cache');
+    // FileUrls 校验素材归属时使用实际路径，数据目录本身可能由路径别名访问。
+    const cacheRoot = join(await realpath(this.directory), '.cache');
     await directory(cacheRoot);
     // 只有一个 Host 持有数据目录锁；上次异常退出留下的快照不再有客户端。
     await rm(cacheRoot, { recursive: true });
