@@ -27,12 +27,10 @@ import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { sourceOf } from '@/data/sources';
 import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
 import { modelLogo } from '@/settings/model-logo';
-import { providerLogo } from '@/settings/provider-catalog';
 import { ContextReceipt } from './context-receipt';
 import { CopyButton } from './copy-button';
 import { EngineNoticeView } from './engine-notice-view';
@@ -877,10 +875,7 @@ function ModelSwitchNotice({ notice }: { notice: ConfigurationNoticeOf | Handoff
           data-reason={notice.reason}
         >
           <ProviderLogo
-            logo={
-              modelLogo(model ?? { id: to.modelId }) ??
-              (provider && (sourceOf(provider)?.logo ?? providerLogo(provider)))
-            }
+            logo={modelLogo(provider, model ?? { id: to.modelId })}
             fallback={name}
             className="size-3"
           />

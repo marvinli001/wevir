@@ -103,9 +103,7 @@ export function ModelPicker({
   const accounts = useAccounts();
   const provider = providers.find((candidate) => candidate.id === value.providerId);
   const model = provider && modelsOf(provider).find((candidate) => candidate.id === value.modelId);
-  const logo =
-    modelLogo(model ?? { id: value.modelId }) ??
-    (provider && (sourceOf(provider)?.logo ?? providerLogo(provider)));
+  const logo = modelLogo(provider, model ?? { id: value.modelId });
   const efforts = model?.reasoningEfforts ?? [];
   const effectiveEffort = value.reasoningEffort ?? model?.defaultReasoningEffort;
   useEffortShortcuts(effortShortcuts && !readOnly, efforts, effectiveEffort, (reasoningEffort) =>
@@ -137,9 +135,7 @@ export function ModelPicker({
         />
       )}
       <span ref={anchorRef} className="inline-flex min-w-0 items-center gap-1.5">
-        {(source || logo) && (
-          <ProviderLogo logo={logo ?? source?.logo} fallback={name} className="size-3.5 shrink-0" />
-        )}
+        {logo && <ProviderLogo logo={logo} className="size-3.5 shrink-0" />}
         <AccountBadge label={account?.label} size="sm" />
         <span className="truncate">{name}</span>
         {(efforts.length > 0 || effectiveEffort !== undefined) && (
@@ -277,7 +273,7 @@ export function ModelPicker({
 
 /**
  * 模型列表（0.19.0 起混合全部来源）：顶上是搜索；按 Provider 分组，订阅来源在前、组头写软件名与“订阅”，每行左边是软件标志；
- * API 的组头是服务的标志与“API”，行里不带标志。已有会话里不能接力过去的来源（`locked`）置灰。额度用完的卡片（0.143.0）也用它：
+ * API 的组头是服务的标志与“API”，每行按型号识别厂商。已有会话里不能接力过去的来源（`locked`）置灰。额度用完的卡片（0.143.0）也用它：
  * `exhausted` 里的来源组头标“已用完”，没有 `onBack` 时不带返回。
  */
 export function ModelList({
@@ -409,7 +405,7 @@ export function ModelList({
                         )}
                       >
                         <ProviderLogo
-                          logo={modelLogo(model) ?? source?.logo ?? providerLogo(provider)}
+                          logo={modelLogo(provider, model)}
                           fallback={modelName(model, model.id)}
                           className={cn('size-3.5 shrink-0', locked && 'opacity-50 grayscale')}
                         />

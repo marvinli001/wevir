@@ -38,7 +38,6 @@ import { currentLocale, t } from '@/i18n';
 import type { PaneController } from '@/layout/pane-controller';
 import { paths } from '@/routes/paths';
 import { modelLogo } from '@/settings/model-logo';
-import { providerLogo } from '@/settings/provider-catalog';
 import type { ComposerCommand, ComposerCommandItem } from './composer-commands';
 import { composerPrefs, toggleContextMeter } from './composer-prefs';
 import { carryEffort } from './effort';
@@ -77,14 +76,13 @@ function modelCommand(
         const group = source
           ? sourceTitle(candidate, accounts, t(source.name))
           : candidate.displayName;
-        const sourceLogo = source?.logo ?? providerLogo(candidate);
         return modelsOf(candidate).map<ComposerCommandItem>((model) => ({
           id: `${candidate.id}/${model.id}`,
           label: model.displayName ?? model.id,
           detail: group,
           icon: (
             <ProviderLogo
-              logo={modelLogo(model) ?? sourceLogo}
+              logo={modelLogo(candidate, model)}
               fallback={model.displayName ?? model.id}
               className="size-4"
             />
@@ -289,14 +287,13 @@ function secondOpinionCommand(
         const group = source
           ? sourceTitle(candidate, accounts, t(source.name))
           : candidate.displayName;
-        const sourceLogo = source?.logo ?? providerLogo(candidate);
         return modelsOf(candidate).map<ComposerCommandItem>((model) => ({
           id: `${candidate.id}/${model.id}`,
           label: model.displayName ?? model.id,
           detail: group,
           icon: (
             <ProviderLogo
-              logo={modelLogo(model) ?? sourceLogo}
+              logo={modelLogo(candidate, model)}
               fallback={model.displayName ?? model.id}
               className="size-4"
             />

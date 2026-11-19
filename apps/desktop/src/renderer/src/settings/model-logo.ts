@@ -1,5 +1,7 @@
-import type { ProviderModel } from '@wevir/protocol';
+import type { ProviderModel, ProviderProfile } from '@wevir/protocol';
 import type { ProviderLogoId } from '@/components/provider-logo';
+import { sourceOf } from '@/data/sources';
+import { providerLogo } from './provider-catalog';
 
 const VENDORS: Record<string, ProviderLogoId> = {
   anthropic: 'anthropic',
@@ -56,8 +58,12 @@ const FAMILIES: readonly [RegExp, ProviderLogoId][] = [
 ];
 
 export function modelLogo(
+  provider: Pick<ProviderProfile, 'kind' | 'baseURL'> | undefined,
   model: Pick<ProviderModel, 'id' | 'vendor' | 'displayName'>,
 ): ProviderLogoId | undefined {
+  if (!provider) return undefined;
+  const source = sourceOf(provider);
+  if (source) return source.logo;
   const parts = model.id.trim().toLowerCase().split('/');
   const id = parts.at(-1) ?? '';
   // Bedrock 的地区前缀和路由别名，如 us.anthropic.claude-…、copilot:gpt-…。
@@ -69,6 +75,7 @@ export function modelLogo(
     names.map(family).find(Boolean) ??
     vendor(model.vendor?.trim().toLowerCase() ?? '') ??
     family(model.displayName?.trim().toLowerCase() ?? '') ??
-    [...parts, ...names].reverse().map(vendor).find(Boolean)
+    [...parts, ...names].reverse().map(vendor).find(Boolean) ??
+    providerLogo(provider)
   );
 }

@@ -8,7 +8,6 @@ import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
-import { sourceOf } from '@/data/sources';
 import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
@@ -16,7 +15,6 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { modelLogo } from '@/settings/model-logo';
-import { providerLogo } from '@/settings/provider-catalog';
 import { useTranscriptSessionId } from './fold-state';
 import { modelLabel } from './handoff-model';
 import { MarkdownView } from './markdown/markdown-view';
@@ -35,9 +33,7 @@ function useOpinionSource(opinion: Pick<SecondOpinion, 'providerId' | 'modelId'>
   const provider = providers.find((candidate) => candidate.id === opinion.providerId);
   const label = modelLabel(providers, opinion.providerId, opinion.modelId, accounts);
   const model = provider?.models.find((candidate) => candidate.id === opinion.modelId);
-  const logo =
-    modelLogo(model ?? { id: opinion.modelId }) ??
-    (provider && (sourceOf(provider)?.logo ?? providerLogo(provider)));
+  const logo = modelLogo(provider, model ?? { id: opinion.modelId });
   return { label, logo };
 }
 

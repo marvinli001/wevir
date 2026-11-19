@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { modelLogo } from './model-logo';
 
-describe('ZUV model brands', () => {
+const api = { kind: 'openai-compatible' } as const;
+
+describe('model logos', () => {
+  it('uses the subscription software even for recognizable models from other vendors', () => {
+    const model = { id: 'gpt-6.2-sol', vendor: 'openai' };
+    expect(modelLogo({ kind: 'chatgpt' }, model)).toBe('codex');
+    expect(modelLogo({ kind: 'copilot' }, model)).toBe('copilot');
+    expect(modelLogo({ kind: 'zuv' }, model)).toBe('zuv');
+    expect(modelLogo(api, model)).toBe('openai');
+    expect(modelLogo(undefined, model)).toBeUndefined();
+  });
+
+  it('falls back to the API service when the model brand is unknown', () => {
+    expect(modelLogo({ ...api, baseURL: 'https://zuv.wevir.si/v1' }, { id: 'alias' })).toBe('zuv');
+  });
+
   it.each([
     ['anthropic/claude-opus-5-5', 'anthropic'],
     ['openai/gpt-6.1-sol', 'openai'],
@@ -24,14 +39,14 @@ describe('ZUV model brands', () => {
     ['deepseek/deepseek-v4.1-flash', 'deepseek'],
     ['xai/grok-4.7', 'xai'],
   ])('%s uses the model vendor logo', (id, logo) => {
-    expect(modelLogo({ id })).toBe(logo);
+    expect(modelLogo(api, { id })).toBe(logo);
   });
 
   it('prefers the declared vendor for aliases and leaves unknown brands unset', () => {
-    expect(modelLogo({ id: 'relay/alias', vendor: 'Anthropic' })).toBe('anthropic');
-    expect(modelLogo({ id: 'deployment-prod', displayName: 'GPT 6.2-Sol' })).toBe('openai');
-    expect(modelLogo({ id: 'constructor' })).toBeUndefined();
-    expect(modelLogo({ id: 'xai/grok-4.7', vendor: 'custom' })).toBe('xai');
-    expect(modelLogo({ id: 'new-vendor/model', vendor: 'new-vendor' })).toBeUndefined();
+    expect(modelLogo(api, { id: 'relay/alias', vendor: 'Anthropic' })).toBe('anthropic');
+    expect(modelLogo(api, { id: 'deployment-prod', displayName: 'GPT 6.2-Sol' })).toBe('openai');
+    expect(modelLogo(api, { id: 'constructor' })).toBeUndefined();
+    expect(modelLogo(api, { id: 'xai/grok-4.7', vendor: 'custom' })).toBe('xai');
+    expect(modelLogo(api, { id: 'new-vendor/model', vendor: 'new-vendor' })).toBeUndefined();
   });
 });
