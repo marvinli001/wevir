@@ -297,5 +297,29 @@ describe.skipIf(binary === undefined)(
         expect(await adapter.holdsIdleWork(id)).toBe(false);
       },
     );
+
+    it('生成过标题后删掉全局连接器：还没卸载的临时 thread 不让 MCP 重载失败', async () => {
+      const { home, workspace } = dirs.make('title-remove-connector');
+      const adapter = newAdapter({ home, providers: [mockProvider(mock)], titleVia: 'thread' });
+      adapters.push(adapter);
+      let connectors = [
+        {
+          name: 'stale-mcp',
+          enabled: true,
+          config: { transport: 'stdio' as const, command: process.execPath, args: ['-e', ''] },
+        },
+      ];
+      adapter.bindPlugins({
+        read: async () => ({ skillsRoot: workspace, skills: [], connectors }),
+        changed: () => {},
+      });
+      const base = { cwd: workspace, providerId: 'mock', modelId: MOCK_MODEL };
+      const { engineSessionId } = await adapter.createSession(base);
+      script = () => ({ text: [TITLE_JSON] });
+      expect(await adapter.generateTitle(engineSessionId, TITLE_REQUEST)).toBe(TITLE_JSON);
+      connectors = [];
+      await adapter.reloadPlugins();
+      await adapter.createSession(base);
+    });
   },
 );

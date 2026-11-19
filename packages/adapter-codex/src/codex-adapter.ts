@@ -2239,8 +2239,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * 临时 thread 不起 MCP 服务：`config/read` 按 cwd 读出生效的 `mcp_servers`（Wevir 写的、插件的，加上受信任项目自己的
    * `.codex/config.toml`），逐个 `enabled = false`。不关的话每生成一次标题、摘要就起一整套 MCP 进程，退订后还要等
    * `thread_unload_delay_secs` 才随 thread 卸载（rust-v0.165.0 实测）。读不到时照常起，只记日志。
+   *
+   * 覆盖整张表而不只写 `enabled`：临时 thread 退订后还挂着，之后用户删掉一个全局连接器，`config/mcpServer/reload` 会按
+   * 每个已加载 thread 的覆盖重算配置，只剩 `enabled = false` 的残表没有 command/url，整个重载报 `invalid transport`。
+   * `config/read` 把没设的字段写成 `null`，原样传回去 Codex 当空字符串解析（`tool_timeout_sec` 报类型错），去掉。
    */
-  async #mcpServersOff(cwd: string): Promise<Record<string, false>> {
+  async #mcpServersOff(cwd: string): Promise<Record<string, unknown>> {
     try {
       const response = await this.process.request<{ config?: { mcp_servers?: unknown } }>(
         'config/read',
@@ -2248,9 +2252,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       );
       const servers = response?.config?.mcp_servers;
       if (!isRecord(servers)) return {};
-      const off: Record<string, false> = {};
-      for (const name of Object.keys(servers)) {
-        if (/^[A-Za-z0-9_-]+$/.test(name)) off[`mcp_servers.${name}.enabled`] = false;
+      const off: Record<string, unknown> = {};
+      for (const [name, server] of Object.entries(servers)) {
+        if (/^[A-Za-z0-9_-]+$/.test(name) && isRecord(server))
+          off[`mcp_servers.${name}`] = { ...withoutNulls(server), enabled: false };
       }
       return off;
     } catch (error) {
@@ -3797,4 +3802,14 @@ export function subagentFinishedNote(
 /** 告诉父 agent 用户停止了一个子 agent（0.14.0）：补进父 thread 的一条 user 消息，模型下一次请求时看得到。 */
 export function subagentStoppedNote(childThreadId: string): string {
   return `The user stopped the sub-agent running in thread ${childThreadId}. Do not wait for it or expect a result from it; continue without it, or ask the user how to proceed.`;
+}
+
+/** 去掉表里（含嵌套表）值为 `null` 的键；数组原样保留。 */
+function withoutNulls(value: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (item === null) continue;
+    result[key] = isRecord(item) ? withoutNulls(item) : item;
+  }
+  return result;
 }
