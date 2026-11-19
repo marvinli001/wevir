@@ -811,7 +811,7 @@ export const messages: Messages = {
   'subagent.effort.high': 'Высокий',
   'subagent.effort.xhigh': 'Очень высокий',
   'subagent.effort.max': 'Максимальный',
-  'subagent.effort.ultra': 'Ультра',
+  'subagent.effort.ultra': 'Ultra',
 
   'sidebar.newSession': 'Новая сессия',
   'sidebar.plugins': 'Плагины',

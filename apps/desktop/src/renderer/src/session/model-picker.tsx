@@ -203,7 +203,10 @@ export function ModelPicker({
               >
                 <span className="truncate">{name}</span>
                 <span
-                  className="shrink-0 font-normal text-muted-foreground"
+                  className={cn(
+                    'shrink-0 font-normal',
+                    effectiveEffort === 'ultra' ? 'effort-ultra' : 'text-muted-foreground',
+                  )}
                   data-testid="model-picker-effort"
                 >
                   {efforts.length > 0 || effectiveEffort !== undefined
@@ -445,7 +448,11 @@ function EffortChipLabel({
         <span
           key={effort ?? ''}
           aria-hidden={effort !== value || undefined}
-          className={cn('col-start-1 row-start-1', effort !== value && 'invisible')}
+          className={cn(
+            'col-start-1 row-start-1 justify-self-start',
+            effort !== value && 'invisible',
+            effort === 'ultra' && 'effort-ultra',
+          )}
         >
           {effortLabel(effort)}
         </span>

@@ -27,6 +27,10 @@ describe('文案模块', () => {
     setLocale('en', await loadCatalog('en'));
     expect(t('sidebar.settings')).not.toBe('设置');
   });
+
+  it.each(LOCALES)('%s 保留 Ultra 档位的英文名称', async (locale) => {
+    expect((await loadCatalog(locale))['subagent.effort.ultra']).toBe('Ultra');
+  });
 });
 
 describe('复数', () => {

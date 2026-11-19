@@ -793,7 +793,7 @@ export const messages: Messages = {
   'subagent.effort.high': '高',
   'subagent.effort.xhigh': '超高',
   'subagent.effort.max': '最大',
-  'subagent.effort.ultra': '極限',
+  'subagent.effort.ultra': 'Ultra',
 
   'sidebar.newSession': '新しいセッション',
   'sidebar.plugins': 'プラグイン',

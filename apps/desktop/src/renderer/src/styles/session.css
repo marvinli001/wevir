@@ -1,6 +1,18 @@
 /* 会话视图（T5.3）里 Tailwind 工具类不好表达的部分。 */
 
 @layer components {
+  @media (forced-colors: none) {
+    .effort-ultra {
+      background-image: linear-gradient(
+        90deg,
+        var(--effort-ultra-blue),
+        var(--effort-ultra-violet)
+      );
+      background-clip: text;
+      color: transparent;
+    }
+  }
+
   /* 消息流的滚动容器：细滚动条，预留滚动条的位置，内容出现滚动条时不左右跳。 */
   .transcript-scroll {
     scrollbar-width: thin;

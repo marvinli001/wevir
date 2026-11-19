@@ -36,6 +36,7 @@
   /* 状态色：deep 给浅色主题，pale 给深色主题。蓝是运行中，赭是待审批与警告，绿是成功，红是失败。 */
   --blue-deep: #2a63b8;
   --blue-pale: #8ab4f8;
+  --violet-deep: #713ed3;
   --ochre-deep: #94570a;
   --ochre-pale: #e3a857;
   --green-deep: #2f6b42;

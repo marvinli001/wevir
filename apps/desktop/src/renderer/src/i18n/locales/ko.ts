@@ -789,7 +789,7 @@ export const messages: Messages = {
   'subagent.effort.high': '높음',
   'subagent.effort.xhigh': '매우 높음',
   'subagent.effort.max': '최대',
-  'subagent.effort.ultra': '울트라',
+  'subagent.effort.ultra': 'Ultra',
 
   'sidebar.newSession': '새 세션',
   'sidebar.plugins': '플러그인',

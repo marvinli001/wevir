@@ -81,6 +81,11 @@ const PAIRS: { fg: string[]; bg: string[]; min: number }[] = [
     min: 4.5,
   },
   { fg: ['--primary-foreground'], bg: ['--primary'], min: 4.5 },
+  {
+    fg: ['--effort-ultra-blue', '--effort-ultra-violet'],
+    bg: ['--background', '--card', '--popover', '--muted'],
+    min: 4.5,
+  },
   // 状态色也用作文字（“待审批”“失败”等）。
   {
     fg: ['--running', '--link', '--success', '--warning', '--destructive'],

@@ -800,7 +800,7 @@ export const zhCN = {
   'subagent.effort.high': '高',
   'subagent.effort.xhigh': '超高',
   'subagent.effort.max': '最高',
-  'subagent.effort.ultra': '极限',
+  'subagent.effort.ultra': 'Ultra',
 
   'sidebar.newSession': '新建会话',
   'sidebar.plugins': '插件',

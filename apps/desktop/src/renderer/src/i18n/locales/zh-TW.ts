@@ -786,7 +786,7 @@ export const messages: Messages = {
   'subagent.effort.high': '高',
   'subagent.effort.xhigh': '超高',
   'subagent.effort.max': '最高',
-  'subagent.effort.ultra': '極限',
+  'subagent.effort.ultra': 'Ultra',
 
   'sidebar.newSession': '新增工作階段',
   'sidebar.plugins': '外掛',

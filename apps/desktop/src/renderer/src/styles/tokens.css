@@ -30,6 +30,8 @@
   /* 思考力度滑块（session/model-picker.tsx，照 Codex 桌面端）：已选一段的蓝，圆钮、粒子与档位点的白；亮暗同值，只用于图形。 */
   --effort-fill: var(--sky-vivid);
   --effort-thumb: var(--ivory-1);
+  --effort-ultra-blue: var(--blue-deep);
+  --effort-ultra-violet: var(--violet-deep);
 
   /* 文字层级：正文 → 次正文 → 说明文字（标签、时间、快捷键提示、图标）。 */
   --foreground: var(--ivory-9);
@@ -152,6 +154,8 @@
   --switch-thumb: var(--graphite-7);
   --effort-fill: var(--sky-vivid);
   --effort-thumb: var(--ivory-1);
+  --effort-ultra-blue: var(--blue-pale);
+  --effort-ultra-violet: var(--violet-soft);
 
   --foreground: var(--graphite-10);
   --soft-foreground: var(--graphite-9);
