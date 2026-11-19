@@ -152,9 +152,9 @@ export function SubscriptionSources({
     const swap = () => {
       setPage(nextPage);
       setLeaving(false);
-      setEntering(setupOnly);
+      setEntering(!reduced);
     };
-    if (reduced || !setupOnly) {
+    if (reduced) {
       swap();
       return;
     }
@@ -169,8 +169,7 @@ export function SubscriptionSources({
         sm: true,
       }))
     : tileFillers(cells);
-  const motion = (index: number) =>
-    setupOnly ? cellMotion(leaving, entering && !reduced, index) : {};
+  const motion = (index: number) => cellMotion(leaving, entering && !reduced, index);
   const shownAccount = shown === undefined ? undefined : accountOf(shown);
   const detail =
     shown !== undefined && client !== undefined ? (
@@ -235,6 +234,7 @@ export function SubscriptionSources({
               }
               compact={setupOnly}
               onSelect={() => {
+                if (leaving) return;
                 setShown(kind);
                 setOpen(selected !== kind);
               }}
