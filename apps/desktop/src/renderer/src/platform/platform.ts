@@ -197,7 +197,7 @@ export function unsupportedPlatformApi(overrides: Partial<DesktopApi> = {}): Des
       status: () => Promise.resolve({ supported: false, reason: 'platform' }),
       requestPermission: () => Promise.resolve({ supported: false, reason: 'platform' }),
       setActiveSessions: resolved,
-      setOverlayLabel: resolved,
+      setOverlayLabels: resolved,
       appIcon: () => Promise.resolve(null),
       onStopped: noListener,
     },

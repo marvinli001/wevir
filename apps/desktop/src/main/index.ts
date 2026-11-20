@@ -835,6 +835,7 @@ function run(): void {
   // 电脑操作（0.114.0，computer/）：原生 helper 由这里拉起，屏幕录制与辅助功能的权限归在 Wevir.app 上。
   const computer = registerComputerIpc({
     getWindow: () => mainWindow,
+    showMainWindow,
     assertSender,
     log,
   });

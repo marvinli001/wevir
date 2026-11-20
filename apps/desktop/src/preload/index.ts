@@ -185,7 +185,8 @@ const api: DesktopApi = {
     requestPermission: (kind) => ipcRenderer.invoke(IPC_CHANNELS.computerRequestPermission, kind),
     setActiveSessions: (sessionIds) =>
       ipcRenderer.invoke(IPC_CHANNELS.computerSetActiveSessions, sessionIds),
-    setOverlayLabel: (label) => ipcRenderer.invoke(IPC_CHANNELS.computerSetOverlayLabel, label),
+    setOverlayLabels: (act, read) =>
+      ipcRenderer.invoke(IPC_CHANNELS.computerSetOverlayLabel, [act, read]),
     appIcon: (path) => ipcRenderer.invoke(IPC_CHANNELS.computerAppIcon, path),
     onStopped: (listener) => {
       const handler = (_event: IpcRendererEvent, sessionIds: string[]) => listener(sessionIds);

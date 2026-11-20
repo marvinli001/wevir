@@ -3,8 +3,7 @@
 //
 // - 授权：渲染进程弹框之前先 `prepareAccess`（helper 找出应用、这里定档位），用户选完 `grant` 只交回批准的 bundle ID，档位
 //   仍按这里记下的，渲染进程改不了。每个动作带上这个会话的 `allow`（bundle ID → 档位），由 helper 在动作之前按落点核对。
-// - 坐标：模型给的是最近一张截图（或放大图）里的像素，这里换成屏幕上的点；截的是一个窗口时，之后的点击与按键发给那个窗口
-//   （helper 在它不在前台时直接发给它的进程）。
+// - 坐标：模型给的是最近一张截图（或放大图）里的像素，这里换成屏幕上的点；截的是一个窗口时，窗口内的指针动作与按键定向发给它的进程。
 // - 正在操作：会话做了动作就算在操作，屏幕上显示提示条、helper 监听 Esc；回合结束（渲染进程报来的活动会话里没有它）或两分钟
 //   没有动作时结束。用户按 Esc：所有在操作的会话停下，授权作废，回 `computer_stopped`，并请渲染进程取消它们的回合。
 
@@ -16,6 +15,7 @@ import type {
   ComputerContent,
   ComputerRequest,
 } from '@wevir/protocol';
+import { COMPUTER_ACCESS_TIMEOUT_MS } from '@wevir/protocol';
 import type {
   ComputerAccessCandidate as AccessCandidate,
   ComputerAccessPreparation as AccessPreparation,
@@ -38,6 +38,7 @@ interface Shot {
   width: number;
   height: number;
   windowId?: number;
+  windowFrame?: Record<string, number>;
   pid?: number;
 }
 
@@ -46,11 +47,12 @@ interface SessionState {
   shot?: Shot;
   /** 用户按了 Esc：在重新批准之前一律回 `computer_stopped`。 */
   stopped: boolean;
+  generation: number;
   lastAction: number;
 }
 
 export interface ComputerOverlay {
-  show(): void;
+  show(activity: 'read' | 'act'): void;
   hide(): void;
   /** 提示条窗口的 CGWindowID：它不接鼠标，判断“点上最前面的窗口”时跳过。 */
   windowIds(): number[];
@@ -78,7 +80,7 @@ export class ComputerService {
   readonly #options: ComputerServiceOptions;
   readonly #sessions = new Map<string, SessionState>();
   readonly #prepared = new Map<string, AccessPreparation>();
-  readonly #engaged = new Set<string>();
+  readonly #engaged = new Map<string, Promise<void>>();
   #active: ReadonlySet<string> | undefined;
   #idleTimer: ReturnType<typeof setInterval> | undefined;
   #nextAccess = 0;
@@ -87,6 +89,11 @@ export class ComputerService {
     this.#options = options;
     options.helper.onEvent((event) => {
       if (event.event === 'escape') this.escape();
+      if (event.event === 'exit') {
+        for (const id of this.#engaged.keys()) this.#session(id).generation++;
+        this.#engaged.clear();
+        this.#hideOverlay();
+      }
     });
   }
 
@@ -126,7 +133,7 @@ export class ComputerService {
   #session(sessionId: string): SessionState {
     let state = this.#sessions.get(sessionId);
     if (state === undefined) {
-      state = { grants: new Map(), stopped: false, lastAction: 0 };
+      state = { grants: new Map(), stopped: false, generation: 0, lastAction: 0 };
       this.#sessions.set(sessionId, state);
     }
     return state;
@@ -140,8 +147,11 @@ export class ComputerService {
     apps: string[],
     reason: string,
   ): Promise<AccessPreparation> {
+    const expiresAt = this.#now() + COMPUTER_ACCESS_TIMEOUT_MS;
     const unsupported = this.#unsupported();
     if (unsupported) throw unsupportedError(unsupported);
+    const state = this.#session(sessionId);
+    const generation = state.generation;
     const status = await this.status();
     const missing = [
       ...(status.screenRecording ? [] : ['Screen Recording']),
@@ -154,7 +164,12 @@ export class ComputerService {
       );
     }
     const resolved = await this.#options.helper.request('resolve_apps', { names: apps });
-    const state = this.#session(sessionId);
+    if (state.generation !== generation || this.#sessions.get(sessionId) !== state) {
+      throw new HelperError(
+        'computer_stopped',
+        'The turn ended before the access request could be shown.',
+      );
+    }
     const candidates: AccessCandidate[] = [];
     const notFound: string[] = [];
     const refused: string[] = [];
@@ -183,6 +198,7 @@ export class ComputerService {
     const accessId = `acc_${++this.#nextAccess}`;
     const prepared: AccessPreparation = {
       accessId,
+      expiresAt,
       sessionId,
       reason,
       candidates,
@@ -197,9 +213,9 @@ export class ComputerService {
   grant(accessId: string, approved: readonly string[]): Answer {
     const prepared = this.#prepared.get(accessId);
     this.#prepared.delete(accessId);
-    if (prepared === undefined) {
+    if (prepared === undefined || prepared.expiresAt <= this.#now()) {
       return failure(
-        'computer_unknown_error',
+        'computer_timeout',
         'The access request expired. Call computer_request_access again.',
       );
     }
@@ -229,6 +245,12 @@ export class ComputerService {
         : []),
     ];
     if (granted.length === 0) {
+      if (prepared.candidates.length === 0) {
+        return failure(
+          prepared.refused.length ? 'computer_denied' : 'computer_app_not_found',
+          notes.join(' '),
+        );
+      }
       return failure(
         'computer_denied',
         [
@@ -251,52 +273,92 @@ export class ComputerService {
     this.#prepared.delete(accessId);
   }
 
+  #cancelPrepared(sessionId: string): void {
+    for (const [accessId, request] of this.#prepared) {
+      if (request.sessionId === sessionId) this.cancelAccess(accessId);
+    }
+  }
+
   // ── 正在操作与 Esc ──────────────────────────────────────────────────
 
   /** 渲染进程报来的回合在跑的会话：不在里面的不再算在操作。 */
   setActiveSessions(sessionIds: readonly string[]): void {
+    const previous = this.#active;
     this.#active = new Set(sessionIds);
-    for (const id of [...this.#engaged]) {
+    for (const id of previous ?? []) {
+      if (this.#active.has(id)) continue;
+      this.#cancelPrepared(id);
+      const state = this.#sessions.get(id);
+      if (state && !this.#engaged.has(id)) state.generation++;
+    }
+    for (const id of this.#engaged.keys()) {
       if (!this.#active.has(id)) this.#disengage(id);
     }
   }
 
-  #engage(sessionId: string): void {
+  async #engage(sessionId: string, activity: 'read' | 'act'): Promise<void> {
     const state = this.#session(sessionId);
     state.lastAction = this.#now();
-    if (this.#engaged.has(sessionId)) return;
-    const wasIdle = this.#engaged.size === 0;
-    this.#engaged.add(sessionId);
-    if (!wasIdle) return;
-    this.#options.overlay.show();
-    void this.#options.helper.request('watch_escape', { on: true }).catch(() => undefined);
-    this.#idleTimer = setInterval(() => this.#sweep(), 10_000);
-    this.#idleTimer.unref?.();
+    let ready = this.#engaged.get(sessionId);
+    if (!ready) {
+      ready = this.#options.helper
+        .request('watch_escape', { on: true, scope: sessionId })
+        .then((result) => {
+          if (result.active !== true)
+            throw new HelperError(
+              'computer_permission_missing',
+              'macOS could not enable Esc to stop computer use. Check Accessibility in Wevir Settings > Computer use, then retry.',
+            );
+        });
+      this.#engaged.set(sessionId, ready);
+      if (this.#idleTimer === undefined) {
+        this.#idleTimer = setInterval(() => this.#sweep(), 10_000);
+        this.#idleTimer.unref?.();
+      }
+    }
+    try {
+      await ready;
+    } catch (error) {
+      if (this.#engaged.get(sessionId) === ready) this.#disengage(sessionId);
+      throw error;
+    }
+    if (this.#engaged.get(sessionId) !== ready)
+      throw new HelperError('computer_stopped', 'Computer use stopped before the action began.');
+    this.#options.overlay.show(activity);
   }
 
   #sweep(): void {
     const now = this.#now();
-    for (const id of [...this.#engaged]) {
+    for (const id of this.#engaged.keys()) {
       const state = this.#sessions.get(id);
       if (state === undefined || now - state.lastAction > ENGAGED_IDLE_MS) this.#disengage(id);
     }
   }
 
   #disengage(sessionId: string): void {
-    if (!this.#engaged.delete(sessionId) || this.#engaged.size > 0) return;
+    if (!this.#engaged.delete(sessionId)) return;
+    this.#session(sessionId).generation++;
+    void this.#options.helper
+      .request('watch_escape', { on: false, scope: sessionId })
+      .catch(() => undefined);
+    if (this.#engaged.size > 0) return;
+    this.#hideOverlay();
+  }
+
+  #hideOverlay(): void {
     this.#options.overlay.hide();
-    void this.#options.helper.request('watch_escape', { on: false }).catch(() => undefined);
     if (this.#idleTimer !== undefined) clearInterval(this.#idleTimer);
     this.#idleTimer = undefined;
   }
 
   /** 用户按了 Esc（helper 的事件，或提示条之外的入口）。 */
   escape(): void {
-    const stopped = [...this.#engaged];
+    const stopped = [...this.#engaged.keys()];
     for (const id of stopped) {
       const state = this.#session(id);
       state.stopped = true;
       state.grants.clear();
+      this.#cancelPrepared(id);
       delete state.shot;
       void this.#options.helper.request('forget_scope', { scope: id }).catch(() => undefined);
       this.#disengage(id);
@@ -306,6 +368,7 @@ export class ComputerService {
 
   /** 会话不在了（删除、归档）或测试：忘掉它。 */
   forget(sessionId: string): void {
+    this.#cancelPrepared(sessionId);
     this.#disengage(sessionId);
     this.#sessions.delete(sessionId);
     void this.#options.helper.request('forget_scope', { scope: sessionId }).catch(() => undefined);
@@ -329,15 +392,13 @@ export class ComputerService {
         case 'clipboard_read':
         case 'clipboard_write':
           this.#requireAnyGrant(state);
-          this.#engage(sessionId);
+          await this.#engage(sessionId, command.command === 'clipboard_read' ? 'read' : 'act');
           return ok([await this.#clipboard(command)]);
         case 'batch':
           this.#requireAnyGrant(state);
-          this.#engage(sessionId);
           return await this.#batch(sessionId, state, command.args.actions);
         default:
           this.#requireAnyGrant(state);
-          this.#engage(sessionId);
           return ok(await this.#action(sessionId, state, command));
       }
     } catch (error) {
@@ -365,16 +426,20 @@ export class ComputerService {
   ): Promise<Answer> {
     const lines: string[] = [];
     const images: ComputerContent[] = [];
+    const generation = state.generation;
     for (const [index, action] of actions.entries()) {
-      if (state.stopped) {
+      if (state.stopped || generation !== state.generation) {
         return {
           ok: false,
-          error: stoppedFailure().error,
+          error: state.stopped
+            ? stoppedFailure().error
+            : { code: 'computer_stopped', message: 'The turn ended before the next step.' },
           content: [{ type: 'text', text: lines.join('\n') || 'No step finished.' }, ...images],
         };
       }
       try {
         if (action.command === 'wait') {
+          await this.#engage(sessionId, 'act');
           await new Promise((resolve) => setTimeout(resolve, action.args.seconds * 1000));
           lines.push(`${index + 1}. wait ${action.args.seconds} s`);
           continue;
@@ -423,13 +488,16 @@ export class ComputerService {
         >,
   ): Promise<ComputerContent[]> {
     const helper = this.#options.helper;
+    await this.#engage(
+      sessionId,
+      ['screenshot', 'zoom', 'ax_tree', 'ax_find'].includes(command.command) ? 'read' : 'act',
+    );
     const allow = this.#allow(state);
     const common = {
       allow,
       scope: sessionId,
       ignoreWindowIds: this.#options.overlay.windowIds(),
     };
-    state.lastAction = this.#now();
     switch (command.command) {
       case 'open_app': {
         const app = this.#grantedApp(state, command.args.app);
@@ -538,6 +606,7 @@ export class ComputerService {
           ...target,
           dx: args.dx ?? 0,
           dy: args.dy ?? 0,
+          ...windowTarget(state, args.ref === undefined),
         });
         return [
           {
@@ -552,6 +621,7 @@ export class ComputerService {
           ...common,
           from: toPoint(state, args.fromX, args.fromY),
           to: toPoint(state, args.toX, args.toY),
+          ...windowTarget(state, true),
         });
         return [
           {
@@ -634,6 +704,9 @@ export class ComputerService {
       width,
       height,
       ...(typeof result.windowId === 'number' && { windowId: result.windowId }),
+      ...(result.windowFrame !== undefined && {
+        windowFrame: result.windowFrame as Record<string, number>,
+      }),
       ...(typeof result.windowId === 'number' && pid !== undefined && { pid }),
     };
     state.shot = shot;
@@ -775,7 +848,7 @@ function requireShot(state: SessionState): Shot {
 /** 截图里的像素换成屏幕上的点。 */
 function toPoint(state: SessionState, x: number, y: number): { x: number; y: number } {
   const shot = requireShot(state);
-  if (x < 0 || y < 0 || x > shot.width || y > shot.height) {
+  if (x < 0 || y < 0 || x >= shot.width || y >= shot.height) {
     throw new HelperError(
       'computer_invalid_argument',
       `(${x}, ${y}) is outside the latest screenshot (${shot.width}x${shot.height} px).`,
@@ -784,11 +857,16 @@ function toPoint(state: SessionState, x: number, y: number): { x: number; y: num
   return { x: shot.originX + x / shot.scale, y: shot.originY + y / shot.scale };
 }
 
-/** 最近一张截图是一个窗口时：点击发给那个窗口（helper 在它不在前台时直接发给它的进程）。 */
+/** 窗口截图上的坐标手势定向投递，引用的窗口由 helper 解析。 */
 function windowTarget(state: SessionState, byPoint: boolean): Record<string, unknown> {
   const shot = state.shot;
   if (!byPoint || shot?.windowId === undefined || shot.pid === undefined) return {};
-  return { background: true, pid: shot.pid, windowId: shot.windowId };
+  return {
+    background: true,
+    pid: shot.pid,
+    windowId: shot.windowId,
+    ...(shot.windowFrame && { windowFrame: shot.windowFrame }),
+  };
 }
 
 /** 最近一张截图是一个窗口时：按键发给那个窗口的应用。 */

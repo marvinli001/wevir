@@ -85,6 +85,7 @@ export function AccessDialog({
                 >
                   <Checkbox
                     checked={chosen.has(candidate.bundleId)}
+                    disabled={candidate.granted}
                     onCheckedChange={(checked) => toggle(candidate.bundleId, checked === true)}
                   />
                   {icons[candidate.bundleId] ? (
@@ -96,9 +97,8 @@ export function AccessDialog({
                     {candidate.name}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">
-                    {candidate.granted
-                      ? t('computer.access.granted')
-                      : t(TIER_LABEL[candidate.tier])}
+                    {candidate.granted && `${t('computer.access.granted')} · `}
+                    {t(TIER_LABEL[candidate.tier])}
                   </span>
                 </label>
               </li>

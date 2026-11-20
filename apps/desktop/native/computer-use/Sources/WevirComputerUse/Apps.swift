@@ -326,7 +326,7 @@ enum Gate {
     var element: AXUIElement?
     var hitPid: pid_t = 0
     if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &element)
-      == .success, let element, AXUIElementGetPid(element, &hitPid) == .success
+      == .success, let element, AXUIElementGetPid(element, &hitPid) == .success, hitPid != getpid()
     {
       return resolve(pid: hitPid)
     }

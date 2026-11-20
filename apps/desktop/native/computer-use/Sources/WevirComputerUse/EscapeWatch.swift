@@ -7,12 +7,27 @@ import Foundation
 enum EscapeWatch {
   private static var tap: CFMachPort?
   private static var runLoopSource: CFRunLoopSource?
+  private(set) static var scopes = Set<String>()
+
+  static func requireActive(_ params: JSON) throws {
+    guard let scope = params["scope"] as? String, onMain({ scopes.contains(scope) }) else {
+      throw HelperError(code: "computer_stopped", message: "Computer use stopped. End this turn and wait for the user.")
+    }
+  }
 
   static func set(_ params: JSON) throws -> JSON {
     let on = params["on"] as? Bool ?? false
+    guard let scope = params["scope"] as? String else { throw HelperError.invalid("scope is required") }
     if on { try Permissions.requireAccessibility() }
     let active: Bool = onMain {
-      if on { start() } else { stop() }
+      if on {
+        start()
+        if tap != nil { scopes.insert(scope) }
+      } else {
+        scopes.remove(scope)
+        AgentCursor.hide(scope: scope)
+        if scopes.isEmpty { stop() }
+      }
       return tap != nil
     }
     return ["active": active]
@@ -29,9 +44,11 @@ enum EscapeWatch {
             if let tap = EscapeWatch.tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
           }
-          if type == .keyDown, event.getIntegerValueField(.keyboardEventKeycode) == 53,
+          if type == .keyDown, !EscapeWatch.scopes.isEmpty, event.getIntegerValueField(.keyboardEventKeycode) == 53,
             event.getIntegerValueField(.eventSourceUserData) != syntheticMarker
           {
+            EscapeWatch.scopes.removeAll()
+            AgentCursor.hide()
             send(["event": "escape"])
             return nil
           }

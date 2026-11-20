@@ -2,7 +2,7 @@
 // helper 换成假的，记下收到的请求。
 
 import type { ComputerRequest } from '@wevir/protocol';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HelperError, type HelperLike, type HelperResult } from './helper.js';
 import { type ComputerOverlay, ComputerService } from './service.js';
 import { accessTier } from './tiers.js';
@@ -36,6 +36,8 @@ function fakeHelper(
       switch (op) {
         case 'status':
           return { screenRecording: true, accessibility: true, macos: '15.0.0' };
+        case 'watch_escape':
+          return { active: params.on };
         case 'resolve_apps':
           return {
             apps: (params.names as string[]).map((query) => {
@@ -100,7 +102,7 @@ function setup(
   const fake = fakeHelper(options.overrides);
   const overlayCalls: string[] = [];
   const overlay: ComputerOverlay = {
-    show: () => overlayCalls.push('show'),
+    show: (activity) => overlayCalls.push(activity),
     hide: () => overlayCalls.push('hide'),
     windowIds: () => [9999],
   };
@@ -186,6 +188,31 @@ describe('ComputerService', () => {
     expect(answer).toMatchObject({ ok: false, error: { code: 'computer_denied' } });
   });
 
+  it('已结束或过期的授权框不能新增权限，找不到应用时返回原因', async () => {
+    const { service } = setup();
+    service.setActiveSessions([SESSION]);
+    const ended = await service.prepareAccess(SESSION, ['Notes'], 'test');
+    service.setActiveSessions([]);
+    expect(service.grant(ended.accessId, ['com.apple.Notes']).ok).toBe(false);
+    const late = await service.prepareAccess(SESSION, ['Notes'], 'test');
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(late.expiresAt);
+    try {
+      expect(service.grant(late.accessId, ['com.apple.Notes'])).toMatchObject({
+        ok: false,
+        error: { code: 'computer_timeout' },
+      });
+    } finally {
+      clock.mockRestore();
+    }
+    expect((await approve(service, ['Missing'], [])).answer).toMatchObject({
+      ok: false,
+      error: { code: 'computer_app_not_found' },
+    });
+    expect(
+      await service.execute(command({ command: 'key', args: { keys: 'Return' } })),
+    ).toMatchObject({ ok: false, error: { code: 'computer_not_granted' } });
+  });
+
   it('没有授权时动作回 computer_not_granted；列出应用不用授权', async () => {
     const { service } = setup();
     expect(
@@ -214,7 +241,7 @@ describe('ComputerService', () => {
       x: 400,
       y: 200,
     });
-    expect(overlayCalls).toEqual(['show']);
+    expect(overlayCalls).toEqual(['read', 'act']);
     expect(calls.some((call) => call.op === 'watch_escape' && call.params.on === true)).toBe(true);
     expect(
       await service.execute(command({ command: 'click', args: { x: 2000, y: 10 } })),
@@ -237,6 +264,17 @@ describe('ComputerService', () => {
       pid: 11,
       windowId: 501,
     });
+    await service.execute(command({ command: 'scroll', args: { x: 10, y: 20, dy: 2 } }));
+    await service.execute(
+      command({ command: 'drag', args: { fromX: 0, fromY: 0, toX: 10, toY: 20 } }),
+    );
+    for (const op of ['scroll', 'drag']) {
+      expect(calls.find((call) => call.op === op)?.params).toMatchObject({
+        background: true,
+        pid: 11,
+        windowId: 501,
+      });
+    }
     await service.execute(command({ command: 'type', args: { text: 'hi' } }));
     expect(calls.find((call) => call.op === 'type')?.params).toMatchObject({ text: 'hi', pid: 11 });
   });
@@ -291,7 +329,7 @@ describe('ComputerService', () => {
     await service.execute(command({ command: 'key', args: { keys: 'Return' } }));
     emit({ event: 'escape' });
     expect(stopped).toEqual([[SESSION]]);
-    expect(overlayCalls).toEqual(['show', 'hide']);
+    expect(overlayCalls).toEqual(['act', 'hide']);
     expect(
       await service.execute(command({ command: 'key', args: { keys: 'Return' } })),
     ).toMatchObject({
@@ -309,11 +347,54 @@ describe('ComputerService', () => {
     await approve(service, ['Notes'], ['com.apple.Notes']);
     await service.execute(command({ command: 'key', args: { keys: 'Return' } }));
     service.setActiveSessions([SESSION]);
-    expect(overlayCalls).toEqual(['show']);
+    expect(overlayCalls).toEqual(['act']);
     service.setActiveSessions([]);
-    expect(overlayCalls).toEqual(['show', 'hide']);
+    expect(overlayCalls).toEqual(['act', 'hide']);
     expect(
       calls.filter((call) => call.op === 'watch_escape').map((call) => call.params.on),
     ).toEqual([true, false]);
+  });
+
+  it('Esc 监听未就绪时不发输入，重试会重新监听', async () => {
+    let listening = false;
+    const { service, calls } = setup({
+      overrides: { watch_escape: () => ({ active: listening }) },
+    });
+    await approve(service, ['Notes'], ['com.apple.Notes']);
+    const key = command({ command: 'key', args: { keys: 'Return' } });
+    expect(await service.execute(key)).toMatchObject({
+      ok: false,
+      error: { code: 'computer_permission_missing' },
+    });
+    expect(calls.some(({ op }) => op === 'key')).toBe(false);
+    listening = true;
+    expect((await service.execute(key)).ok).toBe(true);
+  });
+
+  it('batch 等待时回合结束，后面的动作不重新拉起指针', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service, calls } = setup();
+      await approve(service, ['Notes'], ['com.apple.Notes']);
+      service.setActiveSessions([SESSION]);
+      const pending = service.execute(
+        command({
+          command: 'batch',
+          args: {
+            actions: [
+              { command: 'wait', args: { seconds: 1 } },
+              { command: 'click', args: { ref: '@a1' } },
+            ],
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(1);
+      service.setActiveSessions([]);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await pending).toMatchObject({ ok: false, error: { code: 'computer_stopped' } });
+      expect(calls.some(({ op }) => op === 'click')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

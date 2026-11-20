@@ -56,6 +56,9 @@ private func handle(_ line: Data) {
 }
 
 private func dispatch(op: String, params: JSON) throws -> JSON {
+  if ["click", "type", "key", "scroll", "drag", "set_value"].contains(op) {
+    try EscapeWatch.requireActive(params)
+  }
   switch op {
   case "status": return Permissions.status()
   case "request_permission": return try Permissions.request(params)
@@ -102,4 +105,6 @@ send([
   "macos": "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)",
   "pid": Int(getpid()),
 ])
-RunLoop.main.run()
+let application = NSApplication.shared
+application.setActivationPolicy(.accessory)
+application.run()

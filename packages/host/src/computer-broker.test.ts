@@ -46,7 +46,7 @@ const listApps = { sessionId: SESSION, command: { command: 'list_apps' as const,
 
 describe('ComputerBroker', () => {
   it('没有提供方时回 computer_no_host；交给最近登记的提供方', async () => {
-    const broker = new ComputerBroker();
+    const broker = new ComputerBroker({ defaultTimeoutMs: 25 });
     expect(await broker.execute(listApps)).toMatchObject({
       ok: false,
       error: { code: 'computer_no_host' },
@@ -61,6 +61,19 @@ describe('ComputerBroker', () => {
     });
     expect(second.requests[0]).toMatchObject({ sessionId: SESSION, command: listApps.command });
     expect(first.requests).toHaveLength(0);
+  });
+
+  it('等到桌面窗口登记后只派发一次，等待期间取消的请求不补发', async () => {
+    const broker = new ComputerBroker();
+    const controller = new AbortController();
+    const pending = broker.execute(listApps);
+    const cancelled = broker.execute({ ...listApps, signal: controller.signal });
+    controller.abort();
+    const desktop = provider('desktop', (request) => text(request.requestId, 'ready'));
+    desktop.attach(broker);
+    expect(await pending).toMatchObject({ ok: true });
+    expect(await cancelled).toMatchObject({ ok: false, error: { message: 'cancelled' } });
+    expect(desktop.requests).toHaveLength(1);
   });
 
   it('提供方不会的命令回 computer_unsupported', async () => {

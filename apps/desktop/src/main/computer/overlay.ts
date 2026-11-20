@@ -21,12 +21,16 @@ kbd{font:inherit;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.
 }
 
 export interface OverlayWindow extends ComputerOverlay {
-  setLabel(label: string): void;
+  setLabels(act: string, read: string): void;
   dispose(): void;
 }
 
-export function createComputerOverlay(initialLabel: string): OverlayWindow {
-  let label = initialLabel;
+export function createComputerOverlay(): OverlayWindow {
+  let labels = {
+    act: 'Wevir is using your computer · Esc to stop',
+    read: 'Wevir is reading the interface · Esc to stop',
+  };
+  let activity: keyof typeof labels = 'act';
   let window: BrowserWindow | undefined;
   let visible = false;
 
@@ -42,7 +46,7 @@ export function createComputerOverlay(initialLabel: string): OverlayWindow {
 
   const load = (target: BrowserWindow) =>
     target
-      .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page(label))}`)
+      .loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page(labels[activity]))}`)
       .catch(() => undefined);
 
   const create = (): BrowserWindow => {
@@ -78,8 +82,12 @@ export function createComputerOverlay(initialLabel: string): OverlayWindow {
   };
 
   return {
-    show() {
+    show(next) {
+      if (visible && activity === next && window) return;
+      const changed = activity !== next;
+      activity = next;
       visible = true;
+      if (window && changed) void load(window);
       const target = window ?? create();
       window = target;
       place(target);
@@ -100,9 +108,9 @@ export function createComputerOverlay(initialLabel: string): OverlayWindow {
       const match = /^window:(\d+):/.exec(window.getMediaSourceId());
       return match ? [Number(match[1])] : [];
     },
-    setLabel(next) {
-      if (next === label) return;
-      label = next;
+    setLabels(act, read) {
+      if (labels.act === act && labels.read === read) return;
+      labels = { act, read };
       if (window !== undefined && !window.isDestroyed()) void load(window);
     },
     dispose() {

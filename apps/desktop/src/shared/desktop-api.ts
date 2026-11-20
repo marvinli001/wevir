@@ -330,6 +330,7 @@ export interface ComputerAccessCandidate {
 
 export interface ComputerAccessPreparation {
   accessId: string;
+  expiresAt: number;
   sessionId: string;
   reason: string;
   candidates: ComputerAccessCandidate[];
@@ -368,7 +369,7 @@ export interface DesktopComputerApi {
   /** 回合在跑的会话：不在里面的不再算在操作，提示条随之收起。 */
   setActiveSessions(sessionIds: string[]): Promise<void>;
   /** 提示条的文字（按界面语言）。 */
-  setOverlayLabel(label: string): Promise<void>;
+  setOverlayLabels(act: string, read: string): Promise<void>;
   /** 应用的图标（data URL）；拿不到时 null。 */
   appIcon(path: string): Promise<string | null>;
   /** 用户按 Esc 停下了这些会话。 */

@@ -67,7 +67,9 @@ export class ComputerBroker {
   readonly #defaultTimeoutMs: number;
   readonly #providers = new Map<string, Registered>();
   readonly #pending = new Map<ComputerRequestId, Pending>();
+  readonly #waitingForWindow = new Set<() => void>();
   #sequence = 0;
+  #closed = false;
 
   constructor(options: { defaultTimeoutMs?: number } = {}) {
     this.#defaultTimeoutMs = options.defaultTimeoutMs ?? COMPUTER_DEFAULT_TIMEOUT_MS;
@@ -90,6 +92,7 @@ export class ComputerBroker {
       registeredAt,
       commands: new Set(provider.commands.filter((command) => KNOWN_COMMANDS.has(command))),
     });
+    for (const wake of this.#waitingForWindow) wake();
     return () => this.unregister(provider.id, registeredAt);
   }
 
@@ -111,7 +114,25 @@ export class ComputerBroker {
 
   /** 执行一个命令。永远 resolve：失败也是一个结果，交给模型看。 */
   async execute(input: ComputerExecuteInput): Promise<ComputerPayload> {
+    let timeoutMs = input.timeoutMs ?? this.#defaultTimeoutMs;
+    if (!this.available && !this.#closed && !input.signal?.aborted) {
+      const started = Date.now();
+      await new Promise<void>((resolve) => {
+        const wake = () => {
+          clearTimeout(timer);
+          input.signal?.removeEventListener('abort', wake);
+          this.#waitingForWindow.delete(wake);
+          resolve();
+        };
+        const timer = setTimeout(wake, Math.min(timeoutMs, 3000));
+        timer.unref();
+        this.#waitingForWindow.add(wake);
+        input.signal?.addEventListener('abort', wake, { once: true });
+      });
+      timeoutMs -= Date.now() - started;
+    }
     if (input.signal?.aborted) return computerFailure('computer_unknown_error', 'cancelled');
+    if (this.#closed) return computerFailure('computer_no_host', 'Wevir Host is shutting down.');
     let latest: Registered | undefined;
     for (const provider of this.#providers.values()) {
       if (!latest || provider.registeredAt > latest.registeredAt) latest = provider;
@@ -119,7 +140,7 @@ export class ComputerBroker {
     if (latest === undefined) {
       return computerFailure(
         'computer_no_host',
-        'Computer use is not available right now: no Wevir window is connected to provide it (the app may be closed, starting or reconnecting). Try again in a few seconds; if it keeps failing, ask the user to open Wevir.',
+        'No Wevir desktop window connected for computer use. Ask the user to open the desktop app on this Mac and retry.',
       );
     }
     const name: ComputerCommandName = input.command.command;
@@ -129,7 +150,10 @@ export class ComputerBroker {
         `This Wevir window does not support the computer command "${name}". Update Wevir.`,
       );
     }
-    return this.#send(latest, input, input.timeoutMs ?? this.#defaultTimeoutMs);
+    if (timeoutMs <= 0) {
+      return computerFailure('computer_timeout', 'Timed out waiting for the Wevir desktop window.');
+    }
+    return this.#send(latest, input, timeoutMs);
   }
 
   /** 提供方的回答；不是这条连接的、已经超时或取消的返回 false。 */
@@ -151,6 +175,8 @@ export class ComputerBroker {
 
   /** Host 退出：在途的请求都以失败结束。 */
   close(): void {
+    this.#closed = true;
+    for (const wake of this.#waitingForWindow) wake();
     for (const requestId of [...this.#pending.keys()]) {
       this.#settle(requestId, computerFailure('computer_no_host', 'Wevir Host is shutting down.'));
     }

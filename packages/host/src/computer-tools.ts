@@ -170,7 +170,7 @@ const SPECS: ToolSpec[] = [
     name: 'computer_request_access',
     title: 'Request computer access',
     description:
-      "Ask the user to let you operate desktop apps on their computer. Required before any other computer_* action on an app; Wevir shows a dialog and the user approves each app. Approval tiers come from the app's kind: browsers are read-only (screenshots only; use browser tools for web pages), terminals and IDEs allow left clicks and scrolling only (use your shell and file tools instead of typing there), every other app gets full control. Name every app you will need (Finder covers the desktop and the Dock). Wevir itself cannot be granted. The result lists what was approved; the first approval also includes the rules for computer use, which you must follow. Computer use is a last resort: prefer a dedicated tool, MCP server or CLI for the app, the browser tools for anything on the web, and your shell for anything a command can do. Never trade, pay or move money. The user can press Esc at any time to stop you; then stop and wait for them.",
+      "Ask the user to let you operate desktop apps on their computer. Required before any other computer_* action on an app; Wevir shows a dialog and the user approves each app. Approval tiers come from the app's kind: browsers are read-only (screenshots only; use browser tools for web pages), terminals and IDEs allow left clicks and scrolling only (use your shell and file tools instead of typing there), every other app gets full control. Name every app you will need (Finder covers the desktop and the Dock). Wevir itself cannot be granted. The result lists what was approved; the first approval also includes the rules for computer use, which you must follow. When the user requests visible operation of a native app, continue after approval by reading its interface, then perform and verify the requested action within the granted tier. Otherwise prefer dedicated tools. Never trade, pay or move money. The user can press Esc at any time to stop you; then stop and wait for them.",
     properties: {
       apps: {
         type: 'array',
@@ -212,7 +212,7 @@ const SPECS: ToolSpec[] = [
   {
     name: 'computer_screenshot',
     title: 'Screenshot',
-    description: `Take a screenshot. With no arguments: the screen, showing only the windows of apps approved in this session (everything else, Wevir included, is left out). With app or windowId: just that window, even when it is covered or in the background; clicks and keys on that image are then sent to that window in the background where the app accepts it. ${COORDS_NOTE}`,
+    description: `Take a screenshot. With no arguments: the screen, showing only the windows of apps approved in this session (everything else, Wevir included, is left out). With app or windowId: just that window, even when it is covered or in the background; pointer actions on that image target the captured window, and keys target its app. ${COORDS_NOTE}`,
     properties: {
       app: { ...APP, description: `${APP.description} Captures its frontmost window.` },
       windowId: { type: 'integer', description: 'windowId from computer_list_apps.' },

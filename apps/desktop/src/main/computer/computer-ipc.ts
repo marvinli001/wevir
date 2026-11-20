@@ -9,6 +9,7 @@ import type { Log } from '../host-lifecycle.js';
 
 export interface ComputerIpcOptions {
   getWindow(): BrowserWindow | undefined;
+  showMainWindow(): void;
   assertSender(event: IpcMainInvokeEvent): BrowserWindow;
   log: Log;
 }
@@ -46,9 +47,13 @@ export function registerComputerIpc(options: ComputerIpcOptions): { dispose(): v
     ] = await Promise.all([import('./helper.js'), import('./overlay.js'), import('./service.js')]);
     if (disposed) throw new Error('Computer service is closed');
     const binary = () =>
-      resolveHelperBinary({ packaged: app.isPackaged, resourcesPath: process.resourcesPath });
+      resolveHelperBinary({
+        packaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath(),
+      });
     const helper = new ComputerHelper({ binary, log: options.log });
-    const overlay = createComputerOverlay('Wevir is using your computer · Esc to stop');
+    const overlay = createComputerOverlay();
     const service = new ComputerService({
       helper,
       overlay,
@@ -93,7 +98,13 @@ export function registerComputerIpc(options: ComputerIpcOptions): { dispose(): v
   handle(IPC_CHANNELS.computerPrepareAccess, async (_runtime, id, apps, reason) => {
     if (typeof reason !== 'string' || reason.length > 500) throw new Error('invalid reason');
     try {
-      return await _runtime.service.prepareAccess(sessionId(id), strings(apps, 10), reason);
+      const prepared = await _runtime.service.prepareAccess(
+        sessionId(id),
+        strings(apps, 10),
+        reason,
+      );
+      if (prepared.candidates.some((candidate) => !candidate.granted)) options.showMainWindow();
+      return prepared;
     } catch (error) {
       if (error instanceof _runtime.HelperError)
         return { error: { code: error.code, message: error.message } };
@@ -114,11 +125,10 @@ export function registerComputerIpc(options: ComputerIpcOptions): { dispose(): v
   handle(IPC_CHANNELS.computerSetActiveSessions, (_runtime, ids) => {
     _runtime.service.setActiveSessions(strings(ids, 1000, 80));
   });
-  handle(IPC_CHANNELS.computerSetOverlayLabel, (_runtime, label) => {
-    if (typeof label !== 'string' || label.length === 0 || label.length > 120) {
-      throw new Error('invalid label');
-    }
-    _runtime.overlay.setLabel(label);
+  handle(IPC_CHANNELS.computerSetOverlayLabel, (_runtime, labels) => {
+    const [act, read] = strings(labels, 2, 120);
+    if (act === undefined || read === undefined) throw new Error('invalid overlay labels');
+    _runtime.overlay.setLabels(act, read);
   });
   handle(IPC_CHANNELS.computerAppIcon, async (_runtime, path) => {
     if (typeof path !== 'string' || !path.endsWith('.app') || !existsSync(path)) return null;

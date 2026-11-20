@@ -16,47 +16,82 @@ interface PendingAccess {
   resolve: (bundleIds: string[]) => void;
 }
 
-const ACTIVE_STATES = new Set(['running', 'awaiting_approval', 'cancelling']);
+const ACTIVE_STATES = new Set(['running', 'awaiting_approval']);
 
 export function ComputerCoordinator() {
   const { client } = useHostConnection();
   const data = useWorkbenchData();
   const [queue, setQueue] = useState<PendingAccess[]>([]);
-  const queueRef = useRef(setQueue);
-  queueRef.current = setQueue;
+  const previousActive = useRef(new Set<string>());
 
   useEffect(() => {
     if (!client || !platformApi()?.computer) return;
     const computer = platformApi().computer;
-    const ask = (preparation: ComputerAccessPreparation) =>
-      new Promise<string[]>((resolve) =>
-        queueRef.current((current) => [...current, { preparation, resolve }]),
-      );
+    let generation = 0;
+    const pending = new Set<PendingAccess>();
+    const dismiss = () => {
+      generation++;
+      for (const item of pending) item.resolve([]);
+    };
+    const offState = client.onStateChange(({ status }) => {
+      if (status !== 'connected') dismiss();
+    });
     const access = async (
       request: Extract<ComputerRequest['command'], { command: 'request_access' }>,
       sessionId: string,
     ): Promise<ComputerAnswer> => {
+      const started = generation;
       const prepared = await computer.prepareAccess(
         sessionId,
         request.args.apps,
         request.args.reason,
       );
       if ('error' in prepared) return { ok: false, error: prepared.error };
-      const approved = await ask(prepared);
+      if (started !== generation) return computer.grant(prepared.accessId, []);
+      if (prepared.candidates.every((candidate) => candidate.granted)) {
+        return computer.grant(
+          prepared.accessId,
+          prepared.candidates.map((app) => app.bundleId),
+        );
+      }
+      const approved = await new Promise<string[]>((resolve) => {
+        const item: PendingAccess = {
+          preparation: prepared,
+          resolve(ids) {
+            if (!pending.delete(item)) return;
+            clearTimeout(timer);
+            setQueue((items) => items.filter((entry) => entry !== item));
+            resolve(ids);
+          },
+        };
+        const timer = setTimeout(
+          () => item.resolve([]),
+          Math.max(0, prepared.expiresAt - Date.now()),
+        );
+        pending.add(item);
+        setQueue((items) => [...items, item]);
+      });
       return computer.grant(prepared.accessId, approved);
     };
     // 重连后 client-sdk 自己重新登记；Host 没有这项功能时它不登记。
-    return client.provideComputer(COMPUTER_COMMANDS, (request) =>
+    const unregister = client.provideComputer(COMPUTER_COMMANDS, (request) =>
       request.command.command === 'request_access'
         ? access(request.command, request.sessionId)
         : computer.execute(request),
     );
+    return () => {
+      offState();
+      dismiss();
+      unregister();
+    };
   }, [client]);
 
   useEffect(() => {
     const computer = platformApi()?.computer;
     if (!computer) return;
-    void computer.setOverlayLabel(t('computer.overlay')).catch(() => undefined);
+    void computer
+      .setOverlayLabels(t('computer.overlay'), t('computer.overlay.reading'))
+      .catch(() => undefined);
     if (!client) return;
     return computer.onStopped((sessionIds) => {
       for (const sessionId of sessionIds) {
@@ -82,6 +117,15 @@ export function ComputerCoordinator() {
       .computer.setActiveSessions(active === '' ? [] : active.split(','))
       .catch(() => undefined);
   }, [active]);
+  useEffect(() => {
+    if (active === undefined) return;
+    const next = new Set(active.split(','));
+    for (const item of queue) {
+      const id = item.preparation.sessionId;
+      if (previousActive.current.has(id) && !next.has(id)) item.resolve([]);
+    }
+    previousActive.current = next;
+  }, [active, queue]);
 
   const current = queue[0];
   const title =
@@ -97,10 +141,7 @@ export function ComputerCoordinator() {
       key={current.preparation.accessId}
       preparation={current.preparation}
       sessionTitle={title}
-      onDone={(bundleIds) => {
-        current.resolve(bundleIds);
-        setQueue((items) => items.slice(1));
-      }}
+      onDone={current.resolve}
     />
   );
 }

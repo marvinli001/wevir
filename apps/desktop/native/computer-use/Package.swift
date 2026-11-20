@@ -10,6 +10,7 @@ let package = Package(
     .executableTarget(
       name: "wevir-computer-use",
       path: "Sources/WevirComputerUse"
-    )
+    ),
+    .testTarget(name: "ComputerUseTests", dependencies: ["wevir-computer-use"])
   ]
 )

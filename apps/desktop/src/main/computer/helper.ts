@@ -4,7 +4,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Log } from '../host-lifecycle.js';
 
 export type HelperResult = Record<string, unknown>;
@@ -32,24 +31,20 @@ const BINARY = 'wevir-computer-use';
 
 /**
  * helper 的位置：环境变量 → 安装包的资源目录（`computer-use/`，stage-resources.ts 准备）→ 开发时 `swift build -c release`
- * 的产物（相对 out/main/）。都没有时 `undefined`。
+ * 的产物（相对桌面应用目录）。都没有时 `undefined`。
  */
-export function resolveHelperBinary(
-  options: { packaged: boolean; resourcesPath: string; env?: NodeJS.ProcessEnv } = {
-    packaged: false,
-    resourcesPath: '',
-  },
-): string | undefined {
+export function resolveHelperBinary(options: {
+  packaged: boolean;
+  resourcesPath: string;
+  appPath: string;
+  env?: NodeJS.ProcessEnv;
+}): string | undefined {
   const fromEnv = (options.env ?? process.env)[COMPUTER_HELPER_ENV];
   if (fromEnv !== undefined && fromEnv !== '') return existsSync(fromEnv) ? fromEnv : undefined;
-  const candidates = options.packaged
-    ? [join(options.resourcesPath, 'computer-use', BINARY)]
-    : [
-        fileURLToPath(
-          new URL(`../../native/computer-use/.build/release/${BINARY}`, import.meta.url),
-        ),
-      ];
-  return candidates.find((path) => existsSync(path));
+  const binary = options.packaged
+    ? join(options.resourcesPath, 'computer-use', BINARY)
+    : join(options.appPath, 'native/computer-use/.build/release', BINARY);
+  return existsSync(binary) ? binary : undefined;
 }
 
 interface Pending {
@@ -130,6 +125,7 @@ export class ComputerHelper implements HelperLike {
         );
         this.#pending.delete(id);
       }
+      for (const listener of this.#listeners) listener({ event: 'exit' });
     };
     child.on('error', (error) => {
       this.#log('error', 'computer use helper failed to start', { error: String(error) });

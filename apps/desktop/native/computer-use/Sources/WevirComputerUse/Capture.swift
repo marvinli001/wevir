@@ -78,7 +78,10 @@ enum Capture {
       "originX": Double(region.minX), "originY": Double(region.minY),
       "scale": Double(CGFloat(image.width) / region.width),
     ]
-    if let windowId { out["windowId"] = Int(windowId) }
+    if let windowId {
+      out["windowId"] = Int(windowId)
+      out["windowFrame"] = frame.dictionaryRepresentation
+    }
     return out
   }
 

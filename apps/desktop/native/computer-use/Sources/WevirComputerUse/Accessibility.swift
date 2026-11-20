@@ -138,6 +138,20 @@ enum Accessibility {
 
   static func frame(of element: AXUIElement) -> CGRect? { read(element).frame }
 
+  static func center(of element: AXUIElement) -> CGPoint? {
+    guard let frame = frame(of: element), !frame.isEmpty else { return nil }
+    return CGPoint(x: frame.midX, y: frame.midY)
+  }
+
+  static func window(of ref: ElementRef) -> WindowInfo? {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(ref.element, kAXWindowAttribute as CFString, &value) == .success,
+      let value, CFGetTypeID(value) == AXUIElementGetTypeID(),
+      let bounds = frame(of: value as! AXUIElement)
+    else { return nil }
+    return Apps.windows().first { $0.pid == ref.pid && $0.bounds.equalTo(bounds) }
+  }
+
   // MARK: 树
 
   /// 应用的窗口；给了 `windowId` 时只要和它对得上（位置与大小相同）的那个。
