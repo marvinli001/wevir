@@ -103,6 +103,8 @@ export function DiffStat({ stats }: { stats: LineStats }) {
 
 /** 进行中的列表最多露出的行数；更早的往上推出去，顶上渐隐（照 Codex 的进行中列表）。 */
 const LIVE_ROWS = 8;
+/** 用户点开了详情的一行（WorkLine 的 data-line-open，默认展开的预览不算）：进行中的列表不再往上推（useTailClip）。 */
+const OPEN_LINE = 'data-line-open';
 
 /**
  * 一串连续的思考与工具调用（U2，照 Claude Code 桌面端与 Codex，design-refs/09、12）：收起时一行摘要（“思考了 17 秒，
@@ -231,14 +233,21 @@ export function WorkGroup({
  * 进行中列表只露出最后 LIVE_ROWS 行：高度取这几行的实际高度（有展开的预览时连预览一起，§56），行与预览的高度变化（展开
  * 收起的过渡）、新列进来的行随时跟上；量不到时（没有布局）用 className 里的 max-h-48（每行 24 px）。只在开始或结束裁切、
  * 列表重新挂上时装卸：每次渲染都先清掉高度再量，量的那一下按 max-h-48 排版，有预览时消息流一下子矮下去，贴底的滚动位置被
- * 钳到上面，再长回来也回不到底部。返回给列表的 ref。
+ * 钳到上面，再长回来也回不到底部。露出的行里有用户点开的一行（OPEN_LINE）时，露出的第一行不再跟着往后移，列表往下长：
+ * 否则每进来一行，点开的详情就往上推一行，推出这几行时整组一下子矮下去。收起后回到只露出最后几行。返回给列表的 ref。
  */
 function useTailClip(clipped: boolean): (list: HTMLUListElement | null) => void {
   const [list, setList] = useState<HTMLUListElement | null>(null);
   useLayoutEffect(() => {
     if (!list || !clipped || typeof ResizeObserver === 'undefined') return;
+    /** 点开一行时露出的第一行；没有点开的行时跟着最后几行。 */
+    let pinned: number | undefined;
     const fit = () => {
-      const rows = [...list.children].slice(-LIVE_ROWS) as HTMLElement[];
+      const all = [...list.children] as HTMLElement[];
+      const from = pinned ?? Math.max(0, all.length - LIVE_ROWS);
+      const opened = all.slice(from).some((row) => row.hasAttribute(OPEN_LINE));
+      pinned = opened ? from : undefined;
+      const rows = opened ? all.slice(from) : all.slice(-LIVE_ROWS);
       const height = rows.reduce((sum, row) => sum + row.offsetHeight, 0);
       list.style.maxHeight = height > 0 ? `${height}px` : '';
     };
@@ -356,7 +365,11 @@ function WorkLine({
   // 只涉及一个文件的那行，右键弹文件菜单。
   const onContextMenu = useFileContextMenu(view.filePath);
   return (
-    <li data-work-line={view.tone} className={cn('shrink-0', entering && 'rise-in')}>
+    <li
+      data-work-line={view.tone}
+      data-line-open={open && hasDetail && !preview ? '' : undefined}
+      className={cn('shrink-0', entering && 'rise-in')}
+    >
       {view.session ? (
         <SessionWorkLine
           view={view}
