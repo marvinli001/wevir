@@ -1,5 +1,6 @@
 // 第一个求值：动效库在模块加载时插入的 <style> 要带上 CSP 的 nonce（lib/style-nonce.ts）。
 import './lib/style-nonce.js';
+import './index.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { APP_MENU_LABEL_KEYS, type AppMenuLabels } from '../../shared/desktop-api.js';
@@ -7,7 +8,6 @@ import { App } from './App.js';
 import { bootstrapRenderer } from './bootstrap.js';
 import { t } from './i18n/index.js';
 import { getShortcut, menuAccelerator, shortcutOverrides } from './lib/shortcuts';
-import './index.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html 里缺少 #root');

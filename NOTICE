@@ -798,6 +798,10 @@ apps/desktop/native/ios-simulator 移植的文件（左边是 Wevir 文件，右
 许可证：MIT
 版权：Copyright (c) 2026 Elia Kuratli
 
+桌面基础控件的样式及动效来自 https://github.com/kuratlielia/arc-library 提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7
+的 registry/foundation.css、registry/motion-tokens.ts 和 registry/components/ 的免费 MIT 源码。
+控件的具体来源记录在其文件头。
+
 apps/desktop/src/renderer/src 改写的文件（左边是 Wevir 文件，右边是 Arc 的来源路径）。Arc 的组件用 motion 与 CSS
 modules，Wevir 改用 CSS 过渡与自己的令牌重写，修改说明在各文件头：
 

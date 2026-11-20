@@ -55,6 +55,7 @@
     "marked-katex-extension": "5.1.13",
     "mermaid": "11.17.2",
     "metal-fx": "2.0.11",
+    "motion": "12.43.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^8.4.0",

@@ -1,3 +1,5 @@
+import { motionTokens } from '../src/renderer/src/lib/motion-tokens.ts';
+
 // 弹簧缓动（desktop-tokens.md §44）：按刚度、阻尼与质量解出阻尼振子从 0 到 1 的位移，采样成 CSS 的 linear()，
 // 时长取位移最后一次离终点超过 SETTLE_EPSILON 的时刻。styles/theme.css 的 --spring-* 与 --spring-*-duration
 // 由它生成，改参数后运行 `node scripts/spring-easing.ts`，把打印的块贴回 theme.css；spring-easing.test.ts 核对两边
@@ -17,12 +19,7 @@ export interface Spring {
 }
 
 /** 令牌名 → 参数。press：按钮松开；reveal：菜单、弹层、对话框入场；bounce：确认反馈；snap：过阻尼，面板吸附。 */
-export const SPRINGS = {
-  press: { stiffness: 600, damping: 30, mass: 1 },
-  reveal: { stiffness: 320, damping: 28, mass: 1 },
-  bounce: { stiffness: 380, damping: 18, mass: 1 },
-  snap: { stiffness: 800, damping: 60, mass: 1 },
-} as const satisfies Record<string, Spring>;
+export const SPRINGS = motionTokens.spring satisfies Record<string, Spring>;
 
 /** t 秒时的位移（0 → 1，初速度 0）。 */
 export function springAt({ stiffness, damping, mass }: Spring, t: number): number {
