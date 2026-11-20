@@ -32,11 +32,11 @@ import {
   accountRef,
   accountsOfKind,
   isPickable,
-  SOURCE_KINDS,
   SOURCE_PAGE_SIZE,
   SOURCES,
   type SourceInfo,
   type SourcePhase,
+  SUBSCRIPTION_PAGE_KINDS,
   sourcePages,
   sourcePhase,
   sourceTitle,
@@ -127,10 +127,10 @@ export function SubscriptionSources({
 
   // 来源多于一页时，末尾一格翻页，格子数保持不变。
   const kinds = setupOnly
-    ? SOURCE_KINDS.filter((kind) => accountsOf(kind).length > 0).sort(
+    ? SUBSCRIPTION_PAGE_KINDS.filter((kind) => accountsOf(kind).length > 0).sort(
         (a, b) => Number(accountsOf(b).some(ready)) - Number(accountsOf(a).some(ready)),
       )
-    : SOURCE_KINDS;
+    : SUBSCRIPTION_PAGE_KINDS;
   const sideBySide = area.width >= 760;
   const gridWidth = selected !== undefined && sideBySide ? area.width - 320 - 16 : area.width;
   const columns = gridWidth >= 448 ? 3 : 2;

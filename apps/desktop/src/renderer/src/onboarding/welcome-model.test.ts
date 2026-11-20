@@ -55,7 +55,8 @@ describe('first-use selection', () => {
     const provider = (id: string, kind: ProviderProfile['kind'], hasSecret = false) =>
       ({ id, kind, hasSecret, enabled: true }) as ProviderProfile;
     const providers = [
-      provider('api', 'openai-compatible', true),
+      provider('zuv-api', 'openai-compatible', true),
+      provider('zuv', 'zuv'),
       provider('claude', 'claude'),
       provider('chatgpt', 'chatgpt'),
       provider('missing', 'claude'),
@@ -63,16 +64,24 @@ describe('first-use selection', () => {
       { ...provider('disabled', 'openai-compatible', true), enabled: false },
     ];
     const accounts = [
+      {
+        kind: 'zuv',
+        status: 'signed_in',
+        zuv: { connection: 'online', subscriptionState: 'active' },
+      },
       { id: 'claude', kind: 'claude', status: 'signed_in' },
       { id: 'chatgpt', kind: 'chatgpt', status: 'signed_out' },
       { id: 'missing', kind: 'claude', status: 'signed_in', installed: false },
     ] as AccountState[];
     expect(welcomeProviders(providers, accounts).map((item) => item.id)).toEqual([
       'claude',
-      'api',
+      'zuv-api',
       'local',
     ]);
-    expect(welcomeProviders(providers, undefined).map((item) => item.id)).toEqual(['api', 'local']);
+    expect(welcomeProviders(providers, undefined).map((item) => item.id)).toEqual([
+      'zuv-api',
+      'local',
+    ]);
   });
 
   it('groups only the chosen project and omits duplicate imported histories', () => {

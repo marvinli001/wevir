@@ -5,7 +5,13 @@ import type {
   ProviderProfile,
   Session,
 } from '@wevir/protocol';
-import { accountOfProvider, isPickable, isSourceKind, pickerOrder } from '@/data/sources';
+import {
+  accountOfProvider,
+  isPickable,
+  isSourceKind,
+  pickerOrder,
+  SUBSCRIPTION_PAGE_KINDS,
+} from '@/data/sources';
 import { projectsOf, type WorkspaceEntry } from '@/data/workbench-model';
 
 export function needsWelcome(done: boolean, workspaces: readonly WorkspaceEntry[]): boolean {
@@ -25,7 +31,11 @@ export function welcomeProviders(
       if (!isPickable(provider, accounts)) return false;
       if (!isSourceKind(provider.kind)) return true;
       const account = accountOfProvider(provider, accounts);
-      return account?.status === 'signed_in' && account.installed !== false;
+      return (
+        SUBSCRIPTION_PAGE_KINDS.includes(provider.kind) &&
+        account?.status === 'signed_in' &&
+        account.installed !== false
+      );
     }),
   );
 }

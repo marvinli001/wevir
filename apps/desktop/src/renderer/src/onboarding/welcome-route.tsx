@@ -15,6 +15,7 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { SUBSCRIPTION_PAGE_KINDS } from '@/data/sources';
 import { useAccounts, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -56,8 +57,8 @@ export function WelcomeRoute() {
   const [step, setStep] = useState<Step>('provider');
   const accounts = useAccounts();
   const [apiChosen, setApiChosen] = useState(false);
-  // 没有任何订阅来源（旧 Host 或不支持订阅）时第一步只有 API。
-  const subscriptions = accounts === undefined || accounts.length > 0;
+  const subscriptions =
+    accounts === undefined || accounts.some(({ kind }) => SUBSCRIPTION_PAGE_KINDS.includes(kind));
   const api = apiChosen || !subscriptions;
 
   if (data.status === 'loading') return <PendingPage />;

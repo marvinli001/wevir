@@ -11,8 +11,13 @@ import {
 import type { ProviderLogoId } from '@/components/provider-logo';
 import type { PlainMessageKey } from '@/i18n';
 
-/** 订阅来源的固定顺序：设置里的格子与模型选择里的分组都按它排。ChatGPT 订阅跑在 Codex 上，界面上叫 Codex。 */
+/** 订阅来源的固定顺序。ChatGPT 订阅跑在 Codex 上，界面上叫 Codex。 */
 export const SOURCE_KINDS: readonly AccountKind[] = ['chatgpt', ...SUBSCRIPTION_KINDS];
+
+/** 设置与首次引导的订阅入口暂时隐藏 ZUV，会话仍可使用已有账号。 */
+export const SUBSCRIPTION_PAGE_KINDS: readonly AccountKind[] = SOURCE_KINDS.filter(
+  (kind) => kind !== 'zuv',
+);
 
 export interface SourceInfo {
   kind: AccountKind;

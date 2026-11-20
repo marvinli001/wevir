@@ -8,7 +8,7 @@ import {
   hasSiblingAccounts,
   isPickable,
   pickerOrder,
-  SOURCE_KINDS,
+  SUBSCRIPTION_PAGE_KINDS,
   sourceOf,
   sourcePages,
   sourcePhase,
@@ -60,9 +60,10 @@ describe('订阅来源', () => {
     expect(tileFillers(8)).toEqual([{ slot: 1, base: false, sm: true }]);
     expect(tileFillers(9)).toEqual([{ slot: 1, base: true, sm: false }]);
     // 当前的来源个数加补位格，两列、三列都正好排满，不会露出分隔线色的空位。
-    const fillers = tileFillers(SOURCE_KINDS.length);
-    expect((SOURCE_KINDS.length + fillers.filter((filler) => filler.base).length) % 2).toBe(0);
-    expect((SOURCE_KINDS.length + fillers.filter((filler) => filler.sm).length) % 3).toBe(0);
+    const count = SUBSCRIPTION_PAGE_KINDS.length;
+    const fillers = tileFillers(count);
+    expect((count + fillers.filter((filler) => filler.base).length) % 2).toBe(0);
+    expect((count + fillers.filter((filler) => filler.sm).length) % 3).toBe(0);
   });
 
   it('sourceOf：ChatGPT 是 Codex，订阅来源各有软件标志，API 类没有', () => {
@@ -154,19 +155,12 @@ describe('订阅来源', () => {
 
 describe('来源分页', () => {
   it('一页 8 种，超出时分页；不超过一页时只有一页', () => {
-    expect(sourcePages(SOURCE_KINDS.slice(0, 8))).toEqual([SOURCE_KINDS.slice(0, 8)]);
-    const pages = sourcePages(SOURCE_KINDS);
-    expect(pages[0]).toEqual([
-      'chatgpt',
-      'claude',
-      'cursor',
-      'opencode',
-      'grok',
-      'antigravity',
-      'workbuddy',
-      'devin',
+    const firstPage = SUBSCRIPTION_PAGE_KINDS.slice(0, 8);
+    expect(sourcePages(firstPage)).toEqual([firstPage]);
+    expect(sourcePages(SUBSCRIPTION_PAGE_KINDS)).toEqual([
+      ['chatgpt', 'claude', 'cursor', 'opencode', 'grok', 'antigravity', 'workbuddy', 'devin'],
+      ['copilot', 'kiro'],
     ]);
-    expect(pages[1]).toEqual(['copilot', 'kiro', 'zuv']);
     expect(sourcePages(['claude', 'cursor', 'grok'], 2)).toEqual([['claude', 'cursor'], ['grok']]);
   });
 });
