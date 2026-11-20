@@ -370,6 +370,7 @@ export const en: Messages = {
   'session.archiveFailed': 'Could not archive',
   'session.unarchiveFailed': 'Could not unarchive',
   'session.unarchived': 'Unarchived',
+  'sessions.search': 'Search sessions',
   'archived.search': 'Search archived sessions',
   'archived.empty': 'No archived sessions',
   'archived.noMatches': 'No matching sessions',

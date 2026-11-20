@@ -1,13 +1,13 @@
 // 输入栏上待发的照片（会话页与助理页共用）：从相册选或拍一张，压缩后传给 Host（`image.upload`），传好的带上图片部件。上传怎么做
-// 由页面给（会话页要在 Android 选照片断线后换新连接再传）；出错时交给页面显示哪条提示。
+// 由页面给（会话页要在 Android 选照片断线后换新连接再传）；出错时交给页面显示哪条提示。照片按草稿键存（attachment-store.ts），
+// 离开页面再回来还在。
 
 import {
   MESSAGE_ATTACHMENT_MAX_BYTES,
   type UserImageMimeType,
   type UserImagePart,
 } from '@wevir/protocol';
-import { useRef, useState } from 'react';
-import type { ComposerAttachment } from '../components/composer';
+import { useCallback, useSyncExternalStore } from 'react';
 import type { MenuSection } from '../components/menu';
 import { type MessageKey, t } from '../i18n';
 import {
@@ -18,15 +18,25 @@ import {
   pickPhotos,
 } from '../lib/photos';
 import { sendErrorKey } from '../lib/session-actions';
+import {
+  type PhotoAttachment,
+  readAttachments,
+  updateAttachments,
+  watchAttachments,
+} from './attachment-store';
 
-export interface PhotoAttachment extends ComposerAttachment {
-  image?: UserImagePart;
-}
+export type { PhotoAttachment } from './attachment-store';
+
+// 正在选照片的草稿键：同一个草稿一次只选一批（页面离开又回来也算同一个）。
+const adding = new Set<string>();
 
 export function usePhotoAttachments({
+  draftKey,
   upload,
   onError,
 }: {
+  /** 与输入栏的 `draftKey` 相同。 */
+  draftKey: string;
   upload: (mimeType: UserImageMimeType, data: string) => Promise<UserImagePart>;
   /** 选或传失败（`undefined`：开始新的一次，清掉上一条）。 */
   onError: (key: MessageKey | undefined) => void;
@@ -39,14 +49,17 @@ export function usePhotoAttachments({
   remove: (key: string) => void;
   clear: () => void;
 } {
-  const [attachments, setAttachments] = useState<PhotoAttachment[]>([]);
-
-  const adding = useRef(false);
+  const attachments = useSyncExternalStore(
+    useCallback((listener) => watchAttachments(draftKey, listener), [draftKey]),
+    () => readAttachments(draftKey),
+  );
   const attach = async (source: PhotoSource) => {
-    if (adding.current) return;
-    adding.current = true;
+    const target = draftKey;
+    if (adding.has(target)) return;
+    adding.add(target);
     onError(undefined);
     try {
+      const attachments = readAttachments(target);
       const used = attachments.reduce((sum, item) => sum + (item.image?.size ?? 0), 0);
       const photos = await pickPhotos(
         source,
@@ -58,19 +71,19 @@ export function usePhotoAttachments({
         uri,
         uploading: true,
       }));
-      setAttachments((current) => [...current, ...entries]);
+      updateAttachments(target, (current) => [...current, ...entries]);
       for (const [index, photo] of photos.entries()) {
         const key = entries[index]?.key;
         try {
           const image = await upload(photo.mimeType, photo.data);
-          setAttachments((current) =>
+          updateAttachments(target, (current) =>
             current.map((item) => (item.key === key ? { ...item, uploading: false, image } : item)),
           );
         } catch (error) {
           onError(
             sendErrorKey(error) === 'error.computerOnly' ? 'error.computerOnly' : 'photo.failed',
           );
-          setAttachments((current) => current.filter((item) => item.key !== key));
+          updateAttachments(target, (current) => current.filter((item) => item.key !== key));
         }
       }
     } catch (error) {
@@ -82,7 +95,7 @@ export function usePhotoAttachments({
             : 'photo.failed',
       );
     } finally {
-      adding.current = false;
+      adding.delete(target);
     }
   };
 
@@ -101,7 +114,7 @@ export function usePhotoAttachments({
         ],
       },
     ],
-    remove: (key) => setAttachments((current) => current.filter((a) => a.key !== key)),
-    clear: () => setAttachments([]),
+    remove: (key) => updateAttachments(draftKey, (current) => current.filter((a) => a.key !== key)),
+    clear: () => updateAttachments(draftKey, () => []),
   };
 }

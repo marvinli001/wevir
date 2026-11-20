@@ -371,6 +371,7 @@ export const es: Messages = {
   'session.archiveFailed': 'No se pudo archivar',
   'session.unarchiveFailed': 'No se pudo desarchivar',
   'session.unarchived': 'Desarchivada',
+  'sessions.search': 'Buscar sesiones',
   'archived.search': 'Buscar sesiones archivadas',
   'archived.empty': 'No hay sesiones archivadas',
   'archived.noMatches': 'No hay sesiones coincidentes',

@@ -3,6 +3,7 @@ import {
   applySessionsChange,
   archivedSessions,
   folderName,
+  matchSessions,
   pendingCount,
   type SessionList,
   sortSessions,
@@ -90,6 +91,12 @@ describe('archived sessions', () => {
     expect(archivedSessions([older, newer], ' LOGIN ').map((s) => s.id)).toEqual(['ses_old']);
     expect(archivedSessions([older, newer], 'notes').map((s) => s.id)).toEqual(['ses_new']);
     expect(archivedSessions([older, newer], 'nothing')).toEqual([]);
+  });
+
+  it('keeps the list order when searching active sessions', () => {
+    const list = [newer, older];
+    expect(matchSessions(list, '  ')).toBe(list);
+    expect(matchSessions(list, 'Login').map((s) => s.id)).toEqual(['ses_old']);
   });
 
   it('names a project after the last folder of its path', () => {

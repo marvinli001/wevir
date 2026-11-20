@@ -1,6 +1,6 @@
 // 助理页（首页）：所有配对电脑上的助理合并成一个聊天式列表，等用户决定的在前，其余按最后动静排；行内标电脑名。右上角新建：能建群
 // （有助理群、至少两个助理）时是新建助理与新建群聊的菜单；这台设备在哪台电脑上都没有建助理的权限（手机默认没有）时灰掉，列表下面说明到
-// 电脑上哪里开。
+// 电脑上哪里开。一台电脑都没配对时空状态换成“添加电脑”。
 
 import { Stack, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text } from 'react-native';
@@ -10,6 +10,7 @@ import { EmptyState, Group } from '../../../components/ui';
 import { t } from '../../../i18n';
 import { useBotCreators, useBots, useGroupCreators, useOnlineBotHosts } from '../../../state/bots';
 import { useMinuteClock } from '../../../state/clock';
+import { useComputers } from '../../../state/registry';
 import { SPACE, TEXT, useTheme } from '../../../theme';
 
 export default function BotsScreen() {
@@ -20,6 +21,8 @@ export default function BotsScreen() {
   const canCreate = useBotCreators().length > 0;
   const canGroup = useGroupCreators().length > 0;
   const online = useOnlineBotHosts();
+  const paired = useComputers();
+  const unpaired = paired.loaded && paired.computers.length === 0;
   const create = () => router.push('/new-bot');
   const forbidden =
     online > 0 && !canCreate ? (
@@ -28,7 +31,7 @@ export default function BotsScreen() {
   return (
     <>
       <Stack.Screen options={{ title: t('bots.title') }} />
-      {canGroup ? (
+      {unpaired ? null : canGroup ? (
         <HeaderMenu
           sf="plus"
           md="add"
@@ -70,6 +73,16 @@ export default function BotsScreen() {
               />
             ))}
           </Group>
+        ) : unpaired ? (
+          <EmptyState
+            icon={{ ios: 'laptopcomputer.and.iphone', android: 'devices' }}
+            title={t('computers.empty')}
+            action={{
+              title: t('computers.add'),
+              icon: { ios: 'qrcode.viewfinder', android: 'qr_code_scanner' },
+              onPress: () => router.push('/add'),
+            }}
+          />
         ) : (
           loaded && (
             <EmptyState

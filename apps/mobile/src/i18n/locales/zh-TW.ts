@@ -363,6 +363,7 @@ export const zhTW: Messages = {
   'session.archiveFailed': '封存失敗',
   'session.unarchiveFailed': '取消封存失敗',
   'session.unarchived': '已取消封存',
+  'sessions.search': '搜尋工作階段',
   'archived.search': '搜尋已封存的工作階段',
   'archived.empty': '尚無已封存的工作階段',
   'archived.noMatches': '沒有相符的工作階段',

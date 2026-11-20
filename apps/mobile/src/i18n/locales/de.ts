@@ -372,6 +372,7 @@ export const de: Messages = {
   'session.archiveFailed': 'Archivieren fehlgeschlagen',
   'session.unarchiveFailed': 'Wiederherstellen fehlgeschlagen',
   'session.unarchived': 'Wiederhergestellt',
+  'sessions.search': 'Sitzungen durchsuchen',
   'archived.search': 'Archivierte Sitzungen durchsuchen',
   'archived.empty': 'Keine archivierten Sitzungen',
   'archived.noMatches': 'Keine passenden Sitzungen',

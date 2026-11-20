@@ -1,5 +1,6 @@
 import type { ComputerCache } from '../lib/cache';
 import { openComputerCache } from '../lib/cache-store';
+import { forgetAttachments } from './attachment-store';
 
 const drafts = new Map<string, SavedDraft>();
 const generations = new Map<string, number>();
@@ -85,6 +86,7 @@ export function forgetDrafts(scope: string): Promise<void> {
   if (previous) return previous;
   generations.set(scope, (generations.get(scope) ?? 0) + 1);
   for (const key of drafts.keys()) if (key.startsWith(`${scope}/`)) drafts.delete(key);
+  forgetAttachments(scope);
   const task = (async () => {
     await persistent.drain();
     await (await db()).forgetDrafts(scope);

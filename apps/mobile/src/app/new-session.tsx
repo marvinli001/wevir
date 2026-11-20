@@ -127,7 +127,9 @@ export default function NewSessionScreen() {
     choice !== undefined &&
     (workspaceId !== undefined || ready.features.chats);
 
+  const draftKey = `${snapshot?.record.routeId ?? 'unassigned'}/new-session`;
   const photos = usePhotoAttachments({
+    draftKey,
     upload: async (mimeType: UserImageMimeType, data: string) => {
       if (client === undefined) throw new Error('offline');
       return (await client.request('image.upload', { mimeType, data })).image;
@@ -136,7 +138,6 @@ export default function NewSessionScreen() {
   });
 
   const [monitorId, setMonitorId] = useState<Session['id']>();
-  const draftKey = `${snapshot?.record.routeId ?? 'unassigned'}/new-session`;
   useEffect(() => {
     let active = true;
     void loadDraft(draftKey).then((value) => {

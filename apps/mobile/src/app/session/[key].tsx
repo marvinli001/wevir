@@ -343,7 +343,11 @@ export default function SessionScreen() {
     throw new ClientClosedError();
   };
 
-  const photos = usePhotoAttachments({ upload, onError: setError });
+  const photos = usePhotoAttachments({
+    draftKey: snapshot ? `${snapshot.record.routeId}/${sessionId}` : key,
+    upload,
+    onError: setError,
+  });
   const loadImage = useMemo<LoadImage | undefined>(
     () =>
       client === undefined

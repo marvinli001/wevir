@@ -62,16 +62,21 @@ export function folderName(cwd: string): string {
   return parts[parts.length - 1] ?? cwd;
 }
 
-/** 已归档的会话（`session.list { archived: true }`）：按归档时刻从新到旧；搜索词不分大小写，匹配标题或项目名。 */
-export function archivedSessions(sessions: readonly Session[], query: string): Session[] {
+/** 搜索会话：搜索词不分大小写，匹配标题或项目名；空搜索词原样返回。 */
+export function matchSessions(sessions: readonly Session[], query: string): readonly Session[] {
   const needle = query.trim().toLowerCase();
+  if (needle === '') return sessions;
+  return sessions.filter(
+    (session) =>
+      session.title.toLowerCase().includes(needle) ||
+      folderName(session.cwd).toLowerCase().includes(needle),
+  );
+}
+
+/** 已归档的会话（`session.list { archived: true }`）：按归档时刻从新到旧，搜索同 `matchSessions`。 */
+export function archivedSessions(sessions: readonly Session[], query: string): Session[] {
   const at = (session: Session) => session.archivedAt ?? session.updatedAt;
-  return sessions
-    .filter(
-      (session) =>
-        needle === '' ||
-        session.title.toLowerCase().includes(needle) ||
-        folderName(session.cwd).toLowerCase().includes(needle),
-    )
-    .sort((a, b) => (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : 0));
+  return [...matchSessions(sessions, query)].sort((a, b) =>
+    at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : 0,
+  );
 }

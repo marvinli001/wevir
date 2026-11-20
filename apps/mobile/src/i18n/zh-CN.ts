@@ -363,6 +363,7 @@ export const zhCN = {
   'session.archiveFailed': '归档失败',
   'session.unarchiveFailed': '取消归档失败',
   'session.unarchived': '已取消归档',
+  'sessions.search': '搜索会话',
   'archived.search': '搜索已归档的会话',
   'archived.empty': '暂无已归档的会话',
   'archived.noMatches': '无匹配的会话',

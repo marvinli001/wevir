@@ -253,7 +253,7 @@ function BotChat({ bot, targetSeq }: { bot: Bot; targetSeq: number | undefined }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   };
-  const photos = usePhotoAttachments({ upload, onError: setError });
+  const photos = usePhotoAttachments({ draftKey, upload, onError: setError });
   // 群里点选的成员：这条消息 @ 他们；发出后清掉。
   const [mentions, setMentions] = useState<readonly string[]>([]);
   const send = useCallback(
@@ -683,7 +683,7 @@ function BotChat({ bot, targetSeq }: { bot: Bot; targetSeq: number | undefined }
             )}
             <Composer
               key={computer?.record.routeId ?? bot.key}
-              draftKey={`${computer?.record.routeId ?? 'unassigned'}/bot:${bot.id}`}
+              draftKey={draftKey}
               canSend={access.online && access.canWrite}
               onSend={send}
               {...(group && { placeholder: t('bot.groupPlaceholder', { name: bot.name }) })}

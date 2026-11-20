@@ -371,6 +371,7 @@ export const ru: Messages = {
   'session.archiveFailed': 'Не удалось архивировать',
   'session.unarchiveFailed': 'Не удалось разархивировать',
   'session.unarchived': 'Возвращено из архива',
+  'sessions.search': 'Поиск сеансов',
   'archived.search': 'Поиск по архиву',
   'archived.empty': 'Архив пуст',
   'archived.noMatches': 'Нет подходящих сеансов',

@@ -38,6 +38,8 @@ export function Icon({
   weight?: SymbolViewProps['weight'];
   style?: ViewStyle;
 }) {
+  // 图标只作装饰：iOS 的 SF Symbol 自带无障碍名称（`tray.full` 读作“收件箱已满”），所在行把子视图的名称拼成自己的标签，
+  // 会读出与状态无关的词。图标按钮自己写 `accessibilityLabel`。
   return (
     <SymbolView
       name={name}
@@ -45,6 +47,9 @@ export function Icon({
       tintColor={color}
       weight={weight}
       style={[{ width: size, height: size }, style]}
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
     />
   );
 }

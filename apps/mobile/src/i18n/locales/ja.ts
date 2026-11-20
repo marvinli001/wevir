@@ -371,6 +371,7 @@ export const ja: Messages = {
   'session.archiveFailed': 'アーカイブできませんでした',
   'session.unarchiveFailed': 'アーカイブを解除できませんでした',
   'session.unarchived': 'アーカイブを解除しました',
+  'sessions.search': 'セッションを検索',
   'archived.search': 'アーカイブ済みセッションを検索',
   'archived.empty': 'アーカイブ済みのセッションなし',
   'archived.noMatches': '一致するセッションなし',

@@ -1,7 +1,9 @@
 // 会话页：所有配对电脑的会话按电脑分组，每组标题是电脑名与连接状态，点标题进电脑详情。行里是标题、状态、项目、待处理数；右上角
-// 新建会话。下拉重连离线的电脑、重读会话列表；“会话列表读取失败”点一下重读那台。
+// 新建会话。下拉重连离线的电脑、重读会话列表；“会话列表读取失败”点一下重读那台。导航栏里搜索标题或项目名（同已归档页），搜索时
+// 只留有匹配的电脑。
 
 import { Stack, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { HeaderButton } from '../../../components/header-button';
 import { SessionRow } from '../../../components/session-row';
@@ -9,6 +11,7 @@ import { Chevron, EmptyState, Group, Icon, SectionTitle, StatusText } from '../.
 import { t } from '../../../i18n';
 import type { LinkSnapshot } from '../../../lib/computer-link';
 import { displayName } from '../../../lib/records';
+import { matchSessions } from '../../../lib/sessions';
 import { sessionsPlaceholder, statusLine } from '../../../lib/status-text';
 import { useMinuteClock } from '../../../state/clock';
 import { usePullToRefresh } from '../../../state/refresh';
@@ -22,9 +25,30 @@ export default function SessionsScreen() {
   const theme = useTheme();
   const registry = useRegistry();
   const pull = usePullToRefresh(() => registry.refresh());
+  const [query, setQuery] = useState('');
+  const searching = query.trim() !== '';
+  const matching = searching
+    ? computers.filter(
+        (c) => c.sessions.kind === 'ready' && matchSessions(c.sessions.sessions, query).length > 0,
+      )
+    : computers;
   return (
     <>
-      <Stack.Screen options={{ title: t('computer.sessions') }} />
+      <Stack.Screen
+        options={{
+          title: t('computer.sessions'),
+          ...(computers.length > 0 && {
+            headerSearchBarOptions: {
+              placeholder: t('sessions.search'),
+              autoCapitalize: 'none',
+              hideNavigationBar: false,
+              obscureBackground: false,
+              onChangeText: (event) => setQuery(event.nativeEvent.text),
+              onCancelButtonPress: () => setQuery(''),
+            },
+          }),
+        }}
+      />
       {computers.length > 0 && (
         <HeaderButton
           sf="square.and.pencil"
@@ -36,18 +60,28 @@ export default function SessionsScreen() {
       )}
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
+        keyboardDismissMode="on-drag"
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl {...pull} tintColor={theme.mutedForeground} />}
       >
         {computers.length > 0
-          ? computers.map((snapshot, index) => (
-              <ComputerSessions
-                key={snapshot.record.name}
-                snapshot={snapshot}
-                now={now}
-                first={index === 0}
-              />
-            ))
+          ? matching.length > 0
+            ? matching.map((snapshot, index) => (
+                <ComputerSessions
+                  key={snapshot.record.name}
+                  snapshot={snapshot}
+                  query={query}
+                  now={now}
+                  first={index === 0}
+                />
+              ))
+            : searching && (
+                <Text
+                  style={[styles.placeholder, styles.noMatches, { color: theme.mutedForeground }]}
+                >
+                  {t('archived.noMatches')}
+                </Text>
+              )
           : loaded && (
               <EmptyState
                 icon={{ ios: 'laptopcomputer.and.iphone', android: 'devices' }}
@@ -66,10 +100,12 @@ export default function SessionsScreen() {
 
 function ComputerSessions({
   snapshot,
+  query,
   now,
   first,
 }: {
   snapshot: LinkSnapshot;
+  query: string;
   now: Date;
   first: boolean;
 }) {
@@ -77,7 +113,7 @@ function ComputerSessions({
   const router = useRouter();
   const registry = useRegistry();
   const { record, sessions, status } = snapshot;
-  const list = sessions.kind === 'ready' ? sessions.sessions : [];
+  const list = sessions.kind === 'ready' ? matchSessions(sessions.sessions, query) : [];
   const placeholder = sessionsPlaceholder(snapshot);
   return (
     <View style={first && styles.firstSection}>
@@ -148,5 +184,6 @@ const styles = StyleSheet.create({
   heading: { flexShrink: 1, gap: 2 },
   computer: { fontSize: TEXT.title, fontWeight: '700', letterSpacing: -0.3 },
   placeholder: { fontSize: TEXT.small, marginHorizontal: 6 },
+  noMatches: { marginTop: 8 },
   retry: { flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start' },
 });

@@ -367,6 +367,7 @@ export const ko: Messages = {
   'session.archiveFailed': '보관하지 못함',
   'session.unarchiveFailed': '보관 해제하지 못함',
   'session.unarchived': '보관 해제됨',
+  'sessions.search': '세션 검색',
   'archived.search': '보관된 세션 검색',
   'archived.empty': '보관된 세션 없음',
   'archived.noMatches': '일치하는 세션 없음',
