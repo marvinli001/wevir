@@ -130,7 +130,7 @@
 | | macOS，Intel | 测试版 |
 | | Windows x64 | 测试版 |
 | | Linux x64 与 arm64（AppImage、deb） | 测试版 |
-| 移动端 | iOS（TestFlight） | 测试版 |
+| 移动端 | [iOS（App Store）](https://apps.apple.com/app/id6827798575) | 已上架 |
 | | Android（APK） | 测试版 |
 | 模型 | Codex 运行时 + API Key、OpenAI 兼容接口或 Ollama | 支持 |
 | | ChatGPT 账号登录 | 支持 |
@@ -152,7 +152,7 @@
 ## 已知限制
 
 - **订阅来源。** 依赖厂商官方客户端或 SDK 与本机登录，受厂商条款约束，客户端变更可能导致失效。
-- **移动端。** iOS 版仅通过 TestFlight 分发。Android 版暂不支持推送通知，仅在 App 打开时提醒。
+- **移动端。** iOS 版可从 App Store 下载。Android 版暂不支持推送通知，仅在 App 打开时提醒。
 - **平台。** 无 Windows on Arm 安装包。电脑操作只有 macOS 版。Linux 上只有 AppImage 在应用内更新，deb 版只提示新版本并给出下载页。
 
 问题反馈：[GitHub Issues](https://github.com/marvinli001/wevir/issues)。提问与建议：[GitHub Discussions](https://github.com/marvinli001/wevir/discussions)。
@@ -171,7 +171,7 @@
 | <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://wevir.si/download/#platforms) |
 | <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [下载 EXE](https://wevir.si/download/#platforms) |
 | <img alt="Linux" src="https://img.shields.io/badge/Linux-x64%20%7C%20arm64-FCC624?style=flat-square&logo=linux&logoColor=black" /> | [下载 AppImage 或 deb](https://wevir.si/download/#platforms) |
-| <img alt="iOS" src="https://img.shields.io/badge/iOS-TestFlight-111111?style=flat-square&logo=apple&logoColor=white" /> | TestFlight 测试版：邀请经 [Telegram 交流群](https://t.me/darkfiber_labs) 发放 |
+| <img alt="iOS" src="https://img.shields.io/badge/iOS-App%20Store-111111?style=flat-square&logo=apple&logoColor=white" /> | [App Store 下载](https://apps.apple.com/app/id6827798575) |
 | <img alt="Android" src="https://img.shields.io/badge/Android-APK-34A853?style=flat-square&logo=android&logoColor=white" /> | [下载 APK](https://wevir.si/download/#platforms) |
 
 ### 移动端
@@ -180,7 +180,7 @@
 
 | 平台 | 分发方式 |
 | --- | --- |
-| iOS | TestFlight 测试版。邀请在 [Telegram 交流群](https://t.me/darkfiber_labs) 中发放。 |
+| iOS | [App Store 下载](https://apps.apple.com/app/id6827798575)。 |
 | Android | 已签名的 APK，随每个桌面端版本发布，版本号与桌面端一致。新版 APK 可直接覆盖安装。 |
 
 在**设置 → 设备**开启远程访问，选择**配对手机**。

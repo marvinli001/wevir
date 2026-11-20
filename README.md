@@ -130,7 +130,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 | | macOS, Intel | Beta |
 | | Windows x64 | Beta |
 | | Linux x64 and arm64 (AppImage, deb) | Beta |
-| Mobile app | iOS (TestFlight) | Beta |
+| Mobile app | [iOS (App Store)](https://apps.apple.com/app/id6827798575) | Released |
 | | Android (APK) | Beta |
 | Models | Codex runtime with API keys, OpenAI-compatible endpoints, or Ollama | Supported |
 | | ChatGPT sign-in | Supported |
@@ -152,7 +152,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 ## Known limitations
 
 - **Subscription sources.** They depend on each vendor's client or SDK and your existing sign-in, are subject to vendor terms, and may break when the client changes.
-- **Mobile app.** iOS builds are distributed through TestFlight only. The Android build has no push notifications yet; alerts appear while the app is open.
+- **Mobile app.** The iOS app is available on the App Store. The Android build has no push notifications yet; alerts appear while the app is open.
 - **Platforms.** No Windows on Arm build. Computer use is macOS only. On Linux only the AppImage updates in place; the deb build shows new versions with a link to the download page.
 
 Bug reports: [GitHub Issues](https://github.com/marvinli001/wevir/issues). Questions and ideas: [GitHub Discussions](https://github.com/marvinli001/wevir/discussions).
@@ -171,7 +171,7 @@ Stable and development update channels are separate: each receives only its own 
 | <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download DMG](https://wevir.si/en/download/#platforms) |
 | <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [Download EXE](https://wevir.si/en/download/#platforms) |
 | <img alt="Linux" src="https://img.shields.io/badge/Linux-x64%20%7C%20arm64-FCC624?style=flat-square&logo=linux&logoColor=black" /> | [Download AppImage or deb](https://wevir.si/en/download/#platforms) |
-| <img alt="iOS" src="https://img.shields.io/badge/iOS-TestFlight-111111?style=flat-square&logo=apple&logoColor=white" /> | TestFlight beta: invitation via the [Telegram group](https://t.me/darkfiber_labs) |
+| <img alt="iOS" src="https://img.shields.io/badge/iOS-App%20Store-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download on the App Store](https://apps.apple.com/app/id6827798575) |
 | <img alt="Android" src="https://img.shields.io/badge/Android-APK-34A853?style=flat-square&logo=android&logoColor=white" /> | [Download APK](https://wevir.si/en/download/#platforms) |
 
 ### Mobile app
@@ -180,7 +180,7 @@ The phone app connects to Wevir on your computers over an end-to-end encrypted c
 
 | Platform | Distribution |
 | --- | --- |
-| iOS | TestFlight beta. Invitations are issued in the [Telegram group](https://t.me/darkfiber_labs). |
+| iOS | [Download on the App Store](https://apps.apple.com/app/id6827798575). |
 | Android | Signed APK, published with every desktop release under the same version number. A newer APK installs over the existing one. |
 
 In **Settings → Devices**, enable remote access and select **Pair a phone**.
