@@ -7,6 +7,7 @@ import type { MarketUpstream, MarketVerification } from '@wevir/protocol';
 import { cn } from 'cn';
 import { CalendarCheck, GitFork, Info, ShieldCheck, UserCheck } from 'lucide-react';
 import type { ReactNode } from 'react';
+import surface from '@/components/ui/dropdown-menu.module.css';
 import { currentLocale, t } from '@/i18n';
 import {
   localizedName,
@@ -100,7 +101,7 @@ export function VerificationBadge({
       <PreviewCard.Portal>
         <PreviewCard.Positioner side="bottom" align="start" sideOffset={6} className="isolate z-50">
           <PreviewCard.Popup
-            className="z-50 w-72 origin-(--transform-origin) rounded-xl bg-popover p-3.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden transition-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-90 blur-in-xs data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-90 blur-out-xs data-closed:duration-110 data-closed:ease-smooth"
+            className={cn(surface.popup, 'w-72 p-3.5 text-sm')}
             data-testid="verification-card"
           >
             <VerificationCard verification={verification} upstream={upstream} />

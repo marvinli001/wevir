@@ -1,0 +1,133 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/dropdown-menu/dropdown-menu.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .positioner {
+    position: relative;
+    isolation: isolate;
+    z-index: 50;
+    outline: none;
+  }
+  .popup {
+    position: relative;
+    isolation: isolate;
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: var(--available-height);
+    max-width: var(--available-width);
+    padding: 5px;
+    border: 1px solid var(--arc-border);
+    border-radius: var(--arc-radius-panel);
+    background: var(--arc-surface-raised);
+    color: var(--arc-raised-foreground);
+    box-shadow: var(--arc-shadow-floating);
+    outline: none;
+    transform-origin: var(--transform-origin);
+    transition:
+      opacity var(--arc-duration-fast) var(--arc-ease-enter),
+      transform var(--arc-duration-spring) var(--arc-ease-spring);
+  }
+  .popup[data-starting-style] {
+    opacity: 0;
+    transform: translateY(-5px) scale(0.97);
+  }
+  .popup[data-side="top"][data-starting-style] {
+    transform: translateY(5px) scale(0.97);
+  }
+  .popup[data-side="left"][data-starting-style] {
+    transform: translateX(5px) scale(0.97);
+  }
+  .popup[data-side="right"][data-starting-style] {
+    transform: translateX(-5px) scale(0.97);
+  }
+  .popup[data-ending-style] {
+    opacity: 0;
+    transform: scale(0.985);
+    transition-duration: var(--arc-duration-instant);
+    pointer-events: none;
+  }
+  .menu {
+    width: var(--anchor-width);
+    min-width: 8rem;
+  }
+  .submenu {
+    width: auto;
+    min-width: 6rem;
+  }
+  .item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: var(--arc-control-height-xs);
+    padding: 0.25rem 0.625rem;
+    border-radius: calc(var(--arc-radius-panel) - 6px);
+    color: inherit;
+    font-size: var(--arc-text-sm);
+    line-height: 1.5;
+    user-select: none;
+    cursor: default;
+    outline: none;
+  }
+  .item[data-inset] {
+    padding-inline-start: 1.75rem;
+  }
+  .item[data-variant="destructive"] {
+    color: var(--arc-danger);
+  }
+  .item[data-disabled] {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .item[data-popup-open] {
+    background: var(--arc-surface-muted);
+  }
+  .item:focus-visible {
+    outline: 1px solid var(--arc-focus-outline);
+    outline-offset: -1px;
+  }
+  .item svg {
+    flex: none;
+    pointer-events: none;
+  }
+  .item svg:where(:not([class*="size-"])) {
+    width: 1rem;
+    height: 1rem;
+  }
+  .highlight {
+    background: var(--arc-surface-muted);
+    border-radius: calc(var(--arc-radius-panel) - 6px);
+    opacity: 0;
+  }
+  .highlight[data-shown] {
+    opacity: 1;
+  }
+  .choice {
+    padding-inline-end: 2rem;
+  }
+  .indicator {
+    position: absolute;
+    inset-inline-end: 0.5rem;
+    display: flex;
+    align-items: center;
+    pointer-events: none;
+  }
+  .separator {
+    height: 1px;
+    margin: 0.25rem 0.375rem;
+    background: var(--arc-border-subtle);
+  }
+  .label {
+    padding: 0.25rem 0.625rem;
+    color: var(--arc-text-muted);
+    font-size: var(--arc-text-xs);
+    font-weight: 500;
+  }
+  .label[data-inset] {
+    padding-inline-start: 1.75rem;
+  }
+  .shortcut {
+    margin-inline-start: auto;
+    font-size: var(--arc-text-xs);
+    color: var(--arc-text-muted);
+  }
+}

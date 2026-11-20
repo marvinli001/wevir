@@ -1,12 +1,9 @@
-// SPDX-License-Identifier: MIT
-// 改写自 kuratlielia/arc-library registry/components/button/button.tsx 与 button.module.css 的加载圈（loader / spinner）
-// 来源提交 fff39c044c6e3b86006e3a6acc9a32a821a80d99
-// Copyright (c) 2026 Elia Kuratli
-// 由 Wevir 修改：拆成独立的加载圈，不用 motion 与 CSS modules；出现时的放大淡入用 tw-animate 与 theme.css 的弹簧令牌，
-// 减弱动效由 index.css 末尾的全局规则停下；带一段只给读屏的“正在加载”。
+// 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/button/button.module.css
+// 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli
 
 import { cn } from 'cn';
 import { t } from '@/i18n';
+import styles from './ui/spinner.module.css';
 
 /**
  * 加载圈（照 Arc 按钮的 loading）：一圈 1.5 px 的当前文字色描边、右边一段透明，0.7 s 匀速转；出现时从 60% 放大淡入。
@@ -14,18 +11,8 @@ import { t } from '@/i18n';
  */
 export function Spinner({ className, label }: { className?: string; label?: string }) {
   return (
-    <span
-      role="status"
-      data-spinner
-      className={cn(
-        'inline-flex size-5 shrink-0 text-muted-foreground animate-in fade-in-0 zoom-in-60 duration-(--spring-reveal-duration) ease-spring-reveal fill-mode-both',
-        className,
-      )}
-    >
-      <span
-        aria-hidden
-        className="size-full animate-[spin_0.7s_linear_infinite] rounded-full border-[1.5px] border-current border-r-transparent"
-      />
+    <span role="status" data-spinner className={cn(styles.root, className)}>
+      <span aria-hidden className={styles.circle} />
       <span className="sr-only">{label ?? t('common.loading')}</span>
     </span>
   );

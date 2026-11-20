@@ -1,11 +1,6 @@
-// 由 shadcn CLI 4.21.4 从官方 registry 生成（components.json：base-nova，Base UI，lucide）。
-// MIT License，Copyright (c) 2023 shadcn。
-// Wevir 的改动：遮罩改用语义色 bg-overlay（Tailwind 默认调色板已清空，bg-black 不再生成样式），去掉毛玻璃；关闭按钮的文案走 t()；
-// U10 起出现 200 ms（放大加上移 8px，ease-smooth），关闭 150 ms；交互手感一轮起内容入场用 reveal 弹簧（theme.css 的
-// --spring-reveal），遮罩仍 200 ms ease-smooth，两者退场都是 110 ms ease-smooth。
-// 弹层加 transition-none：duration-* 同时设置 transition-duration，打开时换主题会让弹层的颜色过渡 410 ms，Base UI 等它播完才
-// 隐藏弹层，退场动画先播完，弹层又露出来闪一下。
-// 2026-11-02 起：对话框带 shadow-lg（--elevation，同菜单与浮层）；有叠在上面的对话框时下面这层缩小、上移、蒙遮罩。
+// 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/dialog/dialog.tsx
+// 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli
+// Base UI 组合沿用 shadcn/ui，MIT License，Copyright (c) 2023 shadcn。
 
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { cn } from 'cn';
@@ -13,6 +8,8 @@ import { XIcon } from 'lucide-react';
 import type * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
+import { withClasses } from './classes';
+import styles from './dialog.module.css';
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -34,10 +31,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   return (
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
-      className={cn(
-        'fixed inset-0 isolate z-50 bg-overlay duration-200 ease-smooth data-closed:duration-110 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0',
-        className,
-      )}
+      className={withClasses(styles.overlay, className)}
       {...props}
     />
   );
@@ -56,13 +50,7 @@ function DialogContent({
       <DialogOverlay />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
-        className={cn(
-          'fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground shadow-lg ring-1 ring-foreground/10 transition-none data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:duration-110 data-closed:ease-smooth outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-open:slide-in-from-bottom-2 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95',
-          // 叠在上面的对话框打开时（Base UI 的 nested，确认框叠在列表框上）：下面这层缩小一点、往上退一点、蒙一层遮罩色，
-          // 上下两层分得出前后。只过渡 scale / translate，不碰颜色（见文件头 transition-none 的原因）。
-          'transition-[scale,translate] duration-300 ease-smooth data-nested-dialog-open:data-open:duration-300 data-nested-dialog-open:data-open:ease-smooth data-nested-dialog-open:scale-[calc(1-0.05*var(--nested-dialogs))] data-nested-dialog-open:-translate-y-[calc(50%+0.75rem*var(--nested-dialogs))] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:bg-overlay after:opacity-0 after:transition-opacity after:duration-300 after:ease-smooth data-nested-dialog-open:after:opacity-100',
-          className,
-        )}
+        className={withClasses(styles.content, className)}
         {...props}
       >
         {children}
@@ -81,9 +69,7 @@ function DialogContent({
 }
 
 function DialogHeader({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div data-slot="dialog-header" className={cn('flex flex-col gap-2', className)} {...props} />
-  );
+  return <div data-slot="dialog-header" className={cn(styles.header, className)} {...props} />;
 }
 
 function DialogFooter({
@@ -95,14 +81,7 @@ function DialogFooter({
   showCloseButton?: boolean;
 }) {
   return (
-    <div
-      data-slot="dialog-footer"
-      className={cn(
-        '-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end',
-        className,
-      )}
-      {...props}
-    >
+    <div data-slot="dialog-footer" className={cn(styles.footer, className)} {...props}>
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close render={<Button variant="outline" />}>
@@ -117,7 +96,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn('text-base leading-none font-medium', className)}
+      className={withClasses(styles.title, className)}
       {...props}
     />
   );
@@ -127,10 +106,7 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn(
-        'text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground',
-        className,
-      )}
+      className={withClasses(styles.description, className)}
       {...props}
     />
   );

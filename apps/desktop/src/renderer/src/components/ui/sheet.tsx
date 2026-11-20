@@ -1,7 +1,6 @@
-// 由 shadcn CLI 4.21.4 从官方 registry 生成（components.json：base-nova，Base UI，lucide）。
-// MIT License，Copyright (c) 2023 shadcn。
-// Wevir 的改动：遮罩改用语义色 bg-overlay（Tailwind 默认调色板已清空，bg-black 不再生成样式），去掉毛玻璃；关闭按钮的文案走 t()；去掉 "use client"；
-// U5 起左右两侧整幅滑入滑出（不再只移 2.5rem），时长与曲线同停靠侧栏的开合（index.css 的 .layout-transition）。
+// 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/drawer/drawer.tsx
+// 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli
+// Base UI 组合沿用 shadcn/ui，MIT License，Copyright (c) 2023 shadcn。
 
 import { Dialog as SheetPrimitive } from '@base-ui/react/dialog';
 import { cn } from 'cn';
@@ -9,6 +8,9 @@ import { XIcon } from 'lucide-react';
 import type * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
+import { withClasses } from './classes';
+import dialog from './dialog.module.css';
+import styles from './sheet.module.css';
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />;
@@ -30,10 +32,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
   return (
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
-      className={cn(
-        'fixed inset-0 z-50 bg-overlay transition-opacity duration-[260ms] ease-emphasized data-ending-style:opacity-0 data-starting-style:opacity-0',
-        className,
-      )}
+      className={withClasses(dialog.overlay, className)}
       {...props}
     />
   );
@@ -55,10 +54,7 @@ function SheetContent({
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
-        className={cn(
-          'fixed z-50 flex flex-col gap-4 bg-popover bg-clip-padding text-sm text-popover-foreground shadow-lg transition-[translate,opacity] duration-[260ms] ease-emphasized data-[side=bottom]:data-ending-style:opacity-0 data-[side=bottom]:data-starting-style:opacity-0 data-[side=top]:data-ending-style:opacity-0 data-[side=top]:data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:-translate-x-full data-[side=left]:data-starting-style:-translate-x-full data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-full data-[side=right]:data-starting-style:translate-x-full data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm',
-          className,
-        )}
+        className={withClasses(styles.sheet, className)}
         {...props}
       >
         {children}
@@ -77,30 +73,18 @@ function SheetContent({
 }
 
 function SheetHeader({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot="sheet-header"
-      className={cn('flex flex-col gap-0.5 p-4', className)}
-      {...props}
-    />
-  );
+  return <div data-slot="sheet-header" className={cn(styles.header, className)} {...props} />;
 }
 
 function SheetFooter({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot="sheet-footer"
-      className={cn('mt-auto flex flex-col gap-2 p-4', className)}
-      {...props}
-    />
-  );
+  return <div data-slot="sheet-footer" className={cn(styles.footer, className)} {...props} />;
 }
 
 function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
       data-slot="sheet-title"
-      className={cn('text-base font-medium text-foreground', className)}
+      className={withClasses(dialog.title, className)}
       {...props}
     />
   );
@@ -110,7 +94,7 @@ function SheetDescription({ className, ...props }: SheetPrimitive.Description.Pr
   return (
     <SheetPrimitive.Description
       data-slot="sheet-description"
-      className={cn('text-sm text-muted-foreground', className)}
+      className={withClasses(dialog.description, className)}
       {...props}
     />
   );

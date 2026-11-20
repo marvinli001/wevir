@@ -1,3 +1,4 @@
+// 样式来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/toast-stack/toast-stack.module.css · MIT License · Copyright (c) 2026 Elia Kuratli
 // 叠放的布局改写自 kuratlielia/arc-library registry/components/toast-stack/toast-stack.tsx 的 layoutStack
 // （MIT License，Copyright (c) 2026 Elia Kuratli，来源提交 fff39c044c6e3b86006e3a6acc9a32a821a80d99）。
 // 由 Wevir 修改：不用 motion，通知区量出各卡片的高度、把位置与缩放写进卡片的 CSS 变量，平移、缩放、高度走 theme.css 的
@@ -16,9 +17,10 @@ import {
 } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { t } from '@/i18n';
+import styles from './ui/toast.module.css';
 
 /** 离场动画的时长（与 className 里的 duration-150 一致），动画事件没来时按它卸载。 */
-const EXIT_MS = 150;
+const EXIT_MS = 160;
 
 /** 收起时后面的卡片各露出多少（px）、各缩小多少；最多叠几张（再往后的隐藏）；展开时卡片之间的间距。 */
 const PEEK = 10;
@@ -198,15 +200,7 @@ export function Toast({
         if (event.target === card.current && !open) mounted.unmount();
       }}
     >
-      <div
-        ref={card}
-        className={cn(
-          'h-full overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10',
-          open
-            ? 'animate-in fade-in slide-in-from-bottom-2 duration-200 ease-smooth'
-            : 'animate-out fade-out slide-out-to-right-4 fill-mode-forwards duration-150 ease-smooth',
-        )}
-      >
+      <div ref={card} className={cn(styles.card, !open && styles.closing)}>
         <div
           data-toast-body
           className="flex items-start gap-2.5 py-3 pr-2.5 pl-3.5 transition-opacity duration-150 ease-smooth in-data-tucked:opacity-0"

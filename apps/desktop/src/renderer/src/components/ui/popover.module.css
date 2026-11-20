@@ -1,0 +1,23 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/popover/popover.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .popover {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    width: 18rem;
+    padding: var(--arc-space-3);
+    font-size: var(--arc-text-sm);
+  }
+  .header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .title {
+    font-weight: 500;
+  }
+  .description {
+    color: var(--arc-text-secondary);
+  }
+}

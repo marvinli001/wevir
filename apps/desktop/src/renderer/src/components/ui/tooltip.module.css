@@ -1,0 +1,34 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/tooltip/tooltip.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .tooltip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    width: max-content;
+    max-width: 20rem;
+    padding: 0.375rem 0.75rem;
+    border: 1px solid color-mix(in oklab, var(--arc-background) 14%, var(--arc-foreground));
+    border-radius: var(--arc-radius-control);
+    background: var(--arc-foreground);
+    color: var(--arc-background);
+    box-shadow: var(--arc-shadow-raised);
+    font-size: var(--arc-text-xs);
+    line-height: var(--arc-leading-body);
+    transform-origin: var(--transform-origin);
+    transition:
+      opacity var(--arc-duration-fast) var(--arc-ease-enter),
+      transform var(--arc-duration-fast) var(--arc-ease-enter);
+  }
+  .tooltip[data-starting-style],
+  .tooltip[data-ending-style] {
+    opacity: 0;
+    transform: translateY(3px) scale(0.97);
+  }
+  .tooltip[data-side="bottom"][data-starting-style] {
+    transform: translateY(-3px) scale(0.97);
+  }
+  .tooltip[data-instant] {
+    transition-duration: 0s;
+  }
+}

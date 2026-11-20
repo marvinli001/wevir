@@ -1,0 +1,68 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/drawer/drawer.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .sheet {
+    position: fixed;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: var(--arc-space-4);
+    border: 1px solid var(--arc-border);
+    background: var(--arc-surface-raised);
+    color: var(--arc-raised-foreground);
+    box-shadow: var(--arc-shadow-floating);
+    font-size: var(--arc-text-sm);
+    outline: none;
+    transition:
+      transform var(--arc-duration-spring) var(--arc-ease-spring),
+      opacity var(--arc-duration-fast) var(--arc-ease-standard);
+  }
+  .sheet[data-side="right"],
+  .sheet[data-side="left"] {
+    inset-block: 0;
+    width: 75%;
+    max-width: 24rem;
+  }
+  .sheet[data-side="right"] {
+    right: 0;
+    border-radius: var(--arc-radius-panel) 0 0 var(--arc-radius-panel);
+  }
+  .sheet[data-side="left"] {
+    left: 0;
+    border-radius: 0 var(--arc-radius-panel) var(--arc-radius-panel) 0;
+  }
+  .sheet[data-side="top"],
+  .sheet[data-side="bottom"] {
+    inset-inline: 0;
+  }
+  .sheet[data-side="top"] {
+    top: 0;
+    border-radius: 0 0 var(--arc-radius-panel) var(--arc-radius-panel);
+  }
+  .sheet[data-side="bottom"] {
+    bottom: 0;
+    border-radius: var(--arc-radius-panel) var(--arc-radius-panel) 0 0;
+  }
+  .sheet[data-side="right"]:is([data-starting-style], [data-ending-style]) {
+    transform: translateX(100%);
+  }
+  .sheet[data-side="left"]:is([data-starting-style], [data-ending-style]) {
+    transform: translateX(-100%);
+  }
+  .sheet[data-side="top"]:is([data-starting-style], [data-ending-style]) {
+    transform: translateY(-100%);
+  }
+  .sheet[data-side="bottom"]:is([data-starting-style], [data-ending-style]) {
+    transform: translateY(100%);
+  }
+  .header,
+  .footer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--arc-space-2);
+    padding: var(--arc-space-4);
+  }
+  .footer {
+    margin-top: auto;
+  }
+}

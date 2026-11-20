@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { type RefObject, useEffect, useRef, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
+import surface from '@/components/ui/dropdown-menu.module.css';
 import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
 import { platformApi } from '@/platform/platform';
@@ -29,8 +30,7 @@ const COPIED_MS = 1500;
 
 const SELECTOR = 'a[data-external-link], a[data-file-link]';
 
-const POPUP =
-  'z-50 origin-(--transform-origin) rounded-xl bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden transition-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:duration-110 data-closed:ease-smooth';
+const POPUP = surface.popup;
 
 const FILE_ICONS: Record<LinkIcon, LucideIcon> = {
   file: File,

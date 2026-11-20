@@ -1,0 +1,77 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/select/select.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .trigger {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--arc-space-2);
+    width: 100%;
+    min-width: 0;
+    height: var(--arc-control-height-md);
+    padding-inline: var(--arc-space-3);
+    border: 1px solid var(--arc-border);
+    border-radius: var(--arc-radius-control);
+    background: var(--arc-surface);
+    color: var(--arc-surface-foreground);
+    text-align: start;
+    font-size: var(--arc-text-sm);
+    outline: none;
+    transition:
+      background-color var(--arc-duration-fast),
+      border-color var(--arc-duration-fast);
+  }
+  .trigger:hover:not([data-disabled]),
+  .trigger[data-popup-open] {
+    border-color: var(--arc-border-strong);
+    background: var(--arc-surface-muted);
+  }
+  .trigger:focus-visible {
+    border-color: var(--arc-focus-outline);
+    box-shadow: 0 0 0 2px var(--arc-focus-ring);
+  }
+  .trigger[data-disabled] {
+    opacity: 0.5;
+  }
+  .value {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .icon,
+  .chevron {
+    display: inline-flex;
+    flex: none;
+    color: var(--arc-text-muted);
+  }
+  .icon svg,
+  .chevron svg {
+    width: 1rem;
+    height: 1rem;
+  }
+  .chevron {
+    transition: transform var(--arc-duration-press) var(--arc-ease-press);
+  }
+  .trigger[data-popup-open] .chevron {
+    transform: rotate(180deg);
+  }
+  .popup {
+    width: var(--anchor-width);
+    min-width: 10rem;
+  }
+  .list {
+    position: relative;
+    isolation: isolate;
+  }
+  .copy {
+    display: grid;
+    min-width: 0;
+    flex: 1;
+  }
+  .description {
+    font-size: var(--arc-text-xs);
+    color: var(--arc-text-muted);
+  }
+}

@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { StatusDot } from '@/components/status-dot';
+import surface from '@/components/ui/dropdown-menu.module.css';
 import { useWorkbenchSelector, useWorkbenchStore } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
@@ -27,8 +28,7 @@ import { formatRelativeTime } from './subagent-model';
 const OPEN_DELAY_MS = 300;
 const CLOSE_DELAY_MS = 150;
 
-const CARD =
-  'z-50 w-72 origin-(--transform-origin) rounded-xl bg-popover p-3 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden transition-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-90 blur-in-xs data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-90 blur-out-xs data-closed:duration-110 data-closed:ease-smooth';
+const CARD = cn(surface.popup, 'w-72 p-3');
 
 /** 工作台里的一个会话（订阅工作台，会话的状态与标题变了跟着变）。 */
 export function useSessionEntry(id: SessionId | undefined): SessionEntry | undefined {

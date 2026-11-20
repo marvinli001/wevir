@@ -1,13 +1,11 @@
-// 右键菜单（U34，会话行；0.49.0 起项目标题也有）：Base UI 的 ContextMenu，弹层的样式同 dropdown-menu.tsx（弹簧入场、退场不回弹），
-// 菜单项、分隔线与子菜单直接用 DropdownMenu 的那一套（它们与 ContextMenu 的是同一个原语），这里转出来让用的地方只从一个文件引。
-// 弹层加 transition-none：duration-* 同时设置 transition-duration，打开时换主题会让弹层的颜色过渡 410 ms，Base UI 等它播完才
-// 隐藏弹层，退场动画先播完，弹层又露出来闪一下。
-// 发芽一轮（desktop-tokens.md §71）起弹层从触发点长出来：沿 Base UI 的 --transform-origin 从 90%（原来 95%）放大，同时从 4 px 的
-// 模糊变清（tw-animate 的 blur-in-xs），入场仍是 reveal 弹簧；退场缩回 90% 并糊回 4 px（blur-out-xs），110 ms。
+// 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/context-menu/context-menu.tsx
+// 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli
 
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu';
 import { cn } from 'cn';
 import type * as React from 'react';
+import { withClasses } from './classes';
+import styles from './context-menu.module.css';
 import {
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -15,6 +13,8 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from './dropdown-menu';
+import menu from './dropdown-menu.module.css';
+import { MenuHighlight } from './menu-highlight';
 
 function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />;
@@ -30,15 +30,15 @@ function ContextMenuContent({
 }: ContextMenuPrimitive.Popup.Props & { children?: React.ReactNode }) {
   return (
     <ContextMenuPrimitive.Portal>
-      <ContextMenuPrimitive.Positioner className="isolate z-50 outline-none">
+      <ContextMenuPrimitive.Positioner className={menu.positioner}>
         <ContextMenuPrimitive.Popup
           data-slot="context-menu-content"
-          className={cn(
-            'z-50 max-h-(--available-height) min-w-48 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-xl bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 transition-none data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:duration-110 data-closed:ease-smooth outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-90 blur-in-xs data-closed:animate-out data-closed:overflow-hidden data-closed:fade-out-0 data-closed:zoom-out-90 blur-out-xs',
-            className,
-          )}
+          className={withClasses(cn(menu.popup, styles.menu), className)}
           {...props}
-        />
+        >
+          <MenuHighlight />
+          {props.children}
+        </ContextMenuPrimitive.Popup>
       </ContextMenuPrimitive.Positioner>
     </ContextMenuPrimitive.Portal>
   );

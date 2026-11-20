@@ -112,3 +112,36 @@
     --arc-duration-glide: 0s;
   }
 }
+
+:root:is([data-low-gpu], [data-theme-backdrop-reduced])
+  :is(
+    [data-slot],
+    [data-slot] *,
+    [data-spinner],
+    [data-spinner] *,
+    [data-toast],
+    [data-toast] *,
+    .glide-mark,
+    .digit-reel,
+    [data-arc-tabs] *
+  ) {
+  transition: none;
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce), (prefers-reduced-transparency: reduce) {
+  :root
+    :is(
+      [data-slot],
+      [data-slot] *,
+      [data-spinner],
+      [data-spinner] *,
+      [data-toast],
+      [data-toast] *,
+      .glide-mark,
+      .digit-reel,
+      [data-arc-tabs] *
+    ) {
+    transition: none;
+    animation: none;
+  }
+}

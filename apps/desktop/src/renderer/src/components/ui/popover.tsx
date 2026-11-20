@@ -1,16 +1,13 @@
-// 由 shadcn CLI 4.21.4 从官方 registry 生成（components.json：base-nova，Base UI，lucide）。
-// MIT License，Copyright (c) 2023 shadcn。
-// Wevir 的改动：U1 起浮层是 rounded-xl（卡片 12px）。
-// U10 起出现与消失 150 ms、ease-smooth（原来 100 ms）；交互手感一轮起入场用 reveal 弹簧（theme.css 的 --spring-reveal），
-// 退场 110 ms ease-smooth，不回弹。PopoverContent 多收 Positioner 的 anchor（定位到触发按钮以外的元素）。
-// 弹层加 transition-none：duration-* 同时设置 transition-duration，打开时换主题会让弹层的颜色过渡 410 ms，Base UI 等它播完才
-// 隐藏弹层，退场动画先播完，弹层又露出来闪一下。
-// 发芽一轮（desktop-tokens.md §71）起弹层从触发点长出来：沿 Base UI 的 --transform-origin 从 90%（原来 95%）放大，同时从 4 px 的
-// 模糊变清（tw-animate 的 blur-in-xs），入场仍是 reveal 弹簧；退场缩回 90% 并糊回 4 px（blur-out-xs），110 ms。
+// 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/popover/popover.tsx
+// 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli
+// Base UI 组合沿用 shadcn/ui，MIT License，Copyright (c) 2023 shadcn。
 
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { cn } from 'cn';
 import type * as React from 'react';
+import { withClasses } from './classes';
+import menu from './dropdown-menu.module.css';
+import styles from './popover.module.css';
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />;
@@ -41,14 +38,11 @@ function PopoverContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
-        className="isolate z-50"
+        className={menu.positioner}
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"
-          className={cn(
-            'z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-xl bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden transition-none data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:duration-110 data-closed:ease-smooth data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-90 blur-in-xs data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-90 blur-out-xs',
-            className,
-          )}
+          className={withClasses(cn(menu.popup, styles.popover), className)}
           {...props}
         />
       </PopoverPrimitive.Positioner>
@@ -57,20 +51,14 @@ function PopoverContent({
 }
 
 function PopoverHeader({ className, ...props }: React.ComponentProps<'div'>) {
-  return (
-    <div
-      data-slot="popover-header"
-      className={cn('flex flex-col gap-0.5 text-sm', className)}
-      {...props}
-    />
-  );
+  return <div data-slot="popover-header" className={cn(styles.header, className)} {...props} />;
 }
 
 function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
   return (
     <PopoverPrimitive.Title
       data-slot="popover-title"
-      className={cn('font-medium', className)}
+      className={withClasses(styles.title, className)}
       {...props}
     />
   );
@@ -80,7 +68,7 @@ function PopoverDescription({ className, ...props }: PopoverPrimitive.Descriptio
   return (
     <PopoverPrimitive.Description
       data-slot="popover-description"
-      className={cn('text-muted-foreground', className)}
+      className={withClasses(styles.description, className)}
       {...props}
     />
   );

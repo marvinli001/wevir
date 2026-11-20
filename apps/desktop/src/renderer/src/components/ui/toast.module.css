@@ -1,0 +1,29 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/toast-stack/toast-stack.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .card {
+    height: 100%;
+    overflow: hidden;
+    border: 1px solid var(--arc-border);
+    border-radius: var(--arc-radius-panel);
+    background: var(--arc-surface-raised);
+    color: var(--arc-raised-foreground);
+    box-shadow: var(--arc-shadow-floating);
+    animation: enter var(--arc-duration-spring) var(--arc-ease-spring) both;
+  }
+  .closing {
+    animation: exit var(--arc-duration-fast) var(--arc-ease-standard) both;
+  }
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+  }
+  @keyframes exit {
+    to {
+      opacity: 0;
+      transform: translateX(1rem) scale(0.98);
+    }
+  }
+}
