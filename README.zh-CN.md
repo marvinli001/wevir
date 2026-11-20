@@ -152,7 +152,7 @@
 ## 已知限制
 
 - **订阅来源。** 依赖厂商官方客户端或 SDK 与本机登录，受厂商条款约束，客户端变更可能导致失效。
-- **移动端。** iOS 版可从 App Store 下载。Android 版暂不支持推送通知，仅在 App 打开时提醒。
+- **移动端。** Android 后台推送需要已配置 Firebase Cloud Messaging 的 APK、支持 Google Play 服务的设备和已启用 FCM 的推送网关。未配置的 APK 仅在前台提醒。
 - **平台。** 无 Windows on Arm 安装包。电脑操作只有 macOS 版。Linux 上只有 AppImage 在应用内更新，deb 版只提示新版本并给出下载页。
 
 问题反馈：[GitHub Issues](https://github.com/marvinli001/wevir/issues)。提问与建议：[GitHub Discussions](https://github.com/marvinli001/wevir/discussions)。

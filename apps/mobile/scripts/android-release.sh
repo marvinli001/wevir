@@ -13,6 +13,7 @@
 #   WEVIR_ANDROID_KEYSTORE_PASSWORD   密钥库与密钥的密码，必填
 #   WEVIR_ANDROID_KEY_ALIAS           密钥别名，默认 wevir
 #   WEVIR_ANDROID_CERT_SHA256         签名证书的 SHA-256（十六进制，冒号可有可无）；设了就核对，换错密钥库时失败
+#   WEVIR_GOOGLE_SERVICES_FILE       si.wevir.mobile 的 Firebase Android 配置，默认 apps/mobile/google-services.json
 #   ANDROID_HOME、JAVA_HOME           Android SDK 与 JDK 17（GitHub 的 Ubuntu runner 自带 SDK）
 #   GRADLE_HOME                      已准备的 Gradle，版本须与生成的 Wrapper 相同；省略时使用 Wrapper
 
@@ -32,6 +33,21 @@ export WEVIR_ANDROID_VERSION="$version"
 
 app="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$app"
+if [ -n "${WEVIR_GOOGLE_SERVICES_FILE:-}" ] || [ -f "$app/google-services.json" ]; then
+  export WEVIR_GOOGLE_SERVICES_FILE="${WEVIR_GOOGLE_SERVICES_FILE:-$app/google-services.json}"
+  node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+let config;
+try {
+  config = JSON.parse(readFileSync(process.env.WEVIR_GOOGLE_SERVICES_FILE, 'utf8'));
+} catch {
+  throw new Error('Firebase Android configuration is missing or invalid JSON');
+}
+if (!config.project_info?.project_number || !config.client?.some(
+  (client) => client.client_info?.android_client_info?.package_name === 'si.wevir.mobile'
+)) throw new Error('Firebase configuration must contain the si.wevir.mobile Android app');
+NODE
+fi
 out="$app/build/android"
 apk="$out/Wevir-$version-android.apk"
 mkdir -p "$out"
@@ -75,5 +91,18 @@ grep -q "versionName='$version'" <<<"$badging" || {
   echo "unexpected package line: $badging" >&2
   exit 1
 }
+unzip -p "$apk" assets/app.config | node -e '
+  const config = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+  const configured = !!process.env.WEVIR_GOOGLE_SERVICES_FILE;
+  if (config.extra?.push?.fcm !== configured) throw new Error("FCM configuration does not match the release APK");
+  console.log(configured ? "FCM enabled" : "FCM unavailable; foreground alerts only");
+'
+if [ -n "${WEVIR_GOOGLE_SERVICES_FILE:-}" ]; then
+  "$build_tools/aapt2" dump resources "$apk" | awk '
+    /string\/google_app_id/ { app = 1 }
+    /string\/gcm_defaultSenderId/ { sender = 1 }
+    END { if (!app || !sender) { print "Firebase Android resources missing" > "/dev/stderr"; exit 1 } }
+  '
+fi
 echo "$badging"
 ls -l "$apk"

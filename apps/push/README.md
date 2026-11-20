@@ -115,6 +115,8 @@ All settings are environment variables. Credentials can be given inline or as a 
 
 APNs and FCM are each optional; requests for a platform without credentials get `platform_unavailable`. APNs provider tokens are renewed every 40 minutes; one key serves both the production and sandbox hosts. Bindings unused for 180 days are pruned.
 
+The Android release workflow reads the Firebase Android app configuration for `si.wevir.mobile` from the `WEVIR_GOOGLE_SERVICES_JSON` GitHub Actions secret. Use the same Firebase project for the gateway's `WEVIR_PUSH_FCM_CREDENTIALS` or `WEVIR_PUSH_FCM_CREDENTIALS_FILE`. The app configuration and the gateway service account are separate files. Only the gateway needs the service account.
+
 ## Health check
 
 `GET /healthz` returns `200` with `{"status":"ok","bindings":…,"apns":…,"fcm":…,"uptimeSeconds":…}`. The Docker image uses it as its `HEALTHCHECK`.

@@ -152,7 +152,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 ## Known limitations
 
 - **Subscription sources.** They depend on each vendor's client or SDK and your existing sign-in, are subject to vendor terms, and may break when the client changes.
-- **Mobile app.** The iOS app is available on the App Store. The Android build has no push notifications yet; alerts appear while the app is open.
+- **Mobile app.** Android background notifications require an APK configured for Firebase Cloud Messaging, a device with Google Play services, and an FCM-enabled push gateway. Builds without FCM show alerts while the app is open.
 - **Platforms.** No Windows on Arm build. Computer use is macOS only. On Linux only the AppImage updates in place; the deb build shows new versions with a link to the download page.
 
 Bug reports: [GitHub Issues](https://github.com/marvinli001/wevir/issues). Questions and ideas: [GitHub Discussions](https://github.com/marvinli001/wevir/discussions).

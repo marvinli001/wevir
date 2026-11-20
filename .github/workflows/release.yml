@@ -332,15 +332,25 @@ jobs:
 
       - name: 打包
         env:
+          WEVIR_GOOGLE_SERVICES_JSON: ${{ secrets.WEVIR_GOOGLE_SERVICES_JSON }}
           WEVIR_ANDROID_KEYSTORE_BASE64: ${{ secrets.WEVIR_ANDROID_KEYSTORE_BASE64 }}
           WEVIR_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.WEVIR_ANDROID_KEYSTORE_PASSWORD }}
           WEVIR_ANDROID_CERT_SHA256: ${{ vars.WEVIR_ANDROID_CERT_SHA256 }}
         run: |
           if [ -z "$WEVIR_ANDROID_KEYSTORE_BASE64" ]; then echo "::error::WEVIR_ANDROID_KEYSTORE_BASE64 没有设置"; exit 1; fi
+          umask 077
+          firebase_file="$RUNNER_TEMP/wevir-google-services.json"
           export WEVIR_ANDROID_KEYSTORE="$RUNNER_TEMP/android-release.jks"
+          trap 'rm -f "$firebase_file" "$WEVIR_ANDROID_KEYSTORE"' EXIT
+          if [ -n "$WEVIR_GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$WEVIR_GOOGLE_SERVICES_JSON" > "$firebase_file"
+            export WEVIR_GOOGLE_SERVICES_FILE="$firebase_file"
+          else
+            echo "::warning::WEVIR_GOOGLE_SERVICES_JSON is unset; this APK only receives foreground alerts."
+          fi
+          unset WEVIR_GOOGLE_SERVICES_JSON
           printf '%s' "$WEVIR_ANDROID_KEYSTORE_BASE64" | base64 -d > "$WEVIR_ANDROID_KEYSTORE"
           bash apps/mobile/scripts/android-release.sh ${{ needs.plan.outputs.version }}
-          rm -f "$WEVIR_ANDROID_KEYSTORE"
 
       - uses: actions/upload-artifact@v7
         with:
