@@ -7,6 +7,7 @@ export type BreakdownKind = 'used' | 'free' | 'buffer' | 'deferred';
 
 /** 引擎给的类别名里桌面端认得的：按界面语言显示。键是小写的类别名。 */
 const CATEGORY_LABELS = {
+  'since last update': () => t('rail.context.sinceUpdate'),
   messages: () => t('rail.context.cat.messages'),
   'system prompt': () => t('rail.context.cat.systemPrompt'),
   'system tools': () => t('rail.context.cat.systemTools'),
@@ -57,7 +58,8 @@ const FIXED_SWATCH: Record<string, number> = {
   skills: 3,
   'slash commands': 4,
   'system prompt': 6,
-  'memory files': 7,
+  'memory files': 3,
+  'since last update': 7,
   'mcp server instructions': 8,
   'custom agents': 9,
   input: 0,
@@ -71,6 +73,7 @@ export const BUFFER_SWATCH = 'bg-border-strong';
 const DEFERRED_SUFFIX = / \(deferred\)$/i;
 
 export interface BreakdownRow {
+  name: string;
   label: string;
   tokens: number;
   /** 占窗口的比例，0–100，不取整。 */
@@ -122,11 +125,31 @@ export function groupLabel(group: string): string {
 /** 没有可画的（没有行、或占用全是 0）时返回 undefined。 */
 export function contextBreakdown(
   breakdown: UsageBreakdown | undefined,
+  used?: number,
+  size?: number,
 ): ContextBreakdownView | undefined {
   if (!breakdown) return undefined;
-  const entries = breakdown.categories.filter((row) => row.tokens > 0);
+  const delta =
+    used !== undefined && breakdown.measuredUsed !== undefined ? used - breakdown.measuredUsed : 0;
+  if (delta < 0) return undefined;
+  let categories = breakdown.categories;
+  if (delta > 0) {
+    let growth = delta;
+    categories = [...categories];
+    for (const kind of ['free', 'buffer']) {
+      categories = categories.map((row) => {
+        if (row.kind !== kind) return row;
+        const taken = Math.min(growth, row.tokens);
+        growth -= taken;
+        return { ...row, tokens: row.tokens - taken };
+      });
+    }
+    categories.push({ name: 'Since last update', kind: 'used', tokens: delta });
+  }
+  const entries = categories.filter((row) => row.tokens > 0);
   const windowed = entries.filter((row) => kindOf(row.kind) !== 'deferred');
-  const total = windowed.reduce((sum, row) => sum + row.tokens, 0);
+  if (!windowed.length) return undefined;
+  const total = size ?? windowed.reduce((sum, row) => sum + row.tokens, 0);
   if (total <= 0) return undefined;
 
   // 不认识的类别用这一组分布里没被已知类别占着的灰，按出现顺序取；都占着或不够了就在灰里轮。
@@ -151,6 +174,7 @@ export function contextBreakdown(
   const toRow = (row: UsageBreakdown['categories'][number]): BreakdownRow => {
     const kind = kindOf(row.kind);
     return {
+      name: row.name,
       label: categoryLabel(row.name),
       tokens: row.tokens,
       percent: kind === 'deferred' ? 0 : (row.tokens / total) * 100,
@@ -162,7 +186,12 @@ export function contextBreakdown(
   const rank = { used: 0, buffer: 1, free: 2, deferred: 3 } as const;
   const rows = windowed
     .map(toRow)
-    .sort((a, b) => rank[a.kind] - rank[b.kind] || b.tokens - a.tokens);
+    .sort(
+      (a, b) =>
+        rank[a.kind] - rank[b.kind] ||
+        Number(a.name === 'Since last update') - Number(b.name === 'Since last update') ||
+        b.tokens - a.tokens,
+    );
   const deferred = entries
     .filter((row) => kindOf(row.kind) === 'deferred')
     .map(toRow)
