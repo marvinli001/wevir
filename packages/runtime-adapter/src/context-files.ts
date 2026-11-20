@@ -25,9 +25,10 @@ export async function projectInstructionFiles(
       : ['AGENTS.md']) {
       const name = join(dir, basename);
       const info = await stat(name).catch(() => undefined);
-      if (!info?.isFile() || !info.size) continue;
+      if (!info?.isFile()) continue;
+      if (!info.size) break;
       const file = await open(name, 'r').catch(() => undefined);
-      if (!file) continue;
+      if (!file) break;
       try {
         const length = Math.min(remaining, info.size);
         const buffer = Buffer.alloc(length);
