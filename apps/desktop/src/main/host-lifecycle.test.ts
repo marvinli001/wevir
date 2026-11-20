@@ -204,7 +204,10 @@ describe('HostLifecycle', () => {
 
   it('没有 Host：拉起并拥有它；stop 关闭归属管道，Host 自己优雅退出并删除 host.json', async () => {
     const home = join(tempDir, 'home');
-    const { lifecycle: host, logs } = lifecycle(home);
+    const { lifecycle: host, logs } = lifecycle(home, {
+      // Windows CI 高负载时，Host 关闭句柄并退出可能超过 5 秒。
+      ...(process.platform === 'win32' && { timeouts: { pipeCloseMs: 12_000 } }),
+    });
 
     const ready = await host.start();
     expect(ready.ownership.kind).toBe('owned');
