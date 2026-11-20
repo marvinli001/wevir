@@ -18,6 +18,7 @@ import {
 } from 'node:zlib';
 import type { GatewayAuthSource, ProviderTestResult } from '@wevir/runtime-adapter';
 import { Agent, fetch as undiciFetch } from 'undici';
+import { type ContextFile, requestContextParts } from './context-parts.js';
 import { gatewayError, normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { type GatewayPrivacyMasker, type MaskedRequest, PrivacyMaskingError } from './privacy.js';
 import { restoreResponses } from './privacy-response.js';
@@ -43,6 +44,7 @@ export interface ModelGatewayOptions {
   auth?: GatewayAuthSource;
   privacy?: GatewayPrivacyMasker;
   logger?: GatewayLogger;
+  contextFiles?: (providerId: string, threadId: string) => readonly ContextFile[] | undefined;
   onRequest?: (observation: RequestObservation) => void;
   /** `deepseek-official` 的 Responses 地址，默认 DeepSeek 官方（测试指向本地 mock）。 */
   deepseekBaseURL?: string;
@@ -232,9 +234,19 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       }
       observation = {
         requestId: randomUUID(),
+        startedAt: started,
         providerId,
         model: body.model,
         ...source,
+        ...(source.kind === 'agent' && {
+          contextParts: requestContextParts(
+            prepared.payload as Record<string, unknown>,
+            prepared.mode,
+            masked?.body ?? body,
+            source.threadId ? options.contextFiles?.(providerId, source.threadId) : undefined,
+          ),
+          toolSearch: body.tools?.some((tool) => tool.type === 'tool_search') === true,
+        }),
         supply: requestStats(
           prepared.payload as Record<string, unknown>,
           prepared.mode,

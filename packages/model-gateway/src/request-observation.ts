@@ -1,4 +1,5 @@
 import type { IncomingHttpHeaders } from 'node:http';
+import type { ContextPart } from '@wevir/runtime-adapter';
 import type { RequestSupply } from './request-stats.js';
 import { type SseMessage, SseParser } from './sse.js';
 import { isObject } from './tools.js';
@@ -14,6 +15,8 @@ export interface GatewayUsage {
 
 export interface RequestObservation {
   requestId: string;
+  /** Monotonic time, shared with the in-process adapter. */
+  startedAt?: number;
   providerId: string;
   model: string;
   threadId?: string;
@@ -23,6 +26,8 @@ export interface RequestObservation {
   kind: 'agent' | 'compaction' | 'subagent' | 'auxiliary';
   compactionTrigger?: 'manual' | 'auto';
   supply: RequestSupply;
+  contextParts?: ContextPart[];
+  toolSearch?: boolean;
   usage?: GatewayUsage;
   responseId?: string;
   outcome: 'completed' | 'upstream_error' | 'client_closed' | 'network_error' | 'auth_error';
@@ -64,10 +69,11 @@ export function requestSource(
         ? 'compaction'
         : requestKind === 'auxiliary'
           ? 'auxiliary'
-          : (typeof agentName === 'string' && agentName !== '/root') ||
+          : requestKind === 'subagent' ||
+              (typeof agentName === 'string' && agentName !== '/root') ||
               headers['x-openai-subagent'] !== undefined
             ? 'subagent'
-            : requestKind === 'turn' || (body.tools?.length ?? 0) > 0
+            : requestKind === 'turn' || requestKind === 'agent' || (body.tools?.length ?? 0) > 0
               ? 'agent'
               : 'auxiliary',
     ...((compaction.trigger === 'manual' || compaction.trigger === 'auto') && {

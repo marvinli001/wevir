@@ -156,7 +156,7 @@ function toUpstream(item: ResponsesItem, direct: Map<string, string>): Responses
     return {
       type: 'function_call_output',
       call_id: item.call_id,
-      output: foundText(Array.isArray(item.tools) ? item.tools : []),
+      output: foundToolText(foundToolEntries(Array.isArray(item.tools) ? item.tools : [])),
     };
   }
   if (item.type !== 'function_call' || typeof item.name !== 'string') return item;
@@ -230,7 +230,7 @@ function parseObject(value: unknown): Record<string, unknown> {
 }
 
 /** `tool_search_output` 的工具 → 给模型的紧凑文本：每个工具的全名、描述与参数 schema，按全名排序。 */
-function foundText(tools: readonly unknown[]): string {
+export function foundToolEntries(tools: readonly unknown[]) {
   const entries: Array<{ name: string; description?: string; parameters?: unknown }> = [];
   const add = (tool: unknown, namespace?: string) => {
     if (!isObject(tool) || typeof tool.name !== 'string') return;
@@ -245,8 +245,11 @@ function foundText(tools: readonly unknown[]): string {
     });
   };
   for (const tool of tools) add(tool);
+  return entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+export function foundToolText(entries: ReturnType<typeof foundToolEntries>): string {
   if (entries.length === 0) return 'No matching tools.';
-  entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   return [
     'Found tools. Call them with call_tool({"name": <name>, "arguments": {...}}):',
     ...entries.map((entry) => JSON.stringify(entry)),
