@@ -687,8 +687,11 @@ export const UsageGroupSchema = z.object({
 });
 export type UsageGroup = z.infer<typeof UsageGroupSchema>;
 
-/** 上下文是被什么占的（0.50.0）：Claude 报与 `/context` 同口径的分类，Codex 报最近一次请求的输入、缓存与输出。 */
+/** 最近量得的上下文分类；后续用量更新可沿用到下次测量或压缩完成。 */
 export const UsageBreakdownSchema = z.object({
+  measuredAt: IsoTimeSchema.optional(),
+  measuredUsed: z.int().min(0).optional(),
+  precision: z.enum(['engine', 'exact-split', 'estimate']).optional(),
   categories: z.array(UsageCategorySchema).max(32),
   groups: z.array(UsageGroupSchema).max(16).optional(),
 });

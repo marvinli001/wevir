@@ -603,6 +603,9 @@ export interface TodoItem {
 
 /** 与 @wevir/protocol 的 `UsageBreakdown` 同形（0.50.0）：上下文是被什么占的。 */
 export interface UsageBreakdown {
+  measuredAt?: string;
+  measuredUsed?: number;
+  precision?: 'engine' | 'exact-split' | 'estimate';
   /** `name` 是引擎给的类别名；`kind`：`used` / `free` / `buffer` / `deferred`，其他值按 `used` 看。 */
   categories: Array<{ name: string; tokens: number; kind: string }>;
   /** 细项分组（`mcp_tools`、`memory_files`、`agents`、`skills`）：`count` 是总数，`items` 只带占用最多的前若干项（至多 100）。 */

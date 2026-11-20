@@ -1,0 +1,31 @@
+{
+  "protocolVersion": "0.204.0",
+  "methods": {},
+  "notifications": {},
+  "events": [
+    {
+      "type": "usage.updated",
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "source": "engine",
+      "seq": 2,
+      "ts": "2026-11-20T00:00:01.000Z",
+      "payload": {
+        "contextUsed": 1200,
+        "contextSize": 8000,
+        "breakdown": {
+          "measuredAt": "2026-11-20T00:00:00.000Z",
+          "measuredUsed": 1000,
+          "precision": "exact-split",
+          "categories": [
+            {
+              "name": "Messages",
+              "tokens": 1000,
+              "kind": "used"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "errors": []
+}
