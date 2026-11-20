@@ -670,11 +670,12 @@ function threadOpen(thread: SessionThread, collapsedThreads: readonly string[]):
 }
 
 /**
- * 子会话前面那条线（照 Claude Code 桌面端）：竖线在父会话标题起点稍右，连到下一个，最后一个拐个弯收住；子会话的标题在线右边
- * 16 px，状态点落在线上（`SessionRow` 的 `branch`）。用前景色的 20%：`border` 在侧栏底色上几乎看不见。
+ * 子会话前面那条线（照 Claude Code 桌面端）：竖线对着父会话的状态格中心，连到下一个，最后一个拐个弯收住，弯钩停在子会话状态格
+ * 左边。子会话的状态格（`SessionRow` 的 `branch`）在线右边，运行中的 orb（20 px）不压在线上。用前景色的 20%：`border` 在侧栏
+ * 底色上几乎看不见。
  */
 const BRANCH =
-  'relative pl-11 before:pointer-events-none before:absolute before:-top-0.5 before:left-9 before:border-l before:border-foreground/20';
+  'relative pl-11 before:pointer-events-none before:absolute before:-top-0.5 before:left-4 before:border-l before:border-foreground/20';
 const BRANCH_MID = 'before:bottom-0';
 const BRANCH_LAST = 'before:h-[20px] before:w-2 before:rounded-bl-md before:border-b';
 
@@ -842,7 +843,7 @@ interface SessionRowProps {
   project?: { displayName: string; rootPath: string };
   /** 它开出的会话归在它下面（session-threads.ts）：几个、展开着没有。标题后面有展开、收起的箭头。 */
   thread?: { count: number; open: boolean };
-  /** 子会话行（`BRANCH`）：状态格移到行左边，落在那条线上，标题紧跟行首。 */
+  /** 子会话行（`BRANCH`）：状态格移到行左边、那条线的右边，标题紧跟行首。 */
   branch?: boolean;
 }
 
