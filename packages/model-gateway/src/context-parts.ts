@@ -20,36 +20,42 @@ export function requestContextParts(
   const names = new Map<string, { name: string; namespace?: string }>();
   const found = new Map<string, ReturnType<typeof foundToolEntries>>();
   const sourceInput = Array.isArray(source.input) ? source.input : [];
+  const definitions: unknown[] = [...(source.tools ?? [])];
   for (const entry of sourceInput) {
     if (entry.type === 'tool_search_output' && Array.isArray(entry.tools)) {
       const tools = foundToolEntries(entry.tools);
       found.set(foundToolText(tools), tools);
+      definitions.push(...entry.tools);
     }
   }
-  for (const tool of source.tools ?? []) {
-    if (tool.type === 'namespace' && Array.isArray(tool.tools)) {
-      for (const inner of tool.tools) {
-        if (typeof inner.name === 'string')
-          names.set(flatToolName(inner.name, tool.name), {
-            name: inner.name,
-            namespace: tool.name,
-          });
-      }
+  for (const tool of definitions) {
+    if (
+      !isObject(tool) ||
+      tool.type !== 'namespace' ||
+      typeof tool.name !== 'string' ||
+      !Array.isArray(tool.tools)
+    )
+      continue;
+    for (const inner of tool.tools) {
+      if (!isObject(inner) || typeof inner.name !== 'string') continue;
+      const origin = { name: inner.name, namespace: tool.name };
+      names.set(flatToolName(inner.name, tool.name), origin);
+      names.set(`${tool.name}__${inner.name}`, origin);
     }
   }
   function addTool(tool: JsonObject, namespace?: string, serialized = JSON.stringify(tool)) {
     const flat = String(
       (isObject(tool.function) ? tool.function.name : tool.name) ?? tool.type ?? '',
     );
-    const origin = names.get(flat);
-    const full = namespace
-      ? `${namespace}__${flat}`
-      : origin?.namespace
-        ? `${origin.namespace}__${origin.name}`
-        : flat;
-    const mcp = /^mcp__(.+?)__(.+)$/.exec(full);
+    const origin = namespace ? { name: flat, namespace } : names.get(flat);
+    if (origin?.namespace?.startsWith('mcp__')) {
+      parts.push(contextPart('MCP tools', serialized, origin.name, origin.namespace.slice(5)));
+      return;
+    }
+    const name = origin?.namespace ? `${origin.namespace}__${origin.name}` : flat;
+    const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
     parts.push(
-      contextPart(mcp ? 'MCP tools' : 'System tools', serialized, mcp?.[2] ?? full, mcp?.[1]),
+      contextPart(mcp ? 'MCP tools' : 'System tools', serialized, mcp?.[2] ?? name, mcp?.[1]),
     );
   }
   function addDefinitions(tools: unknown) {

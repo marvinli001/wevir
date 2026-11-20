@@ -16,10 +16,14 @@ it.each(['openai-responses', 'openai-completions', 'anthropic-messages', 'google
         ),
       ).body as ResponsesRequest;
     const source = sample('context');
-    const skills = (
-      sample('1-first-turn').input as Exclude<ResponsesRequest['input'], string>
-    ).slice(0, 1);
-    // The first developer message has separate content blocks for base instructions, skills and permissions.
+    const recorded = sample('1-first-turn').input;
+    const skills = Array.isArray(recorded)
+      ? recorded.filter(
+          (item) =>
+            Array.isArray(item.content) &&
+            item.content.some((block) => block.text?.startsWith('<skills_instructions>')),
+        )
+      : [];
     source.input = [...skills, ...(source.input as Exclude<ResponsesRequest['input'], string>)];
     const prepared = prepareUpstream(
       {
@@ -65,3 +69,34 @@ it.each(['openai-responses', 'openai-completions', 'anthropic-messages', 'google
     expect({ bytes, categories: measured.categories, groups: measured.groups }).toMatchSnapshot();
   },
 );
+
+it('retains source and tool names containing the namespace separator', () => {
+  const source: ResponsesRequest = {
+    model: 'm',
+    input: [],
+    tools: [
+      {
+        type: 'namespace',
+        name: 'mcp__project__files',
+        tools: [{ type: 'function', name: 'read__file' }],
+      },
+    ],
+  };
+  const chat = {
+    messages: [],
+    tools: [
+      { type: 'function', function: { name: 'mcp__project__files__read__file', parameters: {} } },
+    ],
+  };
+  for (const parts of [
+    requestContextParts(source, 'responses', source),
+    requestContextParts(chat, 'chat', source),
+  ])
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        category: 'MCP tools',
+        source: 'project__files',
+        name: 'read__file',
+      }),
+    );
+});
