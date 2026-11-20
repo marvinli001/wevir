@@ -1,11 +1,27 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { basename, join, sep } from 'node:path';
+import { expect, it, vi } from 'vitest';
 import { projectInstructionFiles } from './context-files.js';
+
+const fixture = vi.hoisted(() => ({ prefix: '' }));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...fs,
+    stat: async (name: string) => {
+      // The system temp directory may itself be inside a repository.
+      if (basename(name) === '.git' && !name.startsWith(fixture.prefix)) {
+        throw new Error('Project marker outside the test fixture');
+      }
+      return fs.stat(name);
+    },
+  };
+});
 
 it('uses the nearest repository boundary, override precedence and the cumulative Codex byte limit', async () => {
   const root = await mkdtemp(join(tmpdir(), 'wevir-context-'));
+  fixture.prefix = `${root}${sep}`;
   const repo = join(root, 'repo'),
     cwd = join(repo, 'src');
   try {
