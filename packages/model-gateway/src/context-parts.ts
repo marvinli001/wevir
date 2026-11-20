@@ -106,7 +106,7 @@ export function requestContextParts(
       content(value.content, 'tool');
     } else if (isObject(value) && isObject(value.functionResponse)) {
       const response = value.functionResponse.response;
-      content(isObject(response) ? (response.output ?? response) : response, 'tool');
+      content(isObject(response) ? (response.result ?? response) : response, 'tool');
     } else if (typeof value === 'string') {
       if (
         role === 'system' ||
