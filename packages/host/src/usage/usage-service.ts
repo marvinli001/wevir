@@ -24,6 +24,7 @@ import {
   type ToolCallRow,
   type ToolSupplyRow,
   type UsageRow,
+  type UsageSummaryRow,
   usagePrecision,
 } from '@wevir/storage';
 import { HostError } from '../errors.js';
@@ -142,10 +143,10 @@ export class UsageService {
     }
     const from = edges[0] as number;
     const to = edges.at(-1) as number;
-    const rows = this.#storage.usage.range(from, to, filter);
+    const rows = this.#storage.usage.summaryRows(from, to, filter);
+    const baseURLs = this.#storage.providers.baseURLs();
 
     const precisions = new Set<ReturnType<typeof usagePrecision>>();
-    const withoutPrecision = matcher({ ...filter, precision: undefined });
     const sources = new Set<string>();
     const providers = new Map<string, { id: string; name: string; source: ProviderKind }>();
     const models = new Set<string>();
@@ -153,11 +154,10 @@ export class UsageService {
     const buckets = Array.from({ length: edges.length - 1 }, emptyAggregate);
     const byProvider = new Map<string, UsageProviderAggregate>();
     const byModel = new Map<string, UsageModelAggregate>();
-    const matches = matcher(filter);
+    const matchesSeries = seriesMatcher(filter);
     let bucket = 0;
 
     for (const row of rows) {
-      if (withoutPrecision(row)) precisions.add(usagePrecision(row));
       sources.add(row.source);
       // 同一个 Provider 取最近一次的名字。
       providers.set(row.providerId, {
@@ -166,11 +166,15 @@ export class UsageService {
         source: row.source as ProviderKind,
       });
       models.add(row.model);
-      if (!matches(row)) continue;
-      const priced = this.#price(row);
+      if (!matchesSeries(row)) continue;
+      const precision = usagePrecision(row);
+      precisions.add(precision);
+      if (filter?.precision !== undefined && filter.precision !== precision) continue;
+      const requests = precision === 'turn' ? row.modelCalls : 1;
+      const priced = this.#price(row, baseURLs.get(row.providerId));
       while (bucket < buckets.length - 1 && row.at >= (edges[bucket + 1] as number)) bucket += 1;
-      add(totals, row, priced);
-      add(buckets[bucket] as UsageAggregate, row, priced);
+      add(totals, row, priced, requests);
+      add(buckets[bucket] as UsageAggregate, row, priced, requests);
       let provider = byProvider.get(row.providerId);
       if (provider === undefined) {
         provider = {
@@ -182,13 +186,13 @@ export class UsageService {
         byProvider.set(row.providerId, provider);
       }
       provider.providerName = row.providerName;
-      add(provider, row, priced);
+      add(provider, row, priced, requests);
       let model = byModel.get(row.model);
       if (model === undefined) {
         model = { ...emptyAggregate(), model: row.model };
         byModel.set(row.model, model);
       }
-      add(model, row, priced);
+      add(model, row, priced, requests);
     }
 
     for (const aggregate of [totals, ...buckets, ...byProvider.values(), ...byModel.values()]) {
@@ -235,7 +239,8 @@ export class UsageService {
       params.offset ?? 0,
       limit,
     );
-    return { records: rows.map((row) => this.#toRecord(row)), total };
+    const baseURLs = this.#storage.providers.baseURLs();
+    return { records: rows.map((row) => this.#toRecord(row, baseURLs.get(row.providerId))), total };
   }
 
   recordSupply(row: ToolSupplyRow): void {
@@ -263,6 +268,7 @@ export class UsageService {
 
   turns(sessionIds: readonly string[]): UsageTurn[] {
     const calls = this.#storage.contextLedger.calls(sessionIds);
+    const baseURLs = this.#storage.providers.baseURLs();
     return this.#storage.usage.byTurn(sessionIds).map((turn) => {
       const toolCalls: UsageTurn['toolCalls'] = {
         precision: 'exact',
@@ -289,7 +295,9 @@ export class UsageService {
         tool.returnedBytes += call.returnedBytes;
       }
       const groups = turn.groups.map((group): UsageTurnGroup => {
-        const records = group.records.map((row) => this.#toRecord(row));
+        const records = group.records.map((row) =>
+          this.#toRecord(row, baseURLs.get(row.providerId)),
+        );
         const unpriced = records.filter((record) => record.cost === undefined).length;
         const cost: UsageCost = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, total: 0 };
         for (const record of records)
@@ -338,8 +346,8 @@ export class UsageService {
     });
   }
 
-  #toRecord(row: StoredUsageRow): UsageRecord {
-    const priced = this.#price(row);
+  #toRecord(row: StoredUsageRow, baseURL: string | undefined): UsageRecord {
+    const priced = this.#price(row, baseURL);
     return {
       ...(row.turnId !== undefined && { turnId: row.turnId }),
       ...(row.workspaceId !== undefined && { workspaceId: row.workspaceId }),
@@ -375,9 +383,11 @@ export class UsageService {
     };
   }
 
-  #price(row: UsageRow): { cost: UsageCost; price: UsagePrice; provider: string } | undefined {
+  #price(
+    row: UsageSummaryRow,
+    baseURL: string | undefined,
+  ): { cost: UsageCost; price: UsagePrice; provider: string } | undefined {
     if (row.usageReported === false) return undefined;
-    const baseURL = this.#storage.providers.get(row.providerId)?.baseURL;
     const match = this.#pricing.lookup(
       row.model,
       {
@@ -433,7 +443,7 @@ function timing(event: UsageRecordedEvent): { durationMs?: number; firstTokenMs?
   };
 }
 
-function tokensOf(row: UsageRow): UsageTokens {
+function tokensOf(row: UsageSummaryRow): UsageTokens {
   return {
     input: row.inputTokens,
     output: row.outputTokens,
@@ -461,10 +471,14 @@ function emptyAggregate(): UsageAggregate {
   };
 }
 
-function add(target: UsageAggregate, row: UsageRow, priced: { cost: UsageCost } | undefined): void {
+function add(
+  target: UsageAggregate,
+  row: UsageSummaryRow,
+  priced: { cost: UsageCost } | undefined,
+  requests: number | undefined,
+): void {
   target.requests += 1;
   if (target.modelRequests !== null) {
-    const requests = usagePrecision(row) === 'turn' ? row.modelCalls : 1;
     target.modelRequests = requests === undefined ? null : (target.modelRequests ?? 0) + requests;
   }
   if (row.usageReported === false) {
@@ -494,12 +508,11 @@ function add(target: UsageAggregate, row: UsageRow, priced: { cost: UsageCost } 
   }
 }
 
-function matcher(filter: UsageFilter | undefined): (row: UsageRow) => boolean {
+function seriesMatcher(filter: UsageFilter | undefined): (row: UsageSummaryRow) => boolean {
   const sources = nonEmpty(filter?.sources);
   const providers = nonEmpty(filter?.providerIds);
   const models = nonEmpty(filter?.models);
   return (row) =>
-    (filter?.precision === undefined || filter.precision === usagePrecision(row)) &&
     (sources === undefined || sources.has(row.source)) &&
     (providers === undefined || providers.has(row.providerId)) &&
     (models === undefined || models.has(row.model));

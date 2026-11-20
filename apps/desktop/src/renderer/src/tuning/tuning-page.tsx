@@ -23,10 +23,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
 import { useWorkbenchData } from '@/data/workbench-data';
-import { projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { DetailSection, ExpandableRow } from '@/plugins/plugin-rows';
+import { useWorkspaceOptions } from '@/projects/chats';
 import { paths } from '@/routes/paths';
 import { EmptyList, LIST_CARD, NoticeBanner, SettingsSection } from '@/settings/settings-ui';
 import {
@@ -59,17 +59,7 @@ interface Comparison {
 
 export function TuningPage({ client, features }: { client: WevirClient; features: HostFeatures }) {
   const [params, setParams] = useSearchParams();
-  const workbench = useWorkbenchData();
-  const projects = useMemo(
-    () =>
-      workbench.status === 'ready'
-        ? projectsOf(workbench.workspaces).map((entry) => ({
-            id: entry.workspace.id,
-            label: entry.workspace.displayName,
-          }))
-        : [],
-    [workbench],
-  );
+  const projects = useWorkspaceOptions();
   const remembered = tuningScope.use();
   const requested = params.get('workspace');
   const scope = pickScope(

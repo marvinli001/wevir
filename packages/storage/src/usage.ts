@@ -2,18 +2,11 @@ import type { SqliteDatabase, SqlRow } from './driver.js';
 import { changed, integer, optionalText, orNull, text } from './rows.js';
 
 /** `usage_records` 表的一行（0011_usage_records，协议 0.62.0 的用量统计）：一次模型请求。时间是 Unix 毫秒。 */
-export interface UsageRow {
-  sessionId: string;
-  requestId: string;
-  turnId?: string;
-  workspaceId?: string;
-  kind?: string;
+export interface UsageSummaryRow {
   origin?: string;
   granularity?: string;
   modelCalls?: number;
   usageReported?: boolean;
-  outcome?: string;
-  supply?: UsageSupply;
   at: number;
   /** 会话来源的种类（protocol `ProviderKind`）。 */
   source: string;
@@ -28,6 +21,16 @@ export interface UsageRow {
   reasoningTokens: number;
   durationMs?: number;
   firstTokenMs?: number;
+}
+
+export interface UsageRow extends UsageSummaryRow {
+  sessionId: string;
+  requestId: string;
+  turnId?: string;
+  workspaceId?: string;
+  kind?: string;
+  outcome?: string;
+  supply?: UsageSupply;
 }
 
 export interface UsageSupply {
@@ -64,6 +67,11 @@ export interface UsageRepository {
     to: number,
     scope?: Pick<UsageRowFilter, 'sessionId' | 'workspaceId'>,
   ): StoredUsageRow[];
+  summaryRows(
+    from: number,
+    to: number,
+    scope?: Pick<UsageRowFilter, 'sessionId' | 'workspaceId'>,
+  ): Iterable<UsageSummaryRow>;
   /** `[from, to)` 里符合条件的请求，最新的在前，跳过 `offset` 条后最多 `limit` 条；`total` 是符合条件的总数。 */
   page(
     from: number,
@@ -106,6 +114,10 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
       AND (:sessionId IS NULL OR session_id IN (SELECT id FROM usage_related))
       AND (:workspaceId IS NULL OR workspace_id = :workspaceId)`;
   const range = db.prepare(`${related} SELECT * FROM usage_records ${scope} ORDER BY at, id`);
+  const summary = db.prepare(`${related} SELECT at, source, provider_id, provider_name, upstream,
+    model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+    duration_ms, first_token_ms, origin, granularity, model_calls, usage_reported
+    FROM usage_records ${scope} ORDER BY at, id`);
   // 数组条件用 JSON 传：NULL 表示不限。
   const where = `${scope}
       AND (:sources IS NULL OR source IN (SELECT value FROM json_each(:sources)))
@@ -170,6 +182,15 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
           workspaceId: scope?.workspaceId ?? null,
         })
         .map(fromRow),
+    *summaryRows(from, to, scope) {
+      for (const row of summary.iterate({
+        from,
+        to,
+        sessionId: scope?.sessionId ?? null,
+        workspaceId: scope?.workspaceId ?? null,
+      }))
+        yield summaryRow(row);
+    },
     page(from, to, filter, offset, limit) {
       const params = {
         from,
@@ -274,15 +295,18 @@ function optionalInteger(row: SqlRow, column: string): number | undefined {
   return row[column] === null ? undefined : integer(row, column);
 }
 
-function fromRow(row: SqlRow): StoredUsageRow {
+function summaryRow(row: SqlRow): UsageSummaryRow {
   const upstream = optionalText(row, 'upstream');
   const durationMs = optionalInteger(row, 'duration_ms');
   const firstTokenMs = optionalInteger(row, 'first_token_ms');
+  const origin = optionalText(row, 'origin');
+  const granularity = optionalText(row, 'granularity');
+  const modelCalls = optionalInteger(row, 'model_calls');
   return {
-    id: integer(row, 'id'),
-    sessionId: text(row, 'session_id'),
-    requestId: text(row, 'request_id'),
-    ...ledgerFields(row),
+    ...(origin !== undefined && { origin }),
+    ...(granularity !== undefined && { granularity }),
+    ...(modelCalls !== undefined && { modelCalls }),
+    ...(row.usage_reported !== null && { usageReported: row.usage_reported === 1 }),
     at: integer(row, 'at'),
     source: text(row, 'source'),
     providerId: text(row, 'provider_id'),
@@ -299,22 +323,27 @@ function fromRow(row: SqlRow): StoredUsageRow {
   };
 }
 
+function fromRow(row: SqlRow): StoredUsageRow {
+  return {
+    ...summaryRow(row),
+    id: integer(row, 'id'),
+    sessionId: text(row, 'session_id'),
+    requestId: text(row, 'request_id'),
+    ...ledgerFields(row),
+  };
+}
+
 function ledgerFields(row: SqlRow): Partial<UsageRow> {
   const result: Partial<UsageRow> = {};
   for (const [key, column] of [
     ['turnId', 'turn_id'],
     ['workspaceId', 'workspace_id'],
     ['kind', 'kind'],
-    ['origin', 'origin'],
-    ['granularity', 'granularity'],
     ['outcome', 'outcome'],
   ] as const) {
     const value = optionalText(row, column);
     if (value !== undefined) result[key] = value;
   }
-  const modelCalls = optionalInteger(row, 'model_calls');
-  if (modelCalls !== undefined) result.modelCalls = modelCalls;
-  if (row.usage_reported !== null) result.usageReported = row.usage_reported === 1;
   if (row.tool_count !== null)
     result.supply = {
       toolCount: integer(row, 'tool_count'),
@@ -351,7 +380,7 @@ export interface UsageTurnRow {
   }>;
 }
 
-export function usagePrecision(row: UsageRow): 'exact' | 'engine' | 'turn' {
+export function usagePrecision(row: UsageSummaryRow): 'exact' | 'engine' | 'turn' {
   if (
     row.granularity === 'turn' ||
     (row.granularity === undefined && ['cursor', 'grok'].includes(row.source))

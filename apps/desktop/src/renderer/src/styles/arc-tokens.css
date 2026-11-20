@@ -57,6 +57,7 @@
   --arc-leading-display: 1.1;
   --arc-leading-body: 1.4;
   --arc-duration-fast: 160ms;
+  --arc-segment-gap: 2px;
   --arc-duration-instant: 120ms;
   --arc-duration-standard: 240ms;
   --arc-duration-considered: 480ms;

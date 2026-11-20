@@ -37,7 +37,7 @@ function offsetWithin(target: HTMLElement, root: HTMLElement): { x: number; y: n
 }
 
 /**
- * 把一块高亮（theme.css 的 glide-mark）移到 `target` 上。`instant` 时跳到位（先关掉位置与尺寸的过渡、写值、强制重排，再还原），只有不透明度过渡。
+ * 把一块高亮移到目标上。首次定位时只过渡不透明度，下次移动时再开启位置过渡。
  */
 export function placeMark(
   mark: HTMLElement,
@@ -46,15 +46,13 @@ export function placeMark(
   instant: boolean,
 ) {
   const { x, y } = offsetWithin(target, root);
-  if (instant) mark.dataset.instant = '';
+  const width = target.offsetWidth;
+  const height = target.offsetHeight;
+  mark.toggleAttribute('data-instant', instant);
   mark.style.setProperty('--mark-x', `${x}px`);
   mark.style.setProperty('--mark-y', `${y}px`);
-  mark.style.setProperty('--mark-w', `${target.offsetWidth}px`);
-  mark.style.setProperty('--mark-h', `${target.offsetHeight}px`);
-  if (instant) {
-    void mark.offsetWidth;
-    delete mark.dataset.instant;
-  }
+  mark.style.setProperty('--mark-w', `${width}px`);
+  mark.style.setProperty('--mark-h', `${height}px`);
 }
 
 /**

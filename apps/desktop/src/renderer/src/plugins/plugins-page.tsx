@@ -17,12 +17,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { reportActionFailure, reportActionSuccess } from '@/data/action-notices';
-import { useWorkbenchData } from '@/data/workbench-data';
-import { chatsOf, projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { capabilities, platformApi } from '@/platform/platform';
-import { workspaceLabel } from '@/projects/chats';
+import { useWorkspaceOptions } from '@/projects/chats';
 import { type PluginsTab, paths } from '@/routes/paths';
 import { type Notice, NoticeBanner, Segmented } from '@/settings/settings-ui';
 import { AddDialog, type AddRequest } from './add-dialog';
@@ -74,15 +72,8 @@ export function PluginsPage({
   const query = search.get('q') ?? '';
   const setQuery = (next: string) =>
     setSearch(next === '' ? {} : { q: next }, { replace: true, preventScrollReset: true });
-  const workbench = useWorkbenchData();
   const scoped = hostSupports(features, 'external_import');
-  const workspaces = useMemo(() => {
-    if (workbench.status !== 'ready') return [];
-    const chats = chatsOf(workbench.workspaces);
-    return [...projectsOf(workbench.workspaces), ...(chats === undefined ? [] : [chats])].map(
-      (entry) => ({ id: entry.workspace.id, label: workspaceLabel(entry.workspace) }),
-    );
-  }, [workbench]);
+  const workspaces = useWorkspaceOptions(true);
   // 每个分段各自展开的一行。
   const [expanded, setExpanded] = useState<Partial<Record<PluginsTab, string>>>({});
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());

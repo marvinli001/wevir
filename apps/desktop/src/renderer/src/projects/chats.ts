@@ -3,6 +3,9 @@
 
 import { hostSupports } from '@wevir/client-sdk';
 import type { Workspace } from '@wevir/protocol';
+import { useMemo } from 'react';
+import { sameItems } from '@/data/transcript-selection';
+import { useWorkbenchSelector } from '@/data/workbench-data';
 import { isChats } from '@/data/workbench-model';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -16,4 +19,17 @@ export function useChatsSupported(): boolean {
 /** 界面上写的工作区名：“对话”工作区写“对话”（Host 给它的名字是给老客户端的英文）。 */
 export function workspaceLabel(workspace: Pick<Workspace, 'displayName' | 'kind'>): string {
   return isChats(workspace) ? t('sidebar.chats') : workspace.displayName;
+}
+
+export function useWorkspaceOptions(includeChats = false) {
+  const workspaces = useWorkbenchSelector(
+    (data) => (data.status === 'ready' ? data.workspaces.map((entry) => entry.workspace) : []),
+    sameItems,
+  );
+  return useMemo(() => {
+    const listed = workspaces.filter((workspace) => !isChats(workspace));
+    const chats = includeChats && workspaces.find(isChats);
+    if (chats) listed.push(chats);
+    return listed.map((workspace) => ({ id: workspace.id, label: workspaceLabel(workspace) }));
+  }, [workspaces, includeChats]);
 }

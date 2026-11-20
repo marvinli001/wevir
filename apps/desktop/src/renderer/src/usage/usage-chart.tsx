@@ -4,7 +4,7 @@
 
 import type { UsageAggregate } from '@wevir/protocol';
 import { cn } from 'cn';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { type PlainMessageKey, t } from '@/i18n';
 import { Segmented } from '@/settings/settings-ui';
 import {
@@ -21,6 +21,7 @@ import {
   labelStride,
   niceTicks,
   totalTokens,
+  type UsagePeriod,
 } from './usage-model';
 import type { SummaryData } from './use-usage';
 
@@ -111,18 +112,9 @@ export function UsageChart({
   const count = buckets.length;
   const empty = data.result.totals.requests === 0;
 
-  const max = Math.max(0, ...buckets.map((bucket) => metricValue(bucket, metric)));
-  const ticks = niceTicks(max);
-  const top = ticks.at(-1) ?? 1;
   const plotWidth = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
   const slot = count === 0 ? 0 : plotWidth / count;
-  const barWidth = Math.max(1, Math.min(slot * 0.68, 28));
-  const stride = labelStride(count, plotWidth, labelSpacing(period));
-  const y = (value: number) => PAD_TOP + plotHeight - (value / top) * plotHeight;
-  const axis = (value: number) =>
-    metric === 'cost' ? formatCostAxis(value, locale) : formatAxis(value, locale);
-
   const hoveredBucket = hovered === undefined ? undefined : buckets[hovered];
   const tooltipLeft =
     hovered === undefined
@@ -179,66 +171,24 @@ export function UsageChart({
               aria-label={t(METRIC_LABEL[metric])}
               className="block overflow-visible"
             >
-              {ticks.map((tick) => (
-                <g key={tick}>
-                  <line
-                    x1={PAD_LEFT}
-                    x2={width - PAD_RIGHT}
-                    y1={y(tick)}
-                    y2={y(tick)}
-                    className={tick === 0 ? 'stroke-border-strong' : 'stroke-border'}
-                    strokeDasharray={tick === 0 ? undefined : '2 3'}
-                  />
-                  <text
-                    x={PAD_LEFT - 8}
-                    y={y(tick)}
-                    dy="0.32em"
-                    textAnchor="end"
-                    className="fill-muted-foreground text-[11px] tabular-nums"
-                  >
-                    {axis(tick)}
-                  </text>
-                </g>
-              ))}
-              {buckets.map((bucket, index) => {
-                const x = PAD_LEFT + slot * index + (slot - barWidth) / 2;
-                const start = edges[index] ?? 0;
-                return (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: 桶按位置对应时间，没有别的标识。
-                  <g key={index}>
-                    {hovered === index && (
-                      <rect
-                        x={PAD_LEFT + slot * index}
-                        y={PAD_TOP}
-                        width={slot}
-                        height={plotHeight}
-                        className="fill-foreground/5"
-                      />
-                    )}
-                    {metric === 'tokens' ? (
-                      <TokenBar bucket={bucket} x={x} width={barWidth} y={y} />
-                    ) : (
-                      <rect
-                        x={x}
-                        y={y(metricValue(bucket, metric))}
-                        width={barWidth}
-                        height={Math.max(0, y(0) - y(metricValue(bucket, metric)))}
-                        className={cn('fill-running/80', BAR_MOTION)}
-                      />
-                    )}
-                    {index % stride === 0 && (
-                      <text
-                        x={PAD_LEFT + slot * (index + 0.5)}
-                        y={HEIGHT - 6}
-                        textAnchor="middle"
-                        className="fill-muted-foreground text-[11px] tabular-nums"
-                      >
-                        {bucketLabel(start, period, locale)}
-                      </text>
-                    )}
-                  </g>
-                );
-              })}
+              {hoveredBucket !== undefined && hovered !== undefined && (
+                <rect
+                  x={PAD_LEFT + slot * hovered}
+                  y={PAD_TOP}
+                  width={slot}
+                  height={plotHeight}
+                  className="fill-foreground/5"
+                />
+              )}
+              <ChartPlot
+                key={`${edges[0]}-${edges.at(-1)}`}
+                buckets={buckets}
+                period={period}
+                metric={metric}
+                locale={locale}
+                width={width}
+                slot={slot}
+              />
             </svg>
           )
         )}
@@ -258,6 +208,90 @@ export function UsageChart({
     </section>
   );
 }
+
+const ChartPlot = memo(function ChartPlot({
+  buckets,
+  period,
+  metric,
+  locale,
+  width,
+  slot,
+}: {
+  buckets: readonly UsageAggregate[];
+  period: UsagePeriod;
+  metric: ChartMetric;
+  locale: string;
+  width: number;
+  slot: number;
+}) {
+  const { edges } = period;
+  const plotWidth = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
+  const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
+  const max = Math.max(0, ...buckets.map((bucket) => metricValue(bucket, metric)));
+  const ticks = niceTicks(max);
+  const top = ticks.at(-1) ?? 1;
+  const barWidth = Math.max(1, Math.min(slot * 0.68, 28));
+  const stride = labelStride(buckets.length, plotWidth, labelSpacing(period));
+  const y = (value: number) => PAD_TOP + plotHeight - (value / top) * plotHeight;
+  const axis = (value: number) =>
+    metric === 'cost' ? formatCostAxis(value, locale) : formatAxis(value, locale);
+
+  return (
+    <>
+      {ticks.map((tick) => (
+        <g key={tick}>
+          <line
+            x1={PAD_LEFT}
+            x2={width - PAD_RIGHT}
+            y1={y(tick)}
+            y2={y(tick)}
+            className={tick === 0 ? 'stroke-border-strong' : 'stroke-border'}
+            strokeDasharray={tick === 0 ? undefined : '2 3'}
+          />
+          <text
+            x={PAD_LEFT - 8}
+            y={y(tick)}
+            dy="0.32em"
+            textAnchor="end"
+            className="fill-muted-foreground text-[11px] tabular-nums"
+          >
+            {axis(tick)}
+          </text>
+        </g>
+      ))}
+      {buckets.map((bucket, index) => {
+        const x = PAD_LEFT + slot * index + (slot - barWidth) / 2;
+        const start = edges[index] ?? 0;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 桶按位置对应时间，没有别的标识。
+          <g key={index}>
+            {metric === 'tokens' ? (
+              <TokenBar bucket={bucket} x={x} width={barWidth} y={y} />
+            ) : (
+              <rect
+                x={x}
+                y={y(metricValue(bucket, metric))}
+                width={barWidth}
+                height={Math.max(0, y(0) - y(metricValue(bucket, metric)))}
+                className={cn('fill-running/80', BAR_MOTION)}
+              />
+            )}
+            {index % stride === 0 && (
+              <text
+                x={PAD_LEFT + slot * (index + 0.5)}
+                y={HEIGHT - 6}
+                textAnchor="middle"
+                className="fill-muted-foreground text-[11px] tabular-nums"
+              >
+                {bucketLabel(start, period, locale)}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </>
+  );
+});
 
 function TokenBar({
   bucket,

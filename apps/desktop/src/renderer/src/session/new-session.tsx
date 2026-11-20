@@ -1,6 +1,6 @@
 import { cn } from 'cn';
 import { Check, Folder, Plus } from 'lucide-react';
-import { type CSSProperties, type ReactNode, useRef } from 'react';
+import { type ReactNode, useRef } from 'react';
 import { Hint } from '@/components/hint';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -11,14 +11,6 @@ import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
 import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
 import { openCreateProject } from '@/projects/create-project';
-
-/** 各块依次淡入上移（U10）：居中的卡片、输入框，相隔 60 ms。 */
-export const ENTER =
-  'animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-500 ease-smooth';
-
-export function stagger(index: number): CSSProperties {
-  return { animationDelay: `${index * 60}ms` };
-}
 
 /**
  * 还没有发起会话时的版式（U14，照 Codex 桌面端）：`hero`（最近的文件夹与环境）在内容区里上下左右居中，`footer`（输入框）贴在
@@ -33,12 +25,7 @@ export function NewSessionLayout({ hero, footer }: { hero: ReactNode; footer: Re
           {hero}
         </div>
       </ScrollArea>
-      <div
-        className={cn('mx-auto w-full max-w-content shrink-0 px-6 pb-5', ENTER)}
-        style={stagger(1)}
-      >
-        {footer}
-      </div>
+      <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">{footer}</div>
     </div>
   );
 }
@@ -70,7 +57,7 @@ export function NewSessionHero({
       ref={card}
       aria-label={t('home.recentFolders')}
       data-testid="recent-folders"
-      className={cn('w-80 max-w-full rounded-xl border border-border bg-card p-1', ENTER)}
+      className="w-80 max-w-full rounded-xl border border-border bg-card p-1"
     >
       {workspaces.length > 0 && (
         <>

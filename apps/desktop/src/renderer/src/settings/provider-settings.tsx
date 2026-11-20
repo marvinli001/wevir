@@ -1,5 +1,5 @@
 import type { WevirClient } from '@wevir/client-sdk';
-import { type ProviderProfile, type Session, ZUV_API_PROVIDER_ID } from '@wevir/protocol';
+import { type ProviderProfile, ZUV_API_PROVIDER_ID } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ChevronDown,
@@ -10,7 +10,7 @@ import {
   Plus,
   Trash2,
 } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatedRows } from '@/components/animated-rows';
 import { Collapse } from '@/components/collapse';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -19,7 +19,11 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { StatusDot } from '@/components/status-dot';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
-import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import {
+  useWorkbenchProviders,
+  useWorkbenchSelector,
+  useWorkbenchStore,
+} from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { ProviderCatalogDialog } from '@/onboarding/provider-catalog-dialog';
@@ -64,7 +68,10 @@ type TestState = { status: 'running' } | { status: 'done'; result: TestPresentat
  * （zuv-api-connection.tsx），新增时也在列表上方展开，不另开页面。
  */
 export function ProviderSettings() {
-  const data = useWorkbenchData();
+  const profiles = useWorkbenchProviders();
+  const listError = useWorkbenchSelector((data) =>
+    data.status === 'error' ? data.error : undefined,
+  );
   const store = useWorkbenchStore();
   const { client, view: connection } = useHostConnection();
   const vertexAvailable =
@@ -77,10 +84,7 @@ export function ProviderSettings() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [expanded, setExpanded] = useState<Expanded>();
   const zuvConnection = client?.supports('zuv_api_connection') === true;
-  const zuvProvider =
-    data.status === 'ready'
-      ? data.providers.find((provider) => provider.id === ZUV_API_PROVIDER_ID)
-      : undefined;
+  const zuvProvider = profiles?.find((provider) => provider.id === ZUV_API_PROVIDER_ID);
   // 新增时登录成功、ZUV API 出现在列表里：收起新增面板，展开它那一行。
   useEffect(() => {
     if (expanded?.kind === 'zuv-add' && zuvProvider?.hasSecret)
@@ -102,10 +106,8 @@ export function ProviderSettings() {
     [client],
   );
 
-  const providers = data.status === 'ready' ? data.providers.filter(isEditableProvider) : undefined;
-  const takenIds = data.status === 'ready' ? data.providers.map((provider) => provider.id) : [];
-  const sessions =
-    data.status === 'ready' ? data.workspaces.flatMap((entry) => entry.sessions) : [];
+  const providers = useMemo(() => profiles?.filter(isEditableProvider), [profiles]);
+  const takenIds = profiles?.map((provider) => provider.id) ?? [];
   const editing = view.kind === 'form' && client !== undefined;
 
   const saved = async (outcome: SaveOutcome) => {
@@ -185,10 +187,7 @@ export function ProviderSettings() {
           </p>
         </Collapse>
         <SettingsSection title={t('provider.section.subscriptions')}>
-          <SubscriptionSources
-            client={client}
-            providers={data.status === 'ready' ? data.providers : []}
-          />
+          <SubscriptionSources client={client} providers={profiles ?? []} />
         </SettingsSection>
         <SettingsSection
           title={t('provider.section.keyed')}
@@ -210,7 +209,7 @@ export function ProviderSettings() {
         >
           <NoticeBanner
             notice={
-              notice ?? (data.status === 'error' ? { tone: 'error', text: data.error } : undefined)
+              notice ?? (listError !== undefined ? { tone: 'error', text: listError } : undefined)
             }
             className="mb-3"
           />
@@ -251,9 +250,9 @@ export function ProviderSettings() {
             keyOf={(provider) => provider.id}
             className={cn(LIST_CARD, 'overflow-hidden')}
             empty={
-              data.status === 'loading' ? (
+              profiles === undefined && listError === undefined ? (
                 <SettingsPlaceholder className="min-h-[5.375rem]" />
-              ) : data.status === 'ready' ? (
+              ) : profiles !== undefined ? (
                 <EmptyList>{t('provider.emptyKeyed')}</EmptyList>
               ) : undefined
             }
@@ -309,7 +308,6 @@ export function ProviderSettings() {
         {removing && client && (
           <RemoveProviderDialog
             provider={removing}
-            sessions={sessions}
             onClose={() => setRemoving(undefined)}
             onConfirm={async () => {
               await removeProvider(client, removing.id);
@@ -529,16 +527,22 @@ function TestResultView({ result }: { result: TestPresentation }) {
 
 function RemoveProviderDialog({
   provider,
-  sessions,
   onClose,
   onConfirm,
 }: {
   provider: ProviderProfile;
-  sessions: Session[];
   onClose: () => void;
   onConfirm: () => Promise<void>;
 }) {
-  const open = openSessions(sessions.filter((session) => session.providerId === provider.id));
+  const count = useWorkbenchSelector((data) =>
+    data.status === 'ready'
+      ? openSessions(
+          data.workspaces.flatMap((entry) =>
+            entry.sessions.filter((session) => session.providerId === provider.id),
+          ),
+        ).length
+      : 0,
+  );
   return (
     <ConfirmDialog
       open
@@ -549,7 +553,7 @@ function RemoveProviderDialog({
       failure={(error) => t('provider.remove.failed', { error })}
     >
       <p>{t('provider.remove.body', { id: provider.id })}</p>
-      {open.length > 0 && <p>{t('provider.remove.openSessions', { count: open.length })}</p>}
+      {count > 0 && <p>{t('provider.remove.openSessions', { count })}</p>}
     </ConfirmDialog>
   );
 }

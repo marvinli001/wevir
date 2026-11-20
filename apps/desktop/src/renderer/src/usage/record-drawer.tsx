@@ -7,6 +7,8 @@ import { type ReactNode, useRef } from 'react';
 import { Link } from 'react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { sameFields } from '@/data/transcript-selection';
+import { useWorkbenchSelector } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
@@ -87,13 +89,11 @@ export function RecordDrawer({
   record,
   locale,
   providers,
-  entries,
   onClose,
 }: {
   record: UsageRecord | undefined;
   locale: string;
   providers: readonly ProviderProfile[];
-  entries: readonly WorkspaceEntry[];
   onClose: () => void;
 }) {
   // 关闭时内容留到滑出结束。
@@ -113,13 +113,7 @@ export function RecordDrawer({
         </SheetHeader>
         {shown !== undefined && (
           <ScrollArea className="min-h-0 flex-1">
-            <RecordDetail
-              record={shown}
-              locale={locale}
-              providers={providers}
-              entries={entries}
-              onClose={onClose}
-            />
+            <RecordDetail record={shown} locale={locale} providers={providers} onClose={onClose} />
           </ScrollArea>
         )}
       </SheetContent>
@@ -131,17 +125,19 @@ function RecordDetail({
   record,
   locale,
   providers,
-  entries,
   onClose,
 }: {
   record: UsageRecord;
   locale: string;
   providers: readonly ProviderProfile[];
-  entries: readonly WorkspaceEntry[];
   onClose: () => void;
 }) {
   const source = sourceDisplay(record.source);
-  const session = sessionLink(record.sessionId, entries);
+  const session = useWorkbenchSelector(
+    (data) =>
+      data.status === 'ready' ? sessionLink(record.sessionId, data.workspaces) : undefined,
+    sameFields,
+  );
   const { tokens, cost, price } = record;
   const integer = (value: number) => formatInteger(value, locale);
   const unit = (value: number | undefined) =>

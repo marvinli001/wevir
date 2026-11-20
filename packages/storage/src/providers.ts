@@ -37,6 +37,7 @@ export interface ProviderProfileRepository {
   get(id: string): ProviderProfileRecord | undefined;
   /** 按创建时间排序。 */
   list(): ProviderProfileRecord[];
+  baseURLs(): ReadonlyMap<string, string>;
   delete(id: string): boolean;
 }
 
@@ -58,6 +59,9 @@ export function createProviderProfileRepository(db: SqliteDatabase): ProviderPro
     WHERE id = :id`);
   const get = db.prepare('SELECT * FROM provider_profiles WHERE id = ?');
   const list = db.prepare('SELECT * FROM provider_profiles ORDER BY created_at, id');
+  const baseURLs = db.prepare(
+    'SELECT id, base_url FROM provider_profiles WHERE base_url IS NOT NULL',
+  );
   const remove = db.prepare('DELETE FROM provider_profiles WHERE id = ?');
 
   function mutableParams(record: ProviderProfileRecord) {
@@ -88,6 +92,7 @@ export function createProviderProfileRepository(db: SqliteDatabase): ProviderPro
       return row ? fromRow(row) : undefined;
     },
     list: () => list.all().map(fromRow),
+    baseURLs: () => new Map(baseURLs.all().map((row) => [text(row, 'id'), text(row, 'base_url')])),
     delete: (id) => changed(remove.run(id)),
   };
 }

@@ -51,8 +51,7 @@ export function installCommitProbe() {
           if (
             props?.session &&
             fiber.child?.type === 'div' &&
-            fiber.child.memoizedProps?.className ===
-              'flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth'
+            fiber.child.memoizedProps?.['data-session-view'] !== undefined
           )
             active.sessionViewRenders++;
         }

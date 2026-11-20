@@ -10,7 +10,7 @@ import type {
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
 import { useAccounts } from '@/data/workbench-data';
@@ -121,52 +121,13 @@ export function RecordsTable({
               <th className={cn(TH, NUM)}>{t('usage.col.firstToken')}</th>
             </tr>
           </thead>
-          <tbody>
-            {records.map((record) => (
-              <tr
-                key={record.id}
-                className="cursor-pointer border-t border-border transition-colors duration-150 ease-smooth hover:bg-muted/50"
-                onClick={() => onOpen(record)}
-              >
-                <td className={TD}>
-                  <button
-                    type="button"
-                    className="rounded-sm tabular-nums outline-none focus-visible:focus-ring"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onOpen(record);
-                    }}
-                  >
-                    {recordTime(record.at, period, locale)}
-                  </button>
-                </td>
-                <td className={cn(TD, 'max-w-44')}>
-                  <ProviderName
-                    providerId={record.providerId}
-                    providerName={record.providerName}
-                    source={record.source}
-                    providers={providers}
-                  />
-                </td>
-                <td className={cn(TD, 'max-w-56 truncate font-mono text-xs')} title={record.model}>
-                  {record.model}
-                </td>
-                <td className={cn(TD, NUM)}>{formatInteger(record.tokens.input, locale)}</td>
-                <td className={cn(TD, NUM)}>{formatInteger(record.tokens.output, locale)}</td>
-                <td className={cn(TD, NUM)}>{formatInteger(record.tokens.cacheRead, locale)}</td>
-                <td className={cn(TD, NUM)}>{formatInteger(record.tokens.cacheWrite, locale)}</td>
-                <td className={cn(TD, NUM)}>{costText(record.cost?.total, locale)}</td>
-                <td className={cn(TD, NUM, 'text-muted-foreground')}>
-                  {formatSpeed(speedOf(record.tokens.output, record.durationMs), locale) ?? MISSING}
-                </td>
-                <td className={cn(TD, NUM, 'text-muted-foreground')}>
-                  {record.firstTokenMs === undefined
-                    ? MISSING
-                    : formatSeconds(record.firstTokenMs, locale)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          <RecordRows
+            records={records}
+            period={period}
+            locale={locale}
+            providers={providers}
+            onOpen={onOpen}
+          />
         </table>
       </div>
       {pages > 1 && (
@@ -195,6 +156,69 @@ export function RecordsTable({
     </div>
   );
 }
+
+const RecordRows = memo(function RecordRows({
+  records,
+  period,
+  locale,
+  providers,
+  onOpen,
+}: {
+  records: readonly UsageRecord[];
+  period: UsagePeriod;
+  locale: string;
+  providers: readonly ProviderProfile[];
+  onOpen: (record: UsageRecord) => void;
+}) {
+  return (
+    <tbody>
+      {records.map((record) => (
+        <tr
+          key={record.id}
+          className="cursor-pointer border-t border-border transition-colors duration-150 ease-smooth hover:bg-muted/50"
+          onClick={() => onOpen(record)}
+        >
+          <td className={TD}>
+            <button
+              type="button"
+              className="rounded-sm tabular-nums outline-none focus-visible:focus-ring"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpen(record);
+              }}
+            >
+              {recordTime(record.at, period, locale)}
+            </button>
+          </td>
+          <td className={cn(TD, 'max-w-44')}>
+            <ProviderName
+              providerId={record.providerId}
+              providerName={record.providerName}
+              source={record.source}
+              providers={providers}
+            />
+          </td>
+          <td className={cn(TD, 'max-w-56 truncate font-mono text-xs')} title={record.model}>
+            {record.model}
+          </td>
+          <td className={cn(TD, NUM)}>{formatInteger(record.tokens.input, locale)}</td>
+          <td className={cn(TD, NUM)}>{formatInteger(record.tokens.output, locale)}</td>
+          <td className={cn(TD, NUM)}>{formatInteger(record.tokens.cacheRead, locale)}</td>
+          <td className={cn(TD, NUM)}>{formatInteger(record.tokens.cacheWrite, locale)}</td>
+          <td className={cn(TD, NUM)}>{costText(record.cost?.total, locale)}</td>
+          <td className={cn(TD, NUM, 'text-muted-foreground')}>
+            {formatSpeed(speedOf(record.tokens.output, record.durationMs), locale) ?? MISSING}
+          </td>
+          <td className={cn(TD, NUM, 'text-muted-foreground')}>
+            {record.firstTokenMs === undefined
+              ? MISSING
+              : formatSeconds(record.firstTokenMs, locale)}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  );
+});
 
 interface AggregateRow {
   key: string;

@@ -17,11 +17,12 @@ import {
   SlidersHorizontal,
   SquarePen,
 } from 'lucide-react';
-import { type KeyboardEvent, memo, type ReactNode, useState } from 'react';
+import { type KeyboardEvent, memo, type ReactNode, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { assistantsAvailability } from '@/assistants/assistants-model';
 import { ThreadAssistantMark, ThreadAssistants } from '@/assistants/thread-mark';
 import { automationsAvailability } from '@/automations/automations-model';
+import { AnimatedRows } from '@/components/animated-rows';
 import { Collapse } from '@/components/collapse';
 import { ErrorNote } from '@/components/error-note';
 import { Hint } from '@/components/hint';
@@ -630,7 +631,7 @@ function ThreadList({
   isUnread: (session: Session) => boolean;
 }) {
   const { collapsedThreads } = layoutPrefs.use();
-  const threads = threadSessions(sessions);
+  const threads = useMemo(() => threadSessions(sessions), [sessions]);
   return (
     <MoreList
       items={threads}
@@ -788,14 +789,13 @@ function MoreList<T>({
     if (open) setShown(limit);
   }
   const { visible, more, less } = moreWindow(items.length, limit, shown, activeIndex);
+  const chunks = useMemo(() => moreChunks(items.slice(0, visible), limit), [items, visible, limit]);
   return (
     <>
       <ul className="space-y-0.5">{items.slice(0, limit).map(render)}</ul>
-      {moreChunks(items, limit).map((chunk) => (
-        <Collapse key={chunk.start} open={chunk.start < visible}>
-          <ul className="space-y-0.5 pt-0.5">{chunk.items.map(render)}</ul>
-        </Collapse>
-      ))}
+      <AnimatedRows as="div" items={chunks} keyOf={(chunk) => String(chunk.start)}>
+        {(chunk) => <ul className="space-y-0.5 pt-0.5">{chunk.items.map(render)}</ul>}
+      </AnimatedRows>
       {(more || less) && (
         <div className="mt-0.5 flex items-center gap-0.5">
           {more && (

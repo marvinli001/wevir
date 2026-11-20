@@ -7,9 +7,15 @@ import { useTheme } from '@/theme/theme';
 import type { ResolvedTheme } from '../../../shared/theme.js';
 
 const REDUCED_QUERY = '(prefers-reduced-motion: reduce)';
+let reducedMotion: MediaQueryList | undefined;
+
+function reducedQuery(): MediaQueryList {
+  reducedMotion ??= window.matchMedia(REDUCED_QUERY);
+  return reducedMotion;
+}
 
 function subscribeReduced(listener: () => void): () => void {
-  const query = window.matchMedia(REDUCED_QUERY);
+  const query = reducedQuery();
   query.addEventListener('change', listener);
   return () => query.removeEventListener('change', listener);
 }
@@ -18,7 +24,7 @@ function subscribeReduced(listener: () => void): () => void {
 export function useReducedMotion(): boolean {
   return useSyncExternalStore(
     subscribeReduced,
-    () => window.matchMedia(REDUCED_QUERY).matches,
+    () => reducedQuery().matches,
     () => false,
   );
 }

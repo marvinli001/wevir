@@ -315,6 +315,39 @@ describe('UsageService', () => {
     expect(service.summary([0, T0 + 1], undefined).totals.unpriced).toBe(0);
   });
 
+  it('批量估价时只读一次连接地址，下一次查询使用改过的地址', async () => {
+    const { storage, service, pricing } = await setup();
+    const profile = {
+      id: 'prv_api',
+      kind: 'openai-compatible',
+      displayName: 'API',
+      models: [],
+      baseURL: 'https://first.example',
+      defaultModelId: 'gpt-5.5',
+      createdAt: new Date(T0).toISOString(),
+      updatedAt: new Date(T0).toISOString(),
+    };
+    storage.providers.insert(profile);
+    const context = {
+      sessionId: 'ses_api',
+      providerId: profile.id,
+      modelId: profile.defaultModelId,
+    };
+    service.record(context, event());
+    service.record(context, event({ requestId: 'req_2' }));
+    const profiles = vi.spyOn(storage.providers, 'get');
+    const urls = vi.spyOn(storage.providers, 'baseURLs');
+    const lookup = vi.spyOn(pricing, 'lookup');
+    expect(service.summary([T0, T0 + 1], undefined).totals.requests).toBe(2);
+    expect(urls).toHaveBeenCalledTimes(1);
+    expect(lookup.mock.lastCall?.[1].baseURL).toBe(profile.baseURL);
+    storage.providers.update({ ...profile, baseURL: 'https://second.example' });
+    expect(service.records({ from: T0, to: T0 + 1 }).total).toBe(2);
+    expect(urls).toHaveBeenCalledTimes(2);
+    expect(lookup.mock.lastCall?.[1].baseURL).toBe('https://second.example');
+    expect(profiles).not.toHaveBeenCalled();
+  });
+
   it('新记录与价格表变化合并成最多每秒一次 usage.changed', async () => {
     vi.useFakeTimers();
     try {

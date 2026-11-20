@@ -1,8 +1,7 @@
 import { Segment, SegmentGroup } from '@/components/ui/tabs';
 // 使用统计页（0.62.0，Host 功能 `usage_stats`）：工作台主窗格里的一列。顶上是标题与价格表状态、刷新；下面是筛选（模型服务里
 // 添加的服务商，模型、时间段：预设或自定义起止），然后是合计卡片、趋势图、明细（请求记录 / 服务商 / 模型）。数据见 use-usage.ts，
-// 写法与计算见 usage-model.ts。换服务商、模型、精度或时间段时保留上次的内容，新结果到了数字滚动、柱子过渡；
-// 骨架屏只在第一次读到之前。
+// 写法与计算见 usage-model.ts。筛选时一起替换汇总与明细，骨架屏只在第一次读到之前。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type {
@@ -14,15 +13,14 @@ import type {
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChartColumn, CircleAlert, RefreshCw } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { memo, type ReactNode, useEffect, useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
-import { RollingNumber } from '@/components/rolling-number';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, type SelectOption } from '@/components/ui/select';
-import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
+import { useAccounts, useWorkbenchProviders } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { formatRelativeTime } from '@/session/subagent-model';
@@ -72,6 +70,7 @@ const TAB_LABEL: Record<UsageTab, PlainMessageKey> = {
 
 /** 下拉里的“全部”。 */
 const ALL = '__all__';
+const NO_PROVIDERS: readonly ProviderProfile[] = [];
 
 export function UsagePage({ client }: { client: WevirClient }) {
   const prefs = usagePrefs.use();
@@ -79,9 +78,8 @@ export function UsagePage({ client }: { client: WevirClient }) {
   const [open, setOpen] = useState<UsageRecord>();
   const [notice, setNotice] = useState<Notice>();
   const locale = currentLocale();
-  const workbench = useWorkbenchData();
-  const providers = workbench.status === 'ready' ? workbench.providers : [];
-  const entries = workbench.status === 'ready' ? workbench.workspaces : [];
+  const profiles = useWorkbenchProviders();
+  const providers = profiles ?? NO_PROVIDERS;
   const window = prefsWindow(prefs);
   const data = useUsage(client, window, selection);
   const summary = data.data;
@@ -89,7 +87,7 @@ export function UsagePage({ client }: { client: WevirClient }) {
   // 选中的连接被删了（用量随之删除）：回到全部。
   const selectedGone =
     selection.providerId !== undefined &&
-    workbench.status === 'ready' &&
+    profiles !== undefined &&
     !providers.some((provider) => provider.id === selection.providerId);
   useEffect(() => {
     if (selectedGone) setSelection(selectProvider(undefined));
@@ -166,22 +164,14 @@ export function UsagePage({ client }: { client: WevirClient }) {
           {summary === undefined ? (
             data.error === undefined && <Skeleton />
           ) : summary.result.totals.requests === 0 ? (
-            <div
-              key="empty"
-              aria-busy={data.loading}
-              className="animate-in fade-in duration-200 ease-smooth"
-            >
+            <div key="empty" aria-busy={data.loading}>
               <EmptyState
                 icon={<ChartColumn />}
                 title={isFiltered(selection) ? t('usage.emptyFiltered') : t('usage.empty')}
               />
             </div>
           ) : (
-            <div
-              key="content"
-              className="animate-in fade-in space-y-5 duration-200 ease-smooth"
-              aria-busy={data.loading}
-            >
+            <div key="content" className="space-y-5" aria-busy={data.loading}>
               <Hero totals={summary.result.totals} locale={locale} />
               <UsageChart
                 data={summary}
@@ -234,7 +224,6 @@ export function UsagePage({ client }: { client: WevirClient }) {
         record={open}
         locale={locale}
         providers={providers}
-        entries={entries}
         onClose={() => setOpen(undefined)}
       />
     </div>
@@ -404,14 +393,14 @@ function Stat({
     <div className="min-w-0">
       <div className="truncate text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 truncate text-base font-medium tabular-nums" title={title ?? value}>
-        <RollingNumber value={value} />
+        {value}
       </div>
       {children}
     </div>
   );
 }
 
-function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
+const Hero = memo(function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
   const total = totalTokens(totals.tokens);
   const approx = approxNote(total, locale);
   const rate = cacheHitRate(totals.tokens);
@@ -445,7 +434,7 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
               className="text-3xl font-semibold tracking-tight tabular-nums"
               data-testid="usage-total"
             >
-              <RollingNumber value={formatInteger(total, locale)} />
+              {formatInteger(total, locale)}
             </span>
             {approx !== undefined && (
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground tabular-nums">
@@ -458,13 +447,9 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
           <div>
             <div className="text-sm text-muted-foreground">{t('usage.requests')}</div>
             <div className="mt-1 text-xl font-semibold tabular-nums">
-              <RollingNumber
-                value={
-                  totals.modelRequests === null
-                    ? '—'
-                    : formatInteger(totals.modelRequests ?? totals.requests, locale)
-                }
-              />
+              {totals.modelRequests === null
+                ? '—'
+                : formatInteger(totals.modelRequests ?? totals.requests, locale)}
             </div>
           </div>
           <div>
@@ -473,7 +458,7 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
               className="mt-1 flex items-baseline gap-1.5 text-xl font-semibold tabular-nums"
               title={costTitle}
             >
-              {cost === undefined ? '—' : <RollingNumber value={formatCost(cost, locale)} />}
+              {cost === undefined ? '—' : formatCost(cost, locale)}
               {totals.unpriced > 0 && (
                 <CircleAlert className="size-3.5 self-center text-muted-foreground" aria-hidden />
               )}
@@ -492,7 +477,7 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
         >
           <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted" aria-hidden>
             <div
-              className="h-full rounded-full bg-foreground/60 transition-[width] duration-500 ease-smooth"
+              className="h-full rounded-full bg-foreground/60"
               style={{ width: `${Math.round((rate ?? 0) * 1000) / 10}%` }}
             />
           </div>
@@ -500,7 +485,7 @@ function Hero({ totals, locale }: { totals: UsageAggregate; locale: string }) {
       </div>
     </section>
   );
-}
+});
 
 function Savings({ value, locale }: { value: UsageSavings; locale: string }) {
   return (

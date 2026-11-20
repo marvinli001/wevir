@@ -45,7 +45,7 @@ type SegmentGroupProps<T extends string> = Omit<
   onChange: (value: T) => void;
 };
 
-export function SegmentGroup<T extends string>({
+function SegmentRoot<T extends string>({
   value,
   onChange,
   disabled,
@@ -53,12 +53,9 @@ export function SegmentGroup<T extends string>({
   children,
   ...props
 }: SegmentGroupProps<T>) {
-  const root = useRef<HTMLDivElement>(null);
-  const mark = useSelectionIndicator(root, value);
   return (
     <ToggleGroup
       {...props}
-      ref={root}
       value={value === undefined ? [] : [value]}
       disabled={!!disabled}
       onValueChange={(next) => {
@@ -67,13 +64,23 @@ export function SegmentGroup<T extends string>({
       data-arc-tabs=""
       className={cn(styles.segmented, className)}
     >
+      {children}
+    </ToggleGroup>
+  );
+}
+
+export function SegmentGroup<T extends string>({ children, ...props }: SegmentGroupProps<T>) {
+  const root = useRef<HTMLDivElement>(null);
+  const mark = useSelectionIndicator(root, props.value);
+  return (
+    <SegmentRoot {...props} ref={root}>
       <span
         aria-hidden
         ref={mark}
         className={cn('glide-mark', styles.indicator, styles.selection)}
       />
       {children}
-    </ToggleGroup>
+    </SegmentRoot>
   );
 }
 
@@ -99,8 +106,9 @@ export function Segmented<T extends string>({
   disabled?: boolean;
   className?: string;
 } & Record<`data-${string}`, string | boolean | undefined>) {
+  const column = options.findIndex((option) => option.value === value);
   return (
-    <SegmentGroup
+    <SegmentRoot
       {...props}
       value={value}
       onChange={onChange}
@@ -108,12 +116,19 @@ export function Segmented<T extends string>({
       aria-label={label}
       className={className}
     >
+      {column >= 0 && (
+        <span
+          aria-hidden
+          className={cn(styles.indicator, styles.columnIndicator)}
+          style={{ translate: `calc(${column} * var(--column-step)) 0` }}
+        />
+      )}
       {options.map((option) => (
         <Segment key={option.value} value={option.value} data-segment={option.value}>
           {option.icon}
           {option.label}
         </Segment>
       ))}
-    </SegmentGroup>
+    </SegmentRoot>
   );
 }

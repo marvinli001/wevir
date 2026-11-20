@@ -1121,7 +1121,7 @@ export function SessionView({
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth">
+    <div data-session-view="" className="flex h-full min-h-0 flex-col">
       {reviewTarget && client && (
         <ReviewTargetDialog
           target={reviewTarget}
