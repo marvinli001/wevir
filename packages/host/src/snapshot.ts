@@ -432,6 +432,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     }
     case 'session.handoff': {
+      next.usage = undefined;
       next.interruptedTurn = undefined;
       if (event.payload.failover === undefined) next.routing = undefined;
       const { from, to, resumed } = event.payload;
@@ -492,6 +493,10 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     }
     case 'context.compacted':
+      if (projection.usage?.breakdown) {
+        const { breakdown: _breakdown, ...usage } = projection.usage;
+        next.usage = usage;
+      }
       if (projection.rules?.channel === 'message') next.rulesCompacted = true;
       break;
     case 'session.configured':

@@ -934,6 +934,7 @@ export class TranscriptProjection {
         return;
       }
       case 'session.handoff': {
+        this.#usage = undefined;
         const { from, to, resumed, strategy, covered, items, omittedItems, context } =
           event.payload;
         const { bytes, budgetBytes, hash, omitted, constraints, notes, historyTool } =
@@ -1117,6 +1118,10 @@ export class TranscriptProjection {
         return;
       case 'context.compacting':
       case 'context.compacted':
+        if (event.type === 'context.compacted' && this.#usage?.breakdown) {
+          const { breakdown: _breakdown, ...usage } = this.#usage;
+          this.#usage = usage;
+        }
         this.#compaction(event);
         return;
       case 'engine.error':

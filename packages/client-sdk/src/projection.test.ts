@@ -653,6 +653,9 @@ describe('TranscriptProjection：上下文分布（0.50.0）', () => {
       contextSize: 200_000,
       breakdown,
     });
+    add('context.compacted', { turnId: TURN, compactionId: 'c1', trigger: 'manual' });
+    add('usage.updated', { contextUsed: 1000, contextSize: 200_000 });
+    expect(projectTranscript(list).usage).toEqual({ contextUsed: 1000, contextSize: 200_000 });
     const fresh = { categories: [{ name: 'Messages', tokens: 5000, kind: 'used' }] };
     add('usage.updated', { contextUsed: 5000, contextSize: 200_000, breakdown: fresh });
     expect(projectTranscript(list).usage?.breakdown).toEqual(fresh);
