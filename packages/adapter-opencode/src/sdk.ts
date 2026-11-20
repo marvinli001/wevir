@@ -101,6 +101,7 @@ export interface OpenCodeClient {
   children(sessionID: string): Promise<Session[]>;
   messages(sessionID: string): Promise<Array<{ info: Message; parts: Part[] }>>;
   status(): Promise<Record<string, SessionStatus>>;
+  skills?(signal?: AbortSignal): Promise<Array<{ name: string; description?: string }>>;
   commands(signal?: AbortSignal): Promise<Command[]>;
   command(
     input: NativeCommandInput,
@@ -178,6 +179,10 @@ export function loadOpenCodeSdk(): Promise<OpenCodeSdk> {
           throwOnError: true,
         });
         return {
+          skills: async (signal) =>
+            required('app.skills', (await client.app.skills(undefined, { signal })).data).map(
+              ({ name, description }) => ({ name, description }),
+            ),
           health: async (signal) =>
             required('global.health', (await client.global.health({ signal })).data),
           providers: async (signal) =>

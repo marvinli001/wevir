@@ -47,7 +47,13 @@ export class GatewayHome {
     settings: () => this.privacySource?.settings(),
     secrets: () => this.privacySource?.secrets() ?? [],
   });
-  readonly #observers = new Map<string | undefined, (observation: RequestObservation) => void>();
+  readonly #observers = new Map<
+    string | undefined,
+    {
+      report: (observation: RequestObservation) => void;
+      files: (id: string) => readonly { name: string; text: string }[] | undefined;
+    }
+  >();
   #providers: readonly ProviderConfig[] = [];
   #binary: string | undefined;
   #versionChecked = false;
@@ -71,7 +77,12 @@ export class GatewayHome {
     this.#setProviders(options.providers ?? []);
   }
 
-  observe(providerId: string | undefined, listener: (value: RequestObservation) => void) {
+  observe(
+    providerId: string | undefined,
+    report: (value: RequestObservation) => void,
+    files: (id: string) => readonly { name: string; text: string }[] | undefined,
+  ) {
+    const listener = { report, files };
     this.#observers.set(providerId, listener);
     return () => {
       if (this.#observers.get(providerId) === listener) this.#observers.delete(providerId);
@@ -167,10 +178,12 @@ export class GatewayHome {
             info: (message, fields) => this.#logger.info?.(message, fields),
             warn: (message, fields) => this.#logger.warn(message, fields),
           },
+          contextFiles: (provider, id) =>
+            (this.#observers.get(provider) ?? this.#observers.get(undefined))?.files(id),
           onRequest: (observation) => {
             const observer =
               this.#observers.get(observation.providerId) ?? this.#observers.get(undefined);
-            observer?.(observation);
+            observer?.report(observation);
             this.#options.gateway?.onRequest?.(observation);
           },
         });

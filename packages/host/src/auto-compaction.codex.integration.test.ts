@@ -148,7 +148,7 @@ describe.skipIf(!binaryAvailable())(
         turnId: sent.turnId,
       });
       expect(error?.payload.message).toMatch(
-        /^Stopped the turn: after 2 automatic context compactions in a row the model service still reported 124020 tokens in use, at or above the compaction threshold of 115200 for a 128000-token context window/,
+        /^Stopped the turn: after 2 automatic context compactions in a row the model service still reported 124000 tokens in use, at or above the compaction threshold of 115200 for a 128000-token context window/,
       );
       // 压缩完成之前 Codex 报的是压缩后估算的用量（不含工具），远低于压缩线；停下回合看的是之后下一个请求报的。
       const firstCompacted = events.indexOf(compactions[0] as (typeof events)[number]);
@@ -157,7 +157,7 @@ describe.skipIf(!binaryAvailable())(
       expect(estimate.contextUsed).toBeLessThan(115_200);
       expect(
         events.slice(firstCompacted).find((e) => e.type === 'usage.updated')?.payload,
-      ).toMatchObject({ contextUsed: 124_020, autoCompactAt: 115_200 });
+      ).toMatchObject({ contextUsed: 124_000, autoCompactAt: 115_200 });
       expect(agentRequests).toBeLessThanOrEqual(FRUITLESS_AUTO_COMPACTIONS + 2);
     });
   },

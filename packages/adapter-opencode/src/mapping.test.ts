@@ -77,7 +77,7 @@ describe('OpenCodeTurnMapper 回放真实录音', () => {
       replaces: [{ attemptId, blockIndex: 0 }],
     });
     expect(ended).toMatchObject({ attemptId, outcome: 'committed' });
-    expect(usage).toMatchObject({ contextUsed: 132, contextSize: 128_000, totalTokens: 132 });
+    expect(usage).toMatchObject({ contextUsed: 120, contextSize: 128_000, totalTokens: 132 });
     // 每次调用的用量（0.62.0）：时长到 text part 结束，首个 token 是 text part 开始。
     expect(recorded).toEqual({
       type: 'usage.recorded',
@@ -289,10 +289,10 @@ describe('辅助函数', () => {
     expect(todoItems({})).toBeUndefined();
   });
 
-  it('contextTokens 是输入、缓存与输出之和', () => {
+  it('contextTokens 是输入与缓存读写之和', () => {
     expect(
       contextTokens({ input: 10, output: 5, reasoning: 3, cache: { read: 100, write: 1 } }),
-    ).toBe(116);
+    ).toBe(111);
     expect(contextTokens({ input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } })).toBe(
       undefined,
     );

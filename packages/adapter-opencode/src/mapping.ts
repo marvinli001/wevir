@@ -25,6 +25,7 @@ import type {
   AgentToolImage,
   TodoItem,
   UsageRecordedEvent,
+  UsageUpdatedEvent,
 } from '@wevir/runtime-adapter';
 import { engineToolCall } from './app-tools.js';
 import type { Message, Part } from './sdk.js';
@@ -147,10 +148,10 @@ export function todoItems(input: unknown): TodoItem[] | undefined {
   });
 }
 
-/** 一次模型调用之后的上下文用量：这次的输入（含缓存）加输出，就是下一次请求要带上的。 */
+/** 一次模型调用之后的上下文用量：这次实际发送的输入，含缓存读写。 */
 export function contextTokens(tokens: AssistantMessage['tokens'] | undefined): number | undefined {
   if (tokens === undefined) return undefined;
-  const used = tokens.input + tokens.cache.read + tokens.cache.write + tokens.output;
+  const used = tokens.input + tokens.cache.read + tokens.cache.write;
   return used > 0 ? used : undefined;
 }
 
@@ -174,6 +175,7 @@ export class OpenCodeTurnMapper {
   readonly #timings = new Map<string, CallTiming>();
   /** 最近一条完成的 assistant 消息的 `finish`（回合结束的 stopReason）。 */
   lastFinish: string | undefined;
+  lastContext?: UsageUpdatedEvent;
 
   constructor(engineSessionId: string, options: TurnMapperOptions = {}) {
     this.#engineSessionId = engineSessionId;
@@ -230,13 +232,14 @@ export class OpenCodeTurnMapper {
       const contextUsed = contextTokens(info.tokens);
       const contextSize = this.#options.contextSize?.();
       if (contextUsed !== undefined && contextSize !== undefined) {
-        events.push({
+        this.lastContext = {
           type: 'usage.updated',
           engineSessionId: this.#engineSessionId,
           contextUsed,
           contextSize,
           ...(usage !== undefined && { totalTokens: usage.totalTokens }),
-        });
+        };
+        events.push(this.lastContext);
       }
     }
     return events;

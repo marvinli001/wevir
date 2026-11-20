@@ -96,7 +96,14 @@ describe('CodexAdapter.configureSession', () => {
     const { engineSessionId } = await adapter.createSession(config);
     const other = await adapter.createSession(config);
     const events = collectEvents(adapter, engineSessionId);
-    await runTurn(adapter, engineSessionId, 'one', events);
+    const firstTurn = await runTurn(adapter, engineSessionId, 'one', events);
+    const measurements = firstTurn.filter((event) => event.type === 'usage.updated');
+    expect(measurements[0]?.breakdown).toBeUndefined();
+    expect(measurements.at(-1)?.breakdown).toMatchObject({
+      precision: 'estimate',
+      measuredUsed: measurements.at(-1)?.contextUsed,
+    });
+    expect(firstTurn.at(-1)?.type).toBe('turn.settled');
     await adapter.configureSession(engineSessionId, {
       modelId: 'mock-large',
       reasoningEffort: 'high',

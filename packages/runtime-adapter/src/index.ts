@@ -5,6 +5,7 @@ export {
   instructionParts,
   measureContext,
 } from './context-breakdown.js';
+export { projectInstructionFiles } from './context-files.js';
 export * from './errors.js';
 export { EventHub, type EventHubOptions } from './event-hub.js';
 export * from './events.js';

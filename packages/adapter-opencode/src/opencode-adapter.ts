@@ -39,6 +39,8 @@ import {
   type AgentRuntimeAdapter,
   type ApprovalCancelledEvent,
   type ApprovalDecision,
+  type ContextPart,
+  contextPart,
   type EngineAppToolsGrant,
   type EngineComposerCommand,
   type EngineRuleFiles,
@@ -46,9 +48,12 @@ import {
   type EngineToolClass,
   type EngineToolEnforcement,
   EventHub,
+  instructionParts,
   isAdapterError,
+  measureContext,
   type PendingApproval,
   type PermissionMode,
+  projectInstructionFiles,
   type SessionConfig,
   type TitleRequest,
   type TurnFailedEvent,
@@ -56,6 +61,7 @@ import {
 } from '@wevir/runtime-adapter';
 import { OpenCodeAccounts } from './accounts.js';
 import { engineToolName, hiddenToolRules, listAppToolNames } from './app-tools.js';
+import { systemToolCatalogs } from './context-calibration.js';
 import { openCodeAccountEnv } from './executable.js';
 import { ENGINE_RAW_PROTOCOL, OpenCodeTurnMapper } from './mapping.js';
 import { newMessageId } from './message-id.js';
@@ -134,6 +140,9 @@ export function openCodeEngineDir(home: string): string {
 }
 
 interface SessionSettings {
+  contextSupply?: SessionConfig['contextSupply'];
+  contextParts?: ContextPart[];
+
   modelId: string;
   reasoningEffort?: string;
   permissionMode?: PermissionMode;
@@ -427,7 +436,10 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
    * 自己的令牌列一次才知道（建会话时 Host 已经认得这个正在建的会话）。列不出来时不藏，只记一条警告：调用仍由 Host 按会话拒绝。
    */
   async #settings(config: SessionConfig): Promise<SessionSettings> {
-    const settings = settingsOf(config);
+    const settings: SessionSettings = {
+      ...settingsOf(config),
+      contextSupply: config.contextSupply,
+    };
     const own = config.appTools;
     const engine = this.#runtime.appToolsEndpoint();
     if (own === undefined || engine === undefined) return settings;
@@ -459,7 +471,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       throw adapterError(error, 'session.create');
     }
     if (this.#disposed) throw new AdapterError('disposed', 'the OpenCode adapter was disposed');
-    this.#register(info.id, config.cwd, settings, rules, stream, false);
+    await this.#register(info.id, config.cwd, settings, rules, stream, false);
     return this.#engineSession(info.id, settings);
   }
 
@@ -493,7 +505,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       throw adapterError(error, 'session resume');
     }
     if (this.#disposed) throw new AdapterError('disposed', 'the OpenCode adapter was disposed');
-    this.#register(engineSessionId, config.cwd, settings, rules, stream, true);
+    await this.#register(engineSessionId, config.cwd, settings, rules, stream, true);
     return this.#engineSession(engineSessionId, settings);
   }
 
@@ -773,7 +785,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       throw adapterError(error, 'session.fork');
     }
     if (this.#disposed) throw new AdapterError('disposed', 'the OpenCode adapter was disposed');
-    this.#register(info.id, config.cwd, settings, rules, stream, true);
+    await this.#register(info.id, config.cwd, settings, rules, stream, true);
     return this.#engineSession(info.id, settings);
   }
 
@@ -848,6 +860,8 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     }
     session.settings = {
       ...settingsOf(config),
+      contextParts: session.settings.contextParts,
+      contextSupply: session.settings.contextSupply,
       ...(session.settings.additionalRoots !== undefined && {
         additionalRoots: session.settings.additionalRoots,
       }),
@@ -1068,19 +1082,49 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
 
   // ── 会话 ─────────────────────────────────────────────────────────────────────
 
-  #register(
+  async #register(
     id: string,
     cwd: string,
     settings: SessionSettings,
     rules: PermissionRuleset,
     stream: DirectoryStream,
     history: boolean,
-  ): Session {
+  ): Promise<Session> {
     const existing = this.#sessions.get(id);
     if (existing?.attached === true) {
       this.#releaseStream(stream);
       return existing;
     }
+    const [skills, files] = await Promise.all([
+      stream.client.skills?.(AbortSignal.timeout(3000)).catch(() => []) ?? [],
+      projectInstructionFiles(cwd, 'opencode'),
+    ]);
+    const version = this.#runtime.serverVersion ?? this.#runtime.installation?.version ?? '';
+    const denied = new Set(
+      engineToolRules(settings.deniedTools ?? []).map((rule) => rule.permission),
+    );
+    settings.contextParts = [
+      ...instructionParts(settings.system ?? '', 'System prompt'),
+      ...files.map((file) => contextPart('Memory files', file.text, file.name)),
+      ...skills
+        .filter(() => !denied.has('skill'))
+        .map((skill) =>
+          contextPart(
+            'Skills',
+            `${skill.name}
+${skill.description ?? ''}`,
+            skill.name,
+          ),
+        ),
+      ...Object.entries(systemToolCatalogs[version] ?? {})
+        .filter(([name]) => !denied.has(name === 'write' ? 'edit' : name))
+        .map(([name, [bytes, weight]]) => ({
+          category: 'System tools' as const,
+          name,
+          bytes,
+          weight,
+        })),
+    ];
     const session: Session = {
       id,
       cwd,
@@ -1297,8 +1341,16 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     for (const steer of turn.steers) {
       if (steer.accepted && !steer.steered) session.staleSteers.push(steer.messageId);
     }
+    const last = turn.mapper.lastContext;
+    const parts = session.settings.contextParts ?? [];
+    const host = (session.settings.contextSupply?.('dispatch') ?? []).filter(
+      (part) => !part.name || !session.settings.hiddenTools?.includes(part.name),
+    );
     const events = [
       ...turn.mapper.finish(),
+      ...(last && !session.parent
+        ? [{ ...last, breakdown: measureContext([...parts, ...host], last, 'estimate') }]
+        : []),
       ...this.#cancelRequests(session, turn.cancelling ? 'turn_cancelled' : 'turn_ended'),
       terminal,
     ];
@@ -1581,6 +1633,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
         if (session.turn === undefined) return;
         // 上下文超长之后 opencode 自己压缩完了，回合接着跑。
         session.turn.overflow = undefined;
+        session.turn.mapper.lastContext = undefined;
         const compactionId = randomUUID();
         this.#emit(session, [
           {

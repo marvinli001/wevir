@@ -192,6 +192,21 @@ describe('OpenCodeAdapter（假 opencode）', () => {
     });
   });
 
+  it('publishes a new input breakdown once when the turn ends', async () => {
+    const h = setup();
+    const { id, log } = await openSession(h, { ruleInstructions: '回答简短。' });
+    await h.adapter.send(id, text('Say hello'));
+    await log.terminal();
+    const updates = log.events.filter((event) => event.type === 'usage.updated');
+    expect(updates[0]?.breakdown).toBeUndefined();
+    const breakdown = updates.at(-1)?.breakdown;
+    expect(breakdown).toMatchObject({ precision: 'estimate', measuredUsed: 120 });
+    expect(
+      breakdown?.categories.filter((c) => c.kind === 'used').reduce((sum, c) => sum + c.tokens, 0),
+    ).toBe(120);
+    expect(log.events.at(-1)?.type).toBe('turn.settled');
+  });
+
   it('角色关掉的引擎工具：建会话的规则集末尾是这些类别的 deny，完全访问也盖不过', async () => {
     const h = setup();
     expect(h.adapter.engineToolEnforcement).toEqual({ classes: ['read', 'edit', 'shell', 'web'] });

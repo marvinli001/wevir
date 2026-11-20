@@ -137,10 +137,17 @@ describe.skipIf(binary === undefined)(
       const first = await runTurn(adapter, id, 'hello', events);
       // 用量带上下文大小与自动压缩的线（0.29.0）：1100 的 90%。
       expect(first.find(ofType('usage.updated'))).toMatchObject({
-        contextUsed: 1020,
+        contextUsed: 1000,
         contextSize: 1100,
         autoCompactAt: 990,
       });
+      const finalUsage = first.filter(ofType('usage.updated')).at(-1);
+      expect(finalUsage?.breakdown).toMatchObject({ precision: 'exact-split', measuredUsed: 1000 });
+      expect(
+        finalUsage?.breakdown?.categories
+          .filter((row) => row.kind === 'used')
+          .reduce((sum, row) => sum + row.tokens, 0),
+      ).toBe(1000);
       const turn = await runTurn(adapter, id, 'hello again', events);
       const types = turn.map((event) => event.type);
       expect(turn.find(ofType('context.compacting'))).toMatchObject({ trigger: 'auto' });
@@ -160,7 +167,7 @@ describe.skipIf(binary === undefined)(
       };
       const first = await runTurn(adapter, id, 'hello', events);
       expect(first.find(ofType('usage.updated'))).toMatchObject({
-        contextUsed: 120_020,
+        contextUsed: 120_000,
         contextSize: 128_000,
         autoCompactAt: 115_200,
       });

@@ -8,7 +8,6 @@ import type {
   ToolDisplay,
   TurnFailedEvent,
   TurnSettledEvent,
-  UsageBreakdown,
   UsageRecordedEvent,
 } from '@wevir/runtime-adapter';
 import {
@@ -912,7 +911,7 @@ export class CodexEventMapper {
   }
 
   /**
-   * 已用量取最近一次请求的 `last.totalTokens`（codex-notes §2.7 的口径），上下文大小优先取模型目录。
+   * 已用量取最近一次请求含缓存的输入。压缩后的重估只有 totalTokens，保留引擎重估的窗口用量。
    *
    * 每次请求的用量（0.62.0，`usage.recorded`）取 `last`。同一个请求 Codex 可能报不止一次（限额更新、压缩后重估上下文只改
    * `last` 的估算、`thread/resume` 与 `thread/fork` 时重放），这些通知的 thread 累计 `total` 都没有新增，所以只有累计变了、
@@ -927,19 +926,19 @@ export class CodexEventMapper {
     if (contextSize === undefined)
       return [...recorded, this.raw('thread/tokenUsage/updated', params)];
     const autoCompactAt = this.#autoCompactAt();
+    const { last } = params.tokenUsage;
     return [
       ...recorded,
       {
         type: 'usage.updated',
         engineSessionId: this.engineSessionId,
-        contextUsed: params.tokenUsage.last.totalTokens,
+        contextUsed: last.inputTokens || last.outputTokens ? last.inputTokens : last.totalTokens,
         contextSize,
         // 这个 thread 累计的（0.14.0），子 thread 各算各的。
         ...(typeof params.tokenUsage.total?.totalTokens === 'number' && {
           totalTokens: params.tokenUsage.total.totalTokens,
         }),
         ...(autoCompactAt !== undefined && { autoCompactAt }),
-        breakdown: codexContextBreakdown(params.tokenUsage.last, contextSize, autoCompactAt),
       },
     ];
   }
@@ -1177,31 +1176,4 @@ function isReasoning(
     item.content.every((piece) => typeof piece === 'string') &&
     item.summary.every((piece) => typeof piece === 'string')
   );
-}
-
-/**
- * 上下文的分布（0.50.0）：Codex 不分系统提示、工具与消息，只报最近一次请求的输入（含缓存的）与输出（含推理的），所以按这四
- * 项拆开；`Free space` 是上下文大小减去已用的、再扣掉自动压缩留的余量（`Autocompact buffer`，有阈值时）。
- */
-export function codexContextBreakdown(
-  last: TokenUsageBreakdown,
-  contextSize: number,
-  autoCompactAt: number | undefined,
-): UsageBreakdown {
-  const count = (value: number) => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
-  const input = count(last.inputTokens);
-  const cached = Math.min(count(last.cachedInputTokens), input);
-  const output = count(last.outputTokens);
-  const reasoning = Math.min(count(last.reasoningOutputTokens), output);
-  const used = count(last.totalTokens);
-  const buffer = autoCompactAt === undefined ? 0 : count(contextSize - autoCompactAt);
-  const rows: Array<{ name: string; tokens: number; kind: string }> = [
-    { name: 'Input', tokens: input - cached, kind: 'used' },
-    { name: 'Cached input', tokens: cached, kind: 'used' },
-    { name: 'Output', tokens: output - reasoning, kind: 'used' },
-    { name: 'Reasoning', tokens: reasoning, kind: 'used' },
-    { name: 'Autocompact buffer', tokens: buffer, kind: 'buffer' },
-    { name: 'Free space', tokens: count(contextSize - used - buffer), kind: 'free' },
-  ];
-  return { categories: rows.filter((row) => row.tokens > 0) };
 }
