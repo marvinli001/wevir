@@ -2744,9 +2744,10 @@ export const messages: Messages = {
   'computer.access.title': "Accès au contrôle de l'ordinateur",
   'computer.access.session': 'Session : {title}',
   'computer.access.reason': 'Objectif : {reason}',
-  'computer.access.body': 'L’autorisation vaut pour cette session. Appuyez sur Échap pour arrêter.',
+  'computer.access.body':
+    "Une fois autorisé, l'agent peut lire et utiliser les apps choisies. Esc l'arrête à tout moment.",
   'computer.tier.read': 'Lecture seule',
-  'computer.tier.click': 'Clic gauche et défilement',
+  'computer.tier.click': 'Clic gauche uniquement',
   'computer.tier.full': 'Contrôle total',
   'computer.access.granted': 'Autorisée',
   'computer.access.notFound': 'Introuvable : {apps}',

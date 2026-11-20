@@ -2736,9 +2736,10 @@ export const messages: Messages = {
   'computer.access.title': "Accesso all'uso del computer",
   'computer.access.session': 'Sessione: {title}',
   'computer.access.reason': 'Scopo: {reason}',
-  'computer.access.body': 'Il permesso vale per questa sessione. Premi Esc per interrompere.',
+  'computer.access.body':
+    "Dopo l'approvazione l'agente può leggere e usare le app selezionate. Esc lo ferma in qualsiasi momento.",
   'computer.tier.read': 'Sola lettura',
-  'computer.tier.click': 'Clic sinistro e scorrimento',
+  'computer.tier.click': 'Solo clic sinistro',
   'computer.tier.full': 'Controllo completo',
   'computer.access.granted': 'Approvata',
   'computer.access.notFound': 'Non trovata: {apps}',

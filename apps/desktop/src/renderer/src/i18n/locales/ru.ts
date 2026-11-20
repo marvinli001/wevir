@@ -2741,9 +2741,10 @@ export const messages: Messages = {
   'computer.access.title': 'Доступ к управлению компьютером',
   'computer.access.session': 'Сеанс: {title}',
   'computer.access.reason': 'Цель: {reason}',
-  'computer.access.body': 'Доступ действует в этом сеансе. Нажмите Esc, чтобы остановить управление.',
+  'computer.access.body':
+    'После одобрения агент сможет читать и управлять выбранными приложениями. Esc останавливает его в любой момент.',
   'computer.tier.read': 'Только чтение',
-  'computer.tier.click': 'Левый щелчок и прокрутка',
+  'computer.tier.click': 'Только левый щелчок',
   'computer.tier.full': 'Полный доступ',
   'computer.access.granted': 'Одобрено',
   'computer.access.notFound': 'Не найдено: {apps}',

@@ -2732,9 +2732,10 @@ export const messages: Messages = {
   'computer.access.title': 'Zugriff auf Computersteuerung',
   'computer.access.session': 'Sitzung: {title}',
   'computer.access.reason': 'Zweck: {reason}',
-  'computer.access.body': 'Die Freigabe gilt für diese Sitzung. Esc beendet die Bedienung.',
+  'computer.access.body':
+    'Nach der Freigabe kann der Agent die gewählten Apps lesen und bedienen. Esc stoppt jederzeit.',
   'computer.tier.read': 'Nur lesen',
-  'computer.tier.click': 'Linksklick und Scrollen',
+  'computer.tier.click': 'Nur Linksklick',
   'computer.tier.full': 'Volle Kontrolle',
   'computer.access.granted': 'Freigegeben',
   'computer.access.notFound': 'Nicht gefunden: {apps}',

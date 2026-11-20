@@ -2678,9 +2678,10 @@ export const messages: Messages = {
   'computer.access.title': '컴퓨터 조작 권한',
   'computer.access.session': '세션: {title}',
   'computer.access.reason': '용도: {reason}',
-  'computer.access.body': '이 세션에만 권한이 적용됩니다. Esc를 누르면 조작이 중지됩니다.',
+  'computer.access.body':
+    '승인하면 Agent가 선택한 앱을 읽고 조작할 수 있습니다. Esc로 언제든 중지합니다.',
   'computer.tier.read': '읽기 전용',
-  'computer.tier.click': '왼쪽 클릭 및 스크롤',
+  'computer.tier.click': '왼쪽 클릭만',
   'computer.tier.full': '전체 제어',
   'computer.access.granted': '승인됨',
   'computer.access.notFound': '찾을 수 없음: {apps}',

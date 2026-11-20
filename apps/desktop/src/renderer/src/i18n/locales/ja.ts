@@ -2690,9 +2690,10 @@ export const messages: Messages = {
   'computer.access.title': 'コンピュータ操作の許可',
   'computer.access.session': 'セッション：{title}',
   'computer.access.reason': '用途：{reason}',
-  'computer.access.body': '許可はこのセッションでのみ有効です。Esc で操作を停止できます。',
+  'computer.access.body':
+    '許可すると Agent は選択したアプリを読み取って操作できます。Esc でいつでも停止できます。',
   'computer.tier.read': '読み取りのみ',
-  'computer.tier.click': '左クリックとスクロール',
+  'computer.tier.click': '左クリックのみ',
   'computer.tier.full': 'フルコントロール',
   'computer.access.granted': '許可済み',
   'computer.access.notFound': '見つかりません：{apps}',
