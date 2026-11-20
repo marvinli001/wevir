@@ -1,0 +1,421 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`measures the transmitted anthropic-messages catalog and the recorded instruction blocks 1`] = `
+{
+  "bytes": {
+    "MCP server instructions": 254,
+    "MCP tools": 793,
+    "Memory files": 192,
+    "Messages": 9,
+    "Skills": 1954,
+    "System prompt": 5379,
+    "System tools": 250,
+  },
+  "categories": [
+    {
+      "kind": "used",
+      "name": "System tools",
+      "tokens": 57,
+    },
+    {
+      "kind": "used",
+      "name": "MCP tools",
+      "tokens": 180,
+    },
+    {
+      "kind": "used",
+      "name": "MCP server instructions",
+      "tokens": 57,
+    },
+    {
+      "kind": "used",
+      "name": "Memory files",
+      "tokens": 43,
+    },
+    {
+      "kind": "used",
+      "name": "Skills",
+      "tokens": 442,
+    },
+    {
+      "kind": "used",
+      "name": "System prompt",
+      "tokens": 1219,
+    },
+    {
+      "kind": "used",
+      "name": "Messages",
+      "tokens": 2,
+    },
+    {
+      "kind": "free",
+      "name": "Free space",
+      "tokens": 2096,
+    },
+  ],
+  "groups": [
+    {
+      "count": 1,
+      "group": "mcp_tools",
+      "items": [
+        {
+          "name": "wevir_tasks",
+          "source": "wevir",
+          "tokens": 180,
+        },
+      ],
+    },
+    {
+      "count": 2,
+      "group": "memory_files",
+      "items": [
+        {
+          "name": "Wevir memory index",
+          "tokens": 21,
+        },
+        {
+          "name": "/workspace/AGENTS.md",
+          "tokens": 6,
+        },
+      ],
+    },
+    {
+      "count": 4,
+      "group": "skills",
+      "items": [
+        {
+          "name": "imagegen",
+          "tokens": 138,
+        },
+        {
+          "name": "openai-docs",
+          "tokens": 115,
+        },
+        {
+          "name": "skill-installer",
+          "tokens": 63,
+        },
+        {
+          "name": "skill-creator",
+          "tokens": 36,
+        },
+      ],
+    },
+  ],
+}
+`;
+
+exports[`measures the transmitted google-gemini catalog and the recorded instruction blocks 1`] = `
+{
+  "bytes": {
+    "MCP server instructions": 254,
+    "MCP tools": 801,
+    "Memory files": 192,
+    "Messages": 9,
+    "Skills": 1954,
+    "System prompt": 5383,
+    "System tools": 258,
+  },
+  "categories": [
+    {
+      "kind": "used",
+      "name": "System tools",
+      "tokens": 58,
+    },
+    {
+      "kind": "used",
+      "name": "MCP tools",
+      "tokens": 181,
+    },
+    {
+      "kind": "used",
+      "name": "MCP server instructions",
+      "tokens": 58,
+    },
+    {
+      "kind": "used",
+      "name": "Memory files",
+      "tokens": 43,
+    },
+    {
+      "kind": "used",
+      "name": "Skills",
+      "tokens": 441,
+    },
+    {
+      "kind": "used",
+      "name": "System prompt",
+      "tokens": 1217,
+    },
+    {
+      "kind": "used",
+      "name": "Messages",
+      "tokens": 2,
+    },
+    {
+      "kind": "free",
+      "name": "Free space",
+      "tokens": 2096,
+    },
+  ],
+  "groups": [
+    {
+      "count": 1,
+      "group": "mcp_tools",
+      "items": [
+        {
+          "name": "wevir_tasks",
+          "source": "wevir",
+          "tokens": 181,
+        },
+      ],
+    },
+    {
+      "count": 2,
+      "group": "memory_files",
+      "items": [
+        {
+          "name": "Wevir memory index",
+          "tokens": 21,
+        },
+        {
+          "name": "/workspace/AGENTS.md",
+          "tokens": 6,
+        },
+      ],
+    },
+    {
+      "count": 4,
+      "group": "skills",
+      "items": [
+        {
+          "name": "imagegen",
+          "tokens": 138,
+        },
+        {
+          "name": "openai-docs",
+          "tokens": 114,
+        },
+        {
+          "name": "skill-installer",
+          "tokens": 63,
+        },
+        {
+          "name": "skill-creator",
+          "tokens": 36,
+        },
+      ],
+    },
+  ],
+}
+`;
+
+exports[`measures the transmitted openai-completions catalog and the recorded instruction blocks 1`] = `
+{
+  "bytes": {
+    "MCP server instructions": 254,
+    "MCP tools": 822,
+    "Memory files": 192,
+    "Messages": 9,
+    "Skills": 1954,
+    "System prompt": 5379,
+    "System tools": 279,
+  },
+  "categories": [
+    {
+      "kind": "used",
+      "name": "System tools",
+      "tokens": 63,
+    },
+    {
+      "kind": "used",
+      "name": "MCP tools",
+      "tokens": 185,
+    },
+    {
+      "kind": "used",
+      "name": "MCP server instructions",
+      "tokens": 57,
+    },
+    {
+      "kind": "used",
+      "name": "Memory files",
+      "tokens": 43,
+    },
+    {
+      "kind": "used",
+      "name": "Skills",
+      "tokens": 439,
+    },
+    {
+      "kind": "used",
+      "name": "System prompt",
+      "tokens": 1211,
+    },
+    {
+      "kind": "used",
+      "name": "Messages",
+      "tokens": 2,
+    },
+    {
+      "kind": "free",
+      "name": "Free space",
+      "tokens": 2096,
+    },
+  ],
+  "groups": [
+    {
+      "count": 1,
+      "group": "mcp_tools",
+      "items": [
+        {
+          "name": "wevir_tasks",
+          "source": "wevir",
+          "tokens": 185,
+        },
+      ],
+    },
+    {
+      "count": 2,
+      "group": "memory_files",
+      "items": [
+        {
+          "name": "Wevir memory index",
+          "tokens": 21,
+        },
+        {
+          "name": "/workspace/AGENTS.md",
+          "tokens": 6,
+        },
+      ],
+    },
+    {
+      "count": 4,
+      "group": "skills",
+      "items": [
+        {
+          "name": "imagegen",
+          "tokens": 138,
+        },
+        {
+          "name": "openai-docs",
+          "tokens": 114,
+        },
+        {
+          "name": "skill-installer",
+          "tokens": 63,
+        },
+        {
+          "name": "skill-creator",
+          "tokens": 35,
+        },
+      ],
+    },
+  ],
+}
+`;
+
+exports[`measures the transmitted openai-responses catalog and the recorded instruction blocks 1`] = `
+{
+  "bytes": {
+    "MCP server instructions": 207,
+    "MCP tools": 852,
+    "Memory files": 192,
+    "Messages": 175,
+    "Skills": 1954,
+    "System prompt": 5379,
+    "System tools": 281,
+  },
+  "categories": [
+    {
+      "kind": "used",
+      "name": "System tools",
+      "tokens": 62,
+    },
+    {
+      "kind": "used",
+      "name": "MCP server instructions",
+      "tokens": 46,
+    },
+    {
+      "kind": "used",
+      "name": "Memory files",
+      "tokens": 42,
+    },
+    {
+      "kind": "used",
+      "name": "MCP tools",
+      "tokens": 189,
+    },
+    {
+      "kind": "used",
+      "name": "Skills",
+      "tokens": 432,
+    },
+    {
+      "kind": "used",
+      "name": "System prompt",
+      "tokens": 1190,
+    },
+    {
+      "kind": "used",
+      "name": "Messages",
+      "tokens": 39,
+    },
+    {
+      "kind": "free",
+      "name": "Free space",
+      "tokens": 2096,
+    },
+  ],
+  "groups": [
+    {
+      "count": 2,
+      "group": "memory_files",
+      "items": [
+        {
+          "name": "Wevir memory index",
+          "tokens": 20,
+        },
+        {
+          "name": "/workspace/AGENTS.md",
+          "tokens": 6,
+        },
+      ],
+    },
+    {
+      "count": 1,
+      "group": "mcp_tools",
+      "items": [
+        {
+          "name": "wevir_tasks",
+          "source": "wevir",
+          "tokens": 180,
+        },
+      ],
+    },
+    {
+      "count": 4,
+      "group": "skills",
+      "items": [
+        {
+          "name": "imagegen",
+          "tokens": 135,
+        },
+        {
+          "name": "openai-docs",
+          "tokens": 112,
+        },
+        {
+          "name": "skill-installer",
+          "tokens": 62,
+        },
+        {
+          "name": "skill-creator",
+          "tokens": 35,
+        },
+      ],
+    },
+  ],
+}
+`;

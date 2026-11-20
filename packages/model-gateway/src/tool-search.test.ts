@@ -2,6 +2,7 @@
 // 官方地址原样透传。
 
 import { describe, expect, it } from 'vitest';
+import { requestContextParts } from './context-parts.js';
 import { toolSearchMode } from './providers.js';
 import { CALL_TOOL_FUNCTION, dispatchToolSearch } from './tool-search.js';
 import type { GatewayProvider, ResponsesEvent, ResponsesRequest } from './types.js';
@@ -254,6 +255,26 @@ describe('三种上游协议', () => {
     expect(toolSearchMode({ ...other, compat: { toolSearch: 'off' } })).toBe('off');
     expect(toolSearchMode({ ...provider({}), kind: 'deepseek-official' })).toBe('dispatch');
   });
+
+  it.each(['openai-responses', 'openai-completions', 'anthropic-messages', 'google-gemini'])(
+    'counts the schemas actually loaded by a search on %s',
+    (api) => {
+      const source = body();
+      const prepared = prepareUpstream(
+        provider({ api, baseURL: 'https://example.test/v1' }),
+        source,
+      );
+      if (!prepared.ok) throw new Error(prepared.message);
+      const loaded = requestContextParts(
+        prepared.payload as Record<string, unknown>,
+        prepared.mode,
+        source,
+      )
+        .filter((part) => part.category === 'MCP tools' && part.source === 'wevir_more')
+        .map((part) => part.name);
+      expect(loaded.sort()).toEqual(['browser_click', 'browser_snapshot']);
+    },
+  );
 
   it('Responses 透传、转 Chat、转 Messages 的请求里都是普通函数，没有搜索项', () => {
     for (const api of ['openai-responses', 'openai-completions', 'anthropic-messages'] as const) {
