@@ -165,6 +165,11 @@ export class SessionWatch {
     this.#save();
   }
 
+  /** 用请求结果里的会话快照（`session.configure` 之后：会话的字段不随事件流更新）。 */
+  applySession(session: Session): void {
+    if (!this.#stopped) this.#set({ session, liveSession: true });
+  }
+
   /** 重新取会话的快照（归档、取消归档之后：这些不走事件流）。 */
   async refreshSession(): Promise<void> {
     const client = this.#client;

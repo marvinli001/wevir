@@ -25,6 +25,8 @@ export interface SheetAction {
   destructive?: boolean;
   /** 单选列表里选中的一项（Android 的列表在行尾打勾）。 */
   checked?: boolean;
+  /** 名称下面的一行小字。 */
+  subtitle?: string;
   onPress: () => void;
 }
 
@@ -70,14 +72,21 @@ export function useActionSheet(): [
                 }}
                 style={styles.sheetRow}
               >
-                <Text
-                  style={[
-                    styles.sheetText,
-                    { color: action.destructive ? theme.destructive : theme.foreground },
-                  ]}
-                >
-                  {action.label}
-                </Text>
+                <View style={styles.sheetLabel}>
+                  <Text
+                    style={[
+                      styles.sheetText,
+                      { color: action.destructive ? theme.destructive : theme.foreground },
+                    ]}
+                  >
+                    {action.label}
+                  </Text>
+                  {action.subtitle !== undefined && (
+                    <Text style={[styles.sheetSubtitle, { color: theme.mutedForeground }]}>
+                      {action.subtitle}
+                    </Text>
+                  )}
+                </View>
                 {action.checked === true && (
                   <Icon name={{ android: 'check' }} size={22} color={theme.foreground} />
                 )}
@@ -183,7 +192,9 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 24,
   },
-  sheetText: { flex: 1, fontSize: TEXT.body },
+  sheetLabel: { flex: 1, paddingVertical: 8, gap: 2 },
+  sheetText: { fontSize: TEXT.body },
+  sheetSubtitle: { fontSize: TEXT.small },
   center: {
     flex: 1,
     justifyContent: 'center',

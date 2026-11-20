@@ -4,15 +4,18 @@
 // 听写（Host 有 `speech` 时，state/dictation.ts）：点麦克风开始录音，输入框换成录音条（红点与计时），前面 ✕ 丢掉、尾部 ✓ 结束并
 // 转写，文字放到光标处，不自动发送。不能听写时麦克风灰着。
 // 给了 `draftKey` 时没发出的字记在 state/drafts.ts，离开页面再回来还在。
+// 给了 `model`（新建会话与会话页的模型按钮，components/model-picker.tsx）时照 Codex App 排成两行：上面是输入框，下面一排是加照片、
+// 插话 / 排队、模型按钮、听写与发送。
 
 import { sendOutcomeUnknown } from '@wevir/client-sdk';
 import { MESSAGE_TEXT_MAX_LENGTH, type PendingDelivery } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
 import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  type HostInstance,
   Image,
   Pressable,
   ScrollView,
@@ -36,6 +39,7 @@ import {
 } from '../state/drafts';
 import { TEXT, useTheme } from '../theme';
 import { type MenuSection, MenuTrigger } from './menu';
+import { ModelAnchorContext } from './model-picker';
 import { GLASS, Icon } from './ui';
 
 export interface ComposerAttachment {
@@ -62,6 +66,7 @@ export function Composer({
   canSend = true,
   autoFocus = false,
   draftKey,
+  model,
 }: {
   onSend: (text: string, clientMessageId: string) => Promise<void>;
   disabled?: boolean;
@@ -86,6 +91,8 @@ export function Composer({
   autoFocus?: boolean;
   /** 草稿的键（会话、助理各一个）。 */
   draftKey?: string;
+  /** 模型按钮：给了就排成两行，按钮在下面一排、听写左边。 */
+  model?: ReactNode;
 }) {
   const theme = useTheme();
   const [text, setText] = useState(() => (draftKey !== undefined ? readDraft(draftKey) : ''));
@@ -157,6 +164,7 @@ export function Composer({
       );
   }, [draftKey, draftReady, loadedDraftKey, text, sendUncertain]);
   const cursor = useRef(0);
+  const column = useRef<HostInstance>(null);
   const dictation = useDictation({
     client: speech,
     ...(sessionId !== undefined && { sessionId }),
@@ -309,7 +317,7 @@ export function Composer({
   const micBeside = !dictating && (!empty || (busy && onStop !== undefined)) && dictation.available;
 
   const content = (
-    <View style={styles.column}>
+    <View ref={column} style={styles.column}>
       {draftError && (
         <Text accessibilityRole="alert" style={{ color: theme.destructive }}>
           {t('draft.failed')}
@@ -362,90 +370,191 @@ export function Composer({
           ))}
         </ScrollView>
       )}
-      <View style={styles.row}>
-        {dictating ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t('dictation.cancel')}
-            onPress={dictation.cancel}
-            hitSlop={6}
-            style={({ pressed }) => [styles.action, { opacity: pressed ? 0.5 : 1 }]}
-            testID="composer-dictation-cancel"
-          >
-            <Icon name={{ ios: 'xmark', android: 'close' }} size={17} color={theme.foreground} />
-          </Pressable>
-        ) : (
-          attachMenu !== undefined && (
-            <MenuTrigger
-              sections={attachMenu}
-              label={t('composer.addPhoto')}
-              disabled={disabled}
-              style={{ ...styles.action, opacity: disabled ? 0.5 : 1 }}
-              testID="composer-attach"
-            >
-              <Icon name={{ ios: 'plus', android: 'add' }} size={20} color={theme.foreground} />
-            </MenuTrigger>
-          )
-        )}
-        {dictating && <RecordingBar dictation={dictation} />}
-        <TextInput
-          maxLength={MESSAGE_TEXT_MAX_LENGTH}
-          value={text}
-          onChangeText={(value) => {
-            edited.current = true;
-            setText(value);
-          }}
-          onSelectionChange={(e) => {
-            cursor.current = e.nativeEvent.selection.end;
-          }}
-          placeholder={placeholder ?? t('bot.message')}
-          placeholderTextColor={theme.mutedForeground}
-          editable={!disabled}
-          autoFocus={autoFocus}
-          multiline
-          onContentSizeChange={(e) => setHeight(e.nativeEvent.contentSize.height)}
-          style={[
-            styles.input,
-            attachMenu !== undefined && styles.inputAfterAttach,
-            {
-              color: theme.foreground,
-              height: Math.min(INPUT_MAX, Math.max(INPUT_MIN, Math.ceil(height))),
-            },
-            dictating && styles.hidden,
-          ]}
-          selectionColor={theme.foreground}
-          submitBehavior="newline"
-          testID="composer-input"
-        />
-        {busy && !dictating && delivery !== undefined && onDeliveryChange !== undefined && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t(`composer.delivery.${delivery}`)}
-            onPress={() => {
-              void Haptics.selectionAsync().catch(() => {});
-              onDeliveryChange(delivery === 'steer' ? 'queue' : 'steer');
+      {model !== undefined ? (
+        <>
+          <TextInput
+            maxLength={MESSAGE_TEXT_MAX_LENGTH}
+            value={text}
+            onChangeText={(value) => {
+              edited.current = true;
+              setText(value);
             }}
-            hitSlop={4}
-            style={({ pressed }) => [
-              styles.delivery,
-              { backgroundColor: theme.muted, opacity: pressed ? 0.6 : 1 },
+            onSelectionChange={(e) => {
+              cursor.current = e.nativeEvent.selection.end;
+            }}
+            placeholder={placeholder ?? t('bot.message')}
+            placeholderTextColor={theme.mutedForeground}
+            editable={!disabled}
+            autoFocus={autoFocus}
+            multiline
+            onContentSizeChange={(e) => setHeight(e.nativeEvent.contentSize.height)}
+            style={[
+              styles.input,
+              styles.inputStacked,
+              {
+                color: theme.foreground,
+                height: Math.min(INPUT_MAX, Math.max(INPUT_MIN, Math.ceil(height))),
+              },
+              dictating && styles.hidden,
             ]}
-            testID="composer-delivery"
-          >
-            <Icon
-              name={{ ios: 'arrow.left.arrow.right', android: 'swap_horiz' }}
-              size={11}
-              weight="semibold"
-              color={theme.softForeground}
-            />
-            <Text style={[styles.deliveryText, { color: theme.foreground }]}>
-              {t(`composer.delivery.${delivery}`)}
-            </Text>
-          </Pressable>
-        )}
-        {micBeside && mic}
-        {action}
-      </View>
+            selectionColor={theme.foreground}
+            submitBehavior="newline"
+            testID="composer-input"
+          />
+          <View style={[styles.row, styles.toolbar]}>
+            {dictating ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t('dictation.cancel')}
+                onPress={dictation.cancel}
+                hitSlop={6}
+                style={({ pressed }) => [styles.action, { opacity: pressed ? 0.5 : 1 }]}
+                testID="composer-dictation-cancel"
+              >
+                <Icon
+                  name={{ ios: 'xmark', android: 'close' }}
+                  size={17}
+                  color={theme.foreground}
+                />
+              </Pressable>
+            ) : (
+              attachMenu !== undefined && (
+                <MenuTrigger
+                  sections={attachMenu}
+                  label={t('composer.addPhoto')}
+                  disabled={disabled}
+                  style={{ ...styles.action, opacity: disabled ? 0.5 : 1 }}
+                  testID="composer-attach"
+                >
+                  <Icon name={{ ios: 'plus', android: 'add' }} size={20} color={theme.foreground} />
+                </MenuTrigger>
+              )
+            )}
+            {dictating ? (
+              <RecordingBar dictation={dictation} />
+            ) : (
+              <>
+                {busy && !dictating && delivery !== undefined && onDeliveryChange !== undefined && (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={t(`composer.delivery.${delivery}`)}
+                    onPress={() => {
+                      void Haptics.selectionAsync().catch(() => {});
+                      onDeliveryChange(delivery === 'steer' ? 'queue' : 'steer');
+                    }}
+                    hitSlop={4}
+                    style={({ pressed }) => [
+                      styles.delivery,
+                      styles.deliveryStacked,
+                      { backgroundColor: theme.muted, opacity: pressed ? 0.6 : 1 },
+                    ]}
+                    testID="composer-delivery"
+                  >
+                    <Icon
+                      name={{ ios: 'arrow.left.arrow.right', android: 'swap_horiz' }}
+                      size={11}
+                      weight="semibold"
+                      color={theme.softForeground}
+                    />
+                    <Text style={[styles.deliveryText, { color: theme.foreground }]}>
+                      {t(`composer.delivery.${delivery}`)}
+                    </Text>
+                  </Pressable>
+                )}
+                <View style={styles.spacer} />
+                <ModelAnchorContext value={column}>{model}</ModelAnchorContext>
+              </>
+            )}
+            {micBeside && mic}
+            {action}
+          </View>
+        </>
+      ) : (
+        <View style={styles.row}>
+          {dictating ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('dictation.cancel')}
+              onPress={dictation.cancel}
+              hitSlop={6}
+              style={({ pressed }) => [styles.action, { opacity: pressed ? 0.5 : 1 }]}
+              testID="composer-dictation-cancel"
+            >
+              <Icon name={{ ios: 'xmark', android: 'close' }} size={17} color={theme.foreground} />
+            </Pressable>
+          ) : (
+            attachMenu !== undefined && (
+              <MenuTrigger
+                sections={attachMenu}
+                label={t('composer.addPhoto')}
+                disabled={disabled}
+                style={{ ...styles.action, opacity: disabled ? 0.5 : 1 }}
+                testID="composer-attach"
+              >
+                <Icon name={{ ios: 'plus', android: 'add' }} size={20} color={theme.foreground} />
+              </MenuTrigger>
+            )
+          )}
+          {dictating && <RecordingBar dictation={dictation} />}
+          <TextInput
+            maxLength={MESSAGE_TEXT_MAX_LENGTH}
+            value={text}
+            onChangeText={(value) => {
+              edited.current = true;
+              setText(value);
+            }}
+            onSelectionChange={(e) => {
+              cursor.current = e.nativeEvent.selection.end;
+            }}
+            placeholder={placeholder ?? t('bot.message')}
+            placeholderTextColor={theme.mutedForeground}
+            editable={!disabled}
+            autoFocus={autoFocus}
+            multiline
+            onContentSizeChange={(e) => setHeight(e.nativeEvent.contentSize.height)}
+            style={[
+              styles.input,
+              attachMenu !== undefined && styles.inputAfterAttach,
+              {
+                color: theme.foreground,
+                height: Math.min(INPUT_MAX, Math.max(INPUT_MIN, Math.ceil(height))),
+              },
+              dictating && styles.hidden,
+            ]}
+            selectionColor={theme.foreground}
+            submitBehavior="newline"
+            testID="composer-input"
+          />
+          {busy && !dictating && delivery !== undefined && onDeliveryChange !== undefined && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t(`composer.delivery.${delivery}`)}
+              onPress={() => {
+                void Haptics.selectionAsync().catch(() => {});
+                onDeliveryChange(delivery === 'steer' ? 'queue' : 'steer');
+              }}
+              hitSlop={4}
+              style={({ pressed }) => [
+                styles.delivery,
+                { backgroundColor: theme.muted, opacity: pressed ? 0.6 : 1 },
+              ]}
+              testID="composer-delivery"
+            >
+              <Icon
+                name={{ ios: 'arrow.left.arrow.right', android: 'swap_horiz' }}
+                size={11}
+                weight="semibold"
+                color={theme.softForeground}
+              />
+              <Text style={[styles.deliveryText, { color: theme.foreground }]}>
+                {t(`composer.delivery.${delivery}`)}
+              </Text>
+            </Pressable>
+          )}
+          {micBeside && mic}
+          {action}
+        </View>
+      )}
     </View>
   );
 
@@ -524,6 +633,9 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   inputAfterAttach: { paddingLeft: 2 },
+  inputStacked: { flex: 0, paddingHorizontal: 10, paddingTop: 6, paddingBottom: 2 },
+  toolbar: { alignItems: 'center' },
+  spacer: { flex: 1 },
   // 录音时输入框留着（字与光标不丢），只是不显示。
   hidden: { position: 'absolute', opacity: 0, width: 0, height: 0 },
   recording: {
@@ -548,6 +660,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     marginRight: 6,
   },
+  deliveryStacked: { marginBottom: 0, marginLeft: 2 },
   deliveryText: { fontSize: TEXT.caption, fontWeight: '600' },
   attachments: { gap: 8, paddingHorizontal: 6, paddingTop: 4 },
   thumbWrap: { width: 56, height: 56 },

@@ -111,9 +111,13 @@ export interface ModelChoice {
   modelId: string;
   /** 省略：模型的默认力度。 */
   reasoningEffort?: string;
+  /** 快速模式（Host 功能 `fast_mode`，模型 `supportsFast`）；省略：模型的 `fastByDefault`。 */
+  fast?: boolean;
 }
 
-/** 选中的（或第一个）来源的默认模型；之前的选择还能用就沿用，力度不在模型的档位里时去掉。 */
+/**
+ * 选中的（或第一个）来源的默认模型；之前的选择还能用就沿用，力度不在模型的档位里时去掉，快速模式在模型不支持时去掉。
+ */
 export function resolveChoice(
   providers: readonly ProviderProfile[],
   previous: ModelChoice | undefined,
@@ -135,6 +139,7 @@ export function resolveChoice(
       (model.reasoningEfforts as readonly string[] | undefined)?.includes(effort) && {
         reasoningEffort: effort,
       }),
+    ...(previous.fast !== undefined && model.supportsFast === true && { fast: previous.fast }),
   };
 }
 
@@ -165,6 +170,8 @@ export interface NewSessionFeatures {
   worktree: boolean;
   permissionModes: boolean;
   sessionCreationIdentity?: boolean;
+  /** 快速模式（`fast_mode`）。 */
+  fast?: boolean;
 }
 
 export function createParams(
@@ -177,6 +184,7 @@ export function createParams(
     providerId: choice.providerId,
     modelId: choice.modelId,
     ...(choice.reasoningEffort !== undefined && { reasoningEffort: choice.reasoningEffort }),
+    ...(features.fast === true && choice.fast !== undefined && { fast: choice.fast }),
     ...(features.permissionModes && { permissionMode: draft.permissionMode }),
     ...(draft.newWorktree &&
       draft.workspaceId !== undefined &&
@@ -225,6 +233,7 @@ export async function loadOptions(client: NewSessionClient): Promise<NewSessionO
         worktree: client.supports('session_worktree'),
         permissionModes: client.supports('permission_modes'),
         sessionCreationIdentity: client.supports('session_creation_identity'),
+        fast: client.supports('fast_mode'),
       },
     };
   } catch (error) {

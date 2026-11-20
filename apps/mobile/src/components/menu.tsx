@@ -2,7 +2,7 @@
 // React Native 画，上面铺一块透明的触发区，菜单从按钮所在的位置展开（iOS 26 是贴着按钮的玻璃菜单）。Android 点按钮弹出底部的
 // Material 列表（sheets.tsx）。导航栏上的菜单是 header-button.tsx 的 HeaderMenu（Stack.Toolbar.Menu）。
 
-import { Button, Host, Menu, Rectangle, Section, Toggle } from '@expo/ui/swift-ui';
+import { Button, Host, Menu, Rectangle, Section, Text, Toggle } from '@expo/ui/swift-ui';
 import {
   accessibilityLabel as a11yLabel,
   contentShape,
@@ -25,6 +25,8 @@ export interface MenuItem {
   icon?: SFSymbol;
   /** 单选列表里选中的一项（打勾）。 */
   checked?: boolean;
+  /** 名称下面的一行小字（只给单选的项）。 */
+  subtitle?: string;
   destructive?: boolean;
   disabled?: boolean;
   onPress: () => void;
@@ -46,6 +48,7 @@ export function sheetActions(sections: readonly MenuSection[]): SheetAction[] {
         label: item.label,
         ...(item.destructive === true && { destructive: true }),
         ...(item.checked === true && { checked: true }),
+        ...(item.subtitle !== undefined && { subtitle: item.subtitle }),
         onPress: item.onPress,
       })),
   );
@@ -55,14 +58,27 @@ function items(list: readonly MenuItem[]) {
   return list.map((item) => {
     const modifiers = item.disabled === true ? [disabledModifier(true)] : undefined;
     // 单选的项用 Toggle：系统菜单在选中的一项前打勾，没选的留出同样的缩进。
+    // 有小字时标签用两段 Text：系统菜单把第二段画成名称下面的副标题。
     return item.checked !== undefined ? (
-      <Toggle
-        key={item.id ?? item.label}
-        label={item.label}
-        isOn={item.checked}
-        onIsOnChange={() => item.onPress()}
-        {...(modifiers !== undefined && { modifiers })}
-      />
+      item.subtitle !== undefined ? (
+        <Toggle
+          key={item.id ?? item.label}
+          isOn={item.checked}
+          onIsOnChange={() => item.onPress()}
+          {...(modifiers !== undefined && { modifiers })}
+        >
+          <Text>{item.label}</Text>
+          <Text>{item.subtitle}</Text>
+        </Toggle>
+      ) : (
+        <Toggle
+          key={item.id ?? item.label}
+          label={item.label}
+          isOn={item.checked}
+          onIsOnChange={() => item.onPress()}
+          {...(modifiers !== undefined && { modifiers })}
+        />
+      )
     ) : (
       <Button
         key={item.id ?? item.label}

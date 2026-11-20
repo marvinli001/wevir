@@ -90,4 +90,25 @@ describe('phone continuity details', () => {
     expect(view.rows.map((row) => row.key)).toEqual(['target', 'from']);
     expect(modelLabel([], { providerId: 'removed', modelId: 'old' })).toBe('removed · old');
   });
+
+  it('names the models when the model changes within one source', () => {
+    const view = continuityView(
+      {
+        kind: 'configured',
+        from: { providerId: 'chatgpt', modelId: 'n' },
+        to: { providerId: 'chatgpt', modelId: 'unlisted' },
+      },
+      providers,
+    );
+    expect(view.label).toBe('GPT → unlisted');
+    const speed = continuityView(
+      {
+        kind: 'configured',
+        from: { providerId: 'chatgpt', modelId: 'n' },
+        to: { providerId: 'chatgpt', modelId: 'n', fast: true },
+      },
+      providers,
+    );
+    expect(speed.label).toBe('GPT → GPT · 快速');
+  });
 });

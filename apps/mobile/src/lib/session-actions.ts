@@ -179,6 +179,12 @@ export class SessionActions {
     await this.#client.request('session.retryTurn', { sessionId: this.#sessionId, turnId });
   }
 
+  /** 换模型、力度或速度（`session.configure`，Host 功能 `session_configure`）：从下一个回合起生效。返回改过的会话。 */
+  async configure(params: MethodParams<'session.configure'>): Promise<Session> {
+    const { session } = await this.#client.request('session.configure', params);
+    return session;
+  }
+
   /** 出错或只读的会话再试一次接上引擎会话。 */
   async resume(): Promise<void> {
     await this.#client.request('session.resume', { sessionId: this.#sessionId });

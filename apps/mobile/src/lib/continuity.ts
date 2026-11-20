@@ -20,6 +20,17 @@ export function continuityView(
     const provider = providers.find((provider) => provider.id === id);
     return provider ? providerTitle(provider, accounts) : id;
   };
+  // 同一个来源里换模型：两端写模型名（写来源名就成了“Codex → Codex”）；只换了速度时快速的一端加“快速”。
+  const speedChanged =
+    notice.kind === 'configured' && (notice.from.fast === true) !== (notice.to.fast === true);
+  const modelOnly = (target: { providerId: string; modelId: string; fast?: boolean }) => {
+    const name =
+      providers
+        .find((provider) => provider.id === target.providerId)
+        ?.models.find((model) => model.id === target.modelId)?.displayName ?? target.modelId;
+    return speedChanged && target.fast === true ? `${name} · ${t('model.speed.fast')}` : name;
+  };
+  const sameSource = from.providerId === to.providerId;
   const rows: HandoffDetailRow[] = [
     {
       key: 'target',
@@ -31,8 +42,8 @@ export function continuityView(
   ];
   return {
     label: t('handoff.transition', {
-      from: providerLabel(from.providerId),
-      to: providerLabel(to.providerId),
+      from: sameSource ? modelOnly(from) : providerLabel(from.providerId),
+      to: sameSource ? modelOnly(to) : providerLabel(to.providerId),
     }),
     from: providers.find((provider) => provider.id === from.providerId),
     to: providers.find((provider) => provider.id === to.providerId),

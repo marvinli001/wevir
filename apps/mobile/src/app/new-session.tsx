@@ -1,12 +1,13 @@
 // 新建会话：打开就是输入栏（键盘弹起、能听写、能加照片），写完点发送就建会话并发出，打开会话页。输入栏上面一排选项胶囊，点一下从胶囊处
-// 展开菜单：电脑（多台时）、项目（或不在项目里的对话，带同目录 / 新工作树）、模型（引擎与账号、模型、思考力度）、权限。每台电脑上次的
-// 选择记在手机上，下次照用；从会话页打开时预选那个会话的项目。这台手机没有“查看模型服务”或“发消息”的权限时只说明要在电脑上新建。
+// 展开菜单：电脑（多台时）、项目（或不在项目里的对话，带同目录 / 新工作树）、权限。模型在输入栏里（components/model-picker.tsx：
+// 点开是力度条，再进“配置”换引擎与账号、模型、速度）。每台电脑上次的选择记在手机上，下次照用；从会话页打开时预选那个会话的项目。
+// 这台手机没有“查看模型服务”或“发消息”的权限时只说明要在电脑上新建。
 
 import { ConnectionLostError, isRpcError, sendOutcomeUnknown } from '@wevir/client-sdk';
 import type { Session, UserImageMimeType } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -19,24 +20,20 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Composer } from '../components/composer';
 import { type MenuSection, MenuTrigger } from '../components/menu';
+import { ModelPicker } from '../components/model-picker';
 import { Icon, type IconName } from '../components/ui';
 import { type MessageKey, t } from '../i18n';
 import { keyboardOverlap } from '../lib/keyboard';
 import {
   createErrorKey,
-  effortsOf,
   initialDraft,
   loadOptions,
   type ModelChoice,
-  modelName,
-  modelsOf,
   type NewSessionMemory,
   type NewSessionOptions,
   PHONE_PERMISSION_MODES,
   type PhonePermissionMode,
-  providerTitle,
   rememberDraft,
-  resolveChoice,
   startSession,
 } from '../lib/new-session';
 import { displayName } from '../lib/records';
@@ -47,23 +44,6 @@ import { acknowledgeDraft, bindDraftSession, loadDraft } from '../state/drafts';
 import { usePhotoAttachments } from '../state/photo-attachments';
 import { useComputers, useRegistry } from '../state/registry';
 import { SPACE, TEXT, useTheme } from '../theme';
-
-const EFFORT_KEYS: Record<string, MessageKey> = {
-  off: 'effort.off',
-  minimal: 'effort.minimal',
-  low: 'effort.low',
-  medium: 'effort.medium',
-  high: 'effort.high',
-  xhigh: 'effort.xhigh',
-  max: 'effort.max',
-  ultra: 'effort.ultra',
-};
-
-function effortLabel(effort: string | undefined): string {
-  if (effort === undefined) return t('effort.default');
-  const key = EFFORT_KEYS[effort];
-  return key !== undefined ? t(key) : effort;
-}
 
 export default function NewSessionScreen() {
   const theme = useTheme();
@@ -141,12 +121,6 @@ export default function NewSessionScreen() {
 
   const ready = options?.kind === 'ready' ? options : undefined;
   const provider = ready?.providers.find((p) => p.id === choice?.providerId);
-  const model =
-    provider !== undefined ? modelsOf(provider).find((m) => m.id === choice?.modelId) : undefined;
-  const efforts = useMemo(
-    () => (ready !== undefined ? effortsOf(ready.providers, choice) : []),
-    [ready, choice],
-  );
   const workspace = ready?.workspaces.find((w) => w.id === workspaceId);
   const canStart =
     ready !== undefined &&
@@ -342,67 +316,6 @@ export default function NewSessionScreen() {
             : []),
         ];
 
-  const modelMenu: MenuSection[] =
-    ready === undefined
-      ? []
-      : [
-          ...(ready.providers.length > 1
-            ? [
-                {
-                  title: t('newSession.source'),
-                  items: ready.providers.map((p) => ({
-                    label: providerTitle(p, ready.accounts),
-                    checked: p.id === choice?.providerId,
-                    onPress: () => {
-                      if (p.id !== choice?.providerId) setChoice(resolveChoice([p], undefined));
-                    },
-                  })),
-                },
-              ]
-            : []),
-          ...(provider !== undefined
-            ? [
-                {
-                  title: t('newSession.model'),
-                  items: modelsOf(provider).map((m) => ({
-                    label: modelName(m),
-                    checked: m.id === choice?.modelId,
-                    onPress: () =>
-                      setChoice(
-                        resolveChoice([provider], {
-                          providerId: provider.id,
-                          modelId: m.id,
-                          ...(choice?.reasoningEffort !== undefined && {
-                            reasoningEffort: choice.reasoningEffort,
-                          }),
-                        }),
-                      ),
-                  })),
-                },
-              ]
-            : []),
-          ...(choice !== undefined && efforts.length > 0
-            ? [
-                {
-                  title: t('newSession.effort'),
-                  items: [undefined, ...efforts].map((effort) => ({
-                    label:
-                      effort === undefined && model?.defaultReasoningEffort
-                        ? `${t('effort.default')} · ${effortLabel(model.defaultReasoningEffort)}`
-                        : effortLabel(effort),
-                    checked: effort === choice.reasoningEffort,
-                    onPress: () =>
-                      setChoice({
-                        providerId: choice.providerId,
-                        modelId: choice.modelId,
-                        ...(effort !== undefined && { reasoningEffort: effort }),
-                      }),
-                  })),
-                },
-              ]
-            : []),
-        ];
-
   const permissionMenu: MenuSection[] = [
     {
       items: PHONE_PERMISSION_MODES.map((mode) => ({
@@ -412,14 +325,6 @@ export default function NewSessionScreen() {
       })),
     },
   ];
-
-  const effectiveEffort = choice?.reasoningEffort ?? model?.defaultReasoningEffort;
-  const modelLabel = [
-    model !== undefined ? modelName(model) : (choice?.modelId ?? ''),
-    effectiveEffort !== undefined ? effortLabel(effectiveEffort) : undefined,
-  ]
-    .filter((part) => part !== undefined && part !== '')
-    .join(' · ');
 
   const notice =
     computer === undefined ? undefined : client === undefined ? (
@@ -488,13 +393,6 @@ export default function NewSessionScreen() {
                   sections={projectMenu}
                   testID="new-session-project"
                 />
-                <Chip
-                  icon={{ ios: 'cpu', android: 'memory' }}
-                  text={modelLabel}
-                  label={t('newSession.model')}
-                  sections={modelMenu}
-                  testID="new-session-model"
-                />
                 {ready.features.permissionModes && (
                   <Chip
                     icon={
@@ -532,6 +430,19 @@ export default function NewSessionScreen() {
               client?.supports('speech') === true && {
                 speech: client,
                 onDictationError: setError,
+              })}
+            {...(writable &&
+              choice !== undefined &&
+              provider !== undefined && {
+                model: (
+                  <ModelPicker
+                    choice={choice}
+                    provider={provider}
+                    sources={{ providers: ready.providers, accounts: ready.accounts }}
+                    fastMode={ready.features.fast === true}
+                    onChange={setChoice}
+                  />
+                ),
               })}
           />
         </View>

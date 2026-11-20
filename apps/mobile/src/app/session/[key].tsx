@@ -48,6 +48,7 @@ import { HeaderMenu } from '../../components/header-button';
 import { LiveStatus, ThoughtRow } from '../../components/live-status';
 import { Markdown } from '../../components/markdown';
 import type { MenuSection } from '../../components/menu';
+import { ModelPicker } from '../../components/model-picker';
 import { type LoadImage, PostImages } from '../../components/post-images';
 import { QuestionCard } from '../../components/question-card';
 import { ErrorCard, RecoveryPanel } from '../../components/recovery';
@@ -70,6 +71,8 @@ import { ApprovalUnavailableError } from '../../lib/approval-gate';
 import { cachedImage } from '../../lib/image-cache';
 import { readImage } from '../../lib/image-read';
 import { keyboardOverlap } from '../../lib/keyboard';
+import { configureParams, sessionChoice } from '../../lib/model-picker';
+import type { ModelChoice } from '../../lib/new-session';
 import { displayName } from '../../lib/records';
 import { ScrollFollow, type ScrollMetrics, showsLatest } from '../../lib/scroll-follow';
 import { isBusy, SessionActions, sendErrorKey } from '../../lib/session-actions';
@@ -262,6 +265,34 @@ export default function SessionScreen() {
   const watchFailed = view.error instanceof WevirRpcError;
   const readOnly = view.transcript?.readOnly ?? session?.readOnly;
   const canWrite = actions?.canWrite === true && readOnly === undefined;
+  // 输入栏里的模型按钮：同一个来源里换模型、力度与速度（`session.configure`），从下一个回合起生效。改的请求在路上时先显示改后的。
+  const [pendingChoice, setPendingChoice] = useState<ModelChoice>();
+  const sessionProvider = catalog.providers.find((p) => p.id === session?.providerId);
+  const shownChoice = pendingChoice ?? (session !== undefined ? sessionChoice(session) : undefined);
+  const configurable =
+    canWrite &&
+    client?.supports('session_configure') === true &&
+    view.cachedAt === undefined &&
+    view.offline !== true &&
+    snapshot?.status.kind === 'online';
+  const configure = (next: ModelChoice) => {
+    if (actions === undefined || shownChoice === undefined) return;
+    const params = configureParams(sessionId, shownChoice, next);
+    if (params === undefined) return;
+    setPendingChoice(next);
+    setError(undefined);
+    actions.configure(params).then(
+      (updated) => {
+        watch.current?.applySession(updated);
+        setPendingChoice((current) => (current === next ? undefined : current));
+      },
+      (e: unknown) => {
+        console.warn('[wevir] could not configure session', e);
+        setPendingChoice(undefined);
+        setError('model.failed');
+      },
+    );
+  };
   const continuity: ContinuityContext = {
     ...catalog,
     autoContinue: {
@@ -609,6 +640,18 @@ export default function SessionScreen() {
                   speech: client,
                   sessionId,
                   onDictationError: setError,
+                })}
+              {...(configurable &&
+                sessionProvider !== undefined &&
+                shownChoice !== undefined && {
+                  model: (
+                    <ModelPicker
+                      choice={shownChoice}
+                      provider={sessionProvider}
+                      fastMode={client.supports('fast_mode')}
+                      onChange={configure}
+                    />
+                  ),
                 })}
             />
           </View>
