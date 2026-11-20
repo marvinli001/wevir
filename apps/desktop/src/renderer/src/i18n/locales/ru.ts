@@ -3636,7 +3636,6 @@ export const messages: Messages = {
   'tuning.undo': 'Отменить',
   'tuning.undo.stale': 'Цель с тех пор изменена; верните её вручную',
   'tuning.undo.failed': 'Не удалось отменить: {error}',
-  'tuning.status.autoOff': 'Автонастройка выключена',
   'tuning.status.exhausted': 'Лимит месяца исчерпан',
   'tuning.status.kept': 'Оставлено',
   'tuning.status.reverted': 'Откачено',

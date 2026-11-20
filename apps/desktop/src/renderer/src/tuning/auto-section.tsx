@@ -1,5 +1,5 @@
-// 自动调优的界面（0.108.0，desktop-layout.md §34/§35）：第一次进来的引导页、页头的开关与每月上限、试用卡（进度环、状态、指标块与
-// 走势）和版本时间线。用户能做的只有开关、上限与撤销。数据见 use-overview.ts，纯逻辑见 auto-model.ts。
+// 自动调优的界面（0.108.0，desktop-layout.md §34/§35）：第一次进来的引导页、主卡（开关、试用状态、范围、每月上限与撤销）、
+// 项目范围的指标与走势，和版本对话框里的时间线。用户能做的只有开关、上限与撤销。数据见 use-overview.ts，纯逻辑见 auto-model.ts。
 
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
 import {
@@ -31,10 +31,10 @@ import { ExpandableRow } from '@/plugins/plugin-rows';
 import { paths } from '@/routes/paths';
 import { LIST_CARD, NoticeBanner } from '@/settings/settings-ui';
 import {
-  autoStatus,
   budgetText,
   canUndo,
   failedRate,
+  heroStatus,
   limitOptions,
   type MetricDelta,
   metricDelta,
@@ -46,11 +46,11 @@ import {
   sparklinePath,
   statusName,
   timeline,
-  trialTitle,
   unversionedTrial,
   usageText,
 } from './auto-model';
 import { kindName } from './proposals-model';
+import { TuningHero } from './tuning-hero';
 import { versionLabel } from './tuning-model';
 
 type UpdateSettings = (patch: Partial<HostSettings>) => Promise<void>;
@@ -116,97 +116,54 @@ export function TuningOnboarding({ update }: { update: UpdateSettings }) {
   );
 }
 
-/** 页头右边：“自动调优”开关与“每月上限”。 */
-export function AutoControls({
-  settings,
+/** 主卡：“自动调优”开关、试用状态与试用中的改动，下面一排是范围（`scope`）、每月上限与撤销。 */
+export function AutoHero({
+  overview,
+  proposals,
+  latestSeq,
   update,
+  onUndo,
+  scope,
 }: {
-  settings: Pick<HostSettings, 'autoTuning' | 'autoTuningMonthlyTokens'>;
+  overview: TuningOverview;
+  proposals: readonly TuningProposal[];
+  latestSeq: number | undefined;
   update: UpdateSettings;
+  onUndo: (proposals: TuningProposal[]) => void;
+  scope: ReactNode;
 }) {
   const [saving, setSaving] = useState(false);
+  const [open, setOpen] = useState(false);
   const save = (patch: Partial<HostSettings>) => {
     setSaving(true);
     update(patch)
       .catch(() => undefined)
       .finally(() => setSaving(false));
   };
-  const limit = settings.autoTuningMonthlyTokens ?? AUTO_TUNING_MONTHLY_TOKENS_DEFAULT;
+  const enabled = overview.auto.enabled;
+  const limit = overview.budget.limitTokens ?? AUTO_TUNING_MONTHLY_TOKENS_DEFAULT;
+  const trial = overview.trial;
+  const inTrial = proposals.filter((p) => trial?.proposalIds.includes(p.id) === true);
   return (
-    <div className="flex items-center gap-4 text-sm" data-testid="tuning-auto-controls">
-      <span className="flex items-center gap-2">
-        <span className="text-muted-foreground">{t('tuning.auto')}</span>
+    <TuningHero
+      title={t('tuning.auto')}
+      control={
         <Switch
           label={t('tuning.auto')}
-          checked={settings.autoTuning === true}
+          checked={enabled}
           disabled={saving}
           onChange={(autoTuning) => save({ autoTuning })}
           data-action="auto-tuning"
         />
-      </span>
-      <span className="flex items-center gap-2">
-        <span className="hidden text-muted-foreground sm:inline">{t('tuning.monthlyLimit')}</span>
-        <Select
-          aria-label={t('tuning.monthlyLimit')}
-          value={String(limit)}
-          onValueChange={(value) => save({ autoTuningMonthlyTokens: Number(value) })}
-          className="w-24"
-          data-field="monthly-limit"
-          options={limitOptions(limit)}
-        />
-      </span>
-    </div>
-  );
-}
-
-/** 试用卡：进度环与状态、试用中的改动、四个指标块与走势。 */
-export function TrialCard({
-  overview,
-  proposals,
-  versions,
-  latestSeq,
-  onUndo,
-}: {
-  overview: TuningOverview;
-  proposals: readonly TuningProposal[];
-  versions: readonly ProfileVersionSummary[];
-  latestSeq: number | undefined;
-  onUndo: (proposals: TuningProposal[]) => void;
-}) {
-  const trial = overview.trial;
-  const inTrial = proposals.filter((p) => trial?.proposalIds.includes(p.id) === true);
-  const status = autoStatus(overview);
-  const [open, setOpen] = useState(false);
-  const pass = metricDelta(overview.series, passRate, true);
-  const failed = metricDelta(overview.series, failedRate, false);
-  const totals = overview.totals ?? { adopted: 0, kept: 0, reverted: 0 };
-  const points = seriesPoints(overview.series, versions, proposals);
-  return (
-    <section
-      className="mb-6 rounded-xl border border-border bg-card px-4 py-4"
-      data-testid="tuning-trial"
-    >
-      <div className="flex min-w-0 items-center gap-3">
-        <ProgressRing
-          value={trial?.sessions ?? 0}
-          total={trial?.needed ?? TUNING_TRIAL_SESSIONS}
-          active={trial !== undefined}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
-            <span className="truncate" data-testid="tuning-trial-title">
-              {trialTitle(overview, latestSeq)}
-            </span>
-            {status !== undefined && (
-              <span className="ml-auto shrink-0 text-xs font-normal text-muted-foreground">
-                {status}
-              </span>
-            )}
-          </div>
-          {inTrial.length > 0 && (
+      }
+      status={heroStatus(overview, latestSeq)}
+      tone={!enabled ? 'idle' : trial !== undefined ? 'trial' : 'stable'}
+      detail={
+        inTrial.length > 0 && (
+          <>
             <button
               type="button"
-              className="mt-0.5 block max-w-full truncate rounded-sm text-left text-xs text-muted-foreground outline-none focus-visible:focus-ring"
+              className="mt-1 block max-w-full truncate rounded-sm text-left text-xs text-muted-foreground outline-none focus-visible:focus-ring"
               aria-expanded={inTrial.length > 1 ? open : undefined}
               onClick={() => setOpen(!open)}
               disabled={inTrial.length === 1}
@@ -215,30 +172,62 @@ export function TrialCard({
                 ? changeLine(inTrial[0] as TuningProposal)
                 : t('tuning.trial.changes', { count: inTrial.length })}
             </button>
-          )}
-        </div>
-        {inTrial.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => onUndo(inTrial)}
-            data-action="trial-undo"
-          >
-            <Undo2 aria-hidden />
-            {t('tuning.undo')}
-          </Button>
-        )}
-      </div>
-      {open && inTrial.length > 1 && (
-        <ul className="mt-2 space-y-1 pl-13 text-xs text-muted-foreground">
-          {inTrial.map((proposal) => (
-            <li key={proposal.id} className="truncate">
-              {changeLine(proposal)}
-            </li>
-          ))}
-        </ul>
+            {open && inTrial.length > 1 && (
+              <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                {inTrial.map((proposal) => (
+                  <li key={proposal.id} className="truncate">
+                    {changeLine(proposal)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )
+      }
+    >
+      {scope}
+      <span className="flex items-center gap-2 pl-1 text-sm">
+        <span className="text-muted-foreground">{t('tuning.monthlyLimit')}</span>
+        <Select
+          aria-label={t('tuning.monthlyLimit')}
+          value={String(limit)}
+          onValueChange={(value) => save({ autoTuningMonthlyTokens: Number(value) })}
+          disabled={saving}
+          className="w-24"
+          data-field="monthly-limit"
+          options={limitOptions(limit)}
+        />
+      </span>
+      {inTrial.length > 0 && (
+        <Button variant="outline" onClick={() => onUndo(inTrial)} data-action="trial-undo">
+          <Undo2 data-icon="inline-start" />
+          {t('tuning.undo')}
+        </Button>
       )}
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="tuning-metrics">
+    </TuningHero>
+  );
+}
+
+/** 项目范围的效果：四个指标与各版本通过率的走势。 */
+export function TrialMetrics({
+  overview,
+  proposals,
+  versions,
+}: {
+  overview: TuningOverview;
+  proposals: readonly TuningProposal[];
+  versions: readonly ProfileVersionSummary[];
+}) {
+  const pass = metricDelta(overview.series, passRate, true);
+  const failed = metricDelta(overview.series, failedRate, false);
+  const totals = overview.totals ?? { adopted: 0, kept: 0, reverted: 0 };
+  const points = seriesPoints(overview.series, versions, proposals);
+  return (
+    <section
+      className="mb-7 overflow-hidden rounded-xl border border-border bg-card"
+      data-testid="tuning-metrics"
+    >
+      <div className="grid grid-cols-2 sm:grid-cols-4 sm:divide-x sm:divide-border">
         <MetricBlock label={t('tuning.metric.passRate')} metric={pass} />
         <MetricBlock label={t('tuning.metric.failedTurns')} metric={failed} />
         <MetricBlock
@@ -270,65 +259,28 @@ function MetricBlock({
   detail?: ReactNode;
 }) {
   return (
-    <div className="rounded-lg bg-muted/50 px-3 py-2">
+    <div className="min-w-0 px-5 py-4">
       <div className="truncate text-xs text-muted-foreground">{label}</div>
-      <div className="mt-0.5 flex items-baseline gap-1.5 tabular-nums">
-        <span className="text-base font-medium">{metric.value ?? '—'}</span>
+      <div className="mt-1.5 flex items-baseline gap-1.5 tabular-nums">
+        <span className="text-xl font-semibold tracking-tight">{metric.value ?? '—'}</span>
         {metric.delta !== undefined && (
           <span className="text-xs text-muted-foreground">{metric.delta}</span>
         )}
       </div>
       {detail !== undefined && (
-        <div className="truncate text-xs text-muted-foreground tabular-nums">{detail}</div>
+        <div className="mt-0.5 truncate text-xs text-muted-foreground tabular-nums">{detail}</div>
       )}
     </div>
   );
 }
 
-/** 进度环：试用会话数 / 需要数。 */
-function ProgressRing({ value, total, active }: { value: number; total: number; active: boolean }) {
-  const radius = 15;
-  const length = 2 * Math.PI * radius;
-  const ratio = active ? Math.min(1, value / Math.max(1, total)) : 1;
-  return (
-    <span
-      className="relative grid size-10 shrink-0 place-items-center"
-      role="img"
-      aria-label={
-        active
-          ? t('tuning.trial.progress', { sessions: value, needed: total })
-          : t('tuning.trial.stable')
-      }
-    >
-      <svg viewBox="0 0 36 36" className="absolute inset-0 -rotate-90" aria-hidden>
-        <circle cx="18" cy="18" r={radius} className="fill-none stroke-muted" strokeWidth="3" />
-        <circle
-          cx="18"
-          cy="18"
-          r={radius}
-          className={cn('fill-none', active ? 'stroke-primary' : 'stroke-success')}
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeDasharray={length}
-          strokeDashoffset={length * (1 - ratio)}
-        />
-      </svg>
-      {active && (
-        <span aria-hidden className="text-[10px] font-medium tabular-nums">
-          {value}/{total}
-        </span>
-      )}
-    </span>
-  );
-}
-
-/** 各版本通过率的走势：不画坐标轴，版本号写在下面；试用中的点用强调色，含回退改动的标红。 */
+/** 各版本通过率的走势：不画坐标轴，版本号写在下面；试用中的点用品牌色，含回退改动的标红。 */
 function Sparkline({ points }: { points: readonly SeriesPoint[] }) {
   const width = 300;
   const height = 36;
   const { path, coords } = sparklinePath(points, width, height);
   return (
-    <div className="mt-4" data-testid="tuning-sparkline">
+    <div className="border-t border-border px-5 pt-4 pb-3" data-testid="tuning-sparkline">
       <svg
         viewBox={`-4 -4 ${width + 8} ${height + 8}`}
         className="h-11 w-full overflow-visible"
@@ -343,20 +295,24 @@ function Sparkline({ points }: { points: readonly SeriesPoint[] }) {
             vectorEffect="non-scaling-stroke"
           />
         )}
+        {/* 点画成零长度的圆头线段：非等比拉伸的 viewBox 里也是正圆。 */}
         {coords.map(({ point, x, y }) =>
           y === undefined ? null : (
-            <circle
+            <line
               key={point.seq}
-              cx={x}
-              cy={y}
-              r="3"
+              x1={x}
+              y1={y}
+              x2={x}
+              y2={y}
+              strokeWidth="6"
+              strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
               className={cn(
                 point.reverted
-                  ? 'fill-destructive'
+                  ? 'stroke-destructive'
                   : point.trial
-                    ? 'fill-primary'
-                    : 'fill-muted-foreground',
+                    ? 'stroke-brand'
+                    : 'stroke-muted-foreground',
               )}
             />
           ),

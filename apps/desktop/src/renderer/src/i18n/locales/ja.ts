@@ -3560,7 +3560,6 @@ export const messages: Messages = {
   'tuning.undo': '元に戻す',
   'tuning.undo.stale': '対象が変更されています。手動で戻してください',
   'tuning.undo.failed': '元に戻せませんでした：{error}',
-  'tuning.status.autoOff': '自動チューニングはオフ',
   'tuning.status.exhausted': '今月の上限に達しました',
   'tuning.status.kept': '保持',
   'tuning.status.reverted': '元に戻した',

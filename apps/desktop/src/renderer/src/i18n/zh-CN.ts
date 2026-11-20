@@ -3539,7 +3539,6 @@ export const zhCN = {
   'tuning.undo': '撤销',
   'tuning.undo.stale': '目标已被改动，需手动改回',
   'tuning.undo.failed': '撤销失败：{error}',
-  'tuning.status.autoOff': '自动调优已关闭',
   'tuning.status.exhausted': '本月上限已用完',
   'tuning.status.kept': '已保留',
   'tuning.status.reverted': '已回退',

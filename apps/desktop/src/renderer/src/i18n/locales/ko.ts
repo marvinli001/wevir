@@ -3544,7 +3544,6 @@ export const messages: Messages = {
   'tuning.undo': '되돌리기',
   'tuning.undo.stale': '대상이 변경되었습니다. 직접 되돌려야 합니다',
   'tuning.undo.failed': '되돌리기 실패: {error}',
-  'tuning.status.autoOff': '자동 튜닝 꺼짐',
   'tuning.status.exhausted': '이번 달 한도 소진',
   'tuning.status.kept': '유지됨',
   'tuning.status.reverted': '되돌림',

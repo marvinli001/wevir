@@ -12,11 +12,13 @@ export interface OverviewData {
   proposals: TuningProposal[];
 }
 
-export function useOverview(client: WevirClient, workspaceId: string | undefined) {
+/** `enabled` 为假（Host 没有自动调优）时不读。 */
+export function useOverview(client: WevirClient, workspaceId: string | undefined, enabled = true) {
   const [state, setState] = useState<{ key?: string; data?: OverviewData; error?: unknown }>({});
   const seq = useRef(0);
   const key = workspaceId ?? 'global';
   const reload = useCallback(() => {
+    if (!enabled) return;
     const id = ++seq.current;
     const scope = workspaceId === undefined ? {} : { workspaceId: workspaceId as WorkspaceId };
     Promise.all([
@@ -32,7 +34,7 @@ export function useOverview(client: WevirClient, workspaceId: string | undefined
         if (id === seq.current) setState((previous) => ({ ...previous, key, error }));
       },
     );
-  }, [client, workspaceId, key]);
+  }, [client, workspaceId, key, enabled]);
 
   useEffect(() => {
     reload();

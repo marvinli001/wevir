@@ -3634,7 +3634,6 @@ export const messages: Messages = {
   'tuning.undo': 'Annuler',
   'tuning.undo.stale': 'La cible a été modifiée depuis ; à rétablir à la main',
   'tuning.undo.failed': 'Échec de l’annulation : {error}',
-  'tuning.status.autoOff': 'Réglage automatique désactivé',
   'tuning.status.exhausted': 'Limite mensuelle atteinte',
   'tuning.status.kept': 'Conservé',
   'tuning.status.reverted': 'Annulé',

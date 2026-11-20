@@ -116,7 +116,7 @@ export function sparklinePath(points: readonly SeriesPoint[], width: number, hei
   return { path, coords };
 }
 
-/** 试用卡的标题：试用中写版本，没有试用时“已稳定 · vN”。 */
+/** 试用的标题：试用中写版本，没有试用时“已稳定 · vN”。 */
 export function trialTitle(overview: TuningOverview, latest: number | undefined): string {
   if (overview.trial !== undefined) {
     const start = overview.trial.startVersion;
@@ -129,11 +129,20 @@ export function trialTitle(overview: TuningOverview, latest: number | undefined)
     : t('tuning.trial.stableVersion', { version: versionLabel(latest) });
 }
 
-/** 试用卡右边的状态：开关关着、本月上限用完。 */
-export function autoStatus(overview: TuningOverview): string | undefined {
-  if (!overview.auto.enabled) return t('tuning.status.autoOff');
-  if (overview.budget.exhausted) return t('tuning.status.exhausted');
-  return undefined;
+/** 主卡的状态一行：开着时写试用（版本与进度）或“已稳定 · vN”，本月上限用完时补一句；关着时只写当前版本。 */
+export function heroStatus(overview: TuningOverview, latest: number | undefined): string {
+  if (!overview.auto.enabled) {
+    return latest === undefined ? t('tuning.noVersions') : versionLabel(latest);
+  }
+  const trial = overview.trial;
+  return [
+    trialTitle(overview, latest),
+    trial !== undefined &&
+      t('tuning.trial.progress', { sessions: trial.sessions, needed: trial.needed }),
+    overview.budget.exhausted && t('tuning.status.exhausted'),
+  ]
+    .filter((part): part is string => typeof part === 'string')
+    .join(' · ');
 }
 
 const ORIGIN_KEYS: Record<string, PlainMessageKey> = {

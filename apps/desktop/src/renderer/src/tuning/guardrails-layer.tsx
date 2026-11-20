@@ -1,4 +1,4 @@
-// 档案里的护栏层（0.86.0，desktop-layout.md §34、design/tuning.md §3.3）：层行右边“新建”，展开是三组：护栏规则（种类、参数摘要、
+// 档案里的护栏层（0.86.0，desktop-layout.md §34、design/tuning.md §3.3）：层的对话框右上角“新建”，内容是三组：护栏规则（种类、参数摘要、
 // 拦截次数、开关、⋯ 菜单编辑与删除；只有 Codex 会话挂得上，组标题旁写“仅 Codex”）、仓库 hooks（只在项目范围：文件 · 事件 · 命令、
 // 开关，不支持的与内容变了的写状态）与审批规则（档案里的条目，只读，“管理”跳设置）。数据是 `guardrail.*` 与 `repoHook.*`
 // （use-guardrails.ts），审批规则取档案层的条目。
@@ -23,7 +23,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
-import { ExpandableRow } from '@/plugins/plugin-rows';
 import { paths } from '@/routes/paths';
 import { NoticeBanner } from '@/settings/settings-ui';
 import { GuardrailDialog } from './guardrails-dialog';
@@ -37,16 +36,15 @@ import {
   repoHookStatus,
   ruleSummary,
 } from './guardrails-model';
-import { layerName, layerScopes, layerSummary, scopeName, shortHash } from './tuning-model';
+import { LayerDialogFrame } from './layer-grid';
+import { scopeName } from './tuning-model';
 import { type ListedHook, useGuardrails } from './use-guardrails';
 
-export function GuardrailsLayerRow({
+export function GuardrailsLayerDialog({
   client,
   layer,
   workspaceId,
-  expanded,
-  onToggle,
-  onExpand,
+  onClose,
   lifecycleHooks = false,
 }: {
   client: WevirClient;
@@ -55,16 +53,12 @@ export function GuardrailsLayerRow({
   lifecycleHooks?: boolean;
   /** 选中的项目；全局范围时省略。 */
   workspaceId: string | undefined;
-  expanded: boolean;
-  onToggle: () => void;
-  /** 新建后展开这一层，看得到新规则。 */
-  onExpand: () => void;
+  onClose: () => void;
 }) {
   const data = useGuardrails(client, workspaceId, lifecycleHooks);
   const [editing, setEditing] = useState<GuardrailDraft>();
   const [deleting, setDeleting] = useState<Guardrail>();
   const [failure, setFailure] = useState<string>();
-  const scopes = layerScopes(layer);
 
   const act = (run: () => Promise<unknown>) => {
     setFailure(undefined);
@@ -74,133 +68,115 @@ export function GuardrailsLayerRow({
   };
 
   return (
-    <>
-      <ExpandableRow
-        id={`layer:${layer.key}`}
-        expanded={expanded}
-        onToggle={onToggle}
-        title={layerName(layer.key)}
-        {...(scopes !== '' && { meta: scopes })}
-        summary={
-          <>
-            {layerSummary(layer)}
-            <span className="ml-3 font-mono" title={layer.hash}>
-              {shortHash(layer.hash)}
-            </span>
-          </>
-        }
-        control={
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() =>
-              setEditing(draftOf(undefined, workspaceId === undefined ? 'global' : 'project'))
-            }
-            data-action="new-guardrail"
-          >
-            <Plus data-icon="inline-start" />
-            {t('tuning.guardrails.new')}
-          </Button>
+    <LayerDialogFrame
+      layer={layer}
+      onClose={onClose}
+      action={
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            setEditing(draftOf(undefined, workspaceId === undefined ? 'global' : 'project'))
+          }
+          data-action="new-guardrail"
+        >
+          <Plus data-icon="inline-start" />
+          {t('tuning.guardrails.new')}
+        </Button>
+      }
+    >
+      {failure !== undefined && <NoticeBanner notice={{ tone: 'error', text: failure }} />}
+      {data.error !== undefined && (
+        <NoticeBanner
+          notice={{
+            tone: 'error',
+            text: t('tuning.guardrails.failed', { error: describe(data.error) }),
+          }}
+        />
+      )}
+      <Group
+        title={t('tuning.guardrails.rules')}
+        aside={
+          <span className="text-xs text-muted-foreground">{t('tuning.guardrails.codexOnly')}</span>
         }
       >
-        {failure !== undefined && <NoticeBanner notice={{ tone: 'error', text: failure }} />}
-        {data.error !== undefined && (
-          <NoticeBanner
-            notice={{
-              tone: 'error',
-              text: t('tuning.guardrails.failed', { error: describe(data.error) }),
-            }}
-          />
+        {data.data === undefined ? (
+          data.error === undefined && (
+            <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+          )
+        ) : data.data.guardrails.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{t('tuning.guardrails.empty')}</p>
+        ) : (
+          <ul className="space-y-px" data-testid="guardrail-rules">
+            {data.data.guardrails.map((guardrail) => (
+              <RuleRow
+                key={guardrail.id}
+                guardrail={guardrail}
+                onToggle={(enabled) =>
+                  act(() =>
+                    client.request('guardrail.setEnabled', {
+                      guardrailId: guardrail.id,
+                      enabled,
+                    }),
+                  )
+                }
+                onEdit={() => setEditing(draftOf(guardrail))}
+                onDelete={() => setDeleting(guardrail)}
+              />
+            ))}
+          </ul>
         )}
-        <Group
-          title={t('tuning.guardrails.rules')}
-          aside={
-            <span className="text-xs text-muted-foreground">
-              {t('tuning.guardrails.codexOnly')}
-            </span>
-          }
-        >
-          {data.data === undefined ? (
-            data.error === undefined && (
-              <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-            )
-          ) : data.data.guardrails.length === 0 ? (
-            <p className="text-xs text-muted-foreground">{t('tuning.guardrails.empty')}</p>
-          ) : (
-            <ul className="space-y-px" data-testid="guardrail-rules">
-              {data.data.guardrails.map((guardrail) => (
-                <RuleRow
-                  key={guardrail.id}
-                  guardrail={guardrail}
+      </Group>
+      {(workspaceId !== undefined || lifecycleHooks) &&
+        data.data !== undefined &&
+        (data.data.hooks.length > 0 || data.data.warnings.length > 0) && (
+          <Group
+            title={t(lifecycleHooks ? 'tuning.guardrails.hooks' : 'tuning.guardrails.repoHooks')}
+          >
+            <ul className="space-y-px" data-testid="guardrail-repo-hooks">
+              {data.data.hooks.map((hook) => (
+                <HookRow
+                  key={hook.id}
+                  hook={hook}
                   onToggle={(enabled) =>
                     act(() =>
-                      client.request('guardrail.setEnabled', {
-                        guardrailId: guardrail.id,
-                        enabled,
-                      }),
+                      lifecycleHooks
+                        ? client.request('hook.setEnabled', {
+                            ...(workspaceId !== undefined && {
+                              workspaceId: workspaceId as WorkspaceId,
+                            }),
+                            hookId: hook.id,
+                            enabled,
+                          })
+                        : client.request('repoHook.setEnabled', {
+                            workspaceId: workspaceId as WorkspaceId,
+                            hookId: hook.id,
+                            enabled,
+                          }),
                     )
                   }
-                  onEdit={() => setEditing(draftOf(guardrail))}
-                  onDelete={() => setDeleting(guardrail)}
                 />
               ))}
             </ul>
-          )}
-        </Group>
-        {(workspaceId !== undefined || lifecycleHooks) &&
-          data.data !== undefined &&
-          (data.data.hooks.length > 0 || data.data.warnings.length > 0) && (
-            <Group
-              title={t(lifecycleHooks ? 'tuning.guardrails.hooks' : 'tuning.guardrails.repoHooks')}
-            >
-              <ul className="space-y-px" data-testid="guardrail-repo-hooks">
-                {data.data.hooks.map((hook) => (
-                  <HookRow
-                    key={hook.id}
-                    hook={hook}
-                    onToggle={(enabled) =>
-                      act(() =>
-                        lifecycleHooks
-                          ? client.request('hook.setEnabled', {
-                              ...(workspaceId !== undefined && {
-                                workspaceId: workspaceId as WorkspaceId,
-                              }),
-                              hookId: hook.id,
-                              enabled,
-                            })
-                          : client.request('repoHook.setEnabled', {
-                              workspaceId: workspaceId as WorkspaceId,
-                              hookId: hook.id,
-                              enabled,
-                            }),
-                      )
-                    }
-                  />
-                ))}
-              </ul>
-              {data.data.warnings.map((warning) => (
-                <ErrorNote
-                  key={warning}
-                  tone="warning"
-                  className="mt-1 text-xs [&>span]:truncate"
-                  title={warning}
-                >
-                  {warning}
-                </ErrorNote>
-              ))}
-            </Group>
-          )}
-        <ApprovalGroup layer={layer} />
-      </ExpandableRow>
+            {data.data.warnings.map((warning) => (
+              <ErrorNote
+                key={warning}
+                tone="warning"
+                className="mt-1 text-xs [&>span]:truncate"
+                title={warning}
+              >
+                {warning}
+              </ErrorNote>
+            ))}
+          </Group>
+        )}
+      <ApprovalGroup layer={layer} />
       {editing !== undefined && (
         <GuardrailDialog
           client={client}
           workspaceId={workspaceId}
           initial={editing}
-          onClose={(saved) => {
-            if (saved && editing.id === undefined) onExpand();
-            setEditing(undefined);
-          }}
+          onClose={() => setEditing(undefined)}
         />
       )}
       <ConfirmDialog
@@ -218,7 +194,7 @@ export function GuardrailsLayerRow({
           {deleting === undefined ? '' : ruleSummary(deleting.rule)}
         </p>
       </ConfirmDialog>
-    </>
+    </LayerDialogFrame>
   );
 }
 

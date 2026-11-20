@@ -3585,7 +3585,6 @@ export const messages: Messages = {
   'tuning.undo': 'Undo',
   'tuning.undo.stale': 'The target was edited since; change it back by hand',
   'tuning.undo.failed': 'Couldn’t undo: {error}',
-  'tuning.status.autoOff': 'Auto-tuning off',
   'tuning.status.exhausted': 'Monthly limit reached',
   'tuning.status.kept': 'Kept',
   'tuning.status.reverted': 'Reverted',

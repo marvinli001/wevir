@@ -3620,7 +3620,6 @@ export const messages: Messages = {
   'tuning.undo': 'Rückgängig',
   'tuning.undo.stale': 'Das Ziel wurde seitdem geändert; bitte von Hand zurücksetzen',
   'tuning.undo.failed': 'Rückgängig fehlgeschlagen: {error}',
-  'tuning.status.autoOff': 'Auto-Tuning aus',
   'tuning.status.exhausted': 'Monatslimit erreicht',
   'tuning.status.kept': 'Behalten',
   'tuning.status.reverted': 'Zurückgenommen',

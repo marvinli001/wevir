@@ -3626,7 +3626,6 @@ export const messages: Messages = {
   'tuning.undo': 'Deshacer',
   'tuning.undo.stale': 'El destino se editó después; restáuralo a mano',
   'tuning.undo.failed': 'No se pudo deshacer: {error}',
-  'tuning.status.autoOff': 'Ajuste automático desactivado',
   'tuning.status.exhausted': 'Límite mensual alcanzado',
   'tuning.status.kept': 'Conservado',
   'tuning.status.reverted': 'Revertido',

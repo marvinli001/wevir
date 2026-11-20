@@ -3524,7 +3524,6 @@ export const messages: Messages = {
   'tuning.undo': '復原',
   'tuning.undo.stale': '目標已被改動，需手動改回',
   'tuning.undo.failed': '復原失敗：{error}',
-  'tuning.status.autoOff': '自動調校已關閉',
   'tuning.status.exhausted': '本月上限已用完',
   'tuning.status.kept': '已保留',
   'tuning.status.reverted': '已還原',

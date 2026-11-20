@@ -3622,7 +3622,6 @@ export const messages: Messages = {
   'tuning.undo': 'Annulla',
   'tuning.undo.stale': 'La destinazione è stata modificata; ripristinala a mano',
   'tuning.undo.failed': 'Annullamento non riuscito: {error}',
-  'tuning.status.autoOff': 'Ottimizzazione automatica disattivata',
   'tuning.status.exhausted': 'Limite mensile raggiunto',
   'tuning.status.kept': 'Mantenuta',
   'tuning.status.reverted': 'Annullata',

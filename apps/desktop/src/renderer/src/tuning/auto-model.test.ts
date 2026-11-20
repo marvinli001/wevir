@@ -6,9 +6,9 @@ import type {
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
-  autoStatus,
   budgetText,
   canUndo,
+  heroStatus,
   limitOptions,
   metricDelta,
   outcomeText,
@@ -137,12 +137,13 @@ describe('auto-model', () => {
         5,
       ),
     ).toBe('v5 试用中');
-    expect(autoStatus(overview())).toBeUndefined();
-    expect(autoStatus(overview({ auto: { enabled: false, decided: true } }))).toBe(
-      '自动调优已关闭',
+    expect(heroStatus(overview(), 4)).toBe('已稳定 · v4');
+    expect(heroStatus(overview({ auto: { enabled: false, decided: true } }), 4)).toBe('v4');
+    expect(heroStatus(overview({ auto: { enabled: false, decided: true } }), undefined)).toBe(
+      '暂无版本',
     );
     const budget = { ...overview().budget, exhausted: true };
-    expect(autoStatus(overview({ budget }))).toBe('本月上限已用完');
+    expect(heroStatus(overview({ budget }), 4)).toBe('已稳定 · v4 · 本月上限已用完');
     expect(budgetText(overview().budget)).toBe('38k/200k');
   });
 
