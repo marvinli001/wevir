@@ -47,7 +47,11 @@ describe('ZUV account on isolated Hosts', () => {
           clientKind: 'desktop',
           clientId: `test-${name}`,
           deviceId: `test-${name}`,
-          capabilities: { subscription_kinds: true },
+          capabilities: {
+            provider_kind_chatgpt: true,
+            provider_kind_google_vertex: true,
+            subscription_kinds: true,
+          },
         });
         expect(hello.error).toBeUndefined();
         return client;

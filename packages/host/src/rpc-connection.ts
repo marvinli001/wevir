@@ -2093,13 +2093,7 @@ function adaptKindsAndTitles(
   // COMPAT(providerKindChatgpt): added in 0.7.0, remove gate after 2027-06-01
   // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
   // COMPAT(providerKindGoogleVertex): added in 0.21.0, remove gate after 2027-06-01
-  if (
-    method === 'provider.list' &&
-    (capabilities.provider_kind_chatgpt !== true ||
-      capabilities.subscription_kinds !== true ||
-      compareProtocolVersions(protocolVersion, '0.55.0') < 0 ||
-      capabilities.provider_kind_google_vertex !== true)
-  ) {
+  if (method === 'provider.list') {
     const value = result as MethodResult<'provider.list'>;
     return {
       ...value,

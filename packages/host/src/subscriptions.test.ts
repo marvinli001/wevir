@@ -21,7 +21,11 @@ afterEach(async () => {
   for (const host of running.splice(0)) await host.shutdown();
 });
 
-const FULL = { provider_kind_chatgpt: true, subscription_kinds: true };
+const FULL = {
+  provider_kind_chatgpt: true,
+  provider_kind_google_vertex: true,
+  subscription_kinds: true,
+};
 
 async function start(
   scenarios = '1',
