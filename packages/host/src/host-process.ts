@@ -958,6 +958,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       approvalPolicy: (sessionId, tool) => channels?.approvalPolicy(sessionId, tool),
       appTools: {
         grant: (sessionId) => appMcp?.grant(sessionId),
+        supply: (sessionId, view) => appMcp?.contextSupply(sessionId, view) ?? [],
         context: async (sessionId) => appToolsContext?.(sessionId),
         prepareEvent: async (sessionId, event) => {
           // 代码智能：记下引擎改过的文件（不改事件）。

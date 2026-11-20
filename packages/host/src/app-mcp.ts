@@ -17,6 +17,9 @@ import {
   type AppToolsEndpoint,
   type AppToolsView,
   type AppToolTier,
+  type ContextPart,
+  contextPart,
+  instructionParts,
 } from '@wevir/runtime-adapter';
 import { dispatchTools } from './tool-dispatch.js';
 
@@ -140,6 +143,10 @@ const digest = (token: string) => createHash('sha256').update(token).digest('hex
  * Host 重启后全部作废，恢复会话时适配器拿到新的。
  */
 export class AppMcpServer {
+  readonly #contextParts = new Map<
+    SessionId,
+    Map<string, { digest: string; parts: ContextPart[] }>
+  >();
   readonly #supplyInstructions = new Map<
     string,
     { instructionBytes: number; instructionDigest: string }
@@ -198,6 +205,21 @@ export class AppMcpServer {
     return { url, token };
   }
 
+  contextSupply(sessionId: SessionId, view: 'layered' | 'dispatch'): ContextPart[] {
+    const supply = this.#contextParts.get(sessionId);
+    if (!supply) return [];
+    return [...supply].flatMap(([key, entry]) =>
+      key.startsWith('dispatch:') === (view === 'dispatch') ? entry.parts : [],
+    );
+  }
+
+  #cacheSupply(sessionId: SessionId, key: string, digest: string, measure: () => ContextPart[]) {
+    const supply = this.#contextParts.get(sessionId) ?? new Map();
+    if (supply.get(key)?.digest === digest) return;
+    supply.set(key, { digest, parts: measure() });
+    this.#contextParts.set(sessionId, supply);
+  }
+
   /** 令牌对应的会话。 */
   sessionOf(token: string): SessionId | undefined {
     return this.#sessions.get(digest(token));
@@ -208,6 +230,7 @@ export class AppMcpServer {
       const token = this.#tokens.get(id);
       if (token !== undefined) this.#sessions.delete(digest(token));
       this.#tokens.delete(id);
+      this.#contextParts.delete(id);
       for (const key of this.#supplyInstructions.keys()) {
         if ((JSON.parse(key) as unknown[])[0] === id) this.#supplyInstructions.delete(key);
       }
@@ -241,6 +264,7 @@ export class AppMcpServer {
     this.#tokens.clear();
     this.#sessions.clear();
     this.#supplyInstructions.clear();
+    this.#contextParts.clear();
     this.#engineTokens.clear();
     this.#engines.clear();
   }
@@ -427,11 +451,21 @@ export class AppMcpServer {
           // 说明生成不出来不该让引擎连不上工具：这次不带说明（Host 给的函数自己兜底，到这里是意外）。
           this.#options.onError?.(error);
         }
-        if (sessionId !== undefined)
+        if (sessionId !== undefined) {
+          const text = instructions ?? '';
+          const hash = digest(text);
+          const server = tier === 'more' ? APP_TOOLS_MORE_SERVER : APP_TOOLS_SERVER;
+          this.#cacheSupply(sessionId, `${server}:instructions`, hash, () =>
+            instructionParts(text, 'MCP server instructions').map((part) => ({
+              ...part,
+              source: server,
+            })),
+          );
           this.#supplyInstructions.set(JSON.stringify([sessionId, tier]), {
             instructionBytes: Buffer.byteLength(instructions ?? ''),
-            instructionDigest: digest(instructions ?? ''),
+            instructionDigest: hash,
           });
+        }
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: { listChanged: false } },
@@ -455,21 +489,46 @@ export class AppMcpServer {
           ...(tier === undefined &&
             this.#options.tierOf?.(tool.name) === 'core' && { _meta: ALWAYS_LOAD }),
         }));
-        if (sessionId !== undefined)
+        if (sessionId !== undefined) {
+          const server =
+            tier === 'more'
+              ? APP_TOOLS_MORE_SERVER
+              : tier === 'dispatch'
+                ? 'wevir_dispatch'
+                : APP_TOOLS_SERVER;
+          this.#cacheSupply(
+            sessionId,
+            tier === 'dispatch' ? 'dispatch:tools' : server,
+            digest(JSON.stringify(tools)),
+            () =>
+              tools.map((tool) =>
+                contextPart('MCP tools', JSON.stringify(tool), tool.name, server),
+              ),
+          );
+          if (tier === 'dispatch' && this.#options.tierOf) {
+            const other = await this.#visible(sessionId, [...this.#tools.values()], 'more');
+            const catalog = other.map(({ name, description, inputSchema }) => ({
+              name,
+              description,
+              inputSchema,
+            }));
+            this.#cacheSupply(sessionId, 'dispatch:deferred', digest(JSON.stringify(catalog)), () =>
+              catalog.map((tool) => ({
+                ...contextPart('MCP tools', JSON.stringify(tool), tool.name, server),
+                deferred: true,
+              })),
+            );
+          }
           this.#options.onSupply?.({
             sessionId,
-            server:
-              tier === 'more'
-                ? APP_TOOLS_MORE_SERVER
-                : tier === 'dispatch'
-                  ? 'wevir_dispatch'
-                  : APP_TOOLS_SERVER,
+            server,
             tools,
             ...(this.#supplyInstructions.get(JSON.stringify([sessionId, tier])) ?? {
               instructionBytes: 0,
               instructionDigest: digest(''),
             }),
           });
+        }
         return rpcResult(id, { tools });
       }
       case 'tools/call': {

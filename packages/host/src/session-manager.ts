@@ -402,6 +402,10 @@ export interface SessionManagerOptions {
    */
   appTools?: {
     grant(sessionId: SessionId): AppToolsEndpoint | undefined;
+    supply?(
+      sessionId: SessionId,
+      view: 'layered' | 'dispatch',
+    ): ReturnType<NonNullable<SessionConfig['contextSupply']>>;
     /** P3：插件工具事件落库前固定安装内容并脱敏，审批沿用同一详情。 */
     prepareEvent?(sessionId: SessionId, event: AgentEvent): Promise<AgentEvent>;
     resolved?(sessionId: SessionId, toolCallId: string, approvedByUser: boolean): void;
@@ -1177,19 +1181,24 @@ export class SessionManager {
           });
     const appTools = this.#appTools?.grant(sessionId);
     if (appTools === undefined) return withGuardrails;
+    const supply = this.#appTools?.supply;
+    const withTools = {
+      ...withGuardrails,
+      appTools,
+      ...(supply && { contextSupply: (view: 'layered' | 'dispatch') => supply(sessionId, view) }),
+    };
     if (
       frozenContext?.receipt.channel !== 'instructions' &&
       (frozenContext !== undefined ||
         this.#adapter.appToolsContextInPrompt?.(config.providerId) !== true)
     ) {
       this.#contextInPrompt.delete(sessionId);
-      return { ...withGuardrails, appTools };
+      return withTools;
     }
     this.#contextInPrompt.add(sessionId);
     const context = await this.#appTools?.context?.(sessionId);
     return {
-      ...withGuardrails,
-      appTools,
+      ...withTools,
       ...(context !== undefined && { appToolsContext: context }),
     };
   }

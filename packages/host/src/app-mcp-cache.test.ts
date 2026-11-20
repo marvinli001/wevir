@@ -40,7 +40,16 @@ it('keeps compact supply facts and stable tokens until session deletion', async 
         instructionDigest: createHash('sha256').update(instructions).digest('hex'),
       }),
     );
+    const [measured] = mcp.contextSupply('ses_first', 'layered');
+    expect(measured).toMatchObject({
+      category: 'MCP server instructions',
+      bytes: Buffer.byteLength(instructions),
+    });
+    await (await call(first.token, 'initialize')).text();
+    expect(mcp.contextSupply('ses_first', 'layered')[0]).toBe(measured);
+    expect(mcp.contextSupply('ses_first', 'dispatch')).toEqual([]);
     mcp.forget(['ses_first']);
+    expect(mcp.contextSupply('ses_first', 'layered')).toEqual([]);
     expect(mcp.sessionOf(first.token)).toBeUndefined();
     const rejected = await call(first.token, 'tools/list');
     expect(rejected.status).toBe(401);

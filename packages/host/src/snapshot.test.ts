@@ -378,6 +378,16 @@ describe('会话快照推导', () => {
       contextSize: 262144,
       breakdown,
     });
+    store.append(SES, {
+      type: 'context.compacted',
+      source: 'engine',
+      payload: { turnId: TURN, compactionId: 'c1', trigger: 'auto' },
+    });
+    store.append(SES, ev.usage(800));
+    expect(expectConsistent(storage, store).usage).toEqual({
+      contextUsed: 800,
+      contextSize: 262144,
+    });
     const fresh = { categories: [{ name: 'Messages', tokens: 1300, kind: 'used' }] };
     store.append(SES, {
       type: 'usage.updated',
