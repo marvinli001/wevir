@@ -5,6 +5,7 @@
 // 动效库在模块加载时插入的 <style> 要带 CSP 的 nonce：外壳的页面有 <meta property="csp-nonce"> 时，style-nonce 要最先求值。样式
 // 由外壳自己引入 index.css（Tailwind 要按外壳的目录登记 @source）。
 import './lib/style-nonce.js';
+import './lib/schema-csp.js';
 
 export type {
   DesktopApi as PlatformApi,
