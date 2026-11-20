@@ -104,7 +104,30 @@ describe('contextBreakdown', () => {
     expect(view?.rows).toHaveLength(1);
   });
 
-  it('Codex 的输入输出拆分', () => {
+  it('keeps growth after occupied categories and takes the space from free then buffer', () => {
+    const snapshot = {
+      categories: [
+        { name: 'Memory files', tokens: 20, kind: 'used' },
+        { name: 'Autocompact buffer', tokens: 15, kind: 'buffer' },
+        { name: 'Free space', tokens: 65, kind: 'free' },
+      ],
+      measuredUsed: 20,
+    };
+    const rows = contextBreakdown(snapshot, 90, 100)?.rows;
+    expect(rows?.map((r) => [r.name, r.tokens, r.percent])).toEqual([
+      ['Memory files', 20, 20],
+      ['Since last update', 70, 70],
+      ['Autocompact buffer', 10, 10],
+    ]);
+    expect(rows?.[0]?.swatch).toBe('bg-chart-1');
+    expect(
+      contextBreakdown(snapshot, 20, 100)?.rows.some((r) => r.name === 'Since last update'),
+    ).toBe(false);
+    expect(contextBreakdown(snapshot, 19, 100)).toBeUndefined();
+    expect(snapshot.categories[2]?.tokens).toBe(65);
+  });
+
+  it('显示旧会话保存的 Codex 输入输出拆分', () => {
     const view = contextBreakdown({
       categories: [
         { name: 'Input', tokens: 2_500, kind: 'used' },

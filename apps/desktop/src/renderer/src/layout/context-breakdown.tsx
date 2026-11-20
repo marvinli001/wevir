@@ -1,14 +1,19 @@
 import { Button } from '@/components/ui/button';
 // 上下文的明细（照 Claude 桌面端的 Context 卡片）：“已用 N%”与 token 数，一条按类别分段的条（引擎不报分布时是普通的用量条），
 // 下面是各类别的 token 数与占比、按需载入的几行、MCP 工具等几组细项（点开看每一项），最后一行是离自动压缩还有多少与“压缩
-// 上下文”按钮。会话侧栏的“上下文”卡片画全部；输入框底栏用量表的弹层（`compact`）只画条与最后一行。数据在
+// 上下文”按钮。会话侧栏的“上下文”卡片画全部；输入框底栏用量表的弹层（`compact`）省略刷新时间。数据在
 // context-breakdown-model.ts。
 
 import { cn } from 'cn';
 import { ChevronRight } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { Link, useLocation } from 'react-router';
 import { Collapse } from '@/components/collapse';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { t } from '@/i18n';
+import { paths } from '@/routes/paths';
+import { formatRelativeTime } from '@/session/subagent-model';
+import { useNow } from '@/session/use-now';
 import { ContextBar } from './context-bar';
 import {
   type BreakdownGroup,
@@ -25,13 +30,13 @@ export function ContextDetails({
   onCompact,
 }: {
   usage: ContextUsage;
-  /** 只画条与最后一行（输入框底栏用量表的弹层）。 */
+  /** 省略刷新时间（输入框底栏用量表的弹层）。 */
   compact?: boolean;
   /** 回合进行中：“压缩上下文”不可点。 */
   busy?: boolean;
   onCompact?: () => void;
 }) {
-  const view = contextBreakdown(usage.breakdown);
+  const view = contextBreakdown(usage.breakdown, usage.used, usage.size);
   const size = formatTokens(usage.size);
   const untilAutoCompact =
     usage.autoCompactAt === undefined ? undefined : Math.max(0, usage.autoCompactAt - usage.used);
@@ -40,7 +45,10 @@ export function ContextDetails({
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-medium">{t('rail.context.used', { percent: usage.percent })}</span>
         <span className="text-xs text-muted-foreground tabular-nums">
-          {formatTokens(usage.used)} / {usage.estimated ? t('rail.context.approx', { size }) : size}
+          {formatTokens(usage.used)} /{' '}
+          {usage.estimated && usage.breakdown?.precision !== 'estimate'
+            ? t('rail.context.approx', { size })
+            : size}
         </span>
       </div>
       {view ? (
@@ -63,17 +71,33 @@ export function ContextDetails({
       ) : (
         <ContextBar usage={usage} className="mt-2" />
       )}
-      {view && !compact && (
+      {view && (
         <div data-testid="rail-context-breakdown">
           <ul className="mt-3">
             {view.rows.map((row) => (
-              <CategoryRow key={row.label} row={row} />
+              <CategoryRow
+                key={row.name}
+                row={row}
+                estimated={
+                  usage.breakdown?.precision === 'estimate' &&
+                  (row.kind === 'used' || row.kind === 'deferred') &&
+                  row.name !== 'Since last update'
+                }
+              />
             ))}
           </ul>
           {view.deferred.length > 0 && (
             <ul className="mt-3" data-testid="rail-context-deferred">
               {view.deferred.map((row) => (
-                <CategoryRow key={row.label} row={row} />
+                <CategoryRow
+                  key={row.name}
+                  row={row}
+                  estimated={
+                    usage.breakdown?.precision === 'estimate' &&
+                    (row.kind === 'used' || row.kind === 'deferred') &&
+                    row.name !== 'Since last update'
+                  }
+                />
               ))}
             </ul>
           )}
@@ -85,6 +109,9 @@ export function ContextDetails({
             </ul>
           )}
         </div>
+      )}
+      {view && !compact && usage.breakdown?.measuredAt && (
+        <MeasurementTime at={usage.breakdown.measuredAt} />
       )}
       {compact && usage.total !== undefined && (
         <div className="mt-2 flex justify-between gap-2 text-xs text-muted-foreground">
@@ -120,9 +147,31 @@ export function ContextDetails({
   );
 }
 
-function CategoryRow({ row }: { row: BreakdownRow }) {
-  const deferred = row.kind === 'deferred';
+function MeasurementTime({ at }: { at: string }) {
+  const now = useNow(60_000);
   return (
+    <p className="mt-3 text-xs text-muted-foreground">
+      <time dateTime={at}>{t('rail.context.updated', { time: formatRelativeTime(at, now) })}</time>
+    </p>
+  );
+}
+
+function CategoryRow({ row, estimated }: { row: BreakdownRow; estimated: boolean }) {
+  const location = useLocation();
+  const base = row.name.toLowerCase().replace(/ \(deferred\)$/, '');
+  const destination: { to: string; label: string } | undefined =
+    base === 'mcp tools' || base === 'mcp server instructions'
+      ? { to: paths.plugins('connectors'), label: t('rail.context.manageConnectors') }
+      : base === 'skills'
+        ? { to: paths.plugins('skills'), label: t('rail.context.manageSkills') }
+        : base === 'memory files'
+          ? { to: paths.settings('memory'), label: t('rail.context.editMemory') }
+          : undefined;
+  const hint = [destination?.label, estimated ? t('rail.context.estimate') : undefined]
+    .filter(Boolean)
+    .join(' · ');
+  const deferred = row.kind === 'deferred';
+  const item = (
     <li
       className={cn(
         'flex h-6 min-w-0 items-center gap-2.5 text-xs',
@@ -138,7 +187,19 @@ function CategoryRow({ row }: { row: BreakdownRow }) {
           row.kind === 'free' && 'border border-border-strong',
         )}
       />
-      <span className="min-w-0 flex-1 truncate">{row.label}</span>
+      <span className="min-w-0 flex-1 truncate">
+        {destination ? (
+          <Link
+            className="underline decoration-dotted decoration-muted-foreground underline-offset-2"
+            to={destination.to}
+            state={{ from: location }}
+          >
+            {row.label}
+          </Link>
+        ) : (
+          row.label
+        )}
+      </span>
       <span className="shrink-0 tabular-nums text-muted-foreground">
         {formatTokens(row.tokens)}
       </span>
@@ -147,12 +208,20 @@ function CategoryRow({ row }: { row: BreakdownRow }) {
       </span>
     </li>
   );
+  return hint ? (
+    <Tooltip>
+      <TooltipTrigger render={item} />
+      <TooltipContent>{hint}</TooltipContent>
+    </Tooltip>
+  ) : (
+    item
+  );
 }
 
 /** 一组细项：收起时一行（名字与项数），点开列出占得最多的几项。 */
 function GroupRow({ group }: { group: BreakdownGroup }) {
   const [open, setOpen] = useState(false);
-  const panel = `rail-context-group-${group.id}`;
+  const panel = useId();
   const hidden = group.count - group.items.length;
   return (
     <li>
