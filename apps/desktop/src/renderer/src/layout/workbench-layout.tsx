@@ -32,6 +32,7 @@ import { type PaneController, PaneControllerProvider, usePaneController } from '
 import type { PaneContext } from './pane-registry';
 import {
   emptyScope,
+  expandedPaneScope,
   focusedGroup,
   type PaneSizes,
   PRIMARY,
@@ -65,6 +66,7 @@ import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { GlyphReveal } from './session-marks';
 import { sessionMotion } from './session-motion';
 import { RailToggle, SessionRail } from './session-rail';
+import { useTerminalTabCleanup } from './terminal-tabs';
 import { WindowControls } from './window-controls';
 
 /** 浮层顶上一行（标题与关闭按钮）的高，与顶栏一样是 44。 */
@@ -111,6 +113,7 @@ export function WorkbenchLayout() {
   const location = useLocation();
   useRememberLocation(workspaceId);
   usePrunePanes();
+  useTerminalTabCleanup();
   useWindowResizing();
 
   // 当前会话的窗格：拖动分隔条时尺寸先用草稿，松开再写回本机。首页、插件这类页面用首页所选项目的草稿窗格集，顶栏的终端、
@@ -581,10 +584,12 @@ export function WorkbenchLayout() {
             style={{ '--overlay-width': `${plan.auxWidth}px` } as CSSProperties}
           >
             <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">
-              <SheetTitle className="shrink-0 text-sm">{t('layout.auxOverlay')}</SheetTitle>
+              <SheetTitle className="mr-auto truncate text-sm">{t('layout.auxOverlay')}</SheetTitle>
+              <div className="flex shrink-0 items-center gap-0.5">
+                <PaneLaunchers panes={panes} />
+              </div>
               <IconButton
                 label={t('layout.hideAux')}
-                className="ml-auto"
                 onClick={() => setAuxOverlayOpen(false)}
                 tooltipSide="bottom"
               >
@@ -811,8 +816,10 @@ function useShortcuts(
       if (matchesShortcut(event, getShortcut('toggleSidebar')))
         return run(() => toggleSidebar(sidebarPlan));
       if (!panes) return;
-      const current = focusedPaneId(panes);
-      const group = panes.scope.groups.find((candidate) => candidate.id === current);
+      const scope = expandedPaneScope(panes.scope);
+      const current =
+        panes.maximized ?? (scope.focus[0] === PRIMARY ? PRIMARY : focusedGroup(scope)?.id);
+      const group = scope.groups.find((candidate) => candidate.id === current);
       if (matchesShortcut(event, getShortcut('toggleAux'))) return run(panes.toggleAux);
       for (const kind of PANE_LAUNCHERS) {
         if (!paneKindUsable(kind, access)) continue;
@@ -853,14 +860,6 @@ function useShortcuts(
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [setOpenTabsOpen]);
-}
-
-/** 快捷键作用的“当前窗格”：最近聚焦的窗格组；最近聚焦的是主窗格时就是主窗格。 */
-function focusedPaneId(panes: PaneController): string | undefined {
-  if (panes.maximized !== undefined) return panes.maximized;
-  const first = panes.scope.focus[0];
-  if (first === PRIMARY) return PRIMARY;
-  return focusedGroup(panes.scope)?.id;
 }
 
 /** 在主窗格与显示出来的窗格之间移动焦点（从左到右、从上到下）。 */

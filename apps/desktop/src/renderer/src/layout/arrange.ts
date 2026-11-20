@@ -10,6 +10,7 @@
 
 import { PANE_KIND_SPECS } from './pane-kinds';
 import {
+  expandedPaneScope,
   type PaneGroup,
   type PaneSizes,
   type PaneTab,
@@ -117,7 +118,8 @@ const NONE = (width: number): AuxPlan => ({
 });
 
 export function arrangePanes(input: ArrangeInput): AuxPlan {
-  const { width, height, panes } = input;
+  const { width, height } = input;
+  const panes = expandedPaneScope(input.panes);
   const { gap } = PANE_LAYOUT;
   if (!panes.auxVisible || panes.groups.length === 0) return NONE(width);
 

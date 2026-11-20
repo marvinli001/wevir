@@ -42,6 +42,8 @@ export interface ScopePanes {
   /** 最近聚焦的在前；`PRIMARY` 是主窗格。 */
   readonly focus: readonly string[];
   readonly auxVisible: boolean;
+  /** 顶栏单独收起的种类，标签及其位置仍保存在 groups 里。 */
+  readonly collapsedKinds?: readonly PaneKind[];
   /** 最近一次拆分的方向，恰好两个窗格时优先（arrange.ts）。 */
   readonly splitHint?: SplitDirection;
   readonly sizes: PaneSizes;
@@ -68,6 +70,34 @@ export function draftScopeKey(workspaceId: string): string {
 
 export type IdFactory = () => string;
 
+/** 供排布与键盘导航使用；一组里还有其他种类时，显示其中的标签。 */
+export function expandedPaneScope(state: ScopePanes): ScopePanes {
+  const { collapsedKinds } = state;
+  if (!collapsedKinds?.length) return state;
+  const groups = state.groups.flatMap((group) => {
+    const tabs = group.tabs.filter((tab) => !collapsedKinds.includes(tab.kind));
+    if (tabs.length === group.tabs.length) return [group];
+    const active = tabs.find((tab) => tab.id === group.activeTabId) ?? tabs[0];
+    return active ? [{ ...group, tabs, activeTabId: active.id }] : [];
+  });
+  const focus = state.focus.filter(
+    (id) => id === PRIMARY || groups.some((group) => group.id === id),
+  );
+  return { ...state, groups, focus };
+}
+
+export function collapsePaneKind(state: ScopePanes, kind: PaneKind): ScopePanes {
+  if (state.collapsedKinds?.includes(kind)) return state;
+  const next = { ...state, collapsedKinds: [...(state.collapsedKinds ?? []), kind] };
+  return { ...next, auxVisible: state.auxVisible && expandedPaneScope(next).groups.length > 0 };
+}
+
+function revealPaneKind(state: ScopePanes, kind: PaneKind): ScopePanes {
+  return state.collapsedKinds?.includes(kind)
+    ? { ...state, collapsedKinds: state.collapsedKinds.filter((item) => item !== kind) }
+    : state;
+}
+
 export function findTab(
   state: ScopePanes,
   tabId: string,
@@ -80,22 +110,25 @@ export function findTab(
 }
 
 /**
- * 某种窗格的标签（顶栏的终端、浏览器、文件按钮）：先找正显示着的（某个窗格当前的标签），按最近聚焦的窗格；都没显示时取
- * 第一个。`shown` 表示它是某个窗格当前的标签。
+ * 同种标签先取实际可见的，再取最近聚焦窗格的当前标签，最后取第一个。
  */
 export function findKindTab(
   state: ScopePanes,
   kind: PaneKind,
+  shownTabIds: readonly string[],
 ): { tab: PaneTab; shown: boolean } | undefined {
   const rank = (group: PaneGroup) => {
     const index = state.focus.indexOf(group.id);
     return index < 0 ? Number.POSITIVE_INFINITY : index;
   };
+  let selected: PaneTab | undefined;
   for (const group of [...state.groups].sort((a, b) => rank(a) - rank(b))) {
-    const active = group.tabs.find((tab) => tab.id === group.activeTabId);
-    if (active?.kind === kind) return { tab: active, shown: true };
+    const visible = group.tabs.find((tab) => tab.kind === kind && shownTabIds.includes(tab.id));
+    if (visible) return { tab: visible, shown: true };
+    selected ??= group.tabs.find((tab) => tab.id === group.activeTabId && tab.kind === kind);
   }
-  const tab = state.groups.flatMap((group) => group.tabs).find((tab) => tab.kind === kind);
+  const tab =
+    selected ?? state.groups.flatMap((group) => group.tabs).find((tab) => tab.kind === kind);
   return tab && { tab, shown: false };
 }
 
@@ -131,7 +164,8 @@ export interface OpenRequest {
  * 打开一个标签（§3.1）：已经开着同一个就激活它；从“＋”打开的加进那个窗格；能多开的种类加进已经装着同种标签
  * 的窗格；否则新建一个窗格放在最后。窗格区随之显示，打开的窗格获得焦点。
  */
-export function openPane(state: ScopePanes, request: OpenRequest, newId: IdFactory): ScopePanes {
+export function openPane(stored: ScopePanes, request: OpenRequest, newId: IdFactory): ScopePanes {
+  const state = revealPaneKind(stored, request.kind);
   const identity = paneIdentity(request.kind, request.params);
   if (identity !== undefined) {
     for (const group of state.groups) {
@@ -173,9 +207,10 @@ export function openPane(state: ScopePanes, request: OpenRequest, newId: IdFacto
 }
 
 /** 激活一个标签并聚焦它的窗格；窗格区收起着就显示出来。 */
-export function activateTab(state: ScopePanes, tabId: string): ScopePanes {
-  const found = findTab(state, tabId);
-  if (!found) return state;
+export function activateTab(stored: ScopePanes, tabId: string): ScopePanes {
+  const found = findTab(stored, tabId);
+  if (!found) return stored;
+  const state = revealPaneKind(stored, found.tab.kind);
   const { group } = found;
   if (group.activeTabId === tabId && state.focus[0] === group.id && state.auxVisible) return state;
   return {
@@ -242,7 +277,7 @@ export function closeGroup(state: ScopePanes, groupId: string): ScopePanes {
 
 /** 当前窗格的下一个（delta = 1）或上一个（-1）标签，首尾相接。 */
 export function cycleTab(state: ScopePanes, groupId: string, delta: number): ScopePanes {
-  const group = state.groups.find((candidate) => candidate.id === groupId);
+  const group = expandedPaneScope(state).groups.find((candidate) => candidate.id === groupId);
   if (!group || group.tabs.length < 2) return state;
   const index = group.tabs.findIndex((tab) => tab.id === group.activeTabId);
   const next = group.tabs[(index + delta + group.tabs.length) % group.tabs.length];
@@ -296,6 +331,8 @@ export function moveTab(state: ScopePanes, tabId: string, targetGroupId: string)
 export function toggleAux(state: ScopePanes, newId: IdFactory): ScopePanes {
   // U21 起是“后台任务”（desktop-layout.md §3.1）；“概览”U18 并进了会话侧栏。
   if (state.groups.length === 0) return openPane(state, { kind: 'tasks' }, newId);
+  if (expandedPaneScope(state).groups.length === 0)
+    return { ...state, collapsedKinds: [], auxVisible: true };
   return { ...state, auxVisible: !state.auxVisible };
 }
 
@@ -417,10 +454,14 @@ export function parseScopePanes(raw: unknown): ScopePanes | undefined {
     : [];
   const splitHint =
     raw.splitHint === 'right' || raw.splitHint === 'down' ? raw.splitHint : undefined;
+  const collapsedKinds = Array.isArray(raw.collapsedKinds)
+    ? [...new Set(raw.collapsedKinds.filter(isPaneKind))]
+    : [];
   return {
     groups,
     focus,
     auxVisible: groups.length > 0 && raw.auxVisible === true,
+    ...(collapsedKinds.length > 0 && { collapsedKinds }),
     ...(splitHint && { splitHint }),
     sizes: parseSizes(raw.sizes),
   };

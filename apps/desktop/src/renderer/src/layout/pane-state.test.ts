@@ -4,9 +4,11 @@ import {
   activateTab,
   closeGroup,
   closeTab,
+  collapsePaneKind,
   cycleTab,
   EMPTY_STORED,
   emptyScope,
+  expandedPaneScope,
   findKindTab,
   focusedGroup,
   focusPane,
@@ -228,21 +230,60 @@ describe('拆分、移动、切换', () => {
 });
 
 describe('findKindTab', () => {
-  it('先找正显示着的标签，按最近聚焦的窗格；都没显示时取第一个', () => {
+  it('优先实际显示的标签，再找窗格的当前标签，最后取同种的第一个', () => {
     const state = opened(
       { kind: 'terminal', params: { id: 'a' } },
       { kind: 'files' },
       { kind: 'terminal', params: { id: 'b' } },
     );
-    expect(findKindTab(state, 'terminal')).toMatchObject({ shown: true, tab: { id: 'id5' } });
-    expect(findKindTab(activateTab(state, 'id1'), 'terminal')?.tab.id).toBe('id1');
-    expect(findKindTab(state, 'files')).toMatchObject({ shown: true, tab: { id: 'id3' } });
-    expect(findKindTab(state, 'browser')).toBeUndefined();
-    // 文件标签挪进终端那个窗格并成为当前标签：终端都没显示，取第一个。
-    expect(findKindTab(moveTab(state, 'id3', 'id2'), 'terminal')).toMatchObject({
+    expect(findKindTab(state, 'terminal', ['id5', 'id3'])).toMatchObject({
+      shown: true,
+      tab: { id: 'id5' },
+    });
+    expect(findKindTab(activateTab(state, 'id1'), 'terminal', [])).toMatchObject({
       shown: false,
       tab: { id: 'id1' },
     });
+    expect(findKindTab(state, 'files', ['id5'])).toMatchObject({
+      shown: false,
+      tab: { id: 'id3' },
+    });
+    expect(findKindTab(state, 'browser', [])).toBeUndefined();
+    // 文件标签挪进终端那个窗格并成为当前标签：终端都没显示，取第一个。
+    expect(findKindTab(moveTab(state, 'id3', 'id2'), 'terminal', ['id3'])).toMatchObject({
+      shown: false,
+      tab: { id: 'id1' },
+    });
+  });
+});
+
+describe('顶栏单独收起窗格', () => {
+  it('并排时只收起对应种类，恢复或重新打开时沿用原终端标签', () => {
+    const terminal = { kind: 'terminal', params: { id: 'trm_1' } } as const;
+    const state = opened(terminal, { kind: 'files' });
+    const hidden = collapsePaneKind(state, 'terminal');
+    expect(expandedPaneScope(hidden).groups).toEqual([state.groups[1]]);
+    expect(tabCount(hidden)).toBe(2);
+    expect(parseScopePanes(hidden)).toEqual(hidden);
+    expect(expandedPaneScope(openPane(hidden, terminal, ids())).groups).toEqual(state.groups);
+
+    const allHidden = collapsePaneKind(hidden, 'files');
+    expect(expandedPaneScope(allHidden).groups).toEqual([]);
+    expect(expandedPaneScope(activateTab(allHidden, 'id1')).groups).toEqual([state.groups[0]]);
+    expect(expandedPaneScope(toggleAux(allHidden, ids())).groups).toEqual(state.groups);
+  });
+
+  it('同组收起后显示其余标签，切换时跳过收起的标签', () => {
+    const state = opened(
+      { kind: 'files' },
+      { kind: 'tasks', into: 'id2' },
+      { kind: 'browser', into: 'id2' },
+    );
+    const hidden = collapsePaneKind(state, 'browser');
+    const group = expandedPaneScope(hidden).groups[0];
+    expect(group?.tabs.map((tab) => tab.kind)).toEqual(['files', 'tasks']);
+    expect(group?.activeTabId).toBe('id1');
+    expect(cycleTab(hidden, 'id2', -1).groups[0]?.activeTabId).toBe('id3');
   });
 });
 

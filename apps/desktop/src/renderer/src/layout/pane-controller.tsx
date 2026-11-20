@@ -2,12 +2,13 @@ import { createContext, useContext, useMemo } from 'react';
 import type { AuxPlan } from './arrange';
 import { transientLayout } from './layout-state';
 import { emitPanesClosed } from './pane-events';
-import type { PaneParams } from './pane-kinds';
+import type { PaneKind, PaneParams } from './pane-kinds';
 import {
   activateTab,
-  closeGroup,
   closeTab,
+  collapsePaneKind,
   cycleTab,
+  expandedPaneScope,
   findTab,
   focusPane,
   moveTab,
@@ -35,6 +36,7 @@ export interface PaneController {
   auxShown: boolean;
   open(request: OpenRequest): void;
   activate(tabId: string): void;
+  collapseKind(kind: PaneKind): void;
   closeTab(tabId: string): void;
   /** 换掉标签的参数（不打开、不聚焦）。 */
   setParams(tabId: string, params: PaneParams): void;
@@ -104,6 +106,13 @@ export function usePaneController(
         update((current) => activateTab(current, tabId));
         showOverlay();
       },
+      collapseKind(kind) {
+        if (maximized !== undefined) {
+          setMaximized(scopeKey, undefined);
+          showOverlay();
+        }
+        update((current) => collapsePaneKind(current, kind));
+      },
       closeTab(tabId) {
         const found = findTab(scope, tabId);
         update((current) => closeTab(current, tabId));
@@ -115,10 +124,10 @@ export function usePaneController(
       closeGroups(groupIds) {
         if (maximized !== undefined && groupIds.includes(maximized))
           setMaximized(scopeKey, undefined);
-        const tabs = scope.groups
-          .filter((group) => groupIds.includes(group.id))
+        const tabs = expandedPaneScope(scope)
+          .groups.filter((group) => groupIds.includes(group.id))
           .flatMap((group) => group.tabs);
-        update((current) => groupIds.reduce(closeGroup, current));
+        update((current) => tabs.reduce((next, tab) => closeTab(next, tab.id), current));
         emitPanesClosed(tabs);
       },
       focus(id) {

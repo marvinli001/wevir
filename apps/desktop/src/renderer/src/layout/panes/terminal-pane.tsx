@@ -23,7 +23,6 @@ import { subscribeAppearance } from '@/theme/appearance';
 import { DEFAULT_COLORS } from '@/theme/appearance-model';
 import { resolvedTheme } from '@/theme/theme';
 import { usePanes } from '../pane-controller';
-import { onPanesClosed } from '../pane-events';
 import type { PaneContext } from '../pane-registry';
 import type { PaneTab } from '../pane-state';
 import {
@@ -34,6 +33,7 @@ import {
   terminalLabel,
   terminalPalette,
 } from '../terminal-model';
+import { createdTerminals } from '../terminal-tabs';
 
 const FONT_SIZE = 12;
 
@@ -64,9 +64,6 @@ function Note({ children }: { children: ReactNode }) {
     </div>
   );
 }
-
-/** 开好的终端按标签记下：开发模式下 effect 跑两次、或参数还没写回时重新挂载，都不会再开一个。 */
-const created = new Map<string, Promise<Terminal>>();
 
 type State =
   | { kind: 'starting' }
@@ -135,13 +132,14 @@ function TerminalView({
 
     const show = (terminal: Terminal) => {
       current = terminal;
-      if (disposed) return;
-      setState({ kind: 'live', terminal });
+      // 创建途中收起窗格时也记下终端 ID，重新加载后才能接回原进程。
       const label = terminalLabel(terminal);
       const params = tabRef.current.params;
       if (params?.id !== terminal.id || params?.label !== label) {
         panesRef.current?.setParams(tab.id, { id: terminal.id, label });
       }
+      if (disposed) return;
+      setState({ kind: 'live', terminal });
       // 别的客户端改了尺寸：按 Host 的尺寸显示，自己有输入或聚焦时再按窗格的大小改回去。
       if (
         terminal.status === 'running' &&
@@ -224,13 +222,6 @@ function TerminalView({
       }
       if (change.terminal.id === terminalId) show(change.terminal);
     });
-    // 关掉标签：结束终端。
-    const offClosed = onPanesClosed((tabs) => {
-      if (terminalId === undefined || !tabs.some((closed) => closed.id === tab.id)) return;
-      created.delete(tab.id);
-      void client.request('terminal.close', { terminalId }).catch(() => undefined);
-    });
-
     const onData = term.onData((data) => {
       if (terminalId === undefined || current?.status !== 'running') return;
       fitAndSend();
@@ -254,7 +245,7 @@ function TerminalView({
 
     const start = async () => {
       if (terminalId === undefined) {
-        let promise = created.get(tab.id);
+        let promise = createdTerminals.get(tab.id);
         if (promise === undefined) {
           promise = client
             .request('terminal.create', {
@@ -264,16 +255,16 @@ function TerminalView({
               rows: Math.max(1, term.rows),
             })
             .then((result) => result.terminal);
-          created.set(tab.id, promise);
+          createdTerminals.set(tab.id, promise);
         }
         try {
           const terminal = await promise;
           terminalId = terminal.id;
           initialId.current = terminal.id;
-          if (disposed) return;
           show(terminal);
+          if (disposed) return;
         } catch (reason) {
-          created.delete(tab.id);
+          createdTerminals.delete(tab.id);
           if (!disposed) setState({ kind: 'failed', error: describe(reason) });
           return;
         }
@@ -292,7 +283,6 @@ function TerminalView({
       onData.dispose();
       offOutput();
       offChanged();
-      offClosed();
       offTheme();
       if (terminalId !== undefined) {
         void client.request('terminal.detach', { terminalId }).catch(() => undefined);
@@ -307,7 +297,7 @@ function TerminalView({
     if (previous !== undefined) {
       void client.request('terminal.close', { terminalId: previous }).catch(() => undefined);
     }
-    created.delete(tab.id);
+    createdTerminals.delete(tab.id);
     initialId.current = undefined;
     setState({ kind: 'starting' });
     setGeneration((value) => value + 1);

@@ -21,7 +21,7 @@ import { usePanes } from './pane-controller';
 import { PaneHeaderProvider } from './pane-header';
 import { openableKinds, PANE_KIND_SPECS } from './pane-kinds';
 import { PaneContent, type PaneContext, paneIcon, paneKindName, paneTitle } from './pane-registry';
-import type { PaneTab } from './pane-state';
+import { expandedPaneScope, type PaneTab } from './pane-state';
 
 /**
  * 窗格（desktop-layout.md §3.6）：圆角卡片，窗格头左边是标题或标签条，右边是更多、最大化、关闭；双击窗格头的
@@ -212,11 +212,10 @@ function NewTabMenu({ groupId }: { groupId: string }) {
 function MoreMenu({ pane, active }: { pane: DisplayPane; active: PaneTab }) {
   const panes = usePanes();
   if (!panes) return null;
-  const group = panes.scope.groups.find((candidate) =>
-    candidate.tabs.some((tab) => tab.id === active.id),
-  );
+  const { groups } = expandedPaneScope(panes.scope);
+  const group = groups.find((candidate) => candidate.tabs.some((tab) => tab.id === active.id));
   const canSplit = (group?.tabs.length ?? 0) > 1;
-  const others = panes.scope.groups.filter((candidate) => candidate.id !== group?.id);
+  const others = groups.filter((candidate) => candidate.id !== group?.id);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger

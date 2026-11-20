@@ -1,10 +1,10 @@
-// 顶栏右侧的“终端”“浏览器”“文件”按钮（照 Claude Code 桌面端）：这几种窗格都在窗格区里，常用到值得一键打开。工作台的每一页
-// 都有：首页、插件这类页面开在首页所选项目的草稿窗格集里，不在项目里时按钮不可用。
+// 工作台顶栏和窄窗浮层共用终端、浏览器与文件开关。首页、插件页沿用所选项目的草稿窗格集。
 
 import { cn } from 'cn';
 import { IconButton } from '@/components/icon-button';
 import { useHostConnection } from '@/host/host-connection';
 import { formatShortcut, useKeybindings } from '@/lib/shortcuts';
+import { displayPanes } from './arrange';
 import { usePaneAccess } from './pane-access';
 import type { PaneController } from './pane-controller';
 import { type PaneKind, paneKindUsable } from './pane-kinds';
@@ -15,9 +15,18 @@ type LauncherKind = Extract<PaneKind, 'terminal' | 'browser' | 'files'>;
 
 export const PANE_LAUNCHERS: readonly LauncherKind[] = ['terminal', 'browser', 'files'];
 
-/** 显示这种窗格：已经开着就切过去（终端有几个时取正显示着的、否则第一个），没有就新开一个。 */
+function launcherTab(panes: PaneController, kind: LauncherKind) {
+  const shown = displayPanes(panes.auxShown ? panes.plan.tree : undefined);
+  return findKindTab(
+    panes.scope,
+    kind,
+    shown.map((pane) => pane.activeTabId),
+  );
+}
+
+/** 打开快捷键始终显示对应窗格。 */
 export function showPaneKind(panes: PaneController, kind: LauncherKind): void {
-  const found = findKindTab(panes.scope, kind);
+  const found = launcherTab(panes, kind);
   if (found) panes.activate(found.tab.id);
   else panes.open({ kind });
 }
@@ -31,8 +40,7 @@ export function PaneLaunchers({ panes }: { panes: PaneController | undefined }) 
       paneKindUsable(kind, access) && (kind !== 'terminal' || client?.supports('user_terminal')),
   ).map((kind) => {
     const Icon = paneIcon(kind);
-    // 按下的样子：这种窗格正显示着（窗格区看得见、是某个窗格当前的标签）。
-    const shown = panes?.auxShown === true && findKindTab(panes.scope, kind)?.shown === true;
+    const shown = panes !== undefined && launcherTab(panes, kind)?.shown === true;
     return (
       <IconButton
         key={kind}
@@ -41,7 +49,7 @@ export function PaneLaunchers({ panes }: { panes: PaneController | undefined }) 
         aria-pressed={shown}
         className={cn(shown && 'bg-accent')}
         disabled={panes === undefined}
-        onClick={() => panes && showPaneKind(panes, kind)}
+        onClick={() => panes && (shown ? panes.collapseKind(kind) : showPaneKind(panes, kind))}
         tooltipSide="bottom"
         data-testid={`launch-${kind}`}
       >
