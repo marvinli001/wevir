@@ -50,6 +50,7 @@ describe('context measurement', () => {
     expect(used(3)).toEqual([
       ['System prompt', 2],
       ['Skills', 1],
+      ['Messages', 0],
     ]);
     expect(
       measureContext([], { contextUsed: 7, contextSize: 7 }, 'exact-split').categories,

@@ -101,9 +101,9 @@ export function measureContext(
       weight += part.weight;
     }
   }
-  if ((precision === 'estimate' || !weight) && contextUsed > weight) {
+  if (precision === 'estimate' || (!weight && contextUsed > 0)) {
     const entries = used.get('Messages') ?? [];
-    entries.push({ category: 'Messages', bytes: 0, weight: contextUsed - weight });
+    entries.push({ category: 'Messages', bytes: 0, weight: Math.max(0, contextUsed - weight) });
     used.set('Messages', entries);
   }
   const entries = [...used];
