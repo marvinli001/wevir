@@ -1,0 +1,13 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/textarea/textarea.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .textarea {
+    display: flex;
+    field-sizing: content;
+    height: auto;
+    min-height: 4rem;
+    padding: var(--arc-space-2) var(--arc-space-3);
+    line-height: 1.5;
+    resize: vertical;
+  }
+}

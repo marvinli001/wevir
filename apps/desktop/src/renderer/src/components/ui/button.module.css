@@ -1,0 +1,186 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/button/button.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .button {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding-inline: 0.625rem;
+    border: 1px solid transparent;
+    border-radius: var(--arc-radius-control);
+    font-size: var(--arc-text-sm);
+    font-weight: 500;
+    line-height: var(--arc-leading-body);
+    white-space: nowrap;
+    user-select: none;
+    outline: none;
+    transition:
+      color var(--arc-duration-fast),
+      background-color var(--arc-duration-fast),
+      border-color var(--arc-duration-fast),
+      opacity var(--arc-duration-fast),
+      box-shadow var(--arc-duration-fast),
+      scale var(--arc-duration-press) var(--arc-ease-press);
+  }
+  .button:active:not([aria-haspopup], [data-popup-open], [data-disabled], [aria-disabled="true"]) {
+    scale: 0.97;
+  }
+  .button:focus-visible {
+    border-color: var(--arc-focus-outline);
+    box-shadow: 0 0 0 2px var(--arc-focus-ring);
+  }
+  .button[aria-invalid="true"] {
+    border-color: var(--arc-danger);
+  }
+  .button[data-disabled],
+  .button:disabled {
+    opacity: 0.52;
+    cursor: not-allowed;
+  }
+  .button[aria-busy="true"] {
+    opacity: 1;
+    cursor: progress;
+  }
+  .button svg {
+    pointer-events: none;
+    flex: none;
+  }
+  .button svg:where(:not([class*="size-"])) {
+    width: 1rem;
+    height: 1rem;
+  }
+  .default {
+    background: var(--arc-accent);
+    color: var(--arc-accent-foreground);
+  }
+  .outline,
+  .destructive {
+    background: var(--arc-surface);
+    color: var(--arc-surface-foreground);
+    border-color: var(--arc-border);
+  }
+  .secondary {
+    background: var(--arc-surface-muted);
+    color: var(--arc-foreground);
+  }
+  .ghost {
+    color: var(--arc-text-secondary);
+  }
+  .destructive {
+    color: var(--arc-danger);
+  }
+  .link {
+    color: var(--arc-accent);
+    text-underline-offset: 4px;
+  }
+  @media (hover: hover) {
+    .default:hover:not([data-disabled]) {
+      opacity: 0.91;
+      box-shadow: var(--arc-shadow-resting);
+    }
+    .outline:hover:not([data-disabled]),
+    .secondary:hover:not([data-disabled]),
+    .ghost:hover:not([data-disabled]) {
+      color: var(--arc-hover-foreground);
+      background: var(--arc-hover);
+    }
+    .outline:hover:not([data-disabled]) {
+      box-shadow: var(--arc-shadow-resting);
+    }
+    .destructive:hover:not([data-disabled]) {
+      border-color: var(--arc-danger);
+      background: var(--arc-surface-muted);
+    }
+    .link:hover {
+      text-decoration: underline;
+    }
+  }
+  :is(.outline, .ghost, .secondary)[aria-expanded="true"] {
+    background: var(--arc-hover);
+    color: var(--arc-hover-foreground);
+  }
+  .size-default,
+  .size-icon {
+    height: var(--arc-control-height-md);
+  }
+  .size-xs,
+  .size-icon-xs {
+    height: var(--arc-control-height-xs);
+    font-size: var(--arc-text-xs);
+  }
+  .size-sm,
+  .size-icon-sm {
+    height: var(--arc-control-height-sm);
+  }
+  .size-lg,
+  .size-icon-lg {
+    height: var(--arc-control-height-lg);
+  }
+  .size-xs,
+  .size-sm {
+    gap: 0.25rem;
+    padding-inline: 0.5rem;
+  }
+  .size-icon,
+  .size-icon-xs,
+  .size-icon-sm,
+  .size-icon-lg {
+    padding: 0;
+    aspect-ratio: 1;
+  }
+  .size-xs svg:where(:not([class*="size-"])),
+  .size-icon-xs svg:where(:not([class*="size-"])) {
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+  .size-sm svg:where(:not([class*="size-"])) {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+  .label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: inherit;
+    transition: opacity var(--arc-duration-fast) var(--arc-ease-standard);
+  }
+  .loader {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    opacity: 0;
+    scale: 0.65;
+    transition:
+      opacity var(--arc-duration-fast),
+      scale var(--arc-duration-press) var(--arc-ease-press);
+    pointer-events: none;
+  }
+  .button[aria-busy="true"] .loader {
+    opacity: 1;
+    scale: 1;
+  }
+  .button[aria-busy="true"] .label {
+    opacity: 0;
+  }
+  .spinner {
+    display: block;
+    width: 1em;
+    height: 1em;
+    border: 1.5px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+  }
+  .button[aria-busy="true"] .spinner {
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}

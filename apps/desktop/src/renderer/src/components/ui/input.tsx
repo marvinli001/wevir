@@ -1,24 +1,32 @@
-// 由 shadcn CLI 4.21.4 从官方 registry 生成（components.json：base-nova，Base UI，lucide）。
-// MIT License，Copyright (c) 2023 shadcn。
-// Wevir 的改动：U4 起底色在浅色、深色都是表面色 bg-card，禁用时是次表面色 bg-muted（方向稿 A 的控件），去掉
-// dark:bg-input/30 这类按主题另算的底色。
-
+// 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/input/input.tsx
+// 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli
 import { Input as InputPrimitive } from '@base-ui/react/input';
 import { cn } from 'cn';
-import type * as React from 'react';
+import type { ComponentProps } from 'react';
+import { RollingNumber } from '@/components/rolling-number';
+import styles from './input.module.css';
 
-function Input({ className, type, ...props }: React.ComponentProps<'input'>) {
-  return (
+export function Input({
+  className,
+  rollingNumber,
+  value,
+  ...props
+}: ComponentProps<'input'> & { rollingNumber?: boolean }) {
+  const field = (
     <InputPrimitive
-      type={type}
-      data-slot="input"
-      className={cn(
-        'h-8 w-full min-w-0 rounded-lg border border-input bg-card px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:focus-field disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40',
-        className,
-      )}
       {...props}
+      value={value}
+      data-slot="input"
+      className={cn(styles.input, className)}
     />
   );
+  if (!rollingNumber || value === undefined || value === '' || Array.isArray(value)) return field;
+  return (
+    <span className={styles.numberField}>
+      {field}
+      <span aria-hidden className={styles.number}>
+        <RollingNumber value={String(value)} />
+      </span>
+    </span>
+  );
 }
-
-export { Input };

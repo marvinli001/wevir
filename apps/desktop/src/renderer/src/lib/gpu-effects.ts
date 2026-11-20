@@ -29,5 +29,6 @@ export function useReducedGpuEffects(): boolean {
   return useSyncExternalStore(
     subscribe,
     () => lowGpu || window.matchMedia(REDUCED_TRANSPARENCY).matches,
+    () => false,
   );
 }

@@ -1,0 +1,63 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/switch/switch.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .track {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    width: 32px;
+    height: 18px;
+    align-items: center;
+    padding: 2px;
+    border-radius: var(--arc-radius-pill);
+    background: var(--arc-control-track);
+    outline: none;
+    isolation: isolate;
+    transition: background-color var(--arc-duration-fast) var(--arc-ease-standard);
+  }
+  .track::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--arc-control-on);
+    opacity: 0;
+    transition: opacity var(--arc-duration-standard) var(--arc-ease-standard);
+  }
+  .track[data-checked]::before {
+    opacity: 1;
+  }
+  .track[data-unchecked]:hover:not([data-disabled]) {
+    background: var(--arc-control-track-hover);
+  }
+  .track[data-disabled] {
+    opacity: 0.5;
+  }
+  .track:focus-visible {
+    outline: 1px solid var(--arc-focus-outline);
+    outline-offset: 2px;
+  }
+  .thumb {
+    display: block;
+    flex: none;
+    width: 14px;
+    height: 14px;
+    border-radius: inherit;
+    background: var(--arc-control-thumb);
+    box-shadow: var(--arc-control-thumb-shadow);
+    transition:
+      width var(--arc-duration-press) var(--arc-ease-press),
+      translate var(--arc-duration-press) var(--arc-ease-press),
+      background-color var(--arc-duration-fast);
+  }
+  .track[data-checked] .thumb {
+    background: var(--arc-control-thumb-on);
+  }
+  .track:active:not([data-disabled]) .thumb {
+    width: 18px;
+  }
+  .track[data-checked]:active:not([data-disabled]) .thumb {
+    translate: -4px 0;
+  }
+}

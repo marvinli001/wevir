@@ -1,0 +1,74 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/checkbox/checkbox.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .box {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 1rem;
+    height: 1rem;
+    flex: none;
+    border: 1px solid var(--arc-border-strong);
+    border-radius: 0.3125rem;
+    background: var(--arc-surface);
+    color: var(--arc-control-glyph);
+    outline: none;
+    transition:
+      border-color var(--arc-duration-fast),
+      background-color var(--arc-duration-fast),
+      scale var(--arc-duration-press) var(--arc-ease-press);
+  }
+  .small {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+  .box[data-checked],
+  .box[data-indeterminate] {
+    background: var(--arc-control-on);
+    border-color: var(--arc-control-on);
+  }
+  .box:hover:not([data-disabled], [data-checked], [data-indeterminate]) {
+    border-color: var(--arc-text-muted);
+  }
+  .box:active:not([data-disabled]) {
+    scale: 0.95;
+  }
+  .box:focus-visible {
+    outline: 1px solid var(--arc-focus-outline);
+    outline-offset: 2px;
+  }
+  .box[data-disabled] {
+    opacity: 0.5;
+  }
+  .box[aria-invalid="true"] {
+    border-color: var(--arc-danger);
+  }
+  .indicator {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+  }
+  .indicator svg {
+    width: 100%;
+    height: 100%;
+  }
+  .dash,
+  .box[data-indeterminate] .check {
+    display: none;
+  }
+  .box[data-indeterminate] .dash {
+    display: inline;
+  }
+  .check,
+  .dash {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+    animation: draw var(--arc-duration-standard) var(--arc-ease-enter);
+  }
+  @keyframes draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+  }
+}

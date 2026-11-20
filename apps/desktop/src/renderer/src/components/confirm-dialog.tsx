@@ -1,4 +1,3 @@
-import { LoaderCircle } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { ErrorNote } from '@/components/error-note';
 import { Button } from '@/components/ui/button';
@@ -81,11 +80,9 @@ export function ConfirmDialog({
             variant="destructive"
             onClick={confirm}
             disabled={busy}
-            aria-busy={busy || undefined}
-            className="aria-busy:opacity-100"
+            loading={busy}
             data-confirm
           >
-            {busy && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
             {confirmLabel}
           </Button>
         </DialogFooter>

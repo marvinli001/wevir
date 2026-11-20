@@ -1,0 +1,66 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/input/input.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .input {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: var(--arc-control-height-md);
+    padding: 0 var(--arc-space-3);
+    border: 1px solid var(--arc-border);
+    border-radius: var(--arc-radius-control);
+    background: var(--arc-surface);
+    color: var(--arc-surface-foreground);
+    font-size: var(--arc-text-sm);
+    line-height: var(--arc-leading-body);
+    letter-spacing: var(--arc-tracking-body);
+    outline: none;
+    transition:
+      border-color var(--arc-duration-fast) var(--arc-ease-standard),
+      background-color var(--arc-duration-fast) var(--arc-ease-standard);
+  }
+  .input::placeholder {
+    color: var(--arc-text-muted);
+  }
+  .input:hover:not(:disabled) {
+    border-color: var(--arc-border-strong);
+  }
+  .input:focus-visible {
+    border-color: var(--arc-focus-outline);
+    box-shadow: 0 0 0 2px var(--arc-focus-ring);
+  }
+  .input[aria-invalid="true"] {
+    border-color: var(--arc-danger);
+  }
+  .input:disabled {
+    opacity: 0.5;
+    background: var(--arc-surface-muted);
+    cursor: not-allowed;
+  }
+  .input::file-selector-button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+  .numberField {
+    position: relative;
+    display: block;
+    min-width: 0;
+  }
+  .number {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    padding-inline: var(--arc-space-3);
+    font-size: var(--arc-text-sm);
+    pointer-events: none;
+  }
+  .numberField:has(input:focus) .number {
+    visibility: hidden;
+  }
+  .numberField input:not(:focus) {
+    color: transparent;
+  }
+}

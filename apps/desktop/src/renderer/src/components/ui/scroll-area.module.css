@@ -1,0 +1,54 @@
+/* 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/scroll-area/scroll-area.module.css
+ * 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli */
+@layer components {
+  .root {
+    position: relative;
+    min-height: 0;
+    min-width: 0;
+  }
+  .viewport {
+    height: 100%;
+    width: 100%;
+    border-radius: inherit;
+    outline: none;
+    overscroll-behavior-x: contain;
+  }
+  .viewport:focus-visible {
+    outline: 1px solid var(--arc-focus-outline);
+    outline-offset: -1px;
+  }
+  .scrollbar {
+    display: flex;
+    padding: 2px;
+    touch-action: none;
+    user-select: none;
+  }
+  .scrollbar[data-orientation="vertical"] {
+    width: 10px;
+    height: 100%;
+  }
+  .scrollbar[data-orientation="horizontal"] {
+    height: 10px;
+    flex-direction: column;
+  }
+  .thumb {
+    position: relative;
+    flex: 1;
+    border-radius: var(--arc-radius-pill);
+    background: color-mix(in oklab, var(--arc-foreground) 22%, transparent);
+    opacity: 0;
+    transition:
+      opacity var(--arc-duration-fast) var(--arc-ease-standard),
+      background-color var(--arc-duration-fast);
+  }
+  .root[data-hovering] .thumb,
+  .scrollbar[data-hovering] .thumb,
+  .scrollbar[data-scrolling] .thumb,
+  .root[data-scrolling] .thumb {
+    opacity: 1;
+  }
+  .thumb:hover,
+  .thumb:active {
+    background: color-mix(in oklab, var(--arc-foreground) 38%, transparent);
+  }
+}

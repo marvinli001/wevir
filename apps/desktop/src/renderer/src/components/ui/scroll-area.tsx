@@ -1,13 +1,13 @@
-// 由 shadcn CLI 4.21.4 从官方 registry 生成（components.json：base-nova，Base UI，lucide）。
-// MIT License，Copyright (c) 2023 shadcn。
-// Wevir 的改动：去掉没有用到的 React 导入与 "use client"；交互手感一轮加 fade：视口带滚动边缘渐隐（components/scroll-fade.tsx），
-// 这时视口不过渡颜色与阴影（Tailwind 的 transition 工具类会盖掉渐隐长度的过渡）；滑块是正文色 20%，平时不显示，指针在滚动区上
-// 或正在滚动时（Base UI 的 data-hovering / data-scrolling）淡入。
+// 来源 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/scroll-area/scroll-area.tsx
+// 来源提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7 · MIT License · Copyright (c) 2026 Elia Kuratli
+// Base UI 组合沿用 shadcn/ui，MIT License，Copyright (c) 2023 shadcn。
 
 import { ScrollArea as ScrollAreaPrimitive } from '@base-ui/react/scroll-area';
 import { cn } from 'cn';
 import { useRef } from 'react';
 import { useScrollFade } from '@/components/scroll-fade';
+import { withClasses } from './classes';
+import styles from './scroll-area.module.css';
 
 function ScrollArea({
   className,
@@ -20,16 +20,13 @@ function ScrollArea({
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
-      className={cn('relative', className)}
+      className={withClasses(styles.root, className)}
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
         ref={viewportRef}
         data-slot="scroll-area-viewport"
-        className={cn(
-          'size-full rounded-[inherit] outline-none focus-visible:ring-1 focus-visible:ring-ring-soft focus-visible:ring-inset',
-          fade ? 'scroll-fade' : 'transition-[color,box-shadow]',
-        )}
+        className={cn(styles.viewport, fade && 'scroll-fade')}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
@@ -49,16 +46,10 @@ function ScrollBar({
       data-slot="scroll-area-scrollbar"
       data-orientation={orientation}
       orientation={orientation}
-      className={cn(
-        'flex touch-none p-px transition-colors select-none data-horizontal:h-2.5 data-horizontal:flex-col data-horizontal:border-t data-horizontal:border-t-transparent data-vertical:h-full data-vertical:w-2.5 data-vertical:border-l data-vertical:border-l-transparent',
-        className,
-      )}
+      className={withClasses(styles.scrollbar, className)}
       {...props}
     >
-      <ScrollAreaPrimitive.Thumb
-        data-slot="scroll-area-thumb"
-        className="relative flex-1 rounded-full bg-foreground/20 opacity-0 transition-opacity duration-200 ease-smooth in-data-hovering:opacity-100 in-data-scrolling:opacity-100 hover:bg-foreground/30"
-      />
+      <ScrollAreaPrimitive.Thumb data-slot="scroll-area-thumb" className={styles.thumb} />
     </ScrollAreaPrimitive.Scrollbar>
   );
 }
