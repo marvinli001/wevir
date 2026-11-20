@@ -2966,6 +2966,7 @@ export const messages: Messages = {
   'usage.savings.scope':
     'Учтённый расход · фиксированные цены · {pairs} пар · среднее за задачу · 95% ДИ {low}–{high}',
   'usage.precision': 'Точность',
+  'usage.precision.all': 'Все уровни точности',
   'usage.precision.exact': 'Точно',
   'usage.precision.engine': 'От движка',
   'usage.precision.turn': 'За ход',

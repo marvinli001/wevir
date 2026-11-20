@@ -2891,6 +2891,7 @@ export const messages: Messages = {
   'usage.savings.scope':
     '상위 청구 사용량 · 고정 가격 · {pairs}쌍 · 작업 평균 · 95% 구간 {low}–{high}',
   'usage.precision': '정밀도',
+  'usage.precision.all': '모든 정밀도',
   'usage.precision.exact': '정확',
   'usage.precision.engine': '엔진 보고',
   'usage.precision.turn': '턴 합계',

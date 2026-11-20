@@ -162,11 +162,6 @@ export function usagePeriod(window: UsageWindow, now: Date): UsagePeriod {
   };
 }
 
-/** 时间段的标识：一样的时间段一样，换了才重读。 */
-export function windowKey(window: UsageWindow): string {
-  return typeof window === 'string' ? window : `${window.from}-${window.to ?? 'now'}`;
-}
-
 // ---- 自定义时间段的选择 ----
 
 /** 选择器里正在改的起止：`field` 是日历点下去改哪一头；`live` 时结束跟随当前时刻，日历只改开始。 */
@@ -252,15 +247,9 @@ export interface UsageSelection {
   model?: string;
 }
 
-/** 换服务商时清掉模型，精度沿用（新服务商没有这种精度时页面再换），免得换一次读两遍。 */
-export function selectProvider(
-  selection: UsageSelection,
-  providerId: string | undefined,
-): UsageSelection {
-  return {
-    ...(selection.precision !== undefined && { precision: selection.precision }),
-    ...(providerId !== undefined && { providerId }),
-  };
+/** 模型和精度属于当前服务商的筛选，切换来源时一并重置。 */
+export function selectProvider(providerId: string | undefined): UsageSelection {
+  return providerId === undefined ? {} : { providerId };
 }
 
 export function selectModel(selection: UsageSelection, model: string | undefined): UsageSelection {

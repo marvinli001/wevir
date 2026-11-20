@@ -2957,6 +2957,7 @@ export const messages: Messages = {
   'usage.savings.scope':
     'Abgerechnete Nutzung · feste Preise · {pairs} Paare · Mittel je Aufgabe · 95%-KI {low}–{high}',
   'usage.precision': 'Genauigkeit',
+  'usage.precision.all': 'Alle Genauigkeiten',
   'usage.precision.exact': 'Exakt',
   'usage.precision.engine': 'Engine',
   'usage.precision.turn': 'Rundensumme',

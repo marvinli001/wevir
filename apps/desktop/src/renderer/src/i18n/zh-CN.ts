@@ -2884,6 +2884,7 @@ export const zhCN = {
   'usage.savings.baseline': '基线 · {baseline} → {candidate}',
   'usage.savings.scope': '计费用量 · 固定价 · {pairs}对 · 任务均值 · 95%CI {low}–{high}',
   'usage.precision': '精度',
+  'usage.precision.all': '全部精度',
   'usage.precision.exact': '精确',
   'usage.precision.engine': '引擎报告',
   'usage.precision.turn': '回合合计',

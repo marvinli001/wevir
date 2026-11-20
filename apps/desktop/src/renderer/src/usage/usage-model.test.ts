@@ -41,7 +41,6 @@ import {
   totalTokens,
   usageAvailability,
   usagePeriod,
-  windowKey,
 } from './usage-model';
 
 /** Intl 在数字与单位之间用不换行空格（U+00A0 / U+202F），比较时都当普通空格。 */
@@ -150,8 +149,6 @@ describe('分桶边界', () => {
     expect(usagePeriod({ from, to: from }, now).edges).toEqual([from, from + 60_000]);
     expect(spanEdges(from, from + 10 * 60_000, 'hour')).toEqual([from, from + 10 * 60_000]);
     expect(usagePeriod('today', now)).toMatchObject({ unit: 'hour', today: true });
-    expect(windowKey('7d')).toBe('7d');
-    expect(windowKey({ from: 1 })).not.toBe(windowKey({ from: 1, to: 2 }));
   });
 });
 
@@ -201,15 +198,14 @@ describe('自定义时间段的选择', () => {
 });
 
 describe('筛选', () => {
-  it('换服务商清掉模型', () => {
+  it('ZUV API、Codex 与全部来源默认都查询全部精度', () => {
+    expect(toFilter(selectProvider('zuv-api-login'))).toEqual({ providerIds: ['zuv-api-login'] });
+    expect(toFilter(selectProvider('chatgpt'))).toEqual({ providerIds: ['chatgpt'] });
+    expect(toFilter(selectProvider(undefined))).toBeUndefined();
+  });
+
+  it('清掉模型时保留来源', () => {
     const full = { providerId: 'p1', model: 'm' } as const;
-    expect(selectProvider(full, 'p2')).toEqual({ providerId: 'p2' });
-    expect(selectProvider(full, undefined)).toEqual({});
-    // 精度沿用，免得换服务商时先按没有精度读一遍。
-    expect(selectProvider({ ...full, precision: 'exact' }, 'p2')).toEqual({
-      providerId: 'p2',
-      precision: 'exact',
-    });
     expect(selectModel(full, undefined)).toEqual({ providerId: 'p1' });
     expect(selectModel({}, 'x')).toEqual({ model: 'x' });
   });

@@ -2904,6 +2904,7 @@ export const messages: Messages = {
   'usage.savings.scope':
     '上流の課金使用量 · 固定価格 · {pairs} 組 · タスク平均 · 95% 区間 {low}–{high}',
   'usage.precision': '精度',
+  'usage.precision.all': 'すべての精度',
   'usage.precision.exact': '正確',
   'usage.precision.engine': 'エンジン報告',
   'usage.precision.turn': 'ターン合計',

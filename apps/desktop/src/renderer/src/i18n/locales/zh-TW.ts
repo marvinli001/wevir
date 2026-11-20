@@ -2872,6 +2872,7 @@ export const messages: Messages = {
   'usage.savings.scope':
     '上游計費用量 · 固定價格 · {pairs} 對 · 每任務均值 · 95% 區間 {low}–{high}',
   'usage.precision': '精度',
+  'usage.precision.all': '全部精度',
   'usage.precision.exact': '精確',
   'usage.precision.engine': '引擎回報',
   'usage.precision.turn': '回合合計',

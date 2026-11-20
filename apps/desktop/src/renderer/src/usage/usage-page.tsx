@@ -1,6 +1,6 @@
 // 使用统计页（0.62.0，Host 功能 `usage_stats`）：工作台主窗格里的一列。顶上是标题与价格表状态、刷新；下面是筛选（模型服务里
 // 添加的服务商，模型、时间段：预设或自定义起止），然后是合计卡片、趋势图、明细（请求记录 / 服务商 / 模型）。数据见 use-usage.ts，
-// 写法与计算见 usage-model.ts。换服务商、模型、精度或时间段时都留着上次的内容变淡，新结果到了数字滚动、柱子过渡，不闪骨架屏；
+// 写法与计算见 usage-model.ts。换服务商、模型、精度或时间段时保留上次的内容，新结果到了数字滚动、柱子过渡；
 // 骨架屏只在第一次读到之前。
 
 import type { WevirClient } from '@wevir/client-sdk';
@@ -13,7 +13,7 @@ import type {
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChartColumn, CircleAlert, RefreshCw } from 'lucide-react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { EmptyState } from '@/components/empty-state';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
@@ -75,7 +75,6 @@ const ALL = '__all__';
 export function UsagePage({ client }: { client: WevirClient }) {
   const prefs = usagePrefs.use();
   const [selection, setSelection] = useState<UsageSelection>({});
-  const [page, setPage] = useState(0);
   const [open, setOpen] = useState<UsageRecord>();
   const [notice, setNotice] = useState<Notice>();
   const locale = currentLocale();
@@ -83,42 +82,8 @@ export function UsagePage({ client }: { client: WevirClient }) {
   const providers = workbench.status === 'ready' ? workbench.providers : [];
   const entries = workbench.status === 'ready' ? workbench.workspaces : [];
   const window = prefsWindow(prefs);
-  const data = useUsage(client, window, selection, page);
-  const latest = data.summary.data;
-  const ledger = client.supports('context_ledger');
-
-  // 有上下文账本时同一次请求有几种精度的记录，不选精度会重复计数：这段时间有精度可选而查询的精度不在其中（第一次打开，或换到
-  // 没有这种精度的服务商、模型）时换成精确或第一种，这次的结果不显示。
-  const latestValid = latest !== undefined && precisionValid(latest, ledger);
-  useEffect(() => {
-    if (
-      latest === undefined ||
-      latestValid ||
-      data.summary.loading ||
-      latest.filter?.providerIds?.[0] !== selection.providerId ||
-      latest.filter?.models?.[0] !== selection.model ||
-      latest.filter?.precision !== selection.precision
-    )
-      return;
-    const available = latest.result.options.precisions ?? [];
-    setSelection((current) => ({
-      ...current,
-      precision: available.includes('exact') ? 'exact' : available[0],
-    }));
-  }, [
-    latest,
-    latestValid,
-    data.summary.loading,
-    selection.providerId,
-    selection.model,
-    selection.precision,
-  ]);
-
-  // 页面上显示的：最近一次精度有效的结果。新的还没到（或精度要换）时留着它变淡。
-  const shown = useRef<SummaryData>(undefined);
-  if (latestValid) shown.current = latest;
-  const summary = shown.current;
-  const updating = data.summary.loading || summary !== latest;
+  const data = useUsage(client, window, selection);
+  const summary = data.data;
 
   // 选中的连接被删了（用量随之删除）：回到全部。
   const selectedGone =
@@ -126,12 +91,8 @@ export function UsagePage({ client }: { client: WevirClient }) {
     workbench.status === 'ready' &&
     !providers.some((provider) => provider.id === selection.providerId);
   useEffect(() => {
-    if (selectedGone) setSelection((current) => selectProvider(current, undefined));
+    if (selectedGone) setSelection(selectProvider(undefined));
   }, [selectedGone]);
-
-  // 换时间段或筛选时回到第一页。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在时间段或筛选变化时触发。
-  useEffect(() => setPage(0), [prefs.range, prefs.custom, selection]);
 
   const refresh = () => {
     setNotice(undefined);
@@ -185,13 +146,13 @@ export function UsagePage({ client }: { client: WevirClient }) {
               <NoticeBanner notice={notice} />
             </div>
           )}
-          {data.summary.error !== undefined && (
+          {data.error !== undefined && (
             <div className="mb-4 flex items-center gap-3" data-testid="usage-error">
               <div className="min-w-0 flex-1">
                 <NoticeBanner
                   notice={{
                     tone: 'error',
-                    text: t('usage.loadFailed', { error: describe(data.summary.error) }),
+                    text: t('usage.loadFailed', { error: describe(data.error) }),
                   }}
                 />
               </div>
@@ -202,14 +163,12 @@ export function UsagePage({ client }: { client: WevirClient }) {
           )}
 
           {summary === undefined ? (
-            data.summary.error === undefined && <Skeleton />
+            data.error === undefined && <Skeleton />
           ) : summary.result.totals.requests === 0 ? (
             <div
               key="empty"
-              className={cn(
-                'animate-in fade-in duration-200 ease-smooth transition-opacity',
-                updating && 'opacity-70',
-              )}
+              aria-busy={data.loading}
+              className="animate-in fade-in duration-200 ease-smooth"
             >
               <EmptyState
                 icon={<ChartColumn />}
@@ -219,11 +178,8 @@ export function UsagePage({ client }: { client: WevirClient }) {
           ) : (
             <div
               key="content"
-              className={cn(
-                'animate-in fade-in space-y-5 transition-opacity duration-200 ease-smooth',
-                updating && 'opacity-70',
-              )}
-              aria-busy={updating}
+              className="animate-in fade-in space-y-5 duration-200 ease-smooth"
+              aria-busy={data.loading}
             >
               <Hero totals={summary.result.totals} locale={locale} />
               <UsageChart
@@ -246,12 +202,15 @@ export function UsagePage({ client }: { client: WevirClient }) {
                   />
                 </div>
                 {prefs.tab === 'records' && (
-                  <Records
-                    data={data.records}
+                  <RecordsTable
+                    records={summary.records}
+                    total={summary.total}
+                    page={summary.page}
+                    loading={data.loading}
                     period={summary.period}
                     locale={locale}
                     providers={providers}
-                    onPage={setPage}
+                    onPage={data.setPage}
                     onOpen={setOpen}
                   />
                 )}
@@ -276,49 +235,6 @@ export function UsagePage({ client }: { client: WevirClient }) {
         providers={providers}
         entries={entries}
         onClose={() => setOpen(undefined)}
-      />
-    </div>
-  );
-}
-
-function Records({
-  data,
-  period,
-  locale,
-  providers,
-  onPage,
-  onOpen,
-}: {
-  data: ReturnType<typeof useUsage>['records'];
-  period: UsagePeriod;
-  locale: string;
-  providers: Parameters<typeof RecordsTable>[0]['providers'];
-  onPage: (page: number) => void;
-  onOpen: (record: UsageRecord) => void;
-}) {
-  if (data.data === undefined) {
-    if (data.error !== undefined) {
-      return (
-        <NoticeBanner
-          notice={{ tone: 'error', text: t('usage.loadFailed', { error: describe(data.error) }) }}
-        />
-      );
-    }
-    return <div className="h-40 animate-pulse rounded-xl bg-muted" />;
-  }
-  return (
-    <div
-      className={cn('transition-opacity duration-150 ease-smooth', data.loading && 'opacity-70')}
-    >
-      <RecordsTable
-        records={data.data.records}
-        total={data.data.total}
-        page={data.data.page}
-        period={period}
-        locale={locale}
-        providers={providers}
-        onPage={onPage}
-        onOpen={onOpen}
       />
     </div>
   );
@@ -396,7 +312,7 @@ function Filters({
         <legend className="sr-only">{t('usage.filter.provider')}</legend>
         <Chip
           active={selection.providerId === undefined}
-          onClick={() => onSelection(selectProvider(selection, undefined))}
+          onClick={() => onSelection(selectProvider(undefined))}
         >
           {t('usage.filter.all')}
         </Chip>
@@ -404,7 +320,7 @@ function Filters({
           <Chip
             key={provider.id}
             active={selection.providerId === provider.id}
-            onClick={() => onSelection(selectProvider(selection, provider.id))}
+            onClick={() => onSelection(selectProvider(provider.id))}
           >
             <ProviderLogo
               logo={providerLogoOf(provider.id, provider.kind, providers)}
@@ -419,20 +335,17 @@ function Filters({
         {options?.precisions !== undefined && (
           <Select
             aria-label={t('usage.precision')}
-            value={selection.precision ?? 'exact'}
-            options={(['exact', 'engine', 'turn'] as const)
-              .filter(
-                (value) =>
-                  options.precisions?.length === 0 ||
-                  options.precisions?.includes(value) ||
-                  value === selection.precision,
-              )
-              .map((value) => ({
-                value,
-                label: t(`usage.precision.${value}`),
-              }))}
+            value={selection.precision ?? ALL}
+            options={[
+              { value: ALL, label: t('usage.precision.all') },
+              ...(['exact', 'engine', 'turn'] as const)
+                .filter(
+                  (value) => options.precisions?.includes(value) || value === selection.precision,
+                )
+                .map((value) => ({ value, label: t(`usage.precision.${value}`) })),
+            ]}
             onValueChange={(value) =>
-              onSelection({ ...selection, precision: value as 'exact' | 'engine' | 'turn' })
+              onSelection({ ...selection, precision: value === ALL ? undefined : value })
             }
             className="w-32"
             data-filter="precision"
@@ -467,14 +380,6 @@ function Filters({
       </div>
     </div>
   );
-}
-
-/** 查询的精度可以显示：没有上下文账本、这段时间没有精度可选，或查询的精度在可选的里面。 */
-function precisionValid(summary: SummaryData, ledger: boolean): boolean {
-  const available = summary.result.options.precisions ?? [];
-  if (!ledger || available.length === 0) return true;
-  const precision = summary.filter?.precision;
-  return precision !== undefined && available.includes(precision);
 }
 
 function Chip({

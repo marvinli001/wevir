@@ -2961,6 +2961,7 @@ export const messages: Messages = {
   'usage.savings.scope':
     'Uso fatturato · prezzi fissi · {pairs} coppie · media per attività · IC 95% {low}–{high}',
   'usage.precision': 'Precisione',
+  'usage.precision.all': 'Tutte le precisioni',
   'usage.precision.exact': 'Esatta',
   'usage.precision.engine': 'Motore',
   'usage.precision.turn': 'Totale turno',

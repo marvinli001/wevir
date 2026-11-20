@@ -78,6 +78,7 @@ export function RecordsTable({
   records,
   total,
   page,
+  loading,
   period,
   locale,
   providers,
@@ -87,6 +88,7 @@ export function RecordsTable({
   records: readonly UsageRecord[];
   total: number;
   page: number;
+  loading: boolean;
   period: UsagePeriod;
   locale: string;
   providers: readonly ProviderProfile[];
@@ -172,7 +174,7 @@ export function RecordsTable({
           <IconButton
             label={t('usage.page.prev')}
             variant="outline"
-            disabled={page === 0}
+            disabled={loading || page === 0}
             onClick={() => onPage(page - 1)}
           >
             <ChevronLeft />
@@ -183,7 +185,7 @@ export function RecordsTable({
           <IconButton
             label={t('usage.page.next')}
             variant="outline"
-            disabled={page + 1 >= pages}
+            disabled={loading || page + 1 >= pages}
             onClick={() => onPage(page + 1)}
           >
             <ChevronRight />

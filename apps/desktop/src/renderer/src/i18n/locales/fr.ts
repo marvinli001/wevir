@@ -2969,6 +2969,7 @@ export const messages: Messages = {
   'usage.savings.scope':
     'Usage facturé · prix fixes · {pairs} paires · moyenne par tâche · IC à 95 % {low}–{high}',
   'usage.precision': 'Précision',
+  'usage.precision.all': 'Toutes les précisions',
   'usage.precision.exact': 'Exacte',
   'usage.precision.engine': 'Moteur',
   'usage.precision.turn': 'Total du tour',
