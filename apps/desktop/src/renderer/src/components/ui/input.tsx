@@ -10,23 +10,33 @@ export function Input({
   className,
   rollingNumber,
   value,
+  type = 'text',
   ...props
 }: ComponentProps<'input'> & { rollingNumber?: boolean }) {
+  const numericField = rollingNumber && (type === 'number' || type === 'text');
+  const showNumber =
+    typeof value === 'number' || (typeof value === 'string' && /^[+-]?[\d.,]+$/.test(value));
   const field = (
     <InputPrimitive
-      {...props}
-      value={value}
       data-slot="input"
-      className={cn(styles.input, className)}
+      {...props}
+      type={type}
+      value={value}
+      className={cn(styles.input, !numericField && className)}
     />
   );
-  if (!rollingNumber || value === undefined || value === '' || Array.isArray(value)) return field;
+  if (!numericField) return field;
   return (
-    <span className={styles.numberField}>
+    <span
+      className={cn(styles.numberField, className)}
+      data-rolling-value={showNumber || undefined}
+    >
       {field}
-      <span aria-hidden className={styles.number}>
-        <RollingNumber value={String(value)} />
-      </span>
+      {showNumber && (
+        <span aria-hidden className={styles.number}>
+          <RollingNumber value={String(value)} />
+        </span>
+      )}
     </span>
   );
 }

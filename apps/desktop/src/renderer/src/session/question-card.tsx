@@ -6,6 +6,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 
 import { ErrorNote } from '@/components/error-note';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
@@ -229,7 +230,7 @@ function QuestionCard({
                   checked={selected.includes(OTHER)}
                   onToggle={() => toggle(OTHER)}
                 >
-                  <input
+                  <Input
                     ref={otherRef}
                     value={other[question.id] ?? ''}
                     onChange={(event) => {
@@ -240,7 +241,6 @@ function QuestionCard({
                     type={question.secret ? 'password' : 'text'}
                     placeholder={t('question.otherPlaceholder')}
                     aria-label={t('question.other')}
-                    className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:focus-field"
                   />
                 </OptionRow>
               </li>

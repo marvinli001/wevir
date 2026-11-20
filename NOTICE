@@ -80,10 +80,6 @@ Radix Colors。
   apps/desktop/src/renderer/src/components/ui/textarea.tsx
   apps/desktop/src/renderer/src/components/ui/tooltip.tsx
 
-摘自 shadcn 4.21.4 包内的 dist/tailwind.css：
-
-  apps/desktop/src/renderer/src/styles/shadcn-variants.css
-
 许可证全文见文末“MIT License”。
 
 
@@ -260,8 +256,6 @@ apps/desktop/licenses/fonts/。许可证都是 SIL Open Font License 1.1，全�
   border-beam 1.4.1、thinking-orbs 0.3.2、bot-avatars 0.1.2、metal-fx 2.0.11、img-fx 0.5.1
     仓库：https://github.com/Jakubantalik/Libraries.dev（metal-fx：https://github.com/Jakubantalik/metal-fx）
     版权：Copyright (c) 2026 Jakub Antalik
-  liquid-gooey 0.2.2
-    版权：Copyright (c) 2026 Jakub
   three 0.186.1
     仓库：https://github.com/mrdoob/three.js
     版权：Copyright © 2010-2026 three.js authors
@@ -791,17 +785,23 @@ apps/desktop/native/ios-simulator 移植的文件（左边是 Wevir 文件，右
 许可证全文见文末“MIT License”。
 
 
-18. Arc UI（桌面端的复制图标、通知叠放、共享高亮、数字滚动、加载圈与输入框的主按钮）
+18. Arc UI 与 Motion（桌面基础控件、分段选择、浮层和交互反馈）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/kuratlielia/arc-library（https://uiarc.dev，只用免费的 MIT 部分）
 来源提交：fff39c044c6e3b86006e3a6acc9a32a821a80d99
 许可证：MIT
 版权：Copyright (c) 2026 Elia Kuratli
 
-桌面基础控件的样式及动效来自 https://github.com/kuratlielia/arc-library 提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7
-的 registry/foundation.css、registry/motion-tokens.ts 和 registry/components/ 的免费 MIT 源码。
-控件的具体来源记录在其文件头。
+桌面组件移植自 https://github.com/kuratlielia/arc-library 提交 8302b52ed9dc79ae7ca699b158a98dfdf09656f7。
+使用 registry/foundation.css、registry/motion-tokens.ts 与 registry/components/ 的免费 MIT 源码。
+Button、Input、Textarea、Select、Checkbox、Switch、RadioGroup、Slider、Dialog、Drawer（Sheet）、
+Popover、Tooltip、DropdownMenu、ContextMenu、ScrollArea、Tabs 和 Toast Stack 均在各移植文件头注明来源。
+图标按钮与确认框组合本地的 Button、Tooltip 和 Dialog；加载圈取自 Button。
 
+Motion、motion-dom 与 motion-utils：MIT，Copyright (c) 2024 Motion B.V.（https://motion.dev）。
+framer-motion：MIT，Copyright (c) 2018 Framer B.V.。许可证全文见文末“MIT License”。
+
+早期交互的来源提交为 fff39c044c6e3b86006e3a6acc9a32a821a80d99。
 apps/desktop/src/renderer/src 改写的文件（左边是 Wevir 文件，右边是 Arc 的来源路径）。Arc 的组件用 motion 与 CSS
 modules，Wevir 改用 CSS 过渡与自己的令牌重写，修改说明在各文件头：
 

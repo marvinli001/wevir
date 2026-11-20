@@ -339,10 +339,7 @@ export function AssistantComposer({
         </ul>
       )}
       <div
-        className={cn(
-          'flex flex-col gap-2 rounded-2xl border border-input bg-card p-2 focus-within:focus-field',
-          dragging && 'border-ring ring-2 ring-ring/30',
-        )}
+        className={cn('field-surface flex flex-col gap-2 p-2', dragging && 'border-ring-soft')}
         data-testid="assistant-composer"
       >
         {reply !== undefined && (

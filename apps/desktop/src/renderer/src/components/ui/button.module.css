@@ -29,7 +29,7 @@
   .button:active:not([aria-haspopup], [data-popup-open], [data-disabled], [aria-disabled="true"]) {
     scale: 0.97;
   }
-  .button:focus-visible {
+  :where(:root:not([data-pointer-focus])) .button:focus-visible {
     border-color: var(--arc-focus-outline);
     box-shadow: 0 0 0 2px var(--arc-focus-ring);
   }
@@ -64,8 +64,8 @@
     border-color: var(--arc-border);
   }
   .secondary {
-    background: var(--arc-surface-muted);
-    color: var(--arc-foreground);
+    background: var(--arc-secondary);
+    color: var(--arc-secondary-foreground);
   }
   .ghost {
     color: var(--arc-text-secondary);

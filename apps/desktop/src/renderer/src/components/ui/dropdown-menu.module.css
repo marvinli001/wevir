@@ -81,7 +81,7 @@
   .item[data-popup-open] {
     background: var(--arc-surface-muted);
   }
-  .item:focus-visible {
+  :where(:root:not([data-pointer-focus])) .item:focus-visible {
     outline: 1px solid var(--arc-focus-outline);
     outline-offset: -1px;
   }

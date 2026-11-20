@@ -98,10 +98,7 @@ export function EditProjectDialog() {
         <DialogContent className="gap-5 p-5 sm:max-w-120">
           <DialogTitle className="text-lg font-semibold">{t('project.edit.title')}</DialogTitle>
           <form onSubmit={submit} className="flex min-w-0 flex-col gap-5">
-            <label
-              htmlFor={nameId}
-              className="flex h-10 items-center gap-2.5 rounded-lg border border-input bg-card px-3 transition-colors focus-within:focus-field"
-            >
+            <label htmlFor={nameId} className="flex h-10 items-center gap-2.5 field-surface px-3">
               <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
               <input
                 id={nameId}

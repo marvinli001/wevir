@@ -60,7 +60,6 @@ HEIC 附件使用 [heic-to 1.6.7](https://github.com/hoppergee/heic-to/tree/v1.6
 | `@base-ui/react`、`@base-ui/utils` | 1.9.0、0.5.0 | MIT | Copyright (c) 2019 Material-UI SAS |
 | `@floating-ui/core`、`dom`、`react-dom`、`utils` | 1.8.0、1.8.0、2.1.9、0.2.12 | MIT | Copyright (c) 2021-present Floating UI contributors |
 | `@remix-run/route-pattern` | 0.22.1 | MIT | Copyright (c) 2025 Shopify Inc. |
-| `class-variance-authority` | 0.7.1 | Apache-2.0 | Copyright 2022 Joe Bell（包内没有 `NOTICE`） |
 | `clsx` | 2.1.1 | MIT | Copyright (c) Luke Edwards |
 | `cn` | 0.4.0 | MIT | Copyright (c) 2026 shadcn |
 | `cookie-es` | 3.1.1 | MIT | Copyright (c) 2012-2014 Roman Shtylman；Copyright (c) 2015 Douglas Christopher Wilson |
@@ -73,7 +72,8 @@ HEIC 附件使用 [heic-to 1.6.7](https://github.com/hoppergee/heic-to/tree/v1.6
 | `reselect` | 5.3.0 | MIT | Copyright (c) 2015-2018 Reselect Contributors |
 | `tailwindcss` | 4.3.3 | MIT | Copyright (c) Tailwind Labs, Inc.（生成的 CSS 含它的 preflight） |
 | `tw-animate-css` | 1.4.0 | MIT | Copyright (c) 2025 Wombosvideo |
-| `border-beam`、`thinking-orbs`、`bot-avatars`、`liquid-gooey`、`img-fx` | 1.4.1、0.3.2、0.1.2、0.2.2、0.5.1 | MIT | Copyright (c) 2026 Jakub Antalik（`liquid-gooey` 写作 Copyright (c) 2026 Jakub）；U3，零运行时依赖 |
+| `motion`、`motion-dom`、`motion-utils`、`framer-motion` | 12.43.0（motion-utils 12.39.0） | MIT | Copyright (c) 2024 Motion B.V.；framer-motion 为 Copyright (c) 2018 Framer B.V. |
+| `border-beam`、`thinking-orbs`、`bot-avatars`、`img-fx` | 1.4.1、0.3.2、0.1.2、0.5.1 | MIT | Copyright (c) 2026 Jakub Antalik；U3，零运行时依赖 |
 | `metal-fx` | 2.0.11 | MIT；内含 Paper Shaders 的 `liquidMetal` 着色器（Apache-2.0，包内 `NOTICE`） | Copyright (c) 2026 Jakub Antalik；Copyright (c) Paper Design, Inc.。Wevir 打了补丁（`patches/metal-fx@2.0.11.patch`，根目录 `NOTICE` §8） |
 | `three` | 0.186.1 | MIT | Copyright © 2010-2026 three.js authors（`img-fx` 的 peer，只在显现图片时动态加载） |
 | `@pierre/diffs`、`@pierre/theming`、`@pierre/theme` | 1.5.1、1.0.1、2.0.0 | Apache-2.0 | Copyright 2025 Pierre Computer Company；`@pierre/theme` 带 `NOTICE`（派生自 primer/github-vscode-theme，MIT，Copyright (c) 2020 Primer），已抄在根目录 `NOTICE` §11。Wevir 给 `@pierre/diffs` 打了补丁（`patches/@pierre__diffs@1.5.1.patch`）；0.20.0 的“变更”窗格，打开时才加载 |
@@ -96,7 +96,7 @@ HEIC 附件使用 [heic-to 1.6.7](https://github.com/hoppergee/heic-to/tree/v1.6
 | `@xterm/xterm`、`@xterm/addon-fit` | 6.0.0、0.11.0 | MIT | Copyright (c) 2017-2019, The xterm.js authors；Copyright (c) 2014-2016, SourceLair Private Company；Copyright (c) 2012-2013, Christopher Jeffrey（`@xterm/addon-fit` 包内没有 `LICENSE`，同上） | 0.69.0 的“终端”窗格，打开时才加载 |
 | `commander`、`iconv-lite`、`safer-buffer` | 7.2.0 / 8.3.0、0.6.3、2.1.2 | MIT | Mermaid 依赖树里的 Node 端工具，渲染进程的产物里不会用到，以构建产物为准 |
 
-非 MIT 的：Apache-2.0 两个（`class-variance-authority`、按选择的 `dompurify`）加 0.20.0 的 `@pierre/*` 三个、BSD-3-Clause 两个（`highlight.js`、0.20.0 的 `diff`）、ISC 两个（`lucide-react`、0.20.0 的 `@ungap/structured-clone`）。0.32.0 加的（文件预览：`mermaid`、`katex`、`marked-katex-extension`、`htmlparser2` 与它们的闭包，均钉住版本，发布满两周）里非 MIT 的：ISC 的 `d3` 一族、BSD-3-Clause 的 `d3-sankey` 等五个与 `rw`、BSD-2-Clause 的 `domhandler` 等四个、Unlicense 的 `robust-predicates`、`@mermaid-js/parser` 打包的 Chevrotain（Apache-2.0，没有 `NOTICE`）。与 ADR-0004 补记 5、6、10 记下的一致。`@pierre/theme` 带 `NOTICE`，内容要收进声明（已抄在根目录 `NOTICE` §11）。另有 `metal-fx` 打包进来的 Paper Shaders 代码是 Apache-2.0，它带 `NOTICE`，内容要收进声明（§3.1，已抄在根目录 `NOTICE` §8；ADR-0004 补记 9）。
+非 MIT 的：Apache-2.0（按选择的 `dompurify`）加 0.20.0 的 `@pierre/*` 三个、BSD-3-Clause 两个（`highlight.js`、0.20.0 的 `diff`）、ISC 两个（`lucide-react`、0.20.0 的 `@ungap/structured-clone`）。0.32.0 加的（文件预览：`mermaid`、`katex`、`marked-katex-extension`、`htmlparser2` 与它们的闭包，均钉住版本，发布满两周）里非 MIT 的：ISC 的 `d3` 一族、BSD-3-Clause 的 `d3-sankey` 等五个与 `rw`、BSD-2-Clause 的 `domhandler` 等四个、Unlicense 的 `robust-predicates`、`@mermaid-js/parser` 打包的 Chevrotain（Apache-2.0，没有 `NOTICE`）。与 ADR-0004 补记 5、6、10 记下的一致。`@pierre/theme` 带 `NOTICE`，内容要收进声明（已抄在根目录 `NOTICE` §11）。另有 `metal-fx` 打包进来的 Paper Shaders 代码是 Apache-2.0，它带 `NOTICE`，内容要收进声明（§3.1，已抄在根目录 `NOTICE` §8；ADR-0004 补记 9）。
 
 ### 2.3 Electron
 

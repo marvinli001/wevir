@@ -334,7 +334,11 @@ export function ThemeLibrary() {
         {cards.map((card) => (
           <div
             key={`${card.host ? 'host' : 'preset'}-${card.id}`}
-            className={cn(SETTINGS_CARD, 'relative min-w-0', card.selected && 'ring-2 ring-ring')}
+            className={cn(
+              SETTINGS_CARD,
+              'relative min-w-0',
+              card.selected && 'border-selected-border bg-selected',
+            )}
           >
             <button
               type="button"

@@ -1,3 +1,4 @@
+import { Tab, TabList } from '@/components/ui/tabs';
 // “浏览器”窗格（0.33.0，desktop-layout.md §21）：当前会话的标签页、前进后退刷新与地址栏；网页本身是主进程放在窗口上的原生
 // 视图（WebContentsView，main/browser/browser-host.ts），这里只占位并把位置告诉主进程。agent 操作的标签页带标记，agent 的命令
 // 正在执行时显示“Agent 操作中”；用户在 agent 的标签页里点过敲过就接手了，agent 之后只读，“交给 Agent”再交回去。agent 收尾时
@@ -49,17 +50,20 @@ function SessionBrowser({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="browser-pane">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-1.5">
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" role="tablist">
+        <TabList
+          value={active?.id ?? null}
+          onValueChange={(id) => run(browser.select(id))}
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        >
           {tabs.map((tab) => (
             <TabButton
               key={tab.id}
               tab={tab}
               selected={tab.id === active?.id}
-              onSelect={() => run(browser.select(tab.id))}
               onClose={() => run(browser.close(tab.id))}
             />
           ))}
-        </div>
+        </TabList>
         <IconButton
           label={t('browser.newTab')}
           size="icon-xs"
@@ -78,12 +82,10 @@ function SessionBrowser({ sessionId }: { sessionId: string }) {
 function TabButton({
   tab,
   selected,
-  onSelect,
   onClose,
 }: {
   tab: BrowserTabState;
   selected: boolean;
-  onSelect: () => void;
   onClose: () => void;
 }) {
   const label = tabLabel(tab, t('browser.untitled'));
@@ -91,16 +93,11 @@ function TabButton({
     <div
       className={cn(
         'group flex h-7 max-w-44 min-w-24 shrink-0 items-center gap-1.5 rounded-md pr-1 pl-2 text-xs',
-        selected
-          ? 'bg-selected ring-1 ring-selected-border ring-inset text-foreground'
-          : 'text-muted-foreground hover:bg-muted/60',
+        selected ? 'text-foreground' : 'text-muted-foreground hover:bg-muted/60',
       )}
     >
-      <button
-        type="button"
-        role="tab"
-        aria-selected={selected}
-        onClick={onSelect}
+      <Tab
+        value={tab.id}
         title={tab.url}
         className="flex min-w-0 flex-1 items-center gap-1.5 outline-none"
         data-testid="browser-tab"
@@ -117,7 +114,7 @@ function TabButton({
           <Globe aria-hidden className="size-3.5 shrink-0" />
         )}
         <span className="truncate">{label}</span>
-      </button>
+      </Tab>
       <button
         type="button"
         aria-label={t('browser.closeTab')}

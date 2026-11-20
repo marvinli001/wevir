@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 // 消息流的章节目录（0.82.0，`wevir_mark_chapter`）：会话有两章以上时，消息流右上角浮着一个小按钮，写正在读的那一章；点开列出
 // 全部章节，点一项滚到它的分隔线（transcript-view.tsx 的 `onJump`）。
 
@@ -37,15 +38,17 @@ export function ChapterNav({
       <PopoverTrigger
         render={
           <Hint label={label}>
-            <button
+            <Button
+              size="sm"
+              variant="outline"
               type="button"
               aria-label={label}
               data-action="chapter-nav"
-              className="pointer-events-auto flex h-7 max-w-56 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs text-soft-foreground shadow-sm outline-none pressable [--press-scale:0.97] hover:bg-muted hover:text-foreground focus-visible:focus-field data-popup-open:bg-muted data-popup-open:text-foreground"
+              className="pointer-events-auto max-w-56 text-xs"
             >
               <ListTree aria-hidden className="size-3.5 shrink-0" />
               <span className="min-w-0 truncate">{title ?? label}</span>
-            </button>
+            </Button>
           </Hint>
         }
       />

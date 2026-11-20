@@ -272,7 +272,7 @@ function AutomationForm({
           data-field="title"
         />
 
-        <div className="rounded-xl border border-input bg-card focus-within:focus-field">
+        <div className="field-surface">
           <Textarea
             value={draft.prompt}
             onChange={(event) => patch({ prompt: event.target.value })}
@@ -534,14 +534,7 @@ function CheckResult({ result }: { result: AutomationCheckResult }) {
 
 function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (
-    <div
-      className={cn(
-        'divide-y divide-border rounded-xl border border-input bg-card text-sm',
-        className,
-      )}
-    >
-      {children}
-    </div>
+    <div className={cn('divide-y divide-border field-surface text-sm', className)}>{children}</div>
   );
 }
 

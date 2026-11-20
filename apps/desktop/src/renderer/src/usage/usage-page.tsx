@@ -1,3 +1,4 @@
+import { Segment, SegmentGroup } from '@/components/ui/tabs';
 // 使用统计页（0.62.0，Host 功能 `usage_stats`）：工作台主窗格里的一列。顶上是标题与价格表状态、刷新；下面是筛选（模型服务里
 // 添加的服务商，模型、时间段：预设或自定义起止），然后是合计卡片、趋势图、明细（请求记录 / 服务商 / 模型）。数据见 use-usage.ts，
 // 写法与计算见 usage-model.ts。换服务商、模型、精度或时间段时保留上次的内容，新结果到了数字滚动、柱子过渡；
@@ -308,29 +309,25 @@ function Filters({
 
   return (
     <div className="mb-5 space-y-3">
-      <fieldset className="flex min-w-0 flex-wrap items-center gap-1" data-testid="usage-providers">
-        <legend className="sr-only">{t('usage.filter.provider')}</legend>
-        <Chip
-          active={selection.providerId === undefined}
-          onClick={() => onSelection(selectProvider(undefined))}
-        >
-          {t('usage.filter.all')}
-        </Chip>
+      <SegmentGroup
+        value={selection.providerId ?? ALL}
+        onChange={(id) => onSelection(selectProvider(id === ALL ? undefined : id))}
+        aria-label={t('usage.filter.provider')}
+        className="flex w-fit flex-wrap justify-start"
+        data-testid="usage-providers"
+      >
+        <Segment value={ALL}>{t('usage.filter.all')}</Segment>
         {listed.map((provider) => (
-          <Chip
-            key={provider.id}
-            active={selection.providerId === provider.id}
-            onClick={() => onSelection(selectProvider(provider.id))}
-          >
+          <Segment key={provider.id} value={provider.id}>
             <ProviderLogo
               logo={providerLogoOf(provider.id, provider.kind, providers)}
               fallback={provider.displayName}
               className="size-3.5"
             />
             {providerTitle(provider, accounts)}
-          </Chip>
+          </Segment>
         ))}
-      </fieldset>
+      </SegmentGroup>
       <div className="flex flex-wrap items-center gap-2">
         {options?.precisions !== undefined && (
           <Select
@@ -379,32 +376,6 @@ function Filters({
         </div>
       </div>
     </div>
-  );
-}
-
-function Chip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        'inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs whitespace-nowrap pressable outline-none transition-[color,background-color,box-shadow] duration-150 ease-smooth focus-visible:focus-ring',
-        active
-          ? 'bg-selected font-medium text-foreground ring-1 ring-selected-border ring-inset'
-          : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

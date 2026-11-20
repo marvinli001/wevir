@@ -1,3 +1,4 @@
+import { Tab, TabList } from '@/components/ui/tabs';
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/web/src/components/files/FileBrowserPanel.tsx、useDirectoryEntries.ts
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
@@ -393,10 +394,11 @@ function OpenFileTabs({
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [open.active]);
   return (
-    <div
+    <TabList
+      value={open.active ?? null}
+      onValueChange={(path) => onSelect(path)}
       ref={strip}
       className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
-      role="tablist"
       aria-label={t('pane.kind.files')}
     >
       {open.paths.map((path) => {
@@ -409,17 +411,12 @@ function OpenFileTabs({
             data-file-tab={path}
             className={cn(
               'group flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-md pr-1 pl-2 text-xs',
-              selected
-                ? 'bg-selected ring-1 ring-selected-border ring-inset text-foreground'
-                : 'text-muted-foreground hover:bg-muted/60',
+              selected ? 'text-foreground' : 'text-muted-foreground hover:bg-muted/60',
             )}
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={selected}
+            <Tab
+              value={path}
               title={path}
-              onClick={() => onSelect(path)}
               onDoubleClick={() => onPin(path)}
               onAuxClick={(event) => event.button === 1 && onClose(path)}
               className={cn(
@@ -431,7 +428,7 @@ function OpenFileTabs({
             >
               <Icon aria-hidden className="size-3.5 shrink-0" />
               <span className="truncate">{splitPath(path).name}</span>
-            </button>
+            </Tab>
             <button
               type="button"
               aria-label={t('browser.closeTab')}
@@ -446,7 +443,7 @@ function OpenFileTabs({
           </div>
         );
       })}
-    </div>
+    </TabList>
   );
 }
 

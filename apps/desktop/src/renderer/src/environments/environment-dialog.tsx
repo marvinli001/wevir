@@ -209,10 +209,7 @@ function EnvironmentForm({
         {t(environment ? 'env.edit' : 'env.create')}
       </DialogTitle>
       <form onSubmit={submit} className="flex min-w-0 flex-col gap-5">
-        <label
-          htmlFor={nameId}
-          className="flex h-10 items-center gap-2.5 rounded-lg border border-input bg-card px-3 transition-colors focus-within:focus-field"
-        >
+        <label htmlFor={nameId} className="flex h-10 items-center gap-2.5 field-surface px-3">
           <Layers aria-hidden className="size-4 shrink-0 text-muted-foreground" />
           <input
             id={nameId}

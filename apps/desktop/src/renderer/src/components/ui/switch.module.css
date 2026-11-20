@@ -34,7 +34,7 @@
   .track[data-disabled] {
     opacity: 0.5;
   }
-  .track:focus-visible {
+  :where(:root:not([data-pointer-focus])) .track:focus-visible {
     outline: 1px solid var(--arc-focus-outline);
     outline-offset: 2px;
   }

@@ -173,10 +173,7 @@ export function ModelPicker({
         data-testid="model-picker"
         data-source={source?.kind ?? 'api'}
         aria-label={t('model.picker.label', { model: name })}
-        className={cn(
-          chipClass,
-          'hover:bg-muted hover:text-foreground focus-visible:focus-ring aria-expanded:bg-muted aria-expanded:text-foreground',
-        )}
+        render={<Button variant="ghost" size="sm" className="max-w-64 gap-1.5 px-2.5 text-xs" />}
       >
         {chip(<ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />)}
       </PopoverTrigger>
@@ -396,14 +393,15 @@ export function ModelList({
                   const selected = provider.id === value.providerId && model.id === value.modelId;
                   return (
                     <li key={model.id}>
-                      <button
+                      <Button
+                        variant="ghost"
                         type="button"
                         aria-pressed={selected}
                         disabled={locked}
                         data-model-id={model.id}
                         onClick={() => onChoose(provider.id, model)}
                         className={cn(
-                          'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm outline-none transition-colors duration-150 enabled:hover:bg-muted focus-visible:bg-muted disabled:text-muted-foreground/70',
+                          'h-8 w-full justify-start gap-2 px-2 text-left',
                           selected && 'font-medium',
                         )}
                       >
@@ -416,7 +414,7 @@ export function ModelList({
                           {modelName(model, model.id)}
                         </span>
                         {selected && <Check aria-hidden className="size-4 shrink-0" />}
-                      </button>
+                      </Button>
                     </li>
                   );
                 })}

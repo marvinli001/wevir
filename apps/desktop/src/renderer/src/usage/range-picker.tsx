@@ -92,16 +92,12 @@ export function RangePicker({
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger
         render={
-          <button
-            type="button"
+          <Button
+            size="sm"
+            variant={active ? 'secondary' : 'outline'}
             aria-pressed={active}
             data-range="custom"
-            className={cn(
-              'inline-flex h-8 max-w-64 items-center gap-1.5 rounded-lg px-2.5 text-xs whitespace-nowrap pressable outline-none transition-[color,background-color,box-shadow] duration-150 ease-smooth focus-visible:focus-ring [&_svg]:size-3.5 [&_svg]:shrink-0',
-              active
-                ? 'bg-selected font-medium text-foreground ring-1 ring-selected-border ring-inset'
-                : 'bg-muted text-muted-foreground hover:text-foreground',
-            )}
+            className="h-8 max-w-64 text-xs"
           />
         }
       >

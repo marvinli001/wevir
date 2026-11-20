@@ -22,10 +22,10 @@
   .input::placeholder {
     color: var(--arc-text-muted);
   }
-  .input:hover:not(:disabled) {
+  .input:where(:hover:not(:disabled)) {
     border-color: var(--arc-border-strong);
   }
-  .input:focus-visible {
+  :where(:root:not([data-pointer-focus])) .input:focus-visible {
     border-color: var(--arc-focus-outline);
     box-shadow: 0 0 0 2px var(--arc-focus-ring);
   }
@@ -60,7 +60,7 @@
   .numberField:has(input:focus) .number {
     visibility: hidden;
   }
-  .numberField input:not(:focus) {
+  .numberField[data-rolling-value] input:not(:focus) {
     color: transparent;
   }
 }

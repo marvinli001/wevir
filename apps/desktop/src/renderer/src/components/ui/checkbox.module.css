@@ -33,7 +33,7 @@
   .box:active:not([data-disabled]) {
     scale: 0.95;
   }
-  .box:focus-visible {
+  :where(:root:not([data-pointer-focus])) .box:focus-visible {
     outline: 1px solid var(--arc-focus-outline);
     outline-offset: 2px;
   }
@@ -53,18 +53,19 @@
     width: 100%;
     height: 100%;
   }
+  .check,
+  .dash {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+    animation: draw var(--arc-duration-standard) var(--arc-ease-enter);
+  }
+
   .dash,
   .box[data-indeterminate] .check {
     display: none;
   }
   .box[data-indeterminate] .dash {
     display: inline;
-  }
-  .check,
-  .dash {
-    stroke-dasharray: 1;
-    stroke-dashoffset: 0;
-    animation: draw var(--arc-duration-standard) var(--arc-ease-enter);
   }
   @keyframes draw {
     from {

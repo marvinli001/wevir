@@ -1,7 +1,6 @@
 import { cn } from 'cn';
 import { Columns2, Ellipsis, Maximize2, Minimize2, Plus, Rows2, X } from 'lucide-react';
-import { type KeyboardEvent, type MouseEvent, useMemo, useRef, useState } from 'react';
-import { useSelectionIndicator } from '@/components/glide';
+import { type KeyboardEvent, type MouseEvent, useMemo, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import {
   DropdownMenu,
@@ -13,6 +12,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Tab, TabList } from '@/components/ui/tabs';
 import { t } from '@/i18n';
 import { formatShortcut, useKeybindings } from '@/lib/shortcuts';
 import type { DisplayPane } from './arrange';
@@ -123,10 +123,6 @@ export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContex
  */
 function TabStrip({ pane }: { pane: DisplayPane }) {
   const panes = usePanes();
-  const strip = useRef<HTMLDivElement>(null);
-  // 标签增减、分段变了，选中项的位置也会变。
-  const layoutKey = `${pane.activeTabId} ${pane.tabs.map((tab) => tab.id).join()} ${pane.segmentStarts.join()}`;
-  const indicator = useSelectionIndicator(strip, layoutKey);
   if (!panes) return null;
   const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tab: PaneTab) => {
     if (event.key !== 'Delete' && event.key !== 'Backspace') return;
@@ -134,16 +130,11 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
     panes.closeTab(tab.id);
   };
   return (
-    <div
-      ref={strip}
-      role="tablist"
+    <TabList
+      value={pane.activeTabId}
+      onValueChange={(id) => panes.activate(id)}
       className="relative isolate flex min-w-0 shrink items-center gap-0.5 overflow-x-auto [scrollbar-width:none]"
     >
-      <span
-        ref={indicator}
-        aria-hidden
-        className="glide-mark rounded-lg bg-selected opacity-0 ring-1 ring-selected-border ring-inset data-shown:opacity-100"
-      />
       {pane.tabs.map((tab, index) => {
         const Icon = paneIcon(tab.kind);
         const selected = tab.id === pane.activeTabId;
@@ -160,17 +151,14 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
                 selected ? 'text-foreground' : 'hover:bg-accent/60',
               )}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => panes.activate(tab.id)}
+              <Tab
+                value={tab.id}
                 onKeyDown={(event) => onTabKeyDown(event, tab)}
                 className="flex h-full max-w-48 items-center gap-1.5 rounded-lg pr-1 pl-2 outline-none focus-visible:focus-ring"
               >
                 <Icon className="size-3.5 shrink-0" aria-hidden />
                 <span className="truncate">{title}</span>
-              </button>
+              </Tab>
               <button
                 type="button"
                 tabIndex={-1}
@@ -187,7 +175,7 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
           </div>
         );
       })}
-    </div>
+    </TabList>
   );
 }
 

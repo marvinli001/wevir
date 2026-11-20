@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 // 消息里选中文字时浮在选区旁的工具条（desktop-tokens §57，照 Codex 与 Claude 桌面端）：“添加到对话”把选中的文字作为引用放进
 // 输入框，“支线提问”分出支线、引用放进支线窗格的输入框。判断与位置在 selection-model.ts，这里只做 DOM：原生的 Selection /
 // Range、事件与渲染。
@@ -6,7 +7,6 @@
 // `user-select: none` 不在选区里。拖选时不显示，松手（pointerup）后显示；`selectionchange` 与 `pointerup` 都会触发判断，
 // Windows 上两者的先后不定。流式输出重渲染选区所在的块时，选区按区域内的文字偏移还原。
 
-import { cn } from 'cn';
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -315,17 +315,16 @@ function ToolbarButton({
   children: ReactNode;
 }) {
   return (
-    <button
+    <Button
+      variant="ghost"
+      size="sm"
       type="button"
       data-action={action}
       onClick={onClick}
-      className={cn(
-        'h-7 rounded-lg px-2.5 text-sm whitespace-nowrap text-popover-foreground outline-none pressable [--press-scale:0.97]',
-        'hover:bg-muted focus-visible:bg-muted focus-visible:focus-ring',
-      )}
+      className="px-2.5"
     >
       {children}
-    </button>
+    </Button>
   );
 }
 

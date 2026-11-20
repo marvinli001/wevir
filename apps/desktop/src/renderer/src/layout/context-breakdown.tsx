@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 // 上下文的明细（照 Claude 桌面端的 Context 卡片）：“已用 N%”与 token 数，一条按类别分段的条（引擎不报分布时是普通的用量条），
 // 下面是各类别的 token 数与占比、按需载入的几行、MCP 工具等几组细项（点开看每一项），最后一行是离自动压缩还有多少与“压缩
 // 上下文”按钮。会话侧栏的“上下文”卡片画全部；输入框底栏用量表的弹层（`compact`）只画条与最后一行。数据在
@@ -101,15 +102,17 @@ export function ContextDetails({
               t('rail.context.untilAutoCompact', { size: formatTokens(untilAutoCompact) })}
           </span>
           {onCompact && (
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               type="button"
               disabled={busy}
               data-testid="context-compact"
               onClick={onCompact}
-              className="pressable inline-flex h-7 shrink-0 items-center rounded-lg border border-border px-2.5 text-xs outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-field disabled:pointer-events-none disabled:opacity-50"
+              className="text-xs"
             >
               {t('command.compact')}
-            </button>
+            </Button>
           )}
         </div>
       )}

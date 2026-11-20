@@ -9,7 +9,7 @@
     "types": ["vite/client"],
     "jsx": "react-jsx",
     "noEmit": true,
-    // shadcn 生成的原语按 @/ 引用（components.json 的 aliases），与 electron.vite.config.ts 的 alias 一致。
+    // 渲染进程按 @/ 引用，与 electron.vite.config.ts 的 alias 一致。
     "paths": { "@/*": ["./src/*"] }
   },
   "include": [".", "../shared/desktop-api.ts"],

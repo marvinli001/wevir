@@ -131,72 +131,9 @@ export function SettingsRow({
   );
 }
 
-/**
- * 分段切换（主题、回合进行中按回车）：轨道是次表面色，选中的一段是滑块色，滑块在两段之间滑动（宽度按选项均分），
- * 走 press 弹簧（同输入框里的“插话 | 排队”，desktop-tokens.md §62）。
- * 与输入框里的“插话 | 排队”同一套颜色。
- */
-export function Segmented<T extends string>({
-  label,
-  value,
-  options,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  /** 省略时不选中任何一段（滑块淡出），例如选了分段之外的自定义值。 */
-  value: T | undefined;
-  options: readonly { value: T; label: string; icon?: ReactNode }[];
-  disabled?: boolean;
-  onChange: (value: T) => void;
-}) {
-  const found = options.findIndex((option) => option.value === value);
-  const none = value === undefined;
-  const index = Math.max(0, found);
-  return (
-    <fieldset
-      className="relative inline-grid rounded-lg bg-muted p-0.5"
-      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
-      disabled={disabled}
-    >
-      <legend className="sr-only">{label}</legend>
-      <span
-        aria-hidden
-        className={cn(
-          'absolute inset-y-0.5 left-0.5 rounded-md bg-switch-thumb shadow-xs ring-1 ring-border transition-[transform,opacity] duration-(--spring-press-duration) ease-spring-press',
-          none && 'opacity-0',
-        )}
-        style={{
-          width: `calc((100% - 4px) / ${options.length})`,
-          transform: `translateX(${index * 100}%)`,
-        }}
-      />
-      {options.map((option) => {
-        const checked = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={checked}
-            data-segment={option.value}
-            onClick={() => onChange(option.value)}
-            className={cn(
-              'relative z-10 inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-xs whitespace-nowrap outline-none transition-colors duration-150 focus-visible:focus-ring disabled:opacity-60 [&_svg]:size-3.5',
-              checked
-                ? 'font-medium text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {option.icon}
-            {option.label}
-          </button>
-        );
-      })}
-    </fieldset>
-  );
-}
+export { Segmented } from '@/components/ui/tabs';
 
-/** 卡片：表面色、分隔线、12px 圆角，行之间是细分隔线。 */
+/** 卡片：表面色、分隔线、16px 圆角，行之间是细分隔线。 */
 export const SETTINGS_CARD = 'rounded-xl border border-border bg-card';
 export const LIST_CARD = `divide-y divide-border ${SETTINGS_CARD}`;
 

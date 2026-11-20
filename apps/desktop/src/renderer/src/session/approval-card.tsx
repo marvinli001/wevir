@@ -1,3 +1,4 @@
+import { Textarea } from '@/components/ui/textarea';
 // SPDX-License-Identifier: MIT
 // 移植自 different-ai/openwork apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx
 // 来源提交 ad22cdc2217370f28f24f0f8758016c2921e3c73
@@ -409,7 +410,7 @@ function ApprovalCard({
         )}
         {error && <ErrorNote className="mt-2 text-sm">{error}</ErrorNote>}
         {noting && (
-          <textarea
+          <Textarea
             ref={noteRef}
             rows={1}
             value={note}
@@ -428,7 +429,7 @@ function ApprovalCard({
                 reject();
               }
             }}
-            className="mt-3 field-sizing-content max-h-32 min-h-9 w-full resize-none rounded-lg border border-input bg-card px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:focus-field disabled:opacity-50"
+            className="mt-3 max-h-32 min-h-9 resize-none"
           />
         )}
       </div>

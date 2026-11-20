@@ -381,19 +381,21 @@ export function TranscriptView({
         className="pointer-events-none absolute inset-x-0 bottom-3 flex translate-y-1 scale-90 justify-center opacity-0 transition-[opacity,translate,scale] duration-110 ease-smooth data-shown:translate-y-0 data-shown:scale-100 data-shown:opacity-100 data-shown:duration-(--spring-reveal-duration) data-shown:ease-spring-reveal"
       >
         <Hint label={t('transcript.jumpToLatest')}>
-          <button
+          <Button
+            variant="outline"
+            size="icon"
             type="button"
             aria-label={t('transcript.jumpToLatest')}
             tabIndex={showJump || hasLater ? undefined : -1}
             onClick={() => jumpToLatest('smooth')}
             data-action="jump-to-latest"
             className={cn(
-              'flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] hover:bg-muted hover:text-foreground focus-visible:focus-field',
+              'rounded-full shadow-md',
               (showJump || hasLater) && 'pointer-events-auto',
             )}
           >
             <ArrowDown aria-hidden className="size-4" />
-          </button>
+          </Button>
         </Hint>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { cn } from 'cn';
 import { Check, Folder, Plus } from 'lucide-react';
 import { type CSSProperties, type ReactNode, useRef } from 'react';
 import { Hint } from '@/components/hint';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isChats, projectsOf, recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
 import { useWorkspaceManagement } from '@/data/workspace-actions';
@@ -62,8 +63,7 @@ export function NewSessionHero({
   // 远程设备没有 `workspace.write`、或外壳选不了这台电脑上的文件夹时，没有“添加文件夹”。
   const canCreate = useWorkspaceManagement().create;
   const card = useRef<HTMLElement>(null);
-  const row =
-    'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-base outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-ring';
+  const row = 'w-full justify-start gap-2.5 px-2 text-left text-base';
   const divider = <div className="mx-2 my-1 h-px bg-border" />;
   return (
     <nav
@@ -80,7 +80,9 @@ export function NewSessionHero({
               return (
                 <li key={workspace.id}>
                   <Hint label={workspace.rootPath}>
-                    <button
+                    <Button
+                      size="lg"
+                      variant="ghost"
                       type="button"
                       aria-current={isCurrent || undefined}
                       onClick={() => onSelect(workspace.id)}
@@ -95,7 +97,7 @@ export function NewSessionHero({
                         <bdi dir="ltr">{abbreviateHome(parentDirectory(workspace.rootPath))}</bdi>
                       </span>
                       {isCurrent && <Check aria-hidden className="size-4 shrink-0" />}
-                    </button>
+                    </Button>
                   </Hint>
                 </li>
               );
@@ -105,14 +107,16 @@ export function NewSessionHero({
         </>
       )}
       {canCreate && (
-        <button
+        <Button
+          size="lg"
+          variant="ghost"
           type="button"
           onClick={() => openCreateProject()}
           className={cn(row, 'text-muted-foreground hover:text-foreground')}
         >
           <Plus aria-hidden className="size-4 shrink-0" />
           {t('home.createProject')}
-        </button>
+        </Button>
       )}
       {environments && (
         <>

@@ -23,6 +23,7 @@
     width: calc(100% - 2rem);
     max-width: 24rem;
     max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
     translate: -50% -50%;
     padding: var(--arc-space-4);
     border: 1px solid var(--arc-border);

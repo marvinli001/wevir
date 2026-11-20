@@ -7,6 +7,7 @@ import type { OrbState } from 'thinking-orbs';
 import { turnChangeStats } from '@/changes/changes-model';
 import { Collapse } from '@/components/collapse';
 import { GlideGroup } from '@/components/glide';
+import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
 import { CopyButton } from './copy-button';
 import { Elapsed } from './elapsed';
@@ -436,14 +437,16 @@ function ChangesChip({
     setFolds(keys, true);
   };
   return (
-    <button
+    <Button
+      size="sm"
+      variant="outline"
       type="button"
       onClick={expand}
       data-turn-changes
-      className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-card pr-1.5 pl-3 text-sm text-soft-foreground outline-none hover:border-border-strong hover:text-foreground focus-visible:focus-field"
+      className="gap-2 pr-1.5 pl-3"
     >
       {t('turn.changes', { count: changes.files })}
       <DiffStat stats={changes} />
-    </button>
+    </Button>
   );
 }

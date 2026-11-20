@@ -15,6 +15,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { COMPACT_DETAIL, COMPACT_ICON, COMPACT_ITEM } from '@/components/compact-menu';
 import { Hint } from '@/components/hint';
 import { IconButton } from '@/components/icon-button';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,10 +39,7 @@ import { paths } from '@/routes/paths';
 const COPIED_MS = 1500;
 
 const ITEM =
-  'inline-flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-xs text-soft-foreground [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground';
-/** 点得开菜单的那几项（项目、此计算机）。 */
-const TRIGGER =
-  'outline-none transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:focus-ring aria-expanded:bg-muted aria-expanded:text-foreground';
+  'inline-flex h-7 min-w-0 items-center gap-1.5 px-2 text-xs text-soft-foreground [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground';
 
 /**
  * 新会话输入框上方的环境栏（U12，照 Codex 桌面端）：在哪个项目里（点开换项目或创建项目）、在哪里运行（此计算机；Host 能单独
@@ -70,8 +68,9 @@ export function EnvironmentBar({
       <DropdownMenu>
         <Hint label={workspace?.rootPath}>
           <DropdownMenuTrigger
+            render={<Button variant="ghost" size="sm" />}
             data-testid="environment-project"
-            className={cn(ITEM, TRIGGER, 'max-w-60')}
+            className={cn(ITEM, 'max-w-60')}
           >
             <Folder aria-hidden />
             <span className={cn('truncate', !workspace && !chats && 'text-muted-foreground')}>
@@ -117,7 +116,11 @@ export function EnvironmentBar({
 function LocationMenu({ choice }: { choice: WorktreeChoice }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger data-testid="environment-location" className={cn(ITEM, TRIGGER)}>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="sm" />}
+        data-testid="environment-location"
+        className={ITEM}
+      >
         {choice.active ? <GitFork aria-hidden /> : <Laptop aria-hidden />}
         {choice.active ? t('worktree.new') : t('environment.local')}
       </DropdownMenuTrigger>
@@ -293,17 +296,16 @@ function Row({
   if (!onClick) return <div className={className}>{content}</div>;
   return (
     <Hint label={title}>
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         type="button"
         onClick={onClick}
         disabled={disabled}
-        className={cn(
-          className,
-          'outline-none transition-colors duration-150 enabled:hover:bg-muted focus-visible:focus-ring disabled:opacity-60',
-        )}
+        className={cn(className, 'justify-start')}
       >
         {content}
-      </button>
+      </Button>
     </Hint>
   );
 }

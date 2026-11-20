@@ -10,11 +10,6 @@ export const COMPACT_ITEM = `${BASE} px-2`;
 /** 单选项右边给勾留位置。 */
 export const COMPACT_RADIO_ITEM = `${BASE} pl-2 pr-7`;
 
-/**
- * 名称后面的补充：弱色、12 px，空间不够时先截它。悬停与键盘聚焦只换底色、不把它染成正文色（原语的
- * `focus:**:text-accent-foreground` 会），所以带 `!`。
- */
-export const COMPACT_DETAIL = 'min-w-0 flex-1 truncate text-xs text-muted-foreground!';
+export const COMPACT_DETAIL = 'min-w-0 flex-1 truncate text-xs text-muted-foreground';
 
-/** 左边的图标：说明文字色，同上带 `!`（勾是正文色，不用它）。 */
-export const COMPACT_ICON = 'text-muted-foreground!';
+export const COMPACT_ICON = 'text-muted-foreground';

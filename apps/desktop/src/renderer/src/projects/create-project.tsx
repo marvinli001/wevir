@@ -239,7 +239,7 @@ function CreateProjectForm({
               {t('project.create.name')}
             </label>
           )}
-          <div className="flex h-10 items-center gap-2.5 rounded-lg border border-input bg-card px-3 transition-colors focus-within:focus-field">
+          <div className="flex h-10 items-center gap-2.5 field-surface px-3">
             <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <input
               id={nameId}

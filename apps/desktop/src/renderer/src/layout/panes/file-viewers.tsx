@@ -1,3 +1,4 @@
+import { Tab, TabList } from '@/components/ui/tabs';
 // SPDX-License-Identifier: MIT
 // 移植自 pingdotgg/t3code apps/web/src/components/files/BrowserDocumentFrame.tsx、DelimitedTablePreview.tsx、AudioPreview.tsx、
 // apps/web/src/components/media/MediaVideoPlayer.tsx、apps/web/src/components/chat/ZoomableImage.tsx
@@ -11,7 +12,6 @@
 //
 // 文件窗格（0.32.0，desktop-layout.md §19）里各种文件的显示。地址都是 Host 的流式地址（`workspace.fileUrl`）。
 
-import { cn } from 'cn';
 import { RotateCw, TriangleAlert } from 'lucide-react';
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Spinner } from '@/components/spinner';
@@ -633,27 +633,18 @@ export function SpreadsheetView({ src, name }: { src: string; name: string }) {
         )}
       </div>
       {sheets.length > 1 && (
-        <div
-          role="tablist"
+        <TabList
+          value={Math.min(active, sheets.length - 1)}
+          onValueChange={(index) => setActive(index)}
           aria-label={t('files.sheets')}
           className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-t border-border px-1.5"
         >
           {sheets.map((entry, index) => (
-            <button
-              key={entry.position}
-              type="button"
-              role="tab"
-              aria-selected={entry === info}
-              onClick={() => setActive(index)}
-              className={cn(
-                'h-6 shrink-0 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:focus-ring',
-                entry === info && 'bg-accent text-foreground',
-              )}
-            >
+            <Tab key={entry.position} value={index} className="h-6 shrink-0 px-2">
               {entry.name}
-            </button>
+            </Tab>
           ))}
-        </div>
+        </TabList>
       )}
     </div>
   );

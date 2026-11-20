@@ -1,3 +1,5 @@
+import { Button } from '@/components/ui/button';
+// 当前按钮外观取自 https://github.com/kuratlielia/arc-library/blob/8302b52ed9dc79ae7ca699b158a98dfdf09656f7/registry/components/button/button.module.css
 // SPDX-License-Identifier: MIT
 // 改写自 kuratlielia/arc-library registry/components/button/button.tsx 与 button.module.css（primary 变体、按压、图标换场与加载）
 // 来源提交 fff39c044c6e3b86006e3a6acc9a32a821a80d99
@@ -64,7 +66,8 @@ export function ComposerButton({
     <Tooltip>
       <TooltipTrigger
         render={
-          <button
+          <Button
+            size="icon"
             type="button"
             aria-label={label}
             aria-busy={loading || undefined}
@@ -72,11 +75,7 @@ export function ComposerButton({
             disabled={disabled}
             data-composer-action={action}
             onClick={loading ? undefined : onClick}
-            className={cn(
-              'pressable flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background outline-none [--press-scale:0.96] focus-visible:focus-ring disabled:opacity-40',
-              'hover:not-disabled:opacity-90 hover:not-disabled:shadow-sm active:not-disabled:opacity-85',
-              loading && 'cursor-progress',
-            )}
+            className="rounded-full"
           />
         }
       >

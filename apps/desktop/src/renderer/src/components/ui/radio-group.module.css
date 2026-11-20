@@ -23,7 +23,7 @@
   .radio:active:not([data-disabled]) {
     scale: 0.88;
   }
-  .radio:focus-visible {
+  :where(:root:not([data-pointer-focus])) .radio:focus-visible {
     outline: 1px solid var(--arc-focus-outline);
     outline-offset: 2px;
   }

@@ -8,8 +8,8 @@ import styles from './textarea.module.css';
 export function Textarea({ className, ...props }: ComponentProps<'textarea'>) {
   return (
     <textarea
-      {...props}
       data-slot="textarea"
+      {...props}
       className={cn(field.input, styles.textarea, className)}
     />
   );

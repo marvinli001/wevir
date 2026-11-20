@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 // 输入框底栏的上下文用量表（0.29.0，照 Codex 桌面端与 T3 Code）：一个随用量填满的圆环，悬停或点开是用量、累计用量、
 // 离自动压缩还有多少与“压缩上下文”按钮（会话侧栏“上下文”卡片的 ContextDetails，只画条与最后一行）。圆环与弹层的结构照
 // T3 Code 的 apps/web/src/components/chat/ContextWindowMeter.tsx（MIT，ec1313c）改写；用量的推导用会话侧栏的 contextUsage
@@ -52,7 +53,7 @@ export function ContextMeter({
         data-testid="context-meter"
         data-tone={usage.tone}
         aria-label={t('rail.context.meter', { percent: usage.percent })}
-        className="flex size-7 shrink-0 items-center justify-center rounded-full outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-ring aria-expanded:bg-muted"
+        render={<Button variant="ghost" size="icon-sm" />}
       >
         <svg
           viewBox="0 0 16 16"

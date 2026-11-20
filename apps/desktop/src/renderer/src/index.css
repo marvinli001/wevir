@@ -283,14 +283,17 @@
   background-color: oklab(from var(--background) l a b / var(--theme-glass-surface-tint));
 }
 
-/* 磨砂的浮层：菜单、弹出框、选择框与对话框透出下面的内容，不是一块实色的纸。不放进 @layer，盖过原语里的 bg-popover。 */
-[data-slot="dropdown-menu-content"],
-[data-slot="dropdown-menu-sub-content"],
-[data-slot="context-menu-content"],
-[data-slot="popover-content"],
-[data-slot="select-content"],
-[data-slot="dialog-content"] {
-  background-color: color-mix(in oklab, var(--popover) 84%, transparent);
+/* 透明窗口与玻璃主题保留窗口材质，普通窗口的浮层使用 Arc 表面色。 */
+:root:is([data-translucent-window], [data-theme-glass])
+:is(
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"],
+  [data-slot="context-menu-content"],
+  [data-slot="popover-content"],
+  [data-slot="select-content"],
+  [data-slot="dialog-content"]
+) {
+  background-color: color-mix(in oklab, var(--arc-surface-raised) 84%, transparent);
   -webkit-backdrop-filter: blur(24px) saturate(1.5);
   backdrop-filter: blur(24px) saturate(1.5);
 }

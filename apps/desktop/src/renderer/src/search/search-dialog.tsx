@@ -1,3 +1,5 @@
+import { Button } from '@/components/ui/button';
+import { Segment, SegmentGroup } from '@/components/ui/tabs';
 // 会话搜索的浮窗：⌘K 或左栏“搜索”打开。先匹配会话标题、项目与分支，再按 Host 的全文索引查消息（可收到当前
 // 项目、按种类筛、含已归档），结果点开跳到会话里那一处（session/transcript-focus.ts）。索引没追上、短词只扫了最近的时，底部
 // 写明范围，空结果不说成没有历史。
@@ -319,21 +321,13 @@ function SearchPanel() {
         />
       </div>
       <div className="flex shrink-0 items-center gap-1 px-3 pt-2.5 pb-1">
-        {KIND_FILTERS.map((value) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={kind === value}
-            onClick={() => setKind(value)}
-            className={cn(
-              'h-7 rounded-md px-2 text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:focus-field',
-              kind === value && 'bg-accent text-foreground',
-            )}
-            data-search-kind={value}
-          >
-            {t(KIND_LABELS[value])}
-          </button>
-        ))}
+        <SegmentGroup value={kind} onChange={setKind} aria-label={t('search.title')}>
+          {KIND_FILTERS.map((value) => (
+            <Segment key={value} value={value} data-search-kind={value} className="px-2">
+              {t(KIND_LABELS[value])}
+            </Segment>
+          ))}
+        </SegmentGroup>
         <span className="flex-1" />
         {workspaceId !== undefined && (
           <Toggle pressed={projectOnly} onChange={setProjectOnly} name="project">
@@ -447,18 +441,17 @@ function Toggle({
   children: ReactNode;
 }) {
   return (
-    <button
+    <Button
+      variant={pressed ? 'secondary' : 'outline'}
+      size="sm"
       type="button"
       aria-pressed={pressed}
       onClick={() => onChange(!pressed)}
-      className={cn(
-        'h-7 rounded-md border border-border px-2 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:focus-field',
-        pressed && 'border-transparent bg-accent text-foreground',
-      )}
+      className="px-2 text-xs"
       data-search-toggle={name}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 

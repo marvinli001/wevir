@@ -2,6 +2,7 @@ import { cn } from 'cn';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ScrollFade } from '@/components/scroll-fade';
+import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { currentLocale, t } from '@/i18n';
 import {
@@ -76,7 +77,7 @@ export function LanguagePicker() {
       <PopoverTrigger
         data-testid="language-picker"
         aria-label={t('settings.appearance.language')}
-        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-sm outline-none transition-colors hover:bg-muted focus-visible:focus-field aria-expanded:bg-muted"
+        render={<Button variant="outline" />}
       >
         <span className="max-w-40 truncate">{label}</span>
         <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />

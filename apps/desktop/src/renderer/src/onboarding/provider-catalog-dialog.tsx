@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import { ProviderLogo } from '@/components/provider-logo';
+import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { t } from '@/i18n';
 import {
@@ -36,14 +37,15 @@ export function ProviderCatalogDialog({
                   const available = catalogAvailable(entry, vertexAvailable);
                   return (
                     <li key={entry.id}>
-                      <button
+                      <Button
+                        variant="ghost"
                         type="button"
                         disabled={!available}
                         aria-pressed={entry.id === selected}
                         data-catalog-entry={entry.id}
                         onClick={() => onSelect(entry)}
                         className={cn(
-                          'flex h-11 w-full items-center gap-2.5 rounded-lg border border-transparent px-3 text-left text-sm outline-none transition-[background-color,border-color,transform] duration-150 hover:bg-muted focus-visible:focus-field active:scale-[0.98] disabled:pointer-events-none',
+                          'h-11 w-full justify-start gap-2.5 px-3 text-left',
                           entry.id === selected &&
                             'border-selected-border bg-selected hover:bg-selected',
                         )}
@@ -68,7 +70,7 @@ export function ProviderCatalogDialog({
                             )}
                           </span>
                         )}
-                      </button>
+                      </Button>
                     </li>
                   );
                 })}

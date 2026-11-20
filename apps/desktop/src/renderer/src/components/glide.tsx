@@ -129,7 +129,7 @@ export function useSelectionIndicator(
     if (!container || !highlight) return;
     const target = () =>
       container
-        .querySelector('[aria-selected="true"]')
+        .querySelector('[aria-selected="true"], [data-indicator-target][aria-pressed="true"]')
         ?.closest<HTMLElement>('[data-indicator-target]') ?? null;
     const place = () => {
       const item = target();

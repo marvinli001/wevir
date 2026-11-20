@@ -6,6 +6,7 @@ import { Switch } from '@/components/switch';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
+import { Segment, SegmentGroup } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { type PlainMessageKey, t } from '@/i18n';
 import {
@@ -357,25 +358,26 @@ function ModePicker({
   disabled: boolean;
 }) {
   return (
-    <fieldset disabled={disabled} className="flex gap-2.5 disabled:opacity-50">
-      <legend className="sr-only">{t('settings.appearance.mode')}</legend>
+    <SegmentGroup
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+      aria-label={t('settings.appearance.mode')}
+      className="gap-1.5"
+    >
       {(['system', 'light', 'dark'] as const).map((mode) => {
         const checked = mode === value;
         return (
           <Tooltip key={mode}>
             <TooltipTrigger
               render={
-                <button
-                  type="button"
-                  aria-pressed={checked}
+                <Segment
+                  value={mode}
                   aria-label={t(MODE_LABEL[mode])}
                   data-segment={mode}
-                  onClick={() => onChange(mode)}
                   className={cn(
-                    'relative h-12 w-19 overflow-hidden rounded-lg outline-none transition-[box-shadow,transform] duration-150 ease-smooth active:scale-[0.97]',
-                    checked
-                      ? 'ring-2 ring-ring'
-                      : 'ring-1 ring-border-strong hover:ring-foreground/30 focus-visible:focus-ring',
+                    'relative h-12 w-19 overflow-hidden border border-transparent p-0',
+                    checked && 'border-selected-border',
                   )}
                 />
               }
@@ -393,7 +395,7 @@ function ModePicker({
           </Tooltip>
         );
       })}
-    </fieldset>
+    </SegmentGroup>
   );
 }
 
@@ -422,7 +424,7 @@ function ColorField({
     }
   };
   return (
-    <div className="flex h-8 w-32 items-center gap-2 rounded-full border border-input bg-card pr-3 pl-1.5 transition-colors focus-within:focus-field">
+    <div className="flex h-8 w-32 items-center gap-2 field-surface pr-3 pl-1.5">
       <span
         className="relative size-5 shrink-0 overflow-hidden rounded-full ring-1 ring-foreground/15"
         style={{ background: value }}

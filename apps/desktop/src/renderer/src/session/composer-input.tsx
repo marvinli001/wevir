@@ -12,6 +12,7 @@ import {
   useState,
 } from 'react';
 import { ErrorNote } from '@/components/error-note';
+import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -325,17 +326,19 @@ function DraftStrip({
         {draft.attachments.map((item) =>
           item.failure ? (
             <div key={item.key} className="relative h-14 max-w-56 shrink-0">
-              <button
+              <Button
+                size="sm"
+                variant="outline"
                 type="button"
                 data-action="retry-attachment"
                 title={item.failure}
                 onClick={() => onRetry(item.key)}
-                className="flex h-full items-center gap-2 rounded-xl border border-border px-3 text-sm text-foreground hover:bg-muted focus-visible:focus-field"
+                className="h-full gap-2 px-3"
               >
                 <RotateCcw aria-hidden className="size-4 shrink-0 text-icon-danger" />
                 <span className="truncate">{item.name ?? t('composer.attachImages')}</span>
                 <span className="text-xs">{t('files.retry')}</span>
-              </button>
+              </Button>
               <RemoveAttachmentButton
                 action="remove-failed"
                 label={t('composer.removeAttachment')}
@@ -476,7 +479,7 @@ function PromptHistory({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="gap-2 sm:max-w-md">
         <DialogTitle>{t('composer.history')}</DialogTitle>
-        <label className="flex items-center gap-2 rounded-lg border border-input px-2 focus-within:focus-field">
+        <label className="flex items-center gap-2 field-surface px-2">
           <Search aria-hidden className="size-4 shrink-0 text-muted-foreground" />
           <input
             autoFocus

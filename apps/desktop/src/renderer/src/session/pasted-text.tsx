@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 // 粘贴的大段文字（0.90.0，规则在 composer-pastes.ts）的界面，照 Codex 桌面端：输入框上方附件条里的卡片（开头几个字与“粘贴的文本”），
 // 消息上方的一行胶囊，点开看原文。附件条是一行，放不下时横向滚动，竖着的滚轮也能左右滑。
 
@@ -20,15 +21,16 @@ export function RemoveAttachmentButton({
   action: string;
 }) {
   return (
-    <button
+    <Button
+      size="icon-xs"
       type="button"
       onClick={onClick}
       aria-label={label}
       data-action={action}
-      className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow-xs outline-none transition-opacity duration-150 hover:opacity-85 focus-visible:focus-field"
+      className="absolute -top-1.5 -right-1.5 size-5 rounded-full shadow-xs"
     >
       <X aria-hidden className="size-3" strokeWidth={2.5} />
-    </button>
+    </Button>
   );
 }
 
@@ -85,11 +87,13 @@ export function ComposerPasteChip({
   const label = t('transcript.pastedText', { lines: lineCount(text) });
   return (
     <div className="relative h-14 w-56 shrink-0" data-testid="composer-paste">
-      <button
+      <Button
+        size="default"
+        variant="outline"
         type="button"
         onClick={onOpen}
         aria-label={label}
-        className="flex size-full items-center gap-2.5 rounded-xl border border-border bg-muted/50 px-2 text-left outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-field"
+        className="size-full justify-start gap-2.5 px-2 text-left"
       >
         <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-background text-soft-foreground">
           <ScanText aria-hidden className="size-4.5" />
@@ -98,7 +102,7 @@ export function ComposerPasteChip({
           <span className="truncate text-sm font-medium text-foreground">{pastePreview(text)}</span>
           <span className="truncate text-xs text-muted-foreground">{label}</span>
         </span>
-      </button>
+      </Button>
       <RemoveAttachmentButton
         label={t('composer.removeAttachment')}
         action="remove-paste"
@@ -123,18 +127,20 @@ export function MessagePastes({
       data-testid="message-pastes"
     >
       {texts.map((text, index) => (
-        <button
+        <Button
+          size="lg"
+          variant="outline"
           // biome-ignore lint/suspicious/noArrayIndexKey: 段落的顺序与内容不变
           key={index}
           type="button"
           onClick={() => setOpen(text)}
           aria-label={`${pastePreview(text)} · ${t('transcript.pastedText', { lines: lineCount(text) })}`}
-          className="flex h-9 max-w-60 min-w-0 items-center gap-2 rounded-xl border border-border bg-card px-3 text-sm text-soft-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:focus-ring"
+          className="max-w-60 gap-2 px-3"
           data-pasted-block=""
         >
           <ScanText aria-hidden className="size-4 shrink-0" />
           <span className="min-w-0 truncate">{pastePreview(text)}</span>
-        </button>
+        </Button>
       ))}
       <PastedTextPreview text={open} onClose={() => setOpen(undefined)} />
     </div>

@@ -10,6 +10,7 @@ import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tab, TabList } from '@/components/ui/tabs';
 import { type SourceInfo, sourceTitle } from '@/data/sources';
 import { type PlainMessageKey, t } from '@/i18n';
 import { openSessions, removeClosingSessions } from './remove';
@@ -63,89 +64,90 @@ export function AccountSwitcher({
   compact?: boolean;
 }) {
   return (
-    <AnimatedRows
-      as="div"
-      role="tablist"
+    <TabList
+      value={selected}
+      onValueChange={(id) => onSelect(id)}
       aria-label={t('source.account.list')}
       className="mt-4 flex flex-wrap items-center gap-1.5"
       data-account-switcher
-      items={accounts}
-      keyOf={accountId}
-      tail={
-        onAdd !== undefined ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            disabled={adding}
-            onClick={onAdd}
-            data-action="add-account"
-          >
-            {adding ? <LoaderCircle className="animate-spin" /> : <Plus />}
-            {t('source.account.add')}
-          </Button>
-        ) : undefined
-      }
     >
-      {(account) => {
-        const id = accountId(account);
-        const active = id === selected;
-        const text = chipText(source, account, accounts);
-        return (
-          <div
-            className={cn(
-              'flex h-7 max-w-56 items-center rounded-md border border-border bg-background transition-colors duration-150',
-              active && 'bg-selected',
-            )}
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => onSelect(id)}
-              data-account={id}
-              title={account.label && !compact ? `${account.label} · ${text}` : text}
-              className="flex size-full min-w-0 items-center gap-1.5 rounded-md px-2 text-xs outline-none hover:bg-accent/50 focus-visible:focus-field"
+      <AnimatedRows
+        as="div"
+        className="contents"
+        items={accounts}
+        keyOf={accountId}
+        tail={
+          onAdd !== undefined ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={adding}
+              onClick={onAdd}
+              data-action="add-account"
             >
-              {account.label !== undefined ? (
-                compact ? (
-                  <AccountBadge label={account.label} size="sm" />
+              {adding ? <LoaderCircle className="animate-spin" /> : <Plus />}
+              {t('source.account.add')}
+            </Button>
+          ) : undefined
+        }
+      >
+        {(account) => {
+          const id = accountId(account);
+          const active = id === selected;
+          const text = chipText(source, account, accounts);
+          return (
+            <div className={cn('flex h-7 max-w-56 items-center')}>
+              <Tab
+                value={id}
+                data-account={id}
+                title={account.label && !compact ? `${account.label} · ${text}` : text}
+                className="flex size-full min-w-0 items-center gap-1.5 rounded-md px-2 text-xs outline-none hover:bg-accent/50 focus-visible:focus-field"
+              >
+                {account.label !== undefined ? (
+                  compact ? (
+                    <AccountBadge label={account.label} size="sm" />
+                  ) : (
+                    <span className="max-w-[40%] shrink-0 truncate font-medium">
+                      {account.label}
+                    </span>
+                  )
                 ) : (
-                  <span className="max-w-[40%] shrink-0 truncate font-medium">{account.label}</span>
-                )
-              ) : (
-                <StatusDot
-                  tone={account.status === 'signed_in' ? 'success' : 'neutral'}
-                  label={t(
-                    account.status === 'signed_in'
-                      ? 'source.status.signedIn'
-                      : 'source.status.signedOut',
-                  )}
-                  className="size-1.5"
+                  <StatusDot
+                    tone={account.status === 'signed_in' ? 'success' : 'neutral'}
+                    label={t(
+                      account.status === 'signed_in'
+                        ? 'source.status.signedIn'
+                        : 'source.status.signedOut',
+                    )}
+                    className="size-1.5"
+                  />
+                )}
+                <span
+                  className="truncate"
+                  data-account-email={account.email !== undefined || undefined}
+                >
+                  {text}
+                </span>
+                {account.localLogin === true && (
+                  <span className="shrink-0 text-muted-foreground">
+                    {t('source.account.local')}
+                  </span>
+                )}
+              </Tab>
+              {active && onLabel && (
+                <AccountLabelControl
+                  account={account}
+                  disabled={labeling}
+                  onChange={(label) => onLabel(account, label)}
+                  onRemove={id !== account.kind && onRemove ? () => onRemove(account) : undefined}
                 />
               )}
-              <span
-                className="truncate"
-                data-account-email={account.email !== undefined || undefined}
-              >
-                {text}
-              </span>
-              {account.localLogin === true && (
-                <span className="shrink-0 text-muted-foreground">{t('source.account.local')}</span>
-              )}
-            </button>
-            {active && onLabel && (
-              <AccountLabelControl
-                account={account}
-                disabled={labeling}
-                onChange={(label) => onLabel(account, label)}
-                onRemove={id !== account.kind && onRemove ? () => onRemove(account) : undefined}
-              />
-            )}
-          </div>
-        );
-      }}
-    </AnimatedRows>
+            </div>
+          );
+        }}
+      </AnimatedRows>
+    </TabList>
   );
 }
 

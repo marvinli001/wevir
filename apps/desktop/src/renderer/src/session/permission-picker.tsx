@@ -1,6 +1,7 @@
 import type { PermissionMode, ProviderProfile } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Hand, type LucideIcon, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -160,10 +161,13 @@ export function PermissionPicker({
               data-testid="permission-picker"
               data-mode={value}
               aria-label={t('permission.label', { mode: t(label) })}
-              className={cn(
-                chipClass,
-                'hover:bg-muted hover:text-foreground focus-visible:focus-ring aria-expanded:bg-muted aria-expanded:text-foreground',
-              )}
+              render={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-w-0 gap-1.5 px-2.5 text-xs @max-[30rem]/composer:w-7 @max-[30rem]/composer:px-0"
+                />
+              }
             />
           }
         >

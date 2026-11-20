@@ -5,6 +5,8 @@
   --arc-surface: var(--card);
   --arc-surface-raised: var(--popover);
   --arc-surface-muted: var(--muted);
+  --arc-secondary: var(--secondary);
+  --arc-secondary-foreground: var(--secondary-foreground);
   --arc-foreground: var(--foreground);
   --arc-surface-foreground: var(--card-foreground);
   --arc-raised-foreground: var(--popover-foreground);

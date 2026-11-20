@@ -37,8 +37,8 @@ export function Button({
 }: ButtonPrimitive.Props & Variants & { loading?: boolean }) {
   return (
     <ButtonPrimitive
-      {...props}
       data-slot="button"
+      {...props}
       disabled={disabled || !!loading}
       focusableWhenDisabled={disabled ? focusableWhenDisabled : loading || focusableWhenDisabled}
       aria-busy={loading || props['aria-busy']}

@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button';
 // 动效样张（U3）：把 libraries.dev 各库在静器里的封装摆在一页，开发模式下在 #/dev/fx，正式构建默认不带
 // （VITE_WEVIR_FX_GALLERY=1 构建时才带，用来在生产 CSP 下核对效果，docs/development.md）。U4 要用的 MetalWordmark、
 // MetalNewBadge 与协议还没接上的 ImageReveal 现在只在这里出现。
@@ -81,13 +82,15 @@ export function FxGallery() {
             {theme} · {reduced ? 'prefers-reduced-motion' : 'motion'}
           </span>
           <span className="flex-1" />
-          <button
+          <Button
+            variant="outline"
+            size="xs"
             type="button"
-            className="rounded-lg border border-border px-2 py-1 text-xs"
+            className="px-2"
             onClick={() => setThemeMode(theme === 'dark' ? 'light' : 'dark')}
           >
             {t('fx.gallery.toggleTheme')}
-          </button>
+          </Button>
         </header>
 
         <Section title="Thinking orbs">
@@ -118,13 +121,15 @@ export function FxGallery() {
               </div>
             </Beam>
           </div>
-          <button
+          <Button
+            variant="outline"
+            size="xs"
             type="button"
-            className="rounded-lg border border-border px-2 py-1 text-xs"
+            className="px-2"
             onClick={() => setBeamOn(!beamOn)}
           >
             active: {String(beamOn)}
-          </button>
+          </Button>
         </Section>
 
         <Section title="Bot avatars">
@@ -176,13 +181,15 @@ export function FxGallery() {
 
         <Section title="Image · sweep-gradient">
           <ImageReveal key={src} src={src} alt={t('fx.gallery.shot')} />
-          <button
+          <Button
+            variant="outline"
+            size="xs"
             type="button"
-            className="rounded-lg border border-border px-2 py-1 text-xs"
+            className="px-2"
             onClick={() => setShot(shot + 1)}
           >
             {t('fx.gallery.replay')}
-          </button>
+          </Button>
         </Section>
       </div>
     </div>

@@ -13,7 +13,7 @@
     outline: none;
     overscroll-behavior-x: contain;
   }
-  .viewport:focus-visible {
+  :where(:root:not([data-pointer-focus])) .viewport:focus-visible {
     outline: 1px solid var(--arc-focus-outline);
     outline-offset: -1px;
   }

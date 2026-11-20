@@ -23,8 +23,11 @@ const layout = new Set([
 
 it('Arc 组件只引用已定义的 Arc 令牌、公开主题色与原语的几何变量', () => {
   const errors: string[] = [];
-  for (const name of readdirSync(ui, { recursive: true, encoding: 'utf8' })) {
-    if (!name.endsWith('.module.css')) continue;
+  const modules = readdirSync(ui, { recursive: true, encoding: 'utf8' }).filter((name) =>
+    name.endsWith('.module.css'),
+  );
+  expect(modules.length).toBeGreaterThan(0);
+  for (const name of modules) {
     const css = readFileSync(join(ui, name), 'utf8');
     for (const [, variable] of css.matchAll(/var\(\s*--([\w-]+)/g)) {
       if (

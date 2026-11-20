@@ -493,16 +493,18 @@ function PostRow({
             >
               {post.reactions.map((reaction) =>
                 reaction.by === 'user' ? (
-                  <button
+                  <Button
+                    variant="outline"
+                    size="xs"
                     key={reaction.by}
                     type="button"
-                    className="rounded-full border border-border bg-card px-1.5 py-0.5 text-xs outline-none focus-visible:focus-ring"
+                    className="h-auto px-1.5 py-0.5"
                     onClick={() => onReact(null)}
                     aria-label={t('assistants.timeline.reaction')}
                     data-reaction-by="user"
                   >
                     {reaction.emoji}
-                  </button>
+                  </Button>
                 ) : (
                   <span
                     key={reaction.by}

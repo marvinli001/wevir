@@ -42,7 +42,7 @@ export default defineConfig(({ command }) => {
     renderer: {
       resolve: {
         conditions: ['@wevir/source', ...defaultClientConditions],
-        // shadcn 原语按 @/ 引用（components.json 的 aliases），与 src/renderer/tsconfig.json 的 paths 一致。
+        // 与 src/renderer/tsconfig.json 的 paths 一致。
         alias: { '@': RENDERER_SRC },
       },
       server: {
@@ -60,6 +60,7 @@ export default defineConfig(({ command }) => {
       // electron-vite 给渲染进程的默认是不压缩：几 MB 的启动包每次都要原样解析，这里打开（Vite 默认的 esbuild）。
       build: {
         minify: true,
+        cssCodeSplit: false,
         assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined),
       },
       // “变更”窗格的高亮 worker（@pierre/diffs 的 worker.js）里有动态 import（Shiki 的语法与 WASM 引擎），默认的 iife 格式不能

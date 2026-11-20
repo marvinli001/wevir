@@ -40,7 +40,7 @@
   .thumb[data-dragging] {
     scale: 1.1;
   }
-  .thumb:has(:focus-visible) {
+  :where(:root:not([data-pointer-focus])) .thumb:has(:focus-visible) {
     outline: 1px solid var(--arc-focus-outline);
     outline-offset: 2px;
   }

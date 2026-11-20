@@ -7,7 +7,14 @@ import { bootstrapGpuEffects } from './lib/gpu-effects.js';
 import { bootstrapAppearance } from './theme/appearance.js';
 import { bootstrapTheme } from './theme/theme.js';
 
+// Chromium 在指针点入文本框时也匹配 :focus-visible。
+function focusOrigin(event: Event) {
+  document.documentElement.toggleAttribute('data-pointer-focus', event.type === 'pointerdown');
+}
+
 export async function bootstrapRenderer(): Promise<void> {
+  document.addEventListener('pointerdown', focusOrigin, true);
+  document.addEventListener('keydown', focusOrigin, true);
   bootstrapTheme();
   bootstrapAppearance();
   bootstrapWindowChrome();
