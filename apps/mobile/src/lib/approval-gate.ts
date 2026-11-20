@@ -2,7 +2,7 @@
 // （Face ID / 指纹，没有生物识别时退到设备密码）。拒绝不用验证。收件箱、会话页与助理的审批都走这里；验证本身由界面层装上
 // （state/lock.tsx），这里只有判定与调用，测试装假的。没装验证时一律不放行。
 
-import type { ApprovalRisk } from '@wevir/protocol';
+import type { ApprovalOption, ApprovalRisk } from '@wevir/protocol';
 
 /** 验证本人；通过返回 true，用户取消或失败返回 false。 */
 export type ApprovalGate = (risk: ApprovalRisk) => Promise<boolean>;
@@ -20,6 +20,16 @@ export class ApprovalUnavailableError extends Error {
   constructor(readonly reason: 'offline' | 'handled') {
     super(`approval is unavailable: ${reason}`);
   }
+}
+
+export async function verifyApprovalOption(
+  request: { options: readonly ApprovalOption[]; risk?: ApprovalRisk | undefined },
+  id: string,
+) {
+  const option = request.options.find((o) => o.optionId === id);
+  if (!option) throw new ApprovalUnavailableError('handled');
+  await verifyApproval(request, option.category);
+  return option;
 }
 
 let gate: ApprovalGate | undefined;

@@ -19,7 +19,10 @@ import {
   type EngineFeatures,
   GROUP_MEMBERS_MAX,
   GROUP_MEMBERS_MIN,
+  type SessionId,
+  type SharedFile,
   type UserImagePart,
+  type WorkspaceId,
 } from '@wevir/protocol';
 import { locale, t } from '../i18n';
 import { type Avatar, normalizeAvatar } from './bot-avatar';
@@ -79,6 +82,7 @@ export type BotCard =
     }
   | {
       kind: 'approval';
+      options: ApprovalRequest['options'];
       /** 要用的工具：MCP 工具是 `服务 · 工具`。 */
       tool: string;
       /** 收件人、频道或地址。 */
@@ -102,7 +106,7 @@ export type BotCard =
       /** 开在用户项目里时：项目名。 */
       project?: string;
     }
-  | { kind: 'file'; name: string; size: number }
+  | ({ kind: 'file'; sessionId?: SessionId; workspaceId?: WorkspaceId } & SharedFile)
   | { kind: 'images'; images: readonly UserImagePart[] }
   | {
       /** 建好后的第一条：要用的连接器、文件夹、浏览器登录，`ready` 已经有了。 */
@@ -302,7 +306,15 @@ export function postViews(post: ChannelPost, directory: BotDirectory = new Map()
     out.push({
       ...base,
       id: `${post.id}:file:${index}`,
-      card: { kind: 'file', name: file.name, size: file.size },
+      card: {
+        kind: 'file',
+        ...file,
+        ...(post.author.kind === 'coordinator'
+          ? { sessionId: post.author.sessionId }
+          : post.author.kind === 'assistant'
+            ? { workspaceId: directory.get(post.author.channelId)?.workspaceId }
+            : {}),
+      },
     });
   }
   const primary = out.find((view) => view.card.kind === 'text') ?? out[0];
@@ -394,6 +406,7 @@ export function approvalView(
     createdAt: request.createdAt,
     card: {
       kind: 'approval',
+      options: request.options,
       tool,
       ...(target !== undefined && { target }),
       ...(subject !== undefined && { subject }),

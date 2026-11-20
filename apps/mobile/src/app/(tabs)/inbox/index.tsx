@@ -15,6 +15,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { ApprovalOptions } from '../../../components/approval-options';
 import { Badge, Button, EmptyState, Icon, type IconName } from '../../../components/ui';
 import { locale, type MessageKey, t, timeAgo } from '../../../i18n';
 import { ApprovalNotVerifiedError } from '../../../lib/approval-gate';
@@ -194,13 +195,6 @@ function EntryCard({ entry, now }: { entry: InboxEntry; now: Date }) {
       .finally(() => setBusy(false));
   };
 
-  const options = item.kind === 'approval' ? item.ref.options : [];
-  const allow =
-    options.find((o) => o.category === 'allow' && o.kind.endsWith('_once')) ??
-    options.find((o) => o.category === 'allow');
-  const reject =
-    options.find((o) => o.category === 'reject' && o.kind.endsWith('_once')) ??
-    options.find((o) => o.category === 'reject');
   const truncated = summaryLines > SUMMARY_LINES && !expanded;
 
   return (
@@ -270,25 +264,15 @@ function EntryCard({ entry, now }: { entry: InboxEntry; now: Date }) {
           )}
         </View>
       )}
-      {item.kind === 'approval' && allow !== undefined && reject !== undefined && (
-        <View style={styles.actions}>
-          <View style={styles.action}>
-            <Button
-              kind="secondary"
-              title={t('bot.reject')}
-              disabled={busy || expiry.kind === 'expired'}
-              onPress={() => run(() => store.respondApproval(entry, reject.optionId))}
-            />
-          </View>
-          <View style={styles.action}>
-            <Button
-              title={t('bot.approve')}
-              {...(risky && { icon: { ios: 'faceid', android: 'fingerprint' } as const })}
-              disabled={busy || truncated || expiry.kind === 'expired'}
-              onPress={() => run(() => store.respondApproval(entry, allow.optionId))}
-            />
-          </View>
-        </View>
+      {item.kind === 'approval' && (
+        <ApprovalOptions
+          computer={entry.computer}
+          options={item.ref.options}
+          disabled={busy || expiry.kind === 'expired'}
+          allowDisabled={truncated}
+          risky={risky}
+          onChoose={(id) => run(() => store.respondApproval(entry, id))}
+        />
       )}
       {quick !== undefined && (
         <View style={styles.options}>

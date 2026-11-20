@@ -153,6 +153,25 @@ describe('bots', () => {
     expect(sorted.map((b) => b.name)).toEqual(['c', 'b', 'a']);
   });
 
+  it('opens deliveries against the posting coordinator or the author’s workspace in a group', () => {
+    const files = [{ name: 'same.md', path: 'out/same.md', size: 20 }];
+    const direct = post(CHANNEL_A, 1, { files });
+    expect(postViews(direct).at(-1)?.card).toMatchObject({
+      path: 'out/same.md',
+      sessionId: direct.author.kind === 'coordinator' && direct.author.sessionId,
+    });
+    const member = channel(CHANNEL_A, { workspaceId: 'ws_member' });
+    const groupPost = post(CHANNEL_A, 2, {
+      author: { kind: 'assistant', channelId: member.id, name: member.title },
+      files,
+    });
+    expect(postViews(groupPost, new Map([[member.id, member]])).at(-1)?.card).toMatchObject({
+      path: 'out/same.md',
+      workspaceId: 'ws_member',
+    });
+    expect(postViews(groupPost).at(-1)?.card).not.toHaveProperty('sessionId');
+  });
+
   it('一条帖子拆成文字、卡片与文件', () => {
     const views = postViews(
       post(CHANNEL_A, 1, {
@@ -180,7 +199,12 @@ describe('bots', () => {
       images: [{ imageId: 'img_01JA2B3C4D5E6F7G8H9JKMNPQR', mimeType: 'image/png' }],
     });
     expect(views[1]?.card).toEqual({ kind: 'text', text: '需要这些：' });
-    expect(views[3]?.card).toEqual({ kind: 'file', name: 'plan.md', size: 2048 });
+    expect(views[3]?.card).toMatchObject({
+      kind: 'file',
+      path: 'out/plan.md',
+      name: 'plan.md',
+      size: 2048,
+    });
 
     const notice = postViews(
       post(CHANNEL_A, 2, {
@@ -254,6 +278,7 @@ describe('bots', () => {
   it('审批：对外动作取收件人、主题与原文，认不出的参数原样列出', () => {
     expect(approvalView(approval(), 'pending').card).toEqual({
       kind: 'approval',
+      options: approval().options,
       tool: 'gmail · send_email',
       target: 'lin@example.com',
       subject: '周五的会',
@@ -273,6 +298,7 @@ describe('bots', () => {
     ).card;
     expect(shell).toEqual({
       kind: 'approval',
+      options: approval().options,
       tool: 'Bash',
       text: 'rm -rf dist',
       risky: true,

@@ -10,6 +10,29 @@ const BINARY_SNIFF_BYTES = 8000;
 /** 最多攒这么多行，再多就停（手机上看不完，也占内存）。 */
 export const FILE_MAX_LINES = 50_000;
 
+export type FileTarget = Pick<
+  FilesReadParams,
+  'workspaceId' | 'sessionId' | 'artifactSeq' | 'path'
+>;
+export function previewRoute(
+  computer: string,
+  target: FileTarget,
+  options: { line?: number | undefined; mimeType?: string | undefined } = {},
+) {
+  return {
+    pathname: '/preview/[computer]' as const,
+    params: {
+      computer,
+      path: target.path,
+      ...(target.sessionId && { sessionId: target.sessionId }),
+      ...(target.workspaceId && { workspaceId: target.workspaceId }),
+      ...(target.artifactSeq && { seq: String(target.artifactSeq) }),
+      ...(options.line && { line: String(options.line) }),
+      ...(options.mimeType && { mime: options.mimeType }),
+    },
+  };
+}
+
 export type ReadChunk = (params: FilesReadParams) => Promise<FilesReadResult>;
 
 export interface FileView {
@@ -27,7 +50,7 @@ export interface FileView {
 
 export class ChunkedFile {
   readonly #read: ReadChunk;
-  readonly #target: Pick<FilesReadParams, 'workspaceId' | 'sessionId' | 'path'>;
+  readonly #target: FileTarget;
   readonly #decoder = new TextDecoder();
   #lines: string[] = [];
   #pending: Uint8Array = new Uint8Array(0);
@@ -40,10 +63,7 @@ export class ChunkedFile {
   #changed = false;
   #reading: Promise<FileView> | undefined;
 
-  constructor(
-    read: ReadChunk,
-    target: Pick<FilesReadParams, 'workspaceId' | 'sessionId' | 'path'>,
-  ) {
+  constructor(read: ReadChunk, target: FileTarget) {
     this.#read = read;
     this.#target = target;
   }

@@ -193,8 +193,8 @@ describe('SessionWatch', () => {
     const watch = new SessionWatch(sessions, SES, () => {});
     await watch.start();
     const id = (approval() as ApprovalRequest).id;
-    await watch.respond(id, 'approved');
-    await watch.respond(id, 'rejected');
+    await watch.respond(id, 'once');
+    await watch.respond(id, 'no');
     expect(requests.filter((r) => r.method === 'approval.respond').map((r) => r.params)).toEqual([
       { approvalId: id, optionId: 'once' },
       { approvalId: id, optionId: 'no' },
@@ -203,13 +203,13 @@ describe('SessionWatch', () => {
 
   it('没有连接或本地找不到审批时给出可识别的错误，不发送回复', async () => {
     const offline = new SessionWatch(undefined, SES, () => {});
-    await expect(offline.respond(approval().id, 'approved')).rejects.toBeInstanceOf(
+    await expect(offline.respond(approval().id, 'once')).rejects.toBeInstanceOf(
       ApprovalUnavailableError,
     );
     const { sessions, requests } = client([]);
     const online = new SessionWatch(sessions, SES, () => {});
     await online.start();
-    await expect(online.respond(approval().id, 'approved')).rejects.toMatchObject({
+    await expect(online.respond(approval().id, 'once')).rejects.toMatchObject({
       name: 'ApprovalUnavailableError',
       reason: 'handled',
     });
@@ -291,12 +291,12 @@ describe('SessionWatch 的本地缓存', () => {
     });
     const items = sessionItems(offline.view.transcript as never, LABELS, { live: false });
     expect(items.map((item) => item.kind)).toEqual(['user', 'assistant', 'tool']);
-    await expect(
-      offline.respond((approval() as ApprovalRequest).id, 'approved'),
-    ).rejects.toMatchObject({
-      name: 'ApprovalUnavailableError',
-      reason: 'offline',
-    });
+    await expect(offline.respond((approval() as ApprovalRequest).id, 'once')).rejects.toMatchObject(
+      {
+        name: 'ApprovalUnavailableError',
+        reason: 'offline',
+      },
+    );
   });
 
   it('有缓存时先显示缓存，连上回放完再换成最新的', async () => {
@@ -400,10 +400,10 @@ describe('SessionWatch 的本地缓存', () => {
     const watch = new SessionWatch(sessions, SES, () => {});
     await watch.start();
     const id = last.payload.approval.id;
-    await expect(watch.respond(id, 'approved')).rejects.toBeInstanceOf(ApprovalNotVerifiedError);
+    await expect(watch.respond(id, 'once')).rejects.toBeInstanceOf(ApprovalNotVerifiedError);
     offGate = setApprovalGate(async () => true);
-    await watch.respond(id, 'approved');
-    await watch.respond(id, 'rejected');
+    await watch.respond(id, 'once');
+    await watch.respond(id, 'no');
     expect(requests.filter((r) => r.method === 'approval.respond')).toHaveLength(2);
   });
 });

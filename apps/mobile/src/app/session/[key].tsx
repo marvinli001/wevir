@@ -13,8 +13,11 @@ import type {
   ProviderProfile,
   QuestionAnswer,
   QuestionId,
+  ReviewFinding,
   SessionId,
+  SharedFile,
   ToolDisplayKind,
+  TurnCheckpoint,
   TurnId,
   TurnOutcome,
 } from '@wevir/protocol';
@@ -65,9 +68,12 @@ import {
   TasksCard,
   TodoCard,
 } from '../../components/transcript-parts';
-import { Button, Icon, type IconName } from '../../components/ui';
+import { Button, Chevron, Icon, type IconName } from '../../components/ui';
+import { type SendDecision, WrapUpCard } from '../../components/wrap-up-card';
 import { formatDuration, type MessageKey, t, timeAgo } from '../../i18n';
 import { ApprovalUnavailableError } from '../../lib/approval-gate';
+import { quotaModels } from '../../lib/continuity';
+import { previewRoute } from '../../lib/file-reader';
 import { cachedImage } from '../../lib/image-cache';
 import { readImage } from '../../lib/image-read';
 import { keyboardOverlap } from '../../lib/keyboard';
@@ -222,6 +228,34 @@ export default function SessionScreen() {
     () => new Map((listed ?? []).map((entry) => [entry.id, entry.title])),
     [listed],
   );
+  const lastFinished = view.transcript?.messages.findLast(
+    (message) => message.role === 'assistant' && message.finished,
+  );
+  const finishedId = lastFinished?.role === 'assistant' ? lastFinished.turnId : undefined;
+  const [checkpoints, setCheckpoints] = useState<readonly TurnCheckpoint[]>();
+  // 每次结束回合或重新连接后，刷新 Host 保存的回合快照。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: finishedId drives the refresh after settlement.
+  useEffect(() => {
+    let live = true;
+    setCheckpoints(undefined);
+    if (
+      client?.canReadProjects &&
+      client.supports('workspace_diff') &&
+      view.caughtUp &&
+      !view.cachedAt &&
+      !view.offline
+    ) {
+      void client.request('session.checkpoints', { sessionId }, { queue: false }).then(
+        ({ turns }) => {
+          if (live) setCheckpoints(turns);
+        },
+        () => {},
+      );
+    }
+    return () => {
+      live = false;
+    };
+  }, [client, sessionId, finishedId, view.caughtUp, view.offline, view.cachedAt]);
   const items = useMemo(
     () =>
       view.transcript !== undefined
@@ -235,6 +269,7 @@ export default function SessionScreen() {
             {
               // 缓存里的回合在电脑上可能早已结束：回放完之前不画运行状态。
               live: view.offline !== true && view.cachedAt === undefined,
+              checkpoints,
               ...(view.session !== undefined && {
                 approvalContext: {
                   cwd: view.session.cwd,
@@ -244,7 +279,15 @@ export default function SessionScreen() {
             },
           )
         : [],
-    [view.transcript, view.offline, view.cachedAt, view.session, view.projectName, sessionTitles],
+    [
+      view.transcript,
+      view.offline,
+      view.cachedAt,
+      view.session,
+      view.projectName,
+      sessionTitles,
+      checkpoints,
+    ],
   );
   const session = view.session;
   // 回合状态：回放完之后看消息流；之前显示的是缓存，按这次连上后取的快照算，还没取到时不算（不把过时的“运行中”当真）。
@@ -293,18 +336,45 @@ export default function SessionScreen() {
       },
     );
   };
+  const liveWritable =
+    canWrite &&
+    session !== undefined &&
+    !session.parentSessionId &&
+    !session.side &&
+    state === 'idle' &&
+    snapshot?.status.kind === 'online' &&
+    view.caughtUp &&
+    !view.cachedAt &&
+    !view.offline &&
+    !view.error;
+  const failedTurn = liveWritable && view.transcript ? retryableTurn(view.transcript) : undefined;
+  const lastMessage = view.transcript?.messages.findLast((message) => message.role !== 'system');
+  const lastEngine = lastMessage?.role === 'assistant' ? lastMessage.engine : undefined;
+  const segment = view.transcript?.engineSegments?.at(-1);
+  const sameSource =
+    !lastEngine ||
+    (lastEngine.providerId === session?.providerId &&
+      (!segment || lastEngine.segment === segment.segment));
   const continuity: ContinuityContext = {
     ...catalog,
     autoContinue: {
       ...(view.transcript?.autoContinue && { armed: view.transcript.autoContinue }),
+      ...(failedTurn && sameSource && { lastTurnId: failedTurn }),
     },
-    ...(canWrite &&
-      snapshot?.status.kind === 'online' &&
-      view.caughtUp &&
-      !view.cachedAt &&
-      !view.offline &&
+    ...(liveWritable &&
       client?.supports('usage_auto_continue') && {
-        cancelAutoContinue: (turnId) => actions.cancelAutoContinue(turnId),
+        setAutoContinue: async (turnId, enabled) =>
+          watch.current?.applySession(await actions.setAutoContinue(turnId, enabled)),
+      }),
+    ...(failedTurn &&
+      session &&
+      actions &&
+      client?.canReadProviders &&
+      client.supports('usage_limit_switch') && {
+        switchTurn: failedTurn,
+        models: quotaModels(session, catalog.providers, catalog.accounts, client),
+        switchModel: async (turnId, provider, model) =>
+          watch.current?.applySession(await actions.continueWithModel(turnId, provider, model)),
       }),
   };
   const title = view.transcript?.title || session?.title || t('session.untitled');
@@ -563,6 +633,46 @@ export default function SessionScreen() {
             canWrite={canWrite}
             clientId={client?.identity.clientId}
             continuity={continuity}
+            navigation={{
+              computer,
+              file: (file, seq) =>
+                router.push(
+                  previewRoute(
+                    computer,
+                    {
+                      sessionId,
+                      path: file.path,
+                      ...(session?.origin?.kind === 'synced' && { artifactSeq: seq }),
+                    },
+                    { mimeType: file.mimeType },
+                  ),
+                ),
+              finding: (finding) => {
+                if (!finding.path) return;
+                const route = previewRoute(
+                  computer,
+                  { sessionId, path: finding.path },
+                  { line: finding.startLine },
+                );
+                router.push({
+                  ...route,
+                  params: {
+                    ...route.params,
+                    ...(finding.commentId && { comment: finding.commentId }),
+                  },
+                });
+              },
+              turn: (turnId, number) =>
+                router.push({
+                  pathname: '/changes/[key]',
+                  params: { key, turn: turnId, number: String(number) },
+                }),
+            }}
+            sendDecision={
+              liveWritable
+                ? (text, clientMessageId) => actions.send({ text, clientMessageId })
+                : undefined
+            }
             bottomInset={composerHeight + 16}
             onDecide={async (approvalId, decision) => {
               const current = watch.current;
@@ -692,6 +802,13 @@ function metrics(e: NativeSyntheticEvent<NativeScrollEvent>): ScrollMetrics {
   };
 }
 
+interface TranscriptNavigation {
+  computer: string;
+  file(file: SharedFile, seq: number): void;
+  finding(finding: ReviewFinding): void;
+  turn(turnId: TurnId, number: number): void;
+}
+
 function SessionList({
   items,
   meta,
@@ -702,6 +819,8 @@ function SessionList({
   canWrite,
   clientId,
   continuity,
+  navigation,
+  sendDecision,
   bottomInset,
   onDecide,
   onAnswer,
@@ -723,8 +842,10 @@ function SessionList({
   canWrite: boolean;
   clientId: string | undefined;
   continuity: ContinuityContext;
+  navigation: TranscriptNavigation;
+  sendDecision: SendDecision | undefined;
   bottomInset: number;
-  onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
+  onDecide: (approvalId: string, optionId: string) => Promise<void>;
   onAnswer: (questionId: string, answers: Record<string, QuestionAnswer>) => Promise<void>;
   onCancelPending: (pendingId: string) => void;
   onResumePending: () => void;
@@ -873,6 +994,8 @@ function SessionList({
               canWrite={canWrite}
               clientId={clientId}
               continuity={continuity}
+              navigation={navigation}
+              sendDecision={sendDecision}
               onDecide={onDecide}
               onAnswer={onAnswer}
               onCancelPending={onCancelPending}
@@ -933,6 +1056,8 @@ function Item({
   canWrite,
   clientId,
   continuity,
+  navigation,
+  sendDecision,
   onDecide,
   onAnswer,
   onCancelPending,
@@ -950,7 +1075,9 @@ function Item({
   canWrite: boolean;
   clientId: string | undefined;
   continuity: ContinuityContext;
-  onDecide: (approvalId: string, decision: 'approved' | 'rejected') => Promise<void>;
+  navigation: TranscriptNavigation;
+  sendDecision: SendDecision | undefined;
+  onDecide: (approvalId: string, optionId: string) => Promise<void>;
   onAnswer: (questionId: string, answers: Record<string, QuestionAnswer>) => Promise<void>;
   onCancelPending: (pendingId: string) => void;
   onResumePending: () => void;
@@ -963,6 +1090,22 @@ function Item({
   switch (item.kind) {
     case 'turn':
       return <TurnRow item={item} open={open} onToggle={onToggle} theme={theme} />;
+    case 'turn-changes':
+      return (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => navigation.turn(item.turnId, item.number)}
+          accessibilityLabel={t('turn.changes', { count: item.count })}
+          style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+        >
+          <Text style={{ color: theme.foreground }}>
+            {t('turn.changes', { count: item.count })}
+          </Text>
+          <Chevron color={theme.mutedForeground} />
+        </Pressable>
+      );
+    case 'wrap-up':
+      return <WrapUpCard item={item} send={sendDecision} />;
     case 'handoff':
       return <HandoffRow notice={item.notice} context={continuity} theme={theme} />;
     case 'usage-limit':
@@ -1003,6 +1146,7 @@ function Item({
       return (
         <PostView
           post={item.post}
+          computer={navigation.computer}
           clientId={clientId}
           now={now}
           onDecide={(_, decision) => onDecide(item.approvalId, decision)}
@@ -1028,13 +1172,19 @@ function Item({
     case 'answers':
       return <AnswersRow item={item} theme={theme} />;
     case 'files':
-      return <FilesCard item={item} theme={theme} />;
+      return (
+        <FilesCard
+          item={item}
+          theme={theme}
+          onOpen={(file) => navigation.file(file, Number(item.key.slice(2)))}
+        />
+      );
     case 'tasks':
       return <TasksCard item={item} theme={theme} onOpenSession={onOpenSession} />;
     case 'opinion':
       return <OpinionCard item={item} theme={theme} onOpenSession={onOpenSession} />;
     case 'findings':
-      return <FindingsCard item={item} theme={theme} />;
+      return <FindingsCard item={item} theme={theme} onOpen={navigation.finding} />;
     case 'error': {
       const turnId = item.turnId;
       const retryable =

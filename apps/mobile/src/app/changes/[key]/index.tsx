@@ -1,7 +1,7 @@
 // 一个会话的变更（只读）：大标题“变更”，下面一行是分支与对比的默认分支（没有时是“未提交”）、文件数与增删行数，再是改动的文件
 // 列表（状态字母、文件名与目录、增删行数），点进去看那个文件的 diff。下拉重读。
 
-import type { DiffFile } from '@wevir/protocol';
+import type { DiffFile, TurnId } from '@wevir/protocol';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
@@ -22,21 +22,33 @@ import { useChanges } from '../../../state/changes';
 import { RADIUS, SPACE, TEXT, type Theme, useTheme } from '../../../theme';
 
 export default function ChangesScreen() {
-  const { key } = useLocalSearchParams<{ key: string }>();
+  const { key, turn, number } = useLocalSearchParams<{
+    key: string;
+    turn?: TurnId;
+    number?: string;
+  }>();
   const router = useRouter();
   const theme = useTheme();
-  const state = useChanges(key);
+  const state = useChanges(key, { turnId: turn });
   const { changes, problem } = state;
   const files = changes?.files ?? [];
   const diff = changes?.diff;
 
   const meta = [
-    diff?.branch,
-    diff?.baseRef !== undefined
-      ? t('changes.against', { base: diff.baseRef })
-      : diff !== undefined
-        ? t('changes.uncommitted')
-        : undefined,
+    turn
+      ? number
+        ? t('changes.scope.turnN', { number })
+        : t('changes.scope.turnUnknown')
+      : diff?.branch,
+    turn
+      ? diff?.live
+        ? t('changes.turnLive')
+        : undefined
+      : diff?.baseRef !== undefined
+        ? t('changes.against', { base: diff.baseRef })
+        : diff !== undefined
+          ? t('changes.uncommitted')
+          : undefined,
   ]
     .filter((part) => part !== undefined)
     .join(' · ');
@@ -110,7 +122,7 @@ export default function ChangesScreen() {
             onPress={() =>
               router.push({
                 pathname: '/changes/[key]/file',
-                params: { key, path: item.path },
+                params: { key, path: item.path, ...(turn && { turn }) },
               })
             }
           />
@@ -121,6 +133,7 @@ export default function ChangesScreen() {
 }
 
 const PROBLEM_ICON: Record<ChangesProblem, IconName> = {
+  no_checkpoint: { ios: 'clock', android: 'history' },
   forbidden: { ios: 'lock', android: 'lock' },
   unsupported: { ios: 'exclamationmark.circle', android: 'error' },
   not_repo: { ios: 'folder', android: 'folder' },

@@ -192,15 +192,25 @@ function fileType(name: string): string | undefined {
   return dot > 0 && dot < name.length - 1 ? name.slice(dot + 1).toUpperCase() : undefined;
 }
 
-/** Agent 交给用户的文件：每个一行，文件名，下面是大小与类型（文件在电脑上，手机上不打开）。 */
-export function FilesCard({ item, theme }: { item: ItemOf<'files'>; theme: Theme }) {
+/** Agent 交付的文件。 */
+export function FilesCard({
+  item,
+  theme,
+  onOpen,
+}: {
+  item: ItemOf<'files'>;
+  theme: Theme;
+  onOpen: (file: ItemOf<'files'>['files'][number]) => void;
+}) {
   return (
     <View
       style={[styles.card, styles.list, { borderColor: theme.border, backgroundColor: theme.card }]}
       testID="session-files"
     >
       {item.files.map((file, index) => (
-        <View
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onOpen(file)}
           key={file.path}
           style={[
             styles.fileRow,
@@ -222,7 +232,8 @@ export function FilesCard({ item, theme }: { item: ItemOf<'files'>; theme: Theme
               {[formatBytes(file.size), fileType(file.name)].filter(Boolean).join(' · ')}
             </Text>
           </View>
-        </View>
+          <Icon name={CHEVRON_RIGHT} size={13} color={theme.mutedForeground} />
+        </Pressable>
       ))}
     </View>
   );
@@ -406,7 +417,15 @@ function findingLocation(finding: ItemOf<'findings'>['findings'][number]): strin
 }
 
 /** 审查发现：标题行“审查发现 · N”，总体说明，每条一行严重度、标题与位置，点开看说明（在手机上只看，修复在电脑上做）。 */
-export function FindingsCard({ item, theme }: { item: ItemOf<'findings'>; theme: Theme }) {
+export function FindingsCard({
+  item,
+  theme,
+  onOpen,
+}: {
+  item: ItemOf<'findings'>;
+  theme: Theme;
+  onOpen: (finding: ItemOf<'findings'>['findings'][number]) => void;
+}) {
   const [open, setOpen] = useState<number>();
   return (
     <View
@@ -433,44 +452,62 @@ export function FindingsCard({ item, theme }: { item: ItemOf<'findings'>; theme:
         const expanded = open === index;
         const urgent = finding.priority !== undefined && finding.priority <= 1;
         return (
-          <Pressable
+          <View
             // biome-ignore lint/suspicious/noArrayIndexKey: 发现的顺序固定。
             key={index}
-            accessibilityRole="button"
-            accessibilityState={{ expanded }}
-            disabled={finding.body.trim() === ''}
-            onPress={() => setOpen(expanded ? undefined : index)}
             style={[styles.findingRow, { borderTopColor: theme.border }]}
           >
-            <View style={styles.findingHead}>
-              {finding.priority !== undefined && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded }}
+              disabled={finding.body.trim() === ''}
+              onPress={() => setOpen(expanded ? undefined : index)}
+            >
+              <View style={styles.findingHead}>
+                {finding.priority !== undefined && (
+                  <Text
+                    style={[
+                      styles.priority,
+                      {
+                        color: urgent ? theme.destructive : theme.mutedForeground,
+                        borderColor: urgent ? theme.destructive : theme.border,
+                      },
+                    ]}
+                  >
+                    {`P${finding.priority}`}
+                  </Text>
+                )}
+                <Text style={[styles.body, styles.findingTitle, { color: theme.foreground }]}>
+                  {finding.title}
+                </Text>
+              </View>
+            </Pressable>
+            {location !== undefined && (
+              <Pressable
+                accessibilityRole={finding.path ? 'link' : undefined}
+                accessibilityLabel={location}
+                disabled={!finding.path}
+                onPress={() => onOpen(finding)}
+                style={{ minHeight: finding.path ? 40 : 20, justifyContent: 'center' }}
+              >
                 <Text
                   style={[
-                    styles.priority,
+                    styles.mono,
+                    styles.caption,
                     {
-                      color: urgent ? theme.destructive : theme.mutedForeground,
-                      borderColor: urgent ? theme.destructive : theme.border,
+                      color: theme.mutedForeground,
+                      textDecorationLine: finding.path ? 'underline' : 'none',
                     },
                   ]}
+                  numberOfLines={1}
+                  ellipsizeMode="head"
                 >
-                  {`P${finding.priority}`}
+                  {location}
                 </Text>
-              )}
-              <Text style={[styles.body, styles.findingTitle, { color: theme.foreground }]}>
-                {finding.title}
-              </Text>
-            </View>
-            {location !== undefined && (
-              <Text
-                style={[styles.mono, styles.caption, { color: theme.mutedForeground }]}
-                numberOfLines={1}
-                ellipsizeMode="head"
-              >
-                {location}
-              </Text>
+              </Pressable>
             )}
             {expanded && <Markdown text={finding.body} />}
-          </Pressable>
+          </View>
         );
       })}
     </View>

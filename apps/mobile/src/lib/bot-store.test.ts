@@ -164,7 +164,7 @@ describe('BotStore', () => {
     expect(store.timeline(KEY).posts.at(-1)?.author).toEqual({ kind: 'user' });
     await store.respondSuggestion(KEY, suggestion.id, true);
     expect(store.timeline(KEY).posts[1]?.card).toMatchObject({ status: 'accepted' });
-    await store.respondApproval(KEY, approval().id, 'approved');
+    await store.respondApproval(KEY, approval().id, 'once');
     expect(host.calls('approval.respond')).toEqual([
       { approvalId: approval().id, optionId: 'once' },
     ]);

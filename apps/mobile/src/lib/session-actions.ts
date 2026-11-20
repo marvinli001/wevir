@@ -210,12 +210,24 @@ export class SessionActions {
     await this.#client.request('pending.resume', { sessionId: this.#sessionId });
   }
 
-  async cancelAutoContinue(turnId: TurnId): Promise<void> {
-    await this.#client.request('session.setAutoContinue', {
-      sessionId: this.#sessionId,
-      turnId,
-      enabled: false,
-    });
+  async setAutoContinue(turnId: TurnId, enabled: boolean): Promise<Session> {
+    return (
+      await this.#client.request(
+        'session.setAutoContinue',
+        { sessionId: this.#sessionId, turnId, enabled },
+        { queue: false },
+      )
+    ).session;
+  }
+
+  async continueWithModel(turnId: TurnId, providerId: string, modelId: string): Promise<Session> {
+    return (
+      await this.#client.request(
+        'session.continueWithModel',
+        { sessionId: this.#sessionId, turnId, providerId, modelId, reasoningEffort: null },
+        { queue: false },
+      )
+    ).session;
   }
 
   async answer(questionId: QuestionId, answers: Record<string, QuestionAnswer>): Promise<void> {

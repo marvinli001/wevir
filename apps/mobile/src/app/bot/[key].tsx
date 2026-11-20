@@ -41,10 +41,10 @@ import {
   botPostQuote,
   botTimeLabel,
   botTimelineRows,
-  type Decision,
   showsBotQuote,
   timelineViews,
 } from '../../lib/bots';
+import { previewRoute } from '../../lib/file-reader';
 import { cachedImage } from '../../lib/image-cache';
 import { keyboardOverlap } from '../../lib/keyboard';
 import { sendErrorKey } from '../../lib/session-actions';
@@ -209,7 +209,7 @@ function BotChat({ bot, targetSeq }: { bot: Bot; targetSeq: number | undefined }
   }, [store, bot.key]);
 
   const decide = useCallback(
-    async (post: BotPost, decision: Exclude<Decision, 'pending'>) => {
+    async (post: BotPost, decision: string) => {
       if (post.card.kind === 'approval') {
         await store.respondApproval(bot.key, post.id, decision);
       } else if (post.card.kind === 'suggestion') {
@@ -597,7 +597,21 @@ function BotChat({ bot, targetSeq }: { bot: Bot; targetSeq: number | undefined }
                     post={item.post}
                     now={now}
                     onDecide={decide}
+                    computer={bot.computer}
                     onOpenThread={openThread}
+                    onOpenFile={(file) =>
+                      router.push(
+                        previewRoute(
+                          bot.computer,
+                          {
+                            path: file.path,
+                            sessionId: file.sessionId,
+                            workspaceId: file.workspaceId,
+                          },
+                          { mimeType: file.mimeType },
+                        ),
+                      )
+                    }
                     onLoadImage={loadImage}
                     {...(!group && { onRetry: retry })}
                   />

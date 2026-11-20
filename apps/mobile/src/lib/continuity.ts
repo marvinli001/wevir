@@ -1,7 +1,43 @@
-import { type ContinuityNotice, type HandoffDetailRow, handoffDetailRows } from '@wevir/client-sdk';
-import type { AccountState, ProviderProfile } from '@wevir/protocol';
+import {
+  type ContinuityNotice,
+  canHandoffTo,
+  type HandoffDetailRow,
+  handoffDetailRows,
+} from '@wevir/client-sdk';
+import type { AccountState, ProviderProfile, Session } from '@wevir/protocol';
 import { locale, t } from '../i18n';
-import { providerTitle } from './new-session';
+import {
+  modelName,
+  modelsOf,
+  type NewSessionClient,
+  pickableProviders,
+  providerTitle,
+} from './new-session';
+
+export function quotaModels(
+  session: Session,
+  providers: readonly ProviderProfile[],
+  accounts: readonly AccountState[] | undefined,
+  client: NewSessionClient,
+) {
+  return pickableProviders(providers, accounts).flatMap((provider) => {
+    const same = provider.id === session.providerId;
+    if (
+      same
+        ? !client.supports('session_configure')
+        : !client.supports('session_handoff') ||
+          !canHandoffTo(provider, session, client.engineFeatures)
+    )
+      return [];
+    return modelsOf(provider)
+      .filter((model) => !same || model.id !== session.modelId)
+      .map((model) => ({
+        providerId: provider.id,
+        modelId: model.id,
+        label: `${providerTitle(provider, accounts)} · ${modelName(model)}`,
+      }));
+  });
+}
 
 export function continuityView(
   notice: ContinuityNotice,

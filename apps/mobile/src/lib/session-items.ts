@@ -25,9 +25,11 @@ import type {
   SuggestedTask,
   TodoItem,
   ToolDisplayKind,
+  TurnCheckpoint,
   TurnId,
   TurnOutcome,
   UserImagePart,
+  WrapUpAction,
 } from '@wevir/protocol';
 import { formatBytes, type MessageKey, t } from '../i18n';
 import { type ApprovalContext, approvalView, type BotPost } from './bots';
@@ -56,6 +58,16 @@ export type LiveAction =
   | { kind: 'tool'; label: string };
 
 type SessionItemBody =
+  | { kind: 'turn-changes'; key: string; turnId: TurnId; number: number; count: number }
+  | {
+      kind: 'wrap-up';
+      key: string;
+      turnId: TurnId;
+      seq: number;
+      ask: string;
+      recap: string;
+      actions: readonly WrapUpAction[];
+    }
   /** `images`：用户附的照片（按需 `image.read`）。 */
   | { kind: 'user'; key: string; text: string; images?: readonly UserImagePart[] }
   /** `streaming`：还在流出的回答或计划。 */
@@ -803,7 +815,12 @@ export function sessionItems(
   {
     live: showLive = true,
     approvalContext,
-  }: { live?: boolean; approvalContext?: ApprovalContext } = {},
+    checkpoints,
+  }: {
+    live?: boolean;
+    approvalContext?: ApprovalContext;
+    checkpoints?: readonly TurnCheckpoint[] | undefined;
+  } = {},
 ): SessionItem[] {
   const own = transcript.sessionId;
   const live = showLive ? liveStatus(transcript, labels) : undefined;
@@ -813,6 +830,47 @@ export function sessionItems(
       (item) => item.key !== live?.toolKey,
     ),
   );
+  if (checkpoints?.length) {
+    const changed = new Map(checkpoints.map((turn) => [turn.turnId, turn.fileCount]));
+    const numbers = new Map<TurnId, number>();
+    for (const [index, msg] of transcript.messages.entries()) {
+      if (msg.role === 'system') continue;
+      const number = numbers.get(msg.turnId) ?? numbers.size + 1;
+      numbers.set(msg.turnId, number);
+      if (msg.role !== 'assistant' || !msg.finished) continue;
+      const count = changed.get(msg.turnId);
+      if (count)
+        perMessage[index]?.push({
+          kind: 'turn-changes',
+          key: `changes:${msg.turnId}`,
+          turnId: msg.turnId,
+          number,
+          count,
+        });
+      changed.delete(msg.turnId);
+    }
+  }
+  const lastIndex = transcript.messages.findLastIndex((message) => message.role !== 'system');
+  const last = transcript.messages[lastIndex];
+  if (last?.role === 'assistant' && last.finished && !active) {
+    const source = transcript.messages.findLast(
+      (message) =>
+        message.role === 'assistant' &&
+        message.turnId === last.turnId &&
+        message.wrapUp !== undefined,
+    );
+    const wrap = source?.role === 'assistant' ? source.wrapUp : undefined;
+    if (wrap?.ask && wrap.actions?.length)
+      perMessage[lastIndex]?.push({
+        kind: 'wrap-up',
+        key: `wrap:${wrap.seq}`,
+        turnId: last.turnId,
+        seq: wrap.seq,
+        recap: wrap.recap,
+        ask: wrap.ask,
+        actions: wrap.actions,
+      });
+  }
   const out = foldTurns(transcript.messages, perMessage, active);
   if (live !== undefined) out.push(live.item);
   for (const request of transcript.pendingApprovals) {

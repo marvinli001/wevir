@@ -3,6 +3,7 @@
 // 别的助理说的（群里的成员、发来消息的助理）上面一行是它的小头像与名字；发给别的助理的标“发给 …”。帖子里的图片是一排缩略图；
 // 开在用户项目里的线程（0.134.0）状态后写项目名。
 
+import type { ApprovalOption } from '@wevir/protocol';
 import { type ReactNode, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatBytes, t, timeAgo } from '../i18n';
@@ -18,12 +19,13 @@ import type {
 import { botReplyCount } from '../lib/bots';
 import { type DecisionFeedback, decisionFeedback } from '../lib/inbox';
 import { RADIUS, TEXT, type Theme, useTheme } from '../theme';
+import { ApprovalOptions } from './approval-options';
 import { BotAvatar } from './bot-avatar';
 import { Markdown } from './markdown';
 import { type LoadImage, PostImages } from './post-images';
 import { Badge, Button, Chevron, Icon, type IconName } from './ui';
 
-type Decide = (decision: Exclude<Decision, 'pending'>) => Promise<void>;
+type Decide = (optionId: string) => Promise<void>;
 
 export function ChatPost({
   row,
@@ -189,15 +191,19 @@ export function PostView({
   onLoadImage,
   clientId,
   compactThread = false,
+  onOpenFile,
+  computer,
 }: {
   post: BotPost;
   now: Date;
-  onDecide: (post: BotPost, decision: Exclude<Decision, 'pending'>) => Promise<void>;
+  onDecide: (post: BotPost, optionId: string) => Promise<void>;
   onOpenThread: (sessionId: string) => void;
   /** 读帖子里的一张图片，给本机文件的 URI；不给时不画图片（会话页借用这里的文字与审批）。 */
   onLoadImage?: LoadImage;
   clientId?: string | undefined;
   compactThread?: boolean;
+  computer?: string;
+  onOpenFile?: (file: Extract<BotCard, { kind: 'file' }>) => void;
   /** 群没有协调者，不给重试。 */
   onRetry?: () => void;
 }) {
@@ -212,6 +218,7 @@ export function PostView({
       return (
         <ApprovalCard
           card={card}
+          computer={computer}
           at={timeAgo(post.createdAt, now)}
           clientId={clientId}
           onDecide={decide}
@@ -226,7 +233,7 @@ export function PostView({
         />
       );
     case 'file':
-      return <FileCard card={card} />;
+      return <FileCard card={card} onOpen={onOpenFile} />;
     case 'images':
       return onLoadImage === undefined ? null : (
         <PostImages
@@ -388,11 +395,13 @@ function BriefCard({ card, at }: { card: Extract<BotCard, { kind: 'brief' }>; at
 
 function ApprovalCard({
   card,
+  computer,
   at,
   onDecide,
   clientId,
 }: {
   card: Extract<BotCard, { kind: 'approval' }>;
+  computer?: string | undefined;
   at: string;
   onDecide: Decide;
   clientId?: string | undefined;
@@ -445,6 +454,8 @@ function ApprovalCard({
       <Decisions
         decision={card.decision}
         clientId={clientId}
+        computer={computer}
+        options={card.options}
         allowDisabled={truncated}
         {...(card.risky === true && { verify: true })}
         accept={t('bot.approve')}
@@ -477,6 +488,8 @@ function Decisions({
   accepted,
   rejected,
   verify = false,
+  options,
+  computer,
   onDecide,
   clientId = '',
   allowDisabled = false,
@@ -488,6 +501,8 @@ function Decisions({
   rejected: string;
   /** 允许前要本人验证：按钮上带 Face ID / 指纹图标。 */
   verify?: boolean;
+  options?: readonly ApprovalOption[];
+  computer?: string | undefined;
   onDecide: Decide;
   clientId?: string | undefined;
   allowDisabled?: boolean;
@@ -521,7 +536,7 @@ function Decisions({
       </View>
     );
   }
-  const press = (value: Exclude<Decision, 'pending'>) => {
+  const press = (value: string) => {
     setBusy(true);
     setFeedback(undefined);
     onDecide(value)
@@ -534,24 +549,35 @@ function Decisions({
   };
   return (
     <View style={styles.decide}>
-      <View style={styles.actions}>
-        <View style={styles.action}>
-          <Button
-            kind="secondary"
-            title={reject}
-            disabled={busy}
-            onPress={() => press('rejected')}
-          />
+      {options ? (
+        <ApprovalOptions
+          computer={computer}
+          options={options}
+          disabled={busy}
+          risky={verify}
+          allowDisabled={allowDisabled}
+          onChoose={press}
+        />
+      ) : (
+        <View style={styles.actions}>
+          <View style={styles.action}>
+            <Button
+              kind="secondary"
+              title={reject}
+              disabled={busy}
+              onPress={() => press('rejected')}
+            />
+          </View>
+          <View style={styles.action}>
+            <Button
+              title={accept}
+              {...(verify && { icon: { ios: 'faceid', android: 'fingerprint' } as const })}
+              disabled={busy || allowDisabled}
+              onPress={() => press('approved')}
+            />
+          </View>
         </View>
-        <View style={styles.action}>
-          <Button
-            title={accept}
-            {...(verify && { icon: { ios: 'faceid', android: 'fingerprint' } as const })}
-            disabled={busy || allowDisabled}
-            onPress={() => press('approved')}
-          />
-        </View>
-      </View>
+      )}
       {feedback !== undefined && (
         <Text style={[styles.failed, { color: theme.destructive }]}>{t(feedback.message)}</Text>
       )}
@@ -669,11 +695,21 @@ const compactStyles = StyleSheet.create({
   text: { flex: 1, fontSize: TEXT.small },
 });
 
-/** 助理交给用户的文件：在电脑上，手机只列名字与大小。 */
-function FileCard({ card }: { card: Extract<BotCard, { kind: 'file' }> }) {
+/** 文件按发帖者当时所在的会话或工作区读取。 */
+function FileCard({
+  card,
+  onOpen,
+}: {
+  card: Extract<BotCard, { kind: 'file' }>;
+  onOpen?: ((file: Extract<BotCard, { kind: 'file' }>) => void) | undefined;
+}) {
   const theme = useTheme();
   return (
-    <View
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={card.name}
+      disabled={!onOpen || (!card.sessionId && !card.workspaceId)}
+      onPress={() => onOpen?.(card)}
       style={[
         styles.card,
         styles.threadCard,
@@ -696,7 +732,7 @@ function FileCard({ card }: { card: Extract<BotCard, { kind: 'file' }> }) {
           {`${t('bot.file')} · ${formatBytes(card.size)}`}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 

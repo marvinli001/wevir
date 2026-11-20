@@ -20,7 +20,7 @@ import type {
   UserImageMimeType,
   UserImagePart,
 } from '@wevir/protocol';
-import { verifyApproval } from './approval-gate';
+import { ApprovalUnavailableError, verifyApprovalOption } from './approval-gate';
 import type { Avatar } from './bot-avatar';
 import {
   type Bot,
@@ -430,21 +430,14 @@ export class BotStore {
     this.addPosts(key, [post]);
   }
 
-  /** 批准或拒绝协调者的审批：选这一类里的“仅这一次”。 */
-  async respondApproval(
-    key: string,
-    approvalId: string,
-    decision: 'approved' | 'rejected',
-  ): Promise<void> {
+  /** 批准或拒绝协调者的审批：发送用户选定的选项。 */
+  async respondApproval(key: string, approvalId: string, optionId: string): Promise<void> {
     const { client } = this.connected(key);
     const timeline = this.timeline(key);
     const request = timeline.approvals.find((a) => a.id === approvalId);
-    if (request === undefined) return;
-    const category = decision === 'approved' ? 'allow' : 'reject';
-    const options = request.options.filter((o) => o.category === category);
-    const option = options.find((o) => o.kind.endsWith('_once')) ?? options[0];
-    if (option === undefined) throw new Error(`no ${category} option`);
-    await verifyApproval(request, category);
+    if (request === undefined) throw new ApprovalUnavailableError('handled');
+    const option = await verifyApprovalOption(request, optionId);
+    const decision = option.category === 'allow' ? 'approved' : 'rejected';
     await client.request('approval.respond', {
       approvalId: request.id,
       optionId: option.optionId,

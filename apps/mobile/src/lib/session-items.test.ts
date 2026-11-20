@@ -38,6 +38,46 @@ function transcript(
 
 beforeAll(() => setLocale('zh-CN'));
 
+it('keeps the latest decision below the finished reply, includes changed turns, and drops stale buttons', () => {
+  const prompt = answer('a', 'trn_1', [{ type: 'text', key: 'reply', text: 'Ready' }], {
+    outcome: 'completed',
+    durationMs: 2,
+  });
+  const wrapped = {
+    ...prompt,
+    wrapUp: {
+      seq: 7,
+      recap: 'Done',
+      ask: 'Keep it?',
+      actions: [{ label: 'Keep', message: 'Keep the files' }],
+    },
+  } as ChatMessage;
+  const items = sessionItems(transcript([wrapped]), LABELS, {
+    checkpoints: [{ turnId: 'trn_1', fileCount: 2 }],
+  });
+  expect(visibleItems(items, new Map()).map((item) => item.kind)).toEqual([
+    'assistant',
+    'turn-changes',
+    'wrap-up',
+  ]);
+  expect(items.at(-1)).toMatchObject({
+    seq: 7,
+    ask: 'Keep it?',
+    actions: [{ label: 'Keep', message: 'Keep the files' }],
+  });
+  expect(
+    sessionItems(transcript([wrapped, user('later', 'Next')]), LABELS).some(
+      (item) => item.kind === 'wrap-up',
+    ),
+  ).toBe(false);
+  expect(
+    sessionItems(
+      transcript([{ ...prompt, wrapUp: { seq: 8, recap: 'Done' } } as ChatMessage]),
+      LABELS,
+    ).some((item) => item.kind === 'wrap-up'),
+  ).toBe(false);
+});
+
 describe('手机接力与额度部件', () => {
   it('保留接力、模型配置与额度错误，不改成普通错误', () => {
     const parts = [

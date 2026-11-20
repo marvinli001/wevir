@@ -63,13 +63,30 @@ function question(overrides: Partial<QuestionRequest> = {}): QuestionRequest {
 }
 
 describe('session actions', () => {
-  it('only cancels an existing automatic continuation through the Host method', async () => {
+  it('arms and cancels automatic continuation and resumes the same turn with another model', async () => {
     const { fake, calls } = client();
-    await new SessionActions(fake, SES, random).cancelAutoContinue('trn_1');
+    const actions = new SessionActions(fake, SES, random);
+    await actions.setAutoContinue('trn_1', true);
+    await actions.setAutoContinue('trn_1', false);
+    await actions.continueWithModel('trn_1', 'other', 'm');
     expect(calls).toEqual([
       {
         method: 'session.setAutoContinue',
+        params: { sessionId: SES, turnId: 'trn_1', enabled: true },
+      },
+      {
+        method: 'session.setAutoContinue',
         params: { sessionId: SES, turnId: 'trn_1', enabled: false },
+      },
+      {
+        method: 'session.continueWithModel',
+        params: {
+          sessionId: SES,
+          turnId: 'trn_1',
+          providerId: 'other',
+          modelId: 'm',
+          reasoningEffort: null,
+        },
       },
     ]);
   });

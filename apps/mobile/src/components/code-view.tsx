@@ -1,7 +1,7 @@
 // 只读的代码视图：diff（两列行号、增删底色、`@@` 段头）与完整文件（一列行号）共用。竖向是虚拟化的 FlatList（行高固定），
 // 外面套一层横向的 ScrollView，宽度按最长的一行算，长行横向滚动而不换行。
 
-import { type ReactElement, useMemo } from 'react';
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Platform,
@@ -31,6 +31,7 @@ export interface CodeViewProps {
   onEndReached?: () => void;
   /** 底部浮着的工具栏占的高度。 */
   bottomInset: number;
+  focusLine?: number | undefined;
 }
 
 export function CodeView({
@@ -41,6 +42,7 @@ export function CodeView({
   footer,
   onEndReached,
   bottomInset,
+  focusLine,
 }: CodeViewProps) {
   const { width: screen } = useWindowDimensions();
   const lines = useMemo(() => rows.map((row) => displayLine(row.text)), [rows]);
@@ -56,6 +58,20 @@ export function CodeView({
   const gutter = mode === 'diff' ? numberWidth * 2 + CHAR_WIDTH * 2 : numberWidth + 6;
   const width = Math.max(screen, gutter + widestLine(lines) * CHAR_WIDTH + PADDING * 2);
 
+  const list = useRef<FlatList<DiffRow>>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const [laidOut, setLaidOut] = useState(false);
+  const focusIndex = useMemo(
+    () => (focusLine ? rows.findIndex((row) => 'newLine' in row && row.newLine === focusLine) : -1),
+    [rows, focusLine],
+  );
+  useEffect(() => {
+    if (laidOut && focusIndex >= 0)
+      list.current?.scrollToOffset({
+        offset: Math.max(0, headerHeight + (focusIndex - 2) * LINE_HEIGHT),
+        animated: false,
+      });
+  }, [laidOut, focusIndex, headerHeight]);
   return (
     <ScrollView
       horizontal
@@ -64,13 +80,19 @@ export function CodeView({
       bounces={false}
     >
       <FlatList
+        ref={list}
+        onLayout={() => setLaidOut(true)}
         style={{ width }}
         data={rows}
         keyExtractor={(_, index) => String(index)}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{ paddingBottom: bottomInset + 16 }}
         scrollIndicatorInsets={{ bottom: bottomInset }}
-        getItemLayout={(_, index) => ({ length: LINE_HEIGHT, offset: LINE_HEIGHT * index, index })}
+        getItemLayout={(_, index) => ({
+          length: LINE_HEIGHT,
+          offset: headerHeight + LINE_HEIGHT * index,
+          index,
+        })}
         initialNumToRender={60}
         maxToRenderPerBatch={80}
         windowSize={11}
@@ -78,7 +100,12 @@ export function CodeView({
         onEndReachedThreshold={2}
         ListHeaderComponent={
           header !== undefined && header !== null ? (
-            <View style={{ width: screen }}>{header}</View>
+            <View
+              style={{ width: screen }}
+              onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+            >
+              {header}
+            </View>
           ) : undefined
         }
         ListFooterComponent={
@@ -88,6 +115,7 @@ export function CodeView({
         }
         renderItem={({ item, index }) => (
           <Line
+            highlighted={index === focusIndex}
             row={item}
             text={lines[index] ?? ''}
             mode={mode}
@@ -101,12 +129,14 @@ export function CodeView({
 }
 
 function Line({
+  highlighted,
   row,
   text,
   mode,
   numberWidth,
   theme,
 }: {
+  highlighted: boolean;
   row: DiffRow;
   text: string;
   mode: 'diff' | 'file';
@@ -141,7 +171,14 @@ function Line({
     row.kind === 'add' ? theme.success : row.kind === 'remove' ? theme.destructive : undefined;
   const number = { width: numberWidth, color: theme.mutedForeground };
   return (
-    <View style={[styles.line, tint !== undefined && { backgroundColor: `${tint}1c` }]}>
+    <View
+      style={[
+        styles.line,
+        highlighted
+          ? { backgroundColor: theme.muted }
+          : tint !== undefined && { backgroundColor: `${tint}1c` },
+      ]}
+    >
       {mode === 'diff' && (
         <Text style={[styles.code, styles.number, number]}>{row.oldLine ?? ''}</Text>
       )}

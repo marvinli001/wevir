@@ -1,27 +1,20 @@
 // 变更里的一个文件：标题是文件名，下面一行是目录与在列表里的位置；内容是这个文件的 diff，或经 `files.read` 分块读的完整文件
 // （滚到底读下一块）。底部浮着“上一个 / 差异·完整文件 / 下一个”，按文件翻页。
 
-import type { DiffFile, SessionId } from '@wevir/protocol';
+import type { TurnId } from '@wevir/protocol';
 import { GlassView } from 'expo-glass-effect';
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { type ReactNode, useState } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CodeView, Counts } from '../../../components/code-view';
+import { FileContents, Placeholder } from '../../../components/file-contents';
+import { RevisionFile } from '../../../components/revision-file';
 import { GLASS, Icon, type IconName, Segmented } from '../../../components/ui';
 import { type MessageKey, t } from '../../../i18n';
-import { type ChangesClient, PROBLEM_TEXT, problemOf } from '../../../lib/changes';
+import { PROBLEM_TEXT } from '../../../lib/changes';
 import { type DiffRow, filePage, noDiffReason, splitPath } from '../../../lib/diff';
-import { ChunkedFile, FILE_MAX_LINES, type FileView } from '../../../lib/file-reader';
 import { useChanges } from '../../../state/changes';
 import { SPACE, TEXT, type Theme, useTheme } from '../../../theme';
 
@@ -30,11 +23,11 @@ type Mode = 'diff' | 'file';
 const BAR_HEIGHT = 48;
 
 export default function ChangedFileScreen() {
-  const { key, path } = useLocalSearchParams<{ key: string; path: string }>();
+  const { key, path, turn } = useLocalSearchParams<{ key: string; path: string; turn?: TurnId }>();
   const router = useRouter();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const state = useChanges(key, { reuse: true });
+  const state = useChanges(key, { reuse: true, turnId: turn });
   const [mode, setMode] = useState<Mode>('diff');
   const files = state.changes?.files ?? [];
   const file = files.find((f) => f.path === path);
@@ -102,12 +95,24 @@ export default function ChangedFileScreen() {
       );
   } else {
     body =
-      state.client !== undefined && file !== undefined ? (
-        <FullFile
+      state.client && file && turn && (state.changes.diff.head || file.status === 'deleted') ? (
+        <RevisionFile
+          key={JSON.stringify([turn, path])}
+          client={state.client}
+          workspaceId={state.changes.workspaceId}
+          sessionId={state.sessionId}
+          path={file.status === 'deleted' ? (file.previousPath ?? path) : path}
+          side={file.status === 'deleted' ? 'old' : 'new'}
+          revision={file.status === 'deleted' ? state.changes.diff.base : state.changes.diff.head}
+          header={header}
+          bottomInset={bottomInset}
+        />
+      ) : state.client !== undefined && file !== undefined ? (
+        <FileContents
           key={`file:${path}`}
           client={state.client}
-          sessionId={state.sessionId}
-          file={file}
+          target={{ sessionId: state.sessionId, path: file.path }}
+          deleted={file.status === 'deleted'}
           header={header}
           theme={theme}
           bottomInset={bottomInset}
@@ -158,128 +163,6 @@ const REASON_TEXT: Record<'binary' | 'too_large' | 'empty', MessageKey> = {
   too_large: 'changes.tooLarge',
   empty: 'changes.noContent',
 };
-
-function FullFile({
-  client,
-  sessionId,
-  file,
-  header,
-  theme,
-  bottomInset,
-}: {
-  client: ChangesClient;
-  sessionId: SessionId;
-  file: DiffFile;
-  header: ReactElement;
-  theme: Theme;
-  bottomInset: number;
-}) {
-  const reader = useRef<ChunkedFile | undefined>(undefined);
-  const [view, setView] = useState<FileView | undefined>(undefined);
-  const [error, setError] = useState<MessageKey | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
-  const deleted = file.status === 'deleted';
-
-  const readMore = () => {
-    const current = reader.current;
-    if (current === undefined || current.done) return;
-    setLoading(true);
-    current
-      .next()
-      .then((next) => {
-        if (reader.current === current) setView(next);
-      })
-      .catch((e: unknown) => {
-        if (reader.current !== current) return;
-        setError(problemOf(e) === 'forbidden' ? 'changes.forbidden' : 'changes.file.failed');
-      })
-      .finally(() => {
-        if (reader.current === current) setLoading(false);
-      });
-  };
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在换文件（组件按路径重建）时开始读。
-  useEffect(() => {
-    if (deleted) return;
-    if (!client.canRead) {
-      setError('changes.forbidden');
-      return;
-    }
-    if (!client.supportsFiles) {
-      setError('changes.file.unsupported');
-      return;
-    }
-    const current = new ChunkedFile((params) => client.request('files.read', params), {
-      sessionId,
-      path: file.path,
-    });
-    reader.current = current;
-    readMore();
-    return () => {
-      reader.current = undefined;
-    };
-  }, []);
-
-  const rows = useMemo<DiffRow[]>(
-    () => (view?.lines ?? []).map((text, index) => ({ kind: 'context', text, newLine: index + 1 })),
-    [view?.lines],
-  );
-
-  if (deleted || error !== undefined || view?.binary === true) {
-    return (
-      <Placeholder
-        header={header}
-        text={t(deleted ? 'changes.file.deleted' : (error ?? 'changes.binary'))}
-        theme={theme}
-      />
-    );
-  }
-  if (view === undefined) {
-    return <Placeholder header={header} theme={theme} />;
-  }
-  const notes: string[] = [];
-  if (view.capped) notes.push(t('changes.file.capped', { count: FILE_MAX_LINES }));
-  if (view.changed) notes.push(t('changes.file.changed'));
-  return (
-    <CodeView
-      rows={rows}
-      mode="file"
-      theme={theme}
-      header={header}
-      bottomInset={bottomInset}
-      onEndReached={readMore}
-      footer={
-        loading ? (
-          <ActivityIndicator style={styles.more} color={theme.mutedForeground} />
-        ) : notes.length > 0 ? (
-          <Text style={[styles.note, { color: theme.mutedForeground }]}>{notes.join(' · ')}</Text>
-        ) : null
-      }
-    />
-  );
-}
-
-/** 没有代码可显示时：文件头加一行说明，没给说明时是转圈。放在滚动视图里，iOS 上才会让出透明导航栏的高度。 */
-function Placeholder({
-  header,
-  text,
-  theme,
-}: {
-  header?: ReactElement;
-  text?: string;
-  theme: Theme;
-}) {
-  return (
-    <ScrollView contentInsetAdjustmentBehavior="automatic">
-      {header}
-      {text !== undefined ? (
-        <Text style={[styles.message, { color: theme.mutedForeground }]}>{text}</Text>
-      ) : (
-        <ActivityIndicator style={styles.loading} color={theme.mutedForeground} />
-      )}
-    </ScrollView>
-  );
-}
 
 function RoundButton({
   icon,

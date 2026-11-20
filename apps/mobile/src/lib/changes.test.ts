@@ -9,13 +9,12 @@ const WSP = 'wsp_01JA2B3C4D5E6F7G8H9JKMNPQR' as WorkspaceId;
 function fakeClient(
   overrides: Partial<ChangesClient> & { diff?: unknown; fail?: unknown } = {},
 ): ChangesClient & { request: ReturnType<typeof vi.fn> } {
-  const request = vi.fn(async (method: string, params: unknown) => {
+  const request = vi.fn(async (method: string, _params: unknown) => {
     if (overrides.fail !== undefined) throw overrides.fail;
     if (method === 'session.get') {
       return { session: { id: SES, workspaceId: WSP } as unknown as Session };
     }
     if (method === 'workspace.diff') {
-      expect(params).toEqual({ workspaceId: WSP, sessionId: SES, source: { kind: 'branch' } });
       return overrides.diff;
     }
     throw new Error(`unexpected ${method}`);
@@ -45,10 +44,28 @@ describe('loadChanges', () => {
       },
     });
     const changes = await loadChanges(client, 'mac/ses', SES);
+    expect(client.request).toHaveBeenCalledWith('workspace.diff', {
+      workspaceId: WSP,
+      sessionId: SES,
+      source: { kind: 'branch' },
+    });
     expect(changes.workspaceId).toBe(WSP);
     expect(changes.files.map((f) => f.path)).toEqual(['x']);
     expect(changes.rows.get('x')?.map((r) => r.kind)).toEqual(['hunk', 'remove', 'add']);
     expect(cachedChanges('mac/ses')).toBe(changes);
+  });
+
+  it('reads the requested turn snapshot and distinguishes a missing checkpoint from an empty diff', async () => {
+    const client = fakeClient({ diff: { repo: true, unavailable: 'no_checkpoint' } });
+    await expect(loadChanges(client, 'scope', SES, 'trn_1')).rejects.toMatchObject({
+      problem: 'no_checkpoint',
+    });
+    expect(client.request).toHaveBeenCalledWith('workspace.diff', {
+      workspaceId: WSP,
+      sessionId: SES,
+      source: { kind: 'turn', turnId: 'trn_1' },
+    });
+    expect(cachedChanges('scope')).toBeUndefined();
   });
 
   it('says why it cannot read', async () => {

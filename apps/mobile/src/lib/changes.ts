@@ -1,9 +1,15 @@
-// 会话的变更（只读）：`session.get` 取工作区，再读 `workspace.diff` 的 `branch` 一段——分支领先默认分支时是分叉以来加未提交的
+// 会话的变更（只读）：指定回合读其快照，默认 `session.get` 取工作区，再读 `workspace.diff` 的 `branch` 一段——分支领先默认分支时是分叉以来加未提交的
 // 改动，否则（在默认分支上、找不到默认分支）只有未提交的，同桌面“变更”窗格与 Claude Code 的口径。读到的放在内存里，
 // 单个文件的页面直接用，不再读一遍。连接由调用方注入，测试用假的。
 
 import { type WevirClient, WevirRpcError } from '@wevir/client-sdk';
-import type { DiffFile, SessionId, WorkspaceDiffResult, WorkspaceId } from '@wevir/protocol';
+import type {
+  DiffFile,
+  SessionId,
+  TurnId,
+  WorkspaceDiffResult,
+  WorkspaceId,
+} from '@wevir/protocol';
 import type { MessageKey } from '../i18n/zh-CN';
 import { type DiffRow, diffRowsByPath } from './diff';
 
@@ -33,6 +39,7 @@ export type ChangesProblem =
   | 'unsupported'
   /** 会话目录不是 git 仓库（或 git 出错、超时）。 */
   | 'not_repo'
+  | 'no_checkpoint'
   | 'failed';
 
 export class ChangesError extends Error {
@@ -49,6 +56,7 @@ export const PROBLEM_TEXT: Record<ChangesProblem, MessageKey> = {
   unsupported: 'changes.unsupported',
   not_repo: 'changes.notRepo',
   failed: 'changes.failed',
+  no_checkpoint: 'changes.noCheckpoint',
 };
 
 export function problemOf(error: unknown): ChangesProblem {
@@ -68,16 +76,22 @@ export async function loadChanges(
   client: ChangesClient,
   key: string,
   sessionId: SessionId,
+  turnId?: TurnId,
 ): Promise<Changes> {
-  if (!client.canRead) throw new ChangesError('forbidden');
+  if (!client.canRead) {
+    cache.delete(key);
+    throw new ChangesError('forbidden');
+  }
   if (!client.supportsDiff) throw new ChangesError('unsupported');
   try {
     const { session } = await client.request('session.get', { sessionId });
     const diff = await client.request('workspace.diff', {
       workspaceId: session.workspaceId,
       sessionId,
-      source: { kind: 'branch' },
+      source: turnId ? { kind: 'turn', turnId } : { kind: 'branch' },
     });
+    if (diff.unavailable)
+      throw new ChangesError(diff.unavailable === 'no_checkpoint' ? 'no_checkpoint' : 'failed');
     if (!diff.repo) throw new ChangesError('not_repo');
     const changes: Changes = {
       workspaceId: session.workspaceId,
@@ -91,7 +105,9 @@ export async function loadChanges(
     while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value as string);
     return changes;
   } catch (error) {
-    throw error instanceof ChangesError ? error : new ChangesError(problemOf(error), error);
+    const problem = problemOf(error);
+    if (problem !== 'failed') cache.delete(key);
+    throw error instanceof ChangesError ? error : new ChangesError(problem, error);
   }
 }
 

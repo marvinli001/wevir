@@ -238,6 +238,12 @@ function wrapClient(client: WevirClient, identity: ClientIdentity): LinkClient {
         get canReadProviders() {
           return client.can('provider.read');
         },
+        get canWritePolicy() {
+          return client.can('policy.write');
+        },
+        get engineFeatures() {
+          return client.hello.engineFeatures;
+        },
         supports: (feature) => client.supports(feature),
         request: (method, ...args) => client.request(method, ...args),
         subscribe: (sessionId, options) => client.subscribe(sessionId, options),

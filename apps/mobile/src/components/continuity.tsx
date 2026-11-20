@@ -5,12 +5,13 @@ import {
   usageLimitState,
 } from '@wevir/client-sdk';
 import type { AccountState, ProviderProfile, TurnId } from '@wevir/protocol';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { t } from '../i18n';
 import { clockLabel, continuityView, modelLabel } from '../lib/continuity';
 import { RADIUS, SPACE, TEXT, type Theme } from '../theme';
+import { MenuTrigger } from './menu';
 import { SourceIcon } from './source-icon';
 import { Button, Icon } from './ui';
 
@@ -18,7 +19,10 @@ export interface ContinuityContext {
   providers: readonly ProviderProfile[];
   accounts?: readonly AccountState[];
   autoContinue?: AutoContinueState;
-  cancelAutoContinue?: (turnId: TurnId) => Promise<void>;
+  setAutoContinue?: (turnId: TurnId, enabled: boolean) => Promise<void>;
+  switchTurn?: TurnId;
+  switchModel?: (turnId: TurnId, providerId: string, modelId: string) => Promise<void>;
+  models?: readonly { providerId: string; modelId: string; label: string }[];
 }
 
 export function HandoffRow({
@@ -137,22 +141,31 @@ export function UsageLimitCard({
   theme: Theme;
 }) {
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const { armed } = usageLimitState(part, context.autoContinue);
+  const pending = useRef(false);
+  const [error, setError] = useState<string>();
+  const { armed, toggleable } = usageLimitState(part, context.autoContinue);
   const limit = part.usageLimit;
   if (limit === undefined) return null;
-  const cancel = async () => {
-    if (!armed || !context.cancelAutoContinue) return;
+  const turn = part.turnId;
+  const run = async (
+    operation: () => Promise<void>,
+    failure: 'usageLimit.failed' | 'usageLimit.switchFailed',
+  ) => {
+    if (pending.current) return;
+    pending.current = true;
     setBusy(true);
-    setFailed(false);
+    setError(undefined);
     try {
-      await context.cancelAutoContinue(armed.turnId);
-    } catch {
-      setFailed(true);
+      await operation();
+    } catch (reason) {
+      setError(t(failure, { error: reason instanceof Error ? reason.message : String(reason) }));
     } finally {
+      pending.current = false;
       setBusy(false);
     }
   };
+  const setAuto = context.setAutoContinue;
+  const switchModel = context.switchModel;
   return (
     <View
       style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}
@@ -190,17 +203,50 @@ export function UsageLimitCard({
           {t('usageLimit.resumed', { time: clockLabel(part.resumedAt) })}
         </Text>
       )}
-      {armed && context.cancelAutoContinue && (
+      {turn && setAuto && (armed || toggleable) && (
         <Button
           kind="secondary"
-          title={t('usageLimit.cancel')}
+          title={t(armed ? 'usageLimit.cancel' : 'usageLimit.autoContinue')}
           disabled={busy}
-          onPress={() => void cancel()}
+          onPress={() => void run(() => setAuto(turn, !armed), 'usageLimit.failed')}
         />
       )}
-      {failed && (
-        <Text style={[styles.caption, { color: theme.destructive }]}>
-          {t('usageLimit.cancelFailed')}
+      {turn &&
+        switchModel &&
+        context.switchTurn === turn &&
+        !part.resumedAt &&
+        !!context.models?.length && (
+          <MenuTrigger
+            label={t('usageLimit.switchModel')}
+            disabled={busy}
+            sections={[
+              {
+                items: context.models.map((model) => ({
+                  id: JSON.stringify([model.providerId, model.modelId]),
+                  label: model.label,
+                  onPress: () =>
+                    void run(
+                      () => switchModel(turn, model.providerId, model.modelId),
+                      'usageLimit.switchFailed',
+                    ),
+                })),
+              },
+            ]}
+            style={{
+              padding: 12,
+              alignItems: 'center',
+              backgroundColor: theme.muted,
+              borderRadius: 12,
+            }}
+          >
+            <Text style={{ color: theme.foreground, fontWeight: '600' }}>
+              {t('usageLimit.switchModel')}
+            </Text>
+          </MenuTrigger>
+        )}
+      {error && (
+        <Text accessibilityRole="alert" style={[styles.caption, { color: theme.foreground }]}>
+          {error}
         </Text>
       )}
       <Text selectable style={[styles.caption, { color: theme.mutedForeground }]}>

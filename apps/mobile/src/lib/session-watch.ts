@@ -15,15 +15,8 @@ import type {
   WevirClient,
 } from '@wevir/client-sdk';
 import { TranscriptProjection } from '@wevir/client-sdk';
-import type {
-  ApprovalId,
-  ApprovalRequest,
-  ClientIdentity,
-  Session,
-  SessionId,
-  WevirEvent,
-} from '@wevir/protocol';
-import { ApprovalUnavailableError, verifyApproval } from './approval-gate';
+import type { ApprovalId, ClientIdentity, Session, SessionId, WevirEvent } from '@wevir/protocol';
+import { ApprovalUnavailableError, verifyApprovalOption } from './approval-gate';
 import type { SessionCache } from './cache';
 
 /** 一台电脑上按 ID 看会话的接口（`WevirClient` 的一部分）。 */
@@ -178,16 +171,16 @@ export class SessionWatch {
     if (!this.#stopped) this.#set({ session, liveSession: true });
   }
 
-  /** 批准或拒绝：选这一类里的“仅这一次”。高风险的批准先验证本人（approval-gate.ts）。 */
-  async respond(approvalId: ApprovalId, decision: 'approved' | 'rejected'): Promise<void> {
+  /** 按用户所选的引擎选项回应，高风险批准先验证本人。 */
+  async respond(approvalId: ApprovalId, optionId: string): Promise<void> {
     const client = this.#client;
     if (client === undefined || this.#stopped) throw new ApprovalUnavailableError('offline');
     const request = this.#view.transcript?.approvals.get(approvalId);
     if (request === undefined) throw new ApprovalUnavailableError('handled');
-    await verifyApproval(request, decision === 'approved' ? 'allow' : 'reject');
+    await verifyApprovalOption(request, optionId);
     await client.request('approval.respond', {
       approvalId,
-      optionId: pickOption(request, decision),
+      optionId,
     });
   }
 
@@ -235,13 +228,4 @@ function lastSeq(events: readonly WevirEvent[]): number {
   let max = 0;
   for (const event of events) if (event.seq > max) max = event.seq;
   return max;
-}
-
-/** 审批里这一类（允许 / 拒绝）的“仅这一次”，没有时取这一类的第一个。 */
-export function pickOption(request: ApprovalRequest, decision: 'approved' | 'rejected'): string {
-  const category = decision === 'approved' ? 'allow' : 'reject';
-  const options = request.options.filter((o) => o.category === category);
-  const option = options.find((o) => o.kind.endsWith('_once')) ?? options[0];
-  if (option === undefined) throw new Error(`no ${category} option`);
-  return option.optionId;
 }

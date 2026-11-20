@@ -6,6 +6,7 @@
 import { accountId, isRpcError } from '@wevir/client-sdk';
 import type {
   AccountState,
+  EngineFeatures,
   HostFeature,
   MethodParams,
   PermissionMode,
@@ -207,6 +208,8 @@ export type NewSessionOptions =
 
 /** 新建会话要用到的连接（`SessionClient` 加功能位与权限）。 */
 export interface NewSessionClient extends SessionClient {
+  readonly canWritePolicy?: boolean;
+  readonly engineFeatures?: Readonly<Record<string, EngineFeatures>> | undefined;
   readonly canReadProviders: boolean;
   supports(feature: HostFeature): boolean;
 }
