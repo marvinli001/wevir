@@ -2686,7 +2686,14 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           ...(turn.promptCacheExpiresAt !== undefined && {
             promptCacheExpiresAt: turn.promptCacheExpiresAt,
           }),
-          ...(breakdown !== undefined && { breakdown }),
+          ...(breakdown !== undefined && {
+            breakdown: {
+              ...breakdown,
+              measuredAt: new Date().toISOString(),
+              measuredUsed: contextUsed,
+              precision: 'engine',
+            },
+          }),
         });
       },
       // 老版本的 `claude` 不认这个请求，或进程已经走了：没有分布而已。

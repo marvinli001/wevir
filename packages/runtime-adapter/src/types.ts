@@ -17,6 +17,7 @@ export type PermissionMode = 'on_request' | 'auto_review' | 'full_access';
  */
 export type CollaborationMode = 'default' | 'plan';
 
+import type { ContextPart } from './context-breakdown.js';
 import type { EnginePluginConfig } from './plugins.js';
 
 /** 建会话与恢复会话的参数。 */
@@ -58,6 +59,8 @@ export interface SessionConfig {
    * 不变。
    */
   appToolsContext?: string;
+  /** Latest per-session Host tools/list and initialize supply, already measured and filtered. */
+  contextSupply?: (view: 'layered' | 'dispatch') => readonly ContextPart[];
   /**
    * Host 补给的规则文件（0.68.0，domain-model §3.27）：引擎自己不读的 AGENTS.md / CLAUDE.md / GEMINI.md / Cursor 规则，已排好、带
    * 来源路径的一段正文。只有 `ruleFiles(providerId).instructions` 为 true 的适配器会收到；适配器把它放进引擎每次请求都带的系统或

@@ -109,6 +109,9 @@ describe('上下文分布（0.50.0）', () => {
       type: 'usage.updated',
       contextSize: 200_000,
       breakdown: {
+        measuredAt: expect.any(String),
+        measuredUsed: expect.any(Number),
+        precision: 'engine',
         categories: [
           { name: 'Messages', tokens: 4000, kind: 'used' },
           { name: 'Free space', tokens: 196_000, kind: 'free' },

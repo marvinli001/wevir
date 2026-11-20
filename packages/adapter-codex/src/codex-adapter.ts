@@ -5,6 +5,7 @@ import {
   type ModelGatewayOptions,
   type RequestObservation,
   testProvider,
+  toolSearchMode,
   VertexTokenCache,
   validateProvider,
 } from '@wevir/model-gateway';
@@ -21,6 +22,8 @@ import {
   type ApprovalOption,
   type AppToolsEndpoint,
   type CancelOptions,
+  type ContextPart,
+  contextPart,
   type EngineAccounts,
   type EngineExitedEvent,
   type EngineGoal,
@@ -35,14 +38,17 @@ import {
   type ForkOptions,
   type GatewayPrivacySource,
   type GoalStartRequest,
+  instructionParts,
   isAdapterError,
   MCP_URL_ELICITATION_TOOL,
+  measureContext,
   type PendingApproval,
   type PermissionMode,
   type ProviderConfig,
   type ProviderIssue,
   type ProviderModelConfig,
   type ProviderTestResult,
+  projectInstructionFiles,
   type ReviewRequest,
   redactDiagnostics,
   type SessionConfig,
@@ -50,6 +56,7 @@ import {
   type TurnFailedEvent,
   trimSessionCache,
   URL_ELICITATION_OPTIONS,
+  type UsageUpdatedEvent,
   type UserQuestion,
 } from '@wevir/runtime-adapter';
 import {
@@ -96,6 +103,13 @@ import {
   webToolThreadConfig,
   writeCodexConfig,
 } from './config.js';
+import {
+  codexMcpParts,
+  codexSkillParts,
+  codexTools,
+  gatewayDeferred,
+  subscriptionToolSearch,
+} from './context-supply.js';
 import { buildCodexEnv } from './env.js';
 import { GatewayHome } from './gateway-home.js';
 import { engineGoal, goalNotification } from './goals.js';
@@ -319,6 +333,11 @@ export interface CodexAdapterOptions {
 }
 
 interface Turn {
+  openedAt?: number;
+  usage?: UsageUpdatedEvent;
+  agentRequest?: RequestObservation;
+  compactedAt?: number;
+
   /**
    * `turn/start`（`review/start`）的结果到了才有；`thread/compact/start` 不给回合 ID，等 app-server 的 `turn/started`
    * （0.24.0）。
@@ -361,6 +380,15 @@ interface PendingCodexApproval {
 }
 
 interface CodexSession {
+  files?: Array<{ name: string; text: string }>;
+  contextMcp?: Promise<ContextPart[]>;
+  contextSkills?: Promise<ContextPart[]>;
+  instructionSupply?: ContextPart[];
+  catalog?: ContextPart[];
+  skills?: ContextPart[];
+  modelSupply?: { id: string; value: boolean };
+  lastMeasuredTurn?: Turn;
+
   readonly id: string;
   readonly cwd: string;
   readonly providerId: string;
@@ -782,8 +810,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.#prompt = new BasePrompt(options.promptsDir ?? defaultPromptsDir());
     this.#launcher = new Launcher(options, this.#logger);
     this.#unobserve =
-      this.#launcher.home?.observe(options.providerId, (observation) =>
-        this.#gatewayUsage(observation),
+      this.#launcher.home?.observe(
+        options.providerId,
+        (observation) => this.#gatewayUsage(observation),
+        (id) => this.#sessions.get(id)?.files,
       ) ?? (() => {});
     this.paths = this.#launcher.paths;
     this.process = new CodexProcess({
@@ -923,7 +953,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         throw engineError(error, 'thread/start', this.#logger);
       }
       const id = response.thread.id;
-      this.#register(
+      await this.#register(
         id,
         config.cwd,
         provider,
@@ -981,7 +1011,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         excludeTurns: true,
       };
       const response = await this.#resumeThread(params);
-      this.#register(
+      await this.#register(
         engineSessionId,
         config.cwd,
         provider,
@@ -1225,6 +1255,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   /** 回合结束：报终结事件，结算回合。 */
   #finishTurn(session: CodexSession, turn: Turn, terminal: AgentEvent): void {
     this.#flushPendingUsage(session.id);
+    session.lastMeasuredTurn = turn;
+    this.#publishContext(session, turn);
     session.hub.emit(terminal);
     session.turn = undefined;
     if (turn.turnId !== undefined) session.lastTurnId = turn.turnId;
@@ -1525,7 +1557,31 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       }
       session.model = model;
     }
+    await settledWithin(this.#warmContext(session), 1500);
+    if (session.turn) throw new AdapterError('session_busy', '会话有进行中的回合');
     return session;
+  }
+
+  async #warmContext(session: CodexSession): Promise<void> {
+    const provider = this.#providers.get(session.providerId);
+    if (!this.#chatgpt && (!provider || toolSearchMode(provider) === 'off')) return;
+    session.contextMcp ??= codexMcpParts(this.process, session.id).catch(() => []);
+    if (this.#chatgpt)
+      session.contextSkills ??= codexSkillParts(this.process, session.cwd).catch(() => []);
+    const mcp = session.contextMcp;
+    const skills = session.contextSkills;
+    const modelId = session.model.id;
+    const [catalog, list, model] = await Promise.all([
+      mcp,
+      skills,
+      this.#chatgpt && session.modelSupply?.id !== modelId
+        ? subscriptionToolSearch(this.paths.codexHome, modelId)
+        : undefined,
+    ]);
+    if (session.contextMcp === mcp) session.catalog = catalog;
+    if (session.contextSkills === skills) session.skills = list;
+    if (model !== undefined && session.model.id === modelId)
+      session.modelSupply = { id: modelId, value: model };
   }
 
   #beginTurn(session: CodexSession, kind?: Turn['kind'], engine?: true): Turn {
@@ -1533,6 +1589,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const turn: Turn = {
       ...(kind !== undefined && { kind }),
       ...(engine && { engine }),
+      openedAt: performance.now(),
       cancelRequested: false,
       steers: new Set(),
       done: new Promise<void>((resolve) => {
@@ -1540,6 +1597,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       }),
       settle: () => settle(),
     };
+    session.lastMeasuredTurn = undefined;
+    if (engine && !session.parentId) void this.#warmContext(session);
     session.turn = turn;
     session.mapper.reset(kind === 'compact' ? 'manual' : 'auto');
     return turn;
@@ -1659,7 +1718,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         throw engineError(error, 'thread/fork', this.#logger);
       }
       const id = response.thread.id;
-      this.#register(
+      await this.#register(
         id,
         config.cwd,
         provider,
@@ -2384,6 +2443,20 @@ export class CodexAdapter implements AgentRuntimeAdapter {
 
   #onNotification(method: string, params: unknown): void {
     this.#plugins.notification(method);
+    if (
+      method === 'skills/changed' ||
+      method === 'mcpServer/startupStatus/updated' ||
+      (method === 'mcpServer/event/stream/notification' &&
+        isRecord(params) &&
+        isRecord(params.notification) &&
+        params.notification.method === 'notifications/tools/list_changed')
+    ) {
+      for (const session of this.#sessions.values()) {
+        if (method === 'skills/changed') session.contextSkills = undefined;
+        else if (!isRecord(params) || !params.threadId || params.threadId === session.id)
+          session.contextMcp = undefined;
+      }
+    }
     this.#options.onRawNotification?.(method, params);
     const threadId =
       isRecord(params) && typeof params.threadId === 'string' ? params.threadId : undefined;
@@ -2513,7 +2586,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     if (method === 'error' && isRecord(params) && params.willRetry === false) {
       turn.lastErrorInfo = isRecord(params.error) ? params.error.codexErrorInfo : undefined;
     }
-    for (const event of session.mapper.map(method, params)) {
+    const mapped = session.mapper.map(method, params);
+    const requestUsage = !this.#chatgpt || mapped.some((event) => event.type === 'usage.recorded');
+    for (const event of mapped) {
       if (event.type === 'turn.failed' && this.#retryOverloaded(session, turn, params, event)) {
         continue;
       }
@@ -2523,6 +2598,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         this.#endQuestions(session, 'turn_ended');
         this.#finishTurn(session, turn, event);
       } else {
+        if (event.type === 'usage.updated' && requestUsage) turn.usage = event;
+        if (event.type === 'context.compacted') {
+          turn.agentRequest = undefined;
+          turn.usage = undefined;
+          turn.compactedAt = performance.now();
+        }
         if (event.type === 'assistant.message' && session.parentId !== undefined) {
           session.lastAnswer = event.text;
         }
@@ -3402,7 +3483,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     };
   }
 
-  #register(
+  async #register(
     id: string,
     cwd: string,
     provider: ProviderConfig,
@@ -3414,9 +3495,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     engineTools?: SessionConfig['engineTools'],
     fast?: boolean,
     resumeConfig?: SessionConfig,
-  ): void {
+  ): Promise<void> {
     // thread/start 结果到达之前这个 thread 的通知（状态变化）没人认领，不需要补。
     this.#unknownThreads.delete(id);
+    const files = await projectInstructionFiles(cwd, 'codex');
+    const developer =
+      resumeConfig && threadDeveloperInstructions(resumeConfig, this.#prompt).developerInstructions;
     this.#sessions.set(id, {
       id,
       cwd,
@@ -3424,6 +3508,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       providerId: provider.id,
       model,
       resumeConfig,
+      files,
+      ...(this.#chatgpt && {
+        instructionSupply: [
+          ...instructionParts(developer ?? '', 'System prompt'),
+          ...files.map((file) => contextPart('Memory files', file.text, file.name)),
+        ],
+      }),
       ...(this.#chatgpt && { appliedContextWindow: model.contextWindow ?? 500_000 }),
       effort: reasoningEffort === undefined ? null : toCodexEffort(reasoningEffort),
       fast: fast === true,
@@ -3465,7 +3556,52 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#pendingUsage.set(threadId, held);
       return;
     }
+    const turn = session.turn ?? session.lastMeasuredTurn;
+    if (
+      turn &&
+      session.parentId === undefined &&
+      observation.kind === 'agent' &&
+      observation.contextParts &&
+      observation.turnId &&
+      (!turn.turnId || turn.turnId === observation.turnId) &&
+      (observation.startedAt ?? 0) >=
+        Math.max(
+          turn.compactedAt ?? 0,
+          turn.agentRequest?.startedAt ?? 0,
+          turn.turnId ? 0 : (turn.openedAt ?? 0),
+        )
+    ) {
+      turn.agentRequest = observation;
+      if (turn === session.lastMeasuredTurn) this.#publishContext(session, turn);
+    }
     this.#emitGatewayUsage(session, observation, observation.turnId);
+  }
+
+  #publishContext(session: CodexSession, turn: Turn): void {
+    const last = turn.usage;
+    if (session.parentId || !last || turn.kind === 'compact') return;
+    const request = turn.agentRequest;
+    if (!this.#chatgpt && (!request?.usage || !request.contextParts)) return;
+    const config = session.resumeConfig;
+    const search = request?.toolSearch === true;
+    const model = session.modelSupply?.value;
+    const catalog = session.catalog ?? [];
+    const skills = session.skills ?? [];
+    const supplied = codexTools(config, catalog, request ? search : model === true);
+    if (request?.contextParts && request.usage) {
+      const u = request.usage;
+      const usage = {
+        ...last,
+        contextUsed: u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens,
+      };
+      const parts = search
+        ? [...request.contextParts, ...gatewayDeferred(request.contextParts, supplied)]
+        : request.contextParts;
+      session.hub.emit({ ...usage, breakdown: measureContext(parts, usage, 'exact-split') });
+    } else if (this.#chatgpt) {
+      const parts = [...supplied, ...skills, ...(session.instructionSupply ?? [])];
+      session.hub.emit({ ...last, breakdown: measureContext(parts, last, 'estimate') });
+    }
   }
 
   #emitGatewayUsage(
