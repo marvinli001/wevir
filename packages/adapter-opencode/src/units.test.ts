@@ -4,7 +4,7 @@ import { npmShimExecutable } from '@wevir/runtime-adapter';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   commonOpenCodeDirs,
   compareVersions,
@@ -41,7 +41,7 @@ import {
 } from './permissions.js';
 import { unsupportedVersion } from './runtime.js';
 import type { PermissionRule } from './sdk.js';
-import { isNotFound, OPENCODE_SDK_VERSION } from './sdk.js';
+import { isNotFound, loadOpenCodeSdk, OPENCODE_SDK_VERSION } from './sdk.js';
 import { parseDarwinPs, parseServerUrl } from './server.js';
 import { fakeProviderList } from './test-fixtures/fake-opencode.js';
 import { openCodeToolDisplay, patchPaths } from './tool-display.js';
@@ -651,6 +651,20 @@ describe('server output', () => {
 });
 
 describe('adapter helpers', () => {
+  it('状态查询把超时信号交给 1.x SDK', async () => {
+    const timeout = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(AbortSignal.abort(new Error('OpenCode status deadline')));
+    try {
+      const sdk = await loadOpenCodeSdk();
+      const client = sdk.connect({ directory: process.cwd(), baseUrl: 'http://127.0.0.1:1' });
+      await expect(client.status()).rejects.toThrow('OpenCode status deadline');
+      expect(timeout).toHaveBeenCalledWith(10_000);
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it('提问的 ID 与转换（opencode 的 custom 默认允许自己填）', () => {
     expect(questionId(0, 'Pick a Colour!')).toBe('question-0-pick-a-colour-');
     expect(questionId(2, '  ')).toBe('question-2');
