@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentEvent } from '@wevir/runtime-adapter';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, assert, describe, expect, it, vi } from 'vitest';
 import { CursorCredentialFile, cursorCredentialsPath } from './credentials.js';
 import {
   agentOptions,
@@ -64,7 +64,109 @@ async function until(events: AgentEvent[], type: AgentEvent['type']): Promise<Ag
 
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
+function holdSteer() {
+  let acknowledge = () => {};
+  const promise = new Promise<'complete_delivered'>((resolve) => {
+    acknowledge = () => resolve('complete_delivered');
+  });
+  return { promise, acknowledge };
+}
+
 describe('CursorAdapter', () => {
+  it('等 SDK 确认内容已进入回合才发出 turn.steered', async () => {
+    const { adapter, sdk, home } = setup();
+    sdk.script = () => ({ updates: [], hang: true });
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Working'));
+    const agent = sdk.agent(engineSessionId);
+    const [run] = agent.runs;
+    assert(run);
+    const ack = holdSteer();
+    const steer = vi.spyOn(run, 'steer').mockReturnValue(ack.promise);
+
+    const delivery = adapter.steer(engineSessionId, 'inserted', text('Change direction'));
+    expect(steer).toHaveBeenCalledExactlyOnceWith('Change direction');
+    expect(events).toEqual([]);
+    ack.acknowledge();
+    await delivery;
+    await until(events, 'turn.steered');
+    await adapter.cancel(engineSessionId);
+
+    expect(agent.sent).toHaveLength(1);
+    expect(events).toMatchObject([
+      { type: 'turn.steered', steerId: 'inserted' },
+      { type: 'turn.settled', outcome: 'cancelled' },
+    ]);
+  });
+
+  it('SDK 拒绝插话时交回 Host 排队，回合继续运行', async () => {
+    const { adapter, sdk, home } = setup();
+    sdk.script = () => ({ updates: [], hang: true });
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Working'));
+    const [run] = sdk.agent(engineSessionId).runs;
+    assert(run);
+    const steer = vi.spyOn(run, 'steer');
+    await expect(
+      adapter.steer(engineSessionId, 'rejected', text('Try later')),
+    ).rejects.toMatchObject({ code: 'steer_rejected' });
+    steer.mockRejectedValueOnce(new Error('SDK transport lost'));
+    await expect(adapter.steer(engineSessionId, 'error', text('Try again'))).rejects.toMatchObject({
+      code: 'steer_rejected',
+      message: expect.stringContaining('SDK transport lost'),
+    });
+    await expect(
+      adapter.steer(engineSessionId, 'image', {
+        content: [
+          { type: 'text', text: 'Look at this' },
+          { type: 'image', path: join(home, 'image.png'), mimeType: 'image/png' },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'steer_rejected' });
+    expect(steer).toHaveBeenCalledTimes(2);
+    expect(events).toEqual([]);
+    expect(run.cancelCalls).toBe(0);
+  });
+
+  it('回合取消后忽略迟到的插话确认', async () => {
+    const { adapter, sdk, home } = setup();
+    sdk.script = () => ({ updates: [], hang: true });
+    const { engineSessionId } = await adapter.createSession({
+      cwd: home,
+      providerId: 'cursor',
+      modelId: 'auto',
+    });
+    const { events } = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Working'));
+    const ack = holdSteer();
+    const [run] = sdk.agent(engineSessionId).runs;
+    assert(run);
+    vi.spyOn(run, 'steer').mockReturnValue(ack.promise);
+    const rejected = expect(
+      adapter.steer(engineSessionId, 'late', text('Change direction')),
+    ).rejects.toMatchObject({ code: 'steer_rejected' });
+    await adapter.cancel(engineSessionId);
+    await rejected;
+    await adapter.send(engineSessionId, text('Next turn'));
+    ack.acknowledge();
+    await adapter.cancel(engineSessionId);
+
+    expect(events).toMatchObject([
+      { type: 'turn.settled', outcome: 'cancelled' },
+      { type: 'turn.settled', outcome: 'cancelled' },
+    ]);
+  });
+
   it('手动压缩调用 summarize，报压缩事件，摘要不成为助手回复，之后能继续对话', async () => {
     const { adapter, sdk, home } = setup();
     const { engineSessionId } = await adapter.createSession({

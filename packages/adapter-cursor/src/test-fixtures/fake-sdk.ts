@@ -11,6 +11,7 @@ import type {
   SdkLoginOptions,
   SdkLoginResult,
   SendOptions,
+  SteerAckOutcome,
 } from '@cursor/sdk';
 import type { CursorAgentHandle, CursorLocalRunOptions, CursorRun, CursorSdk } from '../sdk.js';
 import { PLAIN_UPDATES, TOOL_UPDATES } from './updates.js';
@@ -24,6 +25,7 @@ export interface RunScript {
   hang?: boolean;
   /** cancel 了也不结束（取消确认不了）。 */
   ignoreCancel?: boolean;
+  acceptSteer?: boolean;
 }
 
 export function sdkError(
@@ -44,6 +46,7 @@ export function scriptFor(message: string): RunScript {
         text: `word${index} `,
       })),
       stepMs: 50,
+      acceptSteer: true,
     };
   }
   return { updates: PLAIN_UPDATES, stepMs: 1 };
@@ -112,6 +115,14 @@ class FakeRun implements CursorRun {
 
   wait(): Promise<RunResult> {
     return this.#result;
+  }
+
+  async steer(_text: string): Promise<SteerAckOutcome> {
+    if (this.#cancelled || !this.#script.acceptSteer) return 'revert_to_followup';
+    await this.#onDelta?.({
+      update: { type: 'step-completed', stepId: 1, stepDurationMs: 50 },
+    });
+    return 'complete_delivered';
   }
 
   async cancel(): Promise<void> {

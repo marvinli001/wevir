@@ -27,6 +27,7 @@ import type {
   SdkLoginOptions,
   SdkLoginResult,
   SendOptions,
+  SteerAckOutcome,
 } from '@cursor/sdk';
 
 /** 锁定的 SDK 版本（package.json 钉的确切版本），写进 `EngineSession.engineVersion`。 */
@@ -38,6 +39,7 @@ export interface CursorRun {
   readonly agentId: string;
   wait(): Promise<RunResult>;
   cancel(): Promise<void>;
+  steer?(text: string): Promise<SteerAckOutcome>;
 }
 
 /** 挂在本进程里的一个本地 agent（`Agent.create` / `Agent.resume` 的结果）。 */

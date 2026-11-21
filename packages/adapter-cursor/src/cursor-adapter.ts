@@ -432,6 +432,45 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     return this.#startTurn(engineSessionId, input, false);
   }
 
+  async steer(engineSessionId: string, steerId: string, input: AgentInput): Promise<void> {
+    this.#alive();
+    const session = this.#attached(engineSessionId);
+    const turn = session.turn;
+    const run = turn?.run;
+    if (turn === undefined || turn.compact || turn.cancelling || turn.done || !run?.steer) {
+      throw new AdapterError('steer_rejected', 'Cursor has no active run that can be steered');
+    }
+    const parts: string[] = [];
+    for (const part of input.content) {
+      if (part.type === 'image') {
+        throw new AdapterError('steer_rejected', 'Cursor only accepts text when steering a run');
+      }
+      parts.push(part.text);
+    }
+    const text = parts.join('\n\n');
+    if (text.trim() === '') throw new AdapterError('invalid_input', 'the message is empty');
+
+    let delivered: boolean;
+    try {
+      delivered = await Promise.race([
+        run.steer(text).then((outcome) => outcome === 'complete_delivered'),
+        turn.settled.then(() => false),
+      ]);
+    } catch (error) {
+      throw new AdapterError('steer_rejected', `Cursor steer failed: ${errorMessage(error)}`, {
+        cause: error,
+      });
+    }
+    // SDK 在消息进入回合后才确认。SDK 拒绝或回合已收尾时，让 Host 保留这条待发消息。
+    if (!delivered || turn.done) {
+      throw new AdapterError(
+        'steer_rejected',
+        'Cursor did not deliver the message to the active run',
+      );
+    }
+    this.#emit(session, [{ type: 'turn.steered', engineSessionId, steerId }]);
+  }
+
   async compact(engineSessionId: string): Promise<void> {
     return this.#startTurn(engineSessionId, { content: [] }, true);
   }
