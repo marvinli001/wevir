@@ -231,8 +231,11 @@ const handlers = {
   'session/set_model': (params) => {
     const state = sessions.get(params.sessionId);
     if (state === undefined) throw { code: -32602, message: 'unknown session' };
-    state.model = params.modelId;
     const effort = params._meta?.reasoningEffort;
+    if (process.env.FAKE_GROK_REJECT_EFFORT === '1' && typeof effort === 'string') {
+      return { _meta: { model: { Err: 'reasoning effort unavailable' } } };
+    }
+    state.model = params.modelId;
     if (typeof effort === 'string') state.effort = effort;
     update(params.sessionId, {
       sessionUpdate: 'config_option_update',

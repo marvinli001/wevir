@@ -497,6 +497,34 @@ describe('GrokAdapter：权限模式、模型与认证', () => {
     });
   });
 
+  it('目标模型不提供当前档位时忽略档位，运行体仍拒绝时只重试模型', async () => {
+    const { adapter, config, log } = setup({ FAKE_GROK_REJECT_EFFORT: '1' });
+    const { engineSessionId } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(engineSessionId));
+    await adapter.configureSession(engineSessionId, {
+      modelId: 'grok-4.5',
+      reasoningEffort: 'xhigh',
+    });
+    await adapter.send(engineSessionId, text('first'));
+    await events.turn();
+    const from = events.events.length;
+    await adapter.configureSession(engineSessionId, {
+      modelId: 'grok-4.6',
+      reasoningEffort: 'low',
+    });
+    await adapter.send(engineSessionId, text('second'));
+    expect((await events.turn(from)).at(-1)).toMatchObject({ type: 'turn.settled' });
+    expect(
+      readLog(log)
+        .filter(({ method }) => method === 'session/set_model')
+        .map(({ params }) => params),
+    ).toEqual([
+      { sessionId: engineSessionId, modelId: 'grok-4.5' },
+      { sessionId: engineSessionId, modelId: 'grok-4.6', _meta: { reasoningEffort: 'low' } },
+      { sessionId: engineSessionId, modelId: 'grok-4.6' },
+    ]);
+  });
+
   it('要认证时用 Grok 缓存的登录认证一次再重试', async () => {
     const { adapter, config, log } = setup({ FAKE_GROK_REQUIRE_AUTH: '1' });
     const { engineSessionId } = await adapter.createSession(config);
