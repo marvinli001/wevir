@@ -7901,7 +7901,7 @@ ${JSON.stringify({ reviewId, action })}`;
       inputs.push({
         type: 'engine.error',
         source: 'engine',
-        payload: { ...error, turnId: turn.turnId, fatal: false },
+        payload: { ...presentEngineError(error), turnId: turn.turnId, fatal: false },
       });
     }
     // 适配器本应先发 approval.cancelled（turn_ended）；没发的话由 Host 结掉。
@@ -8798,8 +8798,27 @@ function engineError(
   return {
     type: 'engine.error',
     source: 'host',
-    payload: { ...info, fatal, ...(turnId !== undefined && { turnId }) },
+    payload: { ...presentEngineError(info), fatal, ...(turnId !== undefined && { turnId }) },
   };
+}
+
+const REQUEST_TOO_LARGE =
+  /^\s*(?:(?:unexpected status|API Error|HTTP(?: status)?|Error|status)\s*:?\s*413\b|(?:413\s+)?(?:Payload|Content|Request Entity) Too Large\b)/i;
+
+function presentEngineError(info: EngineErrorInfo & { code?: number; usageLimit?: UsageLimit }) {
+  if (
+    (info.category === 'provider' || info.category === 'unknown') &&
+    (info.code === 413 ||
+      ((info.code === undefined || info.code < 0) && REQUEST_TOO_LARGE.test(info.message)))
+  ) {
+    return {
+      category: 'provider' as const,
+      code: 413,
+      message:
+        '请求体超过模型服务限制（HTTP 413）。缩短消息、移除大附件，或新建会话以减少历史上下文。',
+    };
+  }
+  return info;
 }
 
 function resumedEvent(engine: EngineSession): AppendInput {

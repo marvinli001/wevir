@@ -143,6 +143,17 @@ describe.skipIf(binary === undefined)(
       expect(turn.at(-1)).toMatchObject({ type: 'turn.failed', category: 'provider' });
     });
 
+    it('上游 HTTP 413 的状态码随失败事件交给 Host', async () => {
+      const { adapter, id, events } = await open();
+      script = () => ({ httpError: { status: 413, message: '<html>Proxy Error</html>' } });
+      const turn = await runTurn(adapter, id, 'hi', events);
+      expect(turn.at(-1)).toMatchObject({
+        type: 'turn.failed',
+        category: 'provider',
+        code: 413,
+      });
+    });
+
     it('向用户提问（0.10.0）：request_user_input → question.requested，回答回到模型，回合接着做', async () => {
       const { adapter, id, events } = await open();
       script = (view) =>

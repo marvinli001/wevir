@@ -516,7 +516,7 @@ export type EngineErrorCategory = z.infer<typeof EngineErrorCategorySchema>;
 
 export const EngineErrorInfoSchema = z.object({
   category: EngineErrorCategorySchema,
-  /** 引擎原文，始终保留。 */
+  /** 给用户看的错误说明，已知错误可给出处理方式。 */
   message: z.string(),
 });
 export type EngineErrorInfo = z.infer<typeof EngineErrorInfoSchema>;

@@ -133,6 +133,7 @@ import {
   prepareCodexHome,
   resolveCodexBinary,
 } from './paths.js';
+import { managedPermissionFailure } from './permission-error.js';
 import { CodexPlugins, pluginsToml, threadConnectorsConfig } from './plugins.js';
 import { BasePrompt, defaultPromptsDir } from './prompts.js';
 import {
@@ -1046,8 +1047,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         return await this.process.request<ThreadResumeResponse>('thread/resume', params);
       } catch (error) {
         if (isAdapterError(error)) throw error;
-        const providerFailure = modelProviderFailure(error, this.#logger);
-        if (providerFailure !== undefined) throw providerFailure;
+        const rejection =
+          modelProviderFailure(error, this.#logger) ?? managedPermissionFailure(error);
+        if (rejection !== undefined) throw rejection;
         const classified = classifyResumeError(error);
         const { failure } = classified;
         if (failure.kind === 'closing' && attempt < RESUME_RETRIES) {
@@ -1127,7 +1129,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           type: 'turn.failed',
           engineSessionId: session.id,
           category: 'unknown',
-          message: error instanceof Error ? error.message : String(error),
+          message:
+            managedPermissionFailure(error)?.message ??
+            (error instanceof Error ? error.message : String(error)),
         });
       }
       if (turn.turnId === undefined) this.#dropTurn(session, turn);
@@ -3894,8 +3898,8 @@ const THREAD_GONE = /^(?:thread not found: |no rollout found for (?:thread|conve
 
 function engineError(error: unknown, method: string, logger: CodexAdapterLogger): AdapterError {
   if (isAdapterError(error)) return error;
-  const providerFailure = modelProviderFailure(error, logger);
-  if (providerFailure !== undefined) return providerFailure;
+  const rejection = modelProviderFailure(error, logger) ?? managedPermissionFailure(error);
+  if (rejection !== undefined) return rejection;
   const message = error instanceof Error ? error.message : String(error);
   const code = error instanceof CodexRpcError ? error.code : undefined;
   return new AdapterError(

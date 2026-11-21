@@ -3014,6 +3014,25 @@ describe('SessionManager：模型错误恢复', () => {
   }
 
   it.each([
+    { category: 'provider', code: 413, message: '<html>Proxy Error</html>' },
+    { category: 'unknown', message: 'API Error: 413 {"error":"body too large"}' },
+    { category: 'provider', message: 'unexpected status 413: request body exceeds the limit' },
+  ] as const)('HTTP 413 保留状态码，给出处理方式并禁止直接重试：$message', async (error) => {
+    const { h, id, turnId } = await failedTurn(error);
+    expect(ofType(h, id, 'engine.error').at(-1)?.payload).toEqual({
+      category: 'provider',
+      code: 413,
+      message:
+        '请求体超过模型服务限制（HTTP 413）。缩短消息、移除大附件，或新建会话以减少历史上下文。',
+      turnId,
+      fatal: false,
+    });
+    await expect(h.manager.retryTurn({ sessionId: id, turnId }, cli)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
+  });
+
+  it.each([
     { message: 'Incomplete response returned, reason: max_output_tokens' },
     { message: 'Service unavailable', code: 503 },
   ])('保留已有输出，内部继续消息直达引擎：$message', async (error) => {

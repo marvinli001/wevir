@@ -4,6 +4,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { CodexAdapter } from './codex-adapter.js';
 import { CodexRpcError } from './codex-process.js';
 import { modelProviderFailure } from './model-provider-error.js';
+import { managedPermissionFailure } from './permission-error.js';
 import {
   collectEvents,
   collectingLogger,
@@ -20,6 +21,54 @@ const adapters: CodexAdapter[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(adapters.splice(0).map((adapter) => adapter.dispose()));
+});
+
+describe('Codex 托管权限拒绝（模拟 JSON-RPC）', () => {
+  it.each([
+    ['turn/start', 'sandbox_mode', 'DangerFullAccess', 'ReadOnly, WorkspaceWrite'],
+    ['thread/resume', 'approval_policy', 'Never', 'OnRequest'],
+    ['thread/start', 'approvals_reviewer', 'AutoReview', 'User'],
+  ] as const)('%s 保留被拒的 %s 与允许值', async (method, field, requested, allowed) => {
+    const paths = dirs.make('managed-permission-error');
+    const adapter = newAdapter({
+      home: paths.home,
+      binary: process.execPath,
+      binaryArgs: [fake],
+      providers: [mockProvider({ baseURL: 'http://127.0.0.1:9/v1' })],
+    });
+    adapters.push(adapter);
+    const config = { cwd: paths.workspace, providerId: 'mock', modelId: MOCK_MODEL };
+    const session = method === 'turn/start' ? await adapter.createSession(config) : undefined;
+    const original = adapter.process.request.bind(adapter.process);
+    const rejection = new CodexRpcError(method, {
+      code: -32600,
+      message: `invalid thread settings override: invalid value for \`${field}\`: \`${requested}\` is not in the allowed set [${allowed}] (set by /etc/codex/requirements.toml)`,
+    });
+    vi.spyOn(adapter.process, 'request').mockImplementation(
+      async <T>(name: string, params: unknown): Promise<T> => {
+        if (name === method) throw rejection;
+        return original<T>(name, params);
+      },
+    );
+    const operation = session
+      ? adapter.send(session.engineSessionId, { content: [{ type: 'text', text: 'test' }] })
+      : method === 'thread/resume'
+        ? adapter.resumeSession(randomUUID(), config)
+        : adapter.createSession(config);
+    await expect(operation).rejects.toMatchObject({
+      code: 'invalid_input',
+      message: `Codex 托管策略拒绝 ${field}=${requested}。允许值为 ${allowed}。切换权限模式，或联系管理员。`,
+      cause: rejection,
+    });
+  });
+
+  it('普通请求拒绝保持既有回退', () => {
+    const rejection = new CodexRpcError('turn/start', {
+      code: -32600,
+      message: 'invalid thread settings override: invalid model requested',
+    });
+    expect(managedPermissionFailure(rejection)).toBeUndefined();
+  });
 });
 afterAll(() => dirs.cleanup());
 
