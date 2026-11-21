@@ -66,6 +66,18 @@ describe('UsageService', () => {
   const claude = { sessionId: 'ses_1', providerId: 'prv_claude', modelId: 'claude-opus-5-5' };
   const chatgpt = { sessionId: 'ses_2', providerId: 'prv_chatgpt', modelId: 'gpt-5.5' };
 
+  it('按 5 分钟与 1 小时两档计算 Claude 的缓存写入费用', async () => {
+    const { service } = await setup();
+    const costs = { cacheWrite: 0.01625 };
+    service.record(claude, event({ cacheWrite1hTokens: 1_000 }));
+    expect(service.records({ from: 0, to: T0 + 1 }).records[0]).toMatchObject({
+      cost: costs,
+      price: { cacheWrite: 8.125 },
+      tokens: { cacheWrite: 2_000 },
+    });
+    expect(service.summary([0, T0 + 1], undefined).totals.cost).toBeCloseTo(0.03875);
+  });
+
   it('记下请求：来源与显示名取自 Provider，模型缺省用会话的，重复的请求只记一次', async () => {
     const { service } = await setup();
     service.record(claude, event({ durationMs: 4_000, firstTokenMs: 900, reasoningTokens: 100 }));

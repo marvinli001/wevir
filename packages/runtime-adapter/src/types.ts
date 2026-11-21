@@ -497,6 +497,7 @@ export interface TitleUsage {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  cacheWrite1hTokens?: number;
   reasoningTokens?: number;
   /** 实际回答的模型；不报时 Host 用会话的模型。 */
   model?: string;

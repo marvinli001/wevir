@@ -950,6 +950,7 @@ describe('每次请求的用量（0.62.0）', () => {
         outputTokens: 45,
         cacheReadTokens: 11661,
         cacheWriteTokens: 3350,
+        cacheWrite1hTokens: 3350,
         reasoningTokens: 38,
         durationMs: expect.any(Number),
         firstTokenMs: 1159,

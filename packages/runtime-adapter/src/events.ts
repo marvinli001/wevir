@@ -266,6 +266,8 @@ export interface UsageRecordedEvent {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
+  /** Recorded subset of cacheWriteTokens billed for a one-hour cache duration. */
+  cacheWrite1hTokens?: number;
   reasoningTokens?: number;
   /** 请求从发出到最后一个 token 的毫秒数；引擎不报、适配器也量不出时省略。 */
   durationMs?: number;

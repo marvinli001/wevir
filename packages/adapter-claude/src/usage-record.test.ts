@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { claudeUsageRecords, mergeClaudeUsage } from './usage-record.js';
+import {
+  claudeUsageRecord,
+  claudeUsageRecords,
+  maxClaudeUsage,
+  mergeClaudeUsage,
+} from './usage-record.js';
+
+it('缓存写入按时长分开记录，后到的低水位快照不抹掉 1 小时 token', () => {
+  const request = {
+    id: 'msg',
+    usage: {
+      cache_creation_input_tokens: 2000,
+      cache_creation: { ephemeral_1h_input_tokens: 1000, ephemeral_5m_input_tokens: 1000 },
+    },
+  };
+  maxClaudeUsage(request, { cache_creation: { ephemeral_1h_input_tokens: 0 } });
+  expect(claudeUsageRecord('session', request)).toMatchObject({
+    cacheWriteTokens: 2000,
+    cacheWrite1hTokens: 1000,
+  });
+});
 
 describe('advisor 用量', () => {
   const advisor = {

@@ -79,6 +79,8 @@ export class UsageService {
     try {
       const provider = this.#storage.providers.get(context.providerId);
       const workspaceId = this.#storage.sessions.get(context.sessionId)?.workspaceId;
+      const cacheWriteTokens = count(event.cacheWriteTokens);
+      const cacheWrite1hTokens = Math.min(cacheWriteTokens, count(event.cacheWrite1hTokens));
       const row: UsageRow = {
         sessionId: context.sessionId,
         requestId: event.requestId,
@@ -100,7 +102,8 @@ export class UsageService {
         inputTokens: count(event.inputTokens),
         outputTokens: count(event.outputTokens),
         cacheReadTokens: count(event.cacheReadTokens),
-        cacheWriteTokens: count(event.cacheWriteTokens),
+        cacheWriteTokens,
+        ...(cacheWrite1hTokens > 0 && { cacheWrite1hTokens }),
         reasoningTokens: count(event.reasoningTokens),
         ...timing(event),
       };
@@ -404,9 +407,22 @@ export class UsageService {
       row.at,
     );
     if (match === undefined) return undefined;
+    const price = match.price;
+    const longWrites = row.cacheWrite1hTokens ?? 0;
+    // Keep one cache-write count in the report and display the effective price for mixed TTLs.
+    const effectivePrice =
+      longWrites > 0 && row.cacheWriteTokens > 0
+        ? {
+            ...price,
+            cacheWrite:
+              ((row.cacheWriteTokens - longWrites) * (price.cacheWrite ?? price.input * 1.25) +
+                longWrites * price.input * 2) /
+              row.cacheWriteTokens,
+          }
+        : price;
     return {
-      cost: costOf(tokensOf(row), match.price),
-      price: match.price,
+      cost: costOf(tokensOf(row), effectivePrice),
+      price: effectivePrice,
       provider: match.provider,
     };
   }

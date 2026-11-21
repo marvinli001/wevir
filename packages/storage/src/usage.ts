@@ -18,6 +18,7 @@ export interface UsageSummaryRow {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  cacheWrite1hTokens?: number;
   reasoningTokens: number;
   durationMs?: number;
   firstTokenMs?: number;
@@ -91,13 +92,13 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO usage_records (
       session_id, request_id, at, source, provider_id, provider_name, upstream, model,
-      input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+      input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cache_write_1h_tokens, reasoning_tokens,
       duration_ms, first_token_ms, turn_id, workspace_id, kind, origin, granularity,
       model_calls, usage_reported, outcome, tool_count, tool_bytes, mcp_note_bytes,
       instruction_bytes, request_bytes, wevir_output_bytes, wevir_output_bytes_new
     ) VALUES (
       :sessionId, :requestId, :at, :source, :providerId, :providerName, :upstream, :model,
-      :inputTokens, :outputTokens, :cacheReadTokens, :cacheWriteTokens, :reasoningTokens,
+      :inputTokens, :outputTokens, :cacheReadTokens, :cacheWriteTokens, :cacheWrite1hTokens, :reasoningTokens,
       :durationMs, :firstTokenMs, :turnId, :workspaceId, :kind, :origin, :granularity,
       :modelCalls, :usageReported, :outcome, :toolCount, :toolBytes, :mcpNoteBytes,
       :instructionBytes, :requestBytes, :wevirOutputBytes, :wevirOutputBytesNew
@@ -115,7 +116,7 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
       AND (:workspaceId IS NULL OR workspace_id = :workspaceId)`;
   const range = db.prepare(`${related} SELECT * FROM usage_records ${scope} ORDER BY at, id`);
   const summary = db.prepare(`${related} SELECT at, source, provider_id, provider_name, upstream,
-    model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+    model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cache_write_1h_tokens, reasoning_tokens,
     duration_ms, first_token_ms, origin, granularity, model_calls, usage_reported
     FROM usage_records ${scope} ORDER BY at, id`);
   // 数组条件用 JSON 传：NULL 表示不限。
@@ -152,6 +153,7 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
           outputTokens: row.outputTokens,
           cacheReadTokens: row.cacheReadTokens,
           cacheWriteTokens: row.cacheWriteTokens,
+          cacheWrite1hTokens: row.cacheWrite1hTokens ?? 0,
           reasoningTokens: row.reasoningTokens,
           durationMs: orNull(row.durationMs),
           firstTokenMs: orNull(row.firstTokenMs),
@@ -296,6 +298,7 @@ function optionalInteger(row: SqlRow, column: string): number | undefined {
 }
 
 function summaryRow(row: SqlRow): UsageSummaryRow {
+  const cacheWrite1hTokens = integer(row, 'cache_write_1h_tokens');
   const upstream = optionalText(row, 'upstream');
   const durationMs = optionalInteger(row, 'duration_ms');
   const firstTokenMs = optionalInteger(row, 'first_token_ms');
@@ -317,6 +320,7 @@ function summaryRow(row: SqlRow): UsageSummaryRow {
     outputTokens: integer(row, 'output_tokens'),
     cacheReadTokens: integer(row, 'cache_read_tokens'),
     cacheWriteTokens: integer(row, 'cache_write_tokens'),
+    ...(cacheWrite1hTokens > 0 && { cacheWrite1hTokens }),
     reasoningTokens: integer(row, 'reasoning_tokens'),
     ...(durationMs !== undefined && { durationMs }),
     ...(firstTokenMs !== undefined && { firstTokenMs }),

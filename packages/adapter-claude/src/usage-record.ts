@@ -45,7 +45,10 @@ export function maxClaudeUsage(request: ClaudeRequest, usage: unknown): void {
     const held = request.usage[key];
     if (typeof value === 'number') {
       request.usage[key] = bigger(held, value);
-    } else if (key === 'output_tokens_details' && typeof value === 'object') {
+    } else if (
+      (key === 'output_tokens_details' || key === 'cache_creation') &&
+      typeof value === 'object'
+    ) {
       const details = { ...(typeof held === 'object' && held !== null ? held : {}) } as Record<
         string,
         unknown
@@ -73,7 +76,13 @@ export function claudeUsageRecord(
       ? count((details as Record<string, unknown>).thinking_tokens)
       : 0;
   const cacheRead = count(usage.cache_read_input_tokens);
-  const cacheWrite = count(usage.cache_creation_input_tokens);
+  const creation = usage.cache_creation as
+    | { ephemeral_1h_input_tokens?: unknown; ephemeral_5m_input_tokens?: unknown }
+    | undefined;
+  const cacheWrite1h = count(creation?.ephemeral_1h_input_tokens);
+  const cacheWrite =
+    count(usage.cache_creation_input_tokens) ||
+    cacheWrite1h + count(creation?.ephemeral_5m_input_tokens);
   const ttft =
     request.ttftMs !== undefined && Number.isFinite(request.ttftMs) && request.ttftMs >= 0
       ? Math.round(request.ttftMs)
@@ -92,6 +101,7 @@ export function claudeUsageRecord(
     outputTokens: count(usage.output_tokens),
     ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
     ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+    ...(cacheWrite1h > 0 && { cacheWrite1hTokens: Math.min(cacheWrite, cacheWrite1h) }),
     ...(thinking > 0 && { reasoningTokens: thinking }),
     ...(duration !== undefined && { durationMs: duration }),
     ...(ttft !== undefined && { firstTokenMs: ttft }),

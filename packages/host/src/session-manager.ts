@@ -5513,6 +5513,9 @@ ${JSON.stringify({ reviewId, action })}`;
           outputTokens: usage.outputTokens,
           ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
           ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+          ...(usage.cacheWrite1hTokens !== undefined && {
+            cacheWrite1hTokens: usage.cacheWrite1hTokens,
+          }),
           ...(usage.reasoningTokens !== undefined && { reasoningTokens: usage.reasoningTokens }),
         },
       );
