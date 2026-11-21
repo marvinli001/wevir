@@ -80,7 +80,7 @@ export interface AntigravityRuntimeContext {
   /** BROWSER 钩子用的 Node；默认 Host 自己。 */
   nodeExecutable?: string;
   logger: AdapterLogger;
-  /** `initialize` 的 clientInfo；默认 `ANTIGRAVITY_CLIENT_INFO`（测试换掉它看名单外的客户端）。 */
+  /** 测试用：替换 `initialize` 的 clientInfo。 */
   clientInfo?: { name: string; version: string };
   initializeTimeoutMs?: number;
   /** 第一次启动任何进程之前清掉上一个 Host 留下的解包目录（只做一次）。 */
@@ -127,6 +127,7 @@ export class AntigravityLauncher implements AcpLauncher {
       profileDirectory: context.paths.profile,
       tempDirectory: context.paths.temp,
       baseEnv: context.env,
+      nativeCli: executable.kind === 'native',
       ...(context.nodeExecutable !== undefined && { nodeExecutable: context.nodeExecutable }),
       warn: (message, fields) => context.logger.warn(message, fields),
     });
@@ -134,6 +135,9 @@ export class AntigravityLauncher implements AcpLauncher {
     this.#runTemp = runTemp;
     const cwd = this.#cwd ?? context.paths.root;
     return {
+      clientInfo:
+        context.clientInfo ??
+        (executable.kind === 'native' ? NATIVE_CLIENT_INFO : LEGACY_CLIENT_INFO),
       spawnSpec: () =>
         antigravitySpawnSpec({
           installation: executable,
@@ -169,12 +173,10 @@ export interface AntigravityProcessOptions {
 }
 
 /**
- * `initialize` 报给运行体的 clientInfo（照 T3 4432fbef 的做法）：运行体 1.4 只给名单上的客户端（Zed、Xcode、JetBrains、
- * Android Studio，见它的 `model_selection.supports_third_party_models`）列 Claude、GPT 等非 Gemini 模型，别的客户端只有
- * Gemini。所以 Wevir 报成 Zed。运行体也把这个名字放进发给 Google 的 User-Agent（`host_path=zed/0.0.0`）：Google 看到的是
- * Zed，名单或校验一改这些模型就会消失。
+ * 1.4 的兼容标识沿用旧版行为。原生 CLI 使用 Wevir 自己的标识。
  */
-export const ANTIGRAVITY_CLIENT_INFO = Object.freeze({ name: 'zed', version: '0.0.0' });
+const LEGACY_CLIENT_INFO = Object.freeze({ name: 'zed', version: '0.0.0' });
+const NATIVE_CLIENT_INFO = Object.freeze({ name: 'wevir', version: '0.0.0' });
 
 /** 建一个 Antigravity 的 AcpProcess（不启动）。 */
 export function createAntigravityProcess(options: AntigravityProcessOptions): {
@@ -196,7 +198,6 @@ export function createAntigravityProcess(options: AntigravityProcessOptions): {
       onRequestPermission: options.hooks.onRequestPermission,
       onElicitation: options.hooks.onElicitation,
     }),
-    clientInfo: context.clientInfo ?? { ...ANTIGRAVITY_CLIENT_INFO },
     protocolVersions: ANTIGRAVITY_PROTOCOL_VERSIONS,
     ...(context.initializeTimeoutMs !== undefined && {
       initializeTimeoutMs: context.initializeTimeoutMs,
@@ -255,7 +256,7 @@ async function authenticateSession(
 
 /**
  * 校验下载的运行体（installation 的 `validate`，照 T3）：在临时 profile 里启动它，核对 initialize 说的是这个 Google
- * 发布：名字 `antigravity-acp`、版本、支持 resume 与 logout、有个人 Google 账号的登录方式。不认证、不建会话。
+ * 发布：核对身份、恢复、登出及个人 Google 登录能力。不认证、不建会话。
  */
 export async function validateAntigravityRuntime(
   context: AntigravityRuntimeContext,
@@ -294,9 +295,14 @@ export async function validateAntigravityRuntime(
           auth?: { logout?: unknown };
         })
       | undefined;
+    // 安装器用 agy --version 核对原生 CLI 的发行版本，这里的版本字段属于 ACP 服务。
+    const identifiesRuntime =
+      executable.kind === 'native'
+        ? initialized.agentInfo?.name === 'Antigravity ACP Server'
+        : initialized.agentInfo?.name === 'antigravity-acp' &&
+          matchesReleaseVersion(initialized.agentInfo.version, expectedVersion);
     if (
-      initialized.agentInfo?.name !== 'antigravity-acp' ||
-      !matchesReleaseVersion(initialized.agentInfo.version, expectedVersion) ||
+      !identifiesRuntime ||
       capabilities?.loadSession !== true ||
       !capabilities.sessionCapabilities?.resume ||
       !capabilities.auth?.logout ||

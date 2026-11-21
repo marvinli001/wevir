@@ -1,13 +1,16 @@
 // 运行体的下载安装（installation.ts）对着本机的假下载服务器：成功（含校验运行体）、sha256 不对、断线后用 Range 接着下、
 // 服务器不支持 Range、卡住、取消、HTTP 错误、不安全的压缩包、校验失败、连不上 dl.google.com 时的说明。
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -26,10 +29,14 @@ import {
   validateAntigravityRuntime,
 } from './process.js';
 import {
+  ANTIGRAVITY_CLI_MINIMUM_VERSION,
   ANTIGRAVITY_RELEASE_VERSION,
+  type AntigravityCliReleaseAsset,
   type AntigravityReleaseAsset,
+  antigravityCliManifestUrl,
   antigravityDownloadUrl,
   matchesReleaseVersion,
+  parseAntigravityCliRelease,
   resolveAntigravityReleaseAsset,
 } from './release.js';
 import { INITIALIZE_1_4_1 } from './test-fixtures/acp-samples.js';
@@ -37,6 +44,7 @@ import {
   buildZip,
   collectingLogger,
   fakeRuntimeFiles,
+  installFakeRuntime,
   removeDir,
   tempDir,
 } from './test-fixtures/runtime.js';
@@ -148,7 +156,7 @@ function assetFor(url: string, body = ZIP): AntigravityReleaseAsset {
 }
 
 function installation(
-  asset: AntigravityReleaseAsset,
+  asset: AntigravityReleaseAsset | AntigravityCliReleaseAsset | undefined,
   extra: Partial<ConstructorParameters<typeof AntigravityInstallation>[0]> = {},
 ): AntigravityInstallation {
   const paths = antigravityPaths(home);
@@ -172,6 +180,30 @@ function installation(
   });
   context.installation = created;
   return created;
+}
+
+function nativeArchive(symlink = false): Buffer {
+  const directory = tempDir();
+  try {
+    if (symlink) {
+      symlinkSync('/bin/sh', path.join(directory, 'antigravity'));
+    } else {
+      writeFileSync(path.join(directory, 'antigravity'), files.executable);
+    }
+    const archive = path.join(directory, 'cli.tar.gz');
+    execFileSync('tar', ['-czf', archive, '-C', directory, 'antigravity']);
+    return readFileSync(archive);
+  } finally {
+    removeDir(directory);
+  }
+}
+
+function nativeManifest(assetPath: string, archive: Buffer, version = '1.5.13') {
+  return {
+    version,
+    url: `https://storage.googleapis.com/antigravity-public/antigravity-cli/${version}-42/${assetPath}`,
+    sha512: createHash('sha512').update(archive).digest('hex'),
+  };
 }
 
 function partialPath(asset: AntigravityReleaseAsset): string {
@@ -316,42 +348,10 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     ).toBe(false);
   });
 
-  it('Wevir 升级后钉住的版本变了：旧的那份当作没装、说明要重新下载，下载新的之后启用新的', async () => {
-    // 旧发布：同样大小、内容不同（sha256 不同），运行体自报 1.3.0。
-    const oldZip = buildZip([
-      { name: 'agy_acp_server.par', data: files.executable },
-      {
-        name: 'localharness_external',
-        data: Buffer.from(files.harness.toString().replace('exit 0', 'exit 1')),
-      },
-    ]);
-    const url = await serve(oldZip);
-    const old = installation(
-      { ...assetFor(url, oldZip), version: '1.3.0' },
-      { env: { FAKE_AGY_VERSION: '1.3.0' } },
-    );
-    expect(await old.install(() => {})).toMatchObject({ source: 'managed', version: '1.3.0' });
-
-    server?.closeAllConnections();
-    await new Promise<void>((resolve) => server?.close(() => resolve()));
-    const current = installation(assetFor(await serve(ZIP)));
-    await expect(current.resolve()).rejects.toThrow(
-      `The downloaded Antigravity runtime is 1.3.0; this version of Wevir uses ${ANTIGRAVITY_RELEASE_VERSION}. Download it again.`,
-    );
-    expect(await current.install(() => {})).toMatchObject({
-      source: 'managed',
-      version: ANTIGRAVITY_RELEASE_VERSION,
-    });
-    expect(await current.resolve()).toMatchObject({ version: ANTIGRAVITY_RELEASE_VERSION });
-    // 旧发布在新的启用后删掉。
-    expect(readdirSync(path.join(current.managedDirectory, 'versions'))).toEqual([
-      current.releaseAsset?.sha256,
-    ]);
-  });
-
   it('启动时删掉 active.json 没指着的发布与别的发布的半截下载；没装过时什么都不做', async () => {
     const url = await serve(ZIP);
-    const target = installation(assetFor(url));
+    const asset = assetFor(url);
+    const target = installation(asset);
     await target.removeInactiveReleases();
     expect(existsSync(target.managedDirectory)).toBe(false);
 
@@ -362,12 +362,129 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     mkdirSync(stale, { recursive: true });
     writeFileSync(path.join(stale, 'agy_acp_server.par'), 'old');
     writeFileSync(path.join(downloads, `${'b'.repeat(64)}.zip.part`), 'old');
-    writeFileSync(path.join(downloads, `${target.releaseAsset?.sha256}.zip.part`), 'resume');
+    writeFileSync(path.join(downloads, `${asset.sha256}.zip.part`), 'resume');
 
     await target.removeInactiveReleases();
-    expect(readdirSync(versions)).toEqual([target.releaseAsset?.sha256]);
-    expect(readdirSync(downloads)).toEqual([`${target.releaseAsset?.sha256}.zip.part`]);
+    expect(readdirSync(versions)).toEqual([asset.sha256]);
+    expect(readdirSync(downloads)).toEqual([`${asset.sha256}.zip.part`]);
     expect(await target.resolve()).toMatchObject({ source: 'managed' });
+  });
+
+  it('保留旧版安装，使用官方清单和镜像续传新版，成功后才切换', async () => {
+    const platform = { platform: 'darwin', arch: 'arm64' } as const;
+    const legacy = await installation(assetFor(await serve(ZIP)), platform).install(() => {});
+    const archive = nativeArchive();
+    const manifest = nativeManifest('darwin-arm/cli_mac_arm64.tar.gz', archive);
+    let latest = manifest;
+    const mirror = 'https://mirror.example';
+    const download = new URL(manifest.url).pathname;
+    const seen: Array<{ url: string; range: string | null }> = [];
+    const target = installation(undefined, {
+      ...platform,
+      env: { ...process.env, WEVIR_ANTIGRAVITY_MIRROR: mirror },
+      fetch: async (input, options) => {
+        const url = String(input);
+        const range = new Headers(options?.headers).get('range');
+        seen.push({ url, range });
+        if (url === antigravityCliManifestUrl(platform.platform, platform.arch)) {
+          return Response.json(latest);
+        }
+        expect(url).toBe(mirror + download);
+        return new Response(new Uint8Array(archive.subarray(16)), {
+          status: 206,
+          headers: { 'content-range': `bytes 16-${archive.length - 1}/${archive.length}` },
+        });
+      },
+    });
+    const downloads = path.join(target.managedDirectory, 'downloads');
+    writeFileSync(path.join(downloads, `${manifest.sha512}.tar.gz.part`), archive.subarray(0, 16));
+    expect(await target.resolve()).toEqual(legacy);
+    expect(seen).toEqual([]);
+    const progress: InstallProgress[] = [];
+    const installed = await target.install((p) => progress.push(p));
+    expect(installed).toMatchObject({
+      source: 'managed',
+      kind: 'native',
+      harnessPath: null,
+      version: '1.5.13',
+    });
+    expect(seen).toEqual([
+      { url: antigravityCliManifestUrl(platform.platform, platform.arch), range: null },
+      { url: mirror + download, range: 'bytes=16-' },
+    ]);
+    expect(progress).toContainEqual({
+      phase: 'verifying',
+      completedBytes: archive.length,
+      totalBytes: archive.length,
+    });
+    expect(await target.resolve()).toEqual(installed);
+    latest = nativeManifest('darwin-arm/cli_mac_arm64.tar.gz', archive, '1.5.1');
+    expect(await target.install(() => {})).toEqual(installed);
+    expect(seen).toHaveLength(3);
+    expect(existsSync(legacy.executablePath)).toBe(true);
+    await target.removeInactiveReleases();
+    expect(existsSync(legacy.executablePath)).toBe(false);
+  });
+
+  it('安装 Windows 官方的单文件发布，并用 CLI 自报版本核对', async () => {
+    const manifest = nativeManifest('windows-arm/cli_windows_arm64.exe', files.executable);
+    const target = installation(undefined, {
+      platform: 'win32',
+      arch: 'arm64',
+      validate: async () => {},
+      fetch: async (input) =>
+        String(input) === antigravityCliManifestUrl('win32', 'arm64')
+          ? Response.json(manifest)
+          : new Response(new Uint8Array(files.executable)),
+    });
+    const installed = await target.install(() => {});
+    expect(path.basename(installed.executablePath)).toBe('agy.exe');
+    expect(installed).toMatchObject({ kind: 'native', version: '1.5.13', harnessPath: null });
+    expect(readFileSync(installed.executablePath)).toEqual(files.executable);
+  });
+
+  it.each(['checksum', 'symlink', 'version'] as const)(
+    '拒绝 SHA-512、归档或版本校验失败的新版（%s）',
+    async (failure) => {
+      const archive = nativeArchive(failure === 'symlink');
+      const version = failure === 'version' ? '1.5.1' : '1.5.13';
+      const manifest = nativeManifest('darwin-arm/cli_mac_arm64.tar.gz', archive, version);
+      if (failure === 'checksum') manifest.sha512 = 'a'.repeat(128);
+      const target = installation(undefined, {
+        platform: 'darwin',
+        arch: 'arm64',
+        fetch: async (input) =>
+          String(input) === antigravityCliManifestUrl('darwin', 'arm64')
+            ? Response.json(manifest)
+            : new Response(new Uint8Array(archive)),
+      });
+      const messages = {
+        checksum: /SHA-512/u,
+        symlink: /extract/u,
+        version: /verified as version/u,
+      };
+      await expect(target.install(() => {})).rejects.toThrow(messages[failure]);
+      await expect(target.resolve()).rejects.toThrow(/not installed/u);
+    },
+  );
+
+  it('从 PATH 和显式路径发现已安装的 agy，拒绝低于最低版本的原生 CLI', async () => {
+    const executable = installFakeRuntime(path.join(home, 'bin'), { native: true });
+    const target = installation(undefined, {
+      env: { ...process.env, PATH: path.dirname(executable) },
+    });
+    expect(await target.resolve()).toMatchObject({
+      executablePath: executable,
+      kind: 'native',
+      source: 'path',
+      version: '1.5.13',
+    });
+    expect(await target.resolve(executable)).toMatchObject({ source: 'override' });
+
+    const old = installation(undefined, { env: { ...process.env, FAKE_AGY_CLI_VERSION: '1.5.0' } });
+    await expect(old.resolve(executable)).rejects.toThrow(
+      `Version ${ANTIGRAVITY_CLI_MINIMUM_VERSION} or later is required.`,
+    );
   });
 
   it('运行体自报的不是这个发布：校验失败，不启用', async () => {
@@ -428,7 +545,7 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     const installed = await target.install(() => {});
     // 签的是解包目录里的文件（之后整个目录挪到 versions/<sha256>/）。
     expect(signed.map((paths) => paths.map((file) => path.basename(file)))).toEqual([
-      [path.basename(installed.executablePath), path.basename(installed.harnessPath)],
+      [path.basename(installed.executablePath), path.basename(installed.harnessPath ?? '')],
     ]);
     const resolved = await installation(asset, {
       platform: 'darwin',
@@ -555,5 +672,42 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
     await expect(target.resolve(path.join(home, 'nowhere', 'agy_acp_server.par'))).rejects.toThrow(
       /custom Antigravity executable/,
     );
+  });
+});
+
+describe('Antigravity CLI manifest', () => {
+  it.each([
+    ['darwin', 'arm64', false, 'darwin_arm64', 'darwin-arm/cli_mac_arm64.tar.gz'],
+    ['darwin', 'x64', false, 'darwin_amd64', 'darwin-x64/cli_mac_x64.tar.gz'],
+    ['linux', 'arm64', false, 'linux_arm64', 'linux-arm/cli_linux_arm64.tar.gz'],
+    ['linux', 'x64', false, 'linux_amd64', 'linux-x64/cli_linux_x64.tar.gz'],
+    ['linux', 'arm64', true, 'linux_arm64_musl', 'linux-arm-musl/cli_linux_arm64_musl.tar.gz'],
+    ['linux', 'x64', true, 'linux_amd64_musl', 'linux-x64-musl/cli_linux_x64_musl.tar.gz'],
+    ['win32', 'arm64', false, 'windows_arm64', 'windows-arm/cli_windows_arm64.exe'],
+    ['win32', 'x64', false, 'windows_amd64', 'windows-x64/cli_windows_x64.exe'],
+  ] as const)('解析 %s %s（musl %s）的官方发布', (platform, arch, musl, target, assetPath) => {
+    const manifest = nativeManifest(assetPath, files.executable);
+    expect(antigravityCliManifestUrl(platform, arch, musl)).toBe(
+      `https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/${target}.json`,
+    );
+    expect(parseAntigravityCliRelease(manifest, platform, arch, musl)).toEqual({
+      ...manifest,
+      format: platform === 'win32' ? 'executable' : 'tar.gz',
+    });
+  });
+
+  it('排除低于最低版本、校验值错误、第三方主机和不匹配的平台归档', () => {
+    const arm = nativeManifest('darwin-arm/cli_mac_arm64.tar.gz', files.executable, '1.5.1');
+    expect(parseAntigravityCliRelease(arm, 'darwin', 'arm64')).toBeDefined();
+    for (const manifest of [
+      nativeManifest('darwin-arm/cli_mac_arm64.tar.gz', files.executable, '1.5.0'),
+      { ...arm, sha512: 'bad' },
+      { ...arm, url: arm.url.replace('storage.googleapis.com', 'mirror.example') },
+      { ...arm, url: `${arm.url}?redirect=true` },
+      nativeManifest('darwin-x64/cli_mac_x64.tar.gz', files.executable, '1.5.1'),
+    ]) {
+      expect(parseAntigravityCliRelease(manifest, 'darwin', 'arm64')).toBeUndefined();
+    }
+    expect(antigravityCliManifestUrl('freebsd', 'x64')).toBeUndefined();
   });
 });

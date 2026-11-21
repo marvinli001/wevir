@@ -5,8 +5,8 @@
 // 会话元信息与回合错误照 ab8e488e10d883fa880b0ddcf01917b51839ab07（AntigravityAcpSupport.ts、AntigravityTurnOutcome.ts）；
 // 没有动静的回合超时照 3f905cac2e4dd968684298673546aacca3323b1d（AntigravityAdapterV2.ts 的 `promptInactivityTimeout`）
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：建在 Wevir 的通用 ACP 适配器（AcpAdapter）上，一个进程承载全部会话；权限模式用 default / yolo；
-// Wevir 的推理档位对到运行体 1.4 的思考档位（`thinking_level`）；会话中换模型、档位与模式记下、
+// 修改：建在 Wevir 的通用 ACP 适配器（AcpAdapter）上，一个进程承载全部会话。原生 CLI 固定为 default。
+// Wevir 的推理档位对到运行体的 `thinking_level`；会话中换模型、档位与模式记下、
 // 下一个回合开始前生效；不声明 fs 能力（T3 1.4.1 起也不再声明写文件，编辑用运行体自己的 diff），工具在运行体自己的环境里
 // 执行，审批照 ACP 原样转交；没有 T3 的附件、子 agent 批次与文本生成。
 //
@@ -75,7 +75,7 @@ export interface AntigravityAdapterOptions {
   accountRoot?: string;
   /** BROWSER 钩子用的 Node；默认 Host 自己（process.execPath）。 */
   nodeExecutable?: string;
-  /** 测试用：换掉钉住的发布、下载与校验。 */
+  /** 测试用：替换发行清单、下载与校验。 */
   installation?: Partial<Omit<AntigravityInstallationOptions, 'directory'>>;
   initializeTimeoutMs?: number;
   cancelTimeoutMs?: number;
@@ -89,6 +89,7 @@ interface SessionSettings {
   providerId: string;
   configOptions: unknown;
   modes: unknown;
+  permissionMode: PermissionMode;
   promptRules?: string;
   /** 会话中改了、下一个回合开始前才交给运行体的设置。 */
   pending?: { modelId: string; reasoningEffort?: string; permissionMode: PermissionMode };
@@ -105,12 +106,15 @@ export class AntigravityAdapter extends AcpAdapter {
   readonly #profile: string;
   readonly #usageTimers = new Set<NodeJS.Timeout>();
 
-  /**
-   * 0.68.0：Antigravity 读项目里一路上的 GEMINI.md 与 AGENTS.md（IDE 里 language_server 带的说明；ACP 运行体没有核对过）。它的
-   * `GEMINI_HOME` 是 Wevir 的私有目录，用户的 `~/.gemini/GEMINI.md` 读不到，由 Host 补到 1.4.5 的系统说明。
-   */
-  ruleFiles(): EngineRuleFiles {
-    return { user: [], project: ['gemini', 'agents'], imports: false, instructions: true };
+  async ruleFiles(): Promise<EngineRuleFiles> {
+    await this.pendingRestart?.catch(() => {});
+    const initialize = await this.process.start().catch(() => undefined);
+    return {
+      user: [],
+      project: ['gemini', 'agents'],
+      imports: false,
+      instructions: antigravityAppendsSystemPrompt(initialize, this.#isNativeCli),
+    };
   }
 
   constructor(options: AntigravityAdapterOptions) {
@@ -145,8 +149,8 @@ export class AntigravityAdapter extends AcpAdapter {
       ...options.installation,
     });
     context.installation = installation;
-    // 以前的 Wevir 钉住的旧发布（几百 MB）：启动时删掉，不等下次安装。
-    void installation.removeInactiveReleases();
+    // 默认账号随 Host 启动。添加账号时其他进程仍可能在用刚换下的发布。
+    if (options.accountRoot === undefined) void installation.removeInactiveReleases();
     let launcher: AntigravityLauncher | undefined;
     super({
       // 会话报要登录时账号改为未登录（登录过期、被撤销）。
@@ -181,17 +185,23 @@ export class AntigravityAdapter extends AcpAdapter {
       ...(options.usageFetch !== undefined && { fetch: options.usageFetch }),
     });
     this.accounts = accounts;
-    this.watchRuntime(accounts);
+    this.watchRuntime(accounts, (state) => {
+      const running = this.#launcher.executable;
+      return (
+        running === undefined ||
+        (state.executablePath === running.executablePath &&
+          state.version === (running.version ?? undefined))
+      );
+    });
   }
 
   override async createSession(config: SessionConfig): Promise<EngineSession> {
-    return this.#signInAware(() => super.createSession(config));
+    return this.#signInAware(async () =>
+      this.#withRuntimeVersion(await super.createSession(config)),
+    );
   }
 
-  /**
-   * 预先启动运行体（0.129.0，`provider.prewarm`）：运行体是一个约 270 MB 的 Python 包，冷启动到 `initialize` 要 1.3–1.7 s，再加
-   * `authenticate`。新会话页选中 Antigravity 时先拉起来，第一条消息只等 `session/new`。已在运行时直接返回。
-   */
+  /** 新会话页选中 Antigravity 时预先启动并认证，第一条消息只等 `session/new`。 */
   async prewarm(): Promise<void> {
     this.assertUsable();
     try {
@@ -206,7 +216,9 @@ export class AntigravityAdapter extends AcpAdapter {
     engineSessionId: string,
     config: SessionConfig,
   ): Promise<EngineSession> {
-    return this.#signInAware(() => super.resumeSession(engineSessionId, config));
+    return this.#signInAware(async () =>
+      this.#withRuntimeVersion(await super.resumeSession(engineSessionId, config)),
+    );
   }
 
   /** 会话中换模型、推理档位或权限模式：记下，下一个回合开始前交给运行体（AgentRuntimeAdapter.configureSession 的约定）。 */
@@ -275,21 +287,22 @@ export class AntigravityAdapter extends AcpAdapter {
     setup: AcpSessionSetup,
   ): Promise<unknown> {
     const usage = new AntigravityStepUsage(this.#profile, engineSessionId);
-    usage.start();
     const settings: SessionSettings = {
       providerId: config.providerId,
       configOptions: setup.configOptions,
       modes: setup.modes,
+      permissionMode: 'on_request',
       ...(config.ruleInstructions &&
-        !antigravityAppendsSystemPrompt(this.process.initializeResponse) && {
+        !antigravityAppendsSystemPrompt(this.process.initializeResponse, this.#isNativeCli) && {
           promptRules: config.ruleInstructions,
         }),
       usage,
     };
-    this.#sessions.set(engineSessionId, settings);
     await this.#applyThinking(engineSessionId, settings, config.reasoningEffort);
-    this.accounts.noteSessionModels(settings.configOptions);
     await this.#applyMode(engineSessionId, settings, config.permissionMode ?? 'on_request');
+    usage.start();
+    this.#sessions.set(engineSessionId, settings);
+    this.accounts.noteSessionModels(settings.configOptions);
     return settings.configOptions;
   }
 
@@ -298,7 +311,11 @@ export class AntigravityAdapter extends AcpAdapter {
   }
 
   protected override sessionMeta(config: SessionConfig): Record<string, unknown> | undefined {
-    return antigravitySessionMeta(this.process.initializeResponse, config.ruleInstructions);
+    return antigravitySessionMeta(
+      this.process.initializeResponse,
+      this.#isNativeCli,
+      config.ruleInstructions,
+    );
   }
 
   protected override refreshUsage(): Promise<void> {
@@ -344,7 +361,32 @@ export class AntigravityAdapter extends AcpAdapter {
     signal: AbortSignal,
   ): Promise<RequestPermissionResponse> | undefined {
     const question = antigravityQuestion(params);
-    if (question === undefined) return undefined;
+    if (question === undefined) {
+      if (!this.#isNativeCli) return undefined;
+      // 引擎的持久授权会跳过下一次 ACP 回调，长期规则由 Host 管理。
+      const options = params.options
+        .filter((option) => option.kind === 'allow_once' || option.kind === 'reject_once')
+        .map((option) => ({ optionId: option.optionId, label: option.name, kind: option.kind }));
+      const allowOnce = options.find((option) => option.kind === 'allow_once');
+      if (
+        allowOnce !== undefined &&
+        this.#sessions.get(params.sessionId)?.permissionMode === 'full_access'
+      ) {
+        return Promise.resolve({ outcome: { outcome: 'selected', optionId: allowOnce.optionId } });
+      }
+      if (options.length === 0) return Promise.resolve(PERMISSION_CANCELLED);
+      return this.requestApproval(
+        params.sessionId,
+        params.toolCall.toolCallId,
+        options,
+        signal,
+      ).then(
+        (optionId): RequestPermissionResponse =>
+          optionId === undefined
+            ? PERMISSION_CANCELLED
+            : { outcome: { outcome: 'selected', optionId } },
+      );
+    }
     return this.requestAnswers(
       params.sessionId,
       params.toolCall.toolCallId,
@@ -371,6 +413,17 @@ export class AntigravityAdapter extends AcpAdapter {
       if (isAdapterError(error, 'missing_credentials')) this.accounts.markSignInRequired();
       throw error;
     }
+  }
+
+  get #isNativeCli(): boolean {
+    return this.#launcher.executable?.kind === 'native';
+  }
+
+  #withRuntimeVersion(session: EngineSession): EngineSession {
+    const engineVersion =
+      this.#launcher.executable?.version ??
+      this.process.initializeResponse?.agentInfo?.version.replace(/^agy_acp_server_/u, '');
+    return engineVersion === undefined ? session : { ...session, engineVersion };
   }
 
   /**
@@ -414,6 +467,11 @@ export class AntigravityAdapter extends AcpAdapter {
     settings: SessionSettings,
     permissionMode: PermissionMode,
   ): Promise<void> {
+    if (this.#isNativeCli) {
+      await this.#applyNativeMode(engineSessionId, settings);
+      settings.permissionMode = permissionMode;
+      return;
+    }
     const modeId = ANTIGRAVITY_MODES[permissionMode];
     const connection = this.process.connection;
     const option = modeOption(settings.configOptions);
@@ -452,6 +510,36 @@ export class AntigravityAdapter extends AcpAdapter {
       );
     }
     this.logger.warn('Antigravity 没有这个会话模式，沿用当前模式', { modeId, current });
+  }
+
+  async #applyNativeMode(engineSessionId: string, settings: SessionSettings): Promise<void> {
+    const option = modeOption(settings.configOptions);
+    const modes = settings.modes as
+      | { currentModeId?: unknown; availableModes?: Array<{ id?: unknown }> }
+      | undefined;
+    const current = option?.currentValue ?? modes?.currentModeId;
+    // One-mode releases omit modes. The private profile already selects default.
+    if (current === undefined || current === 'default') return;
+    const unavailable = () =>
+      new AdapterError(
+        'engine_unavailable',
+        'Antigravity could not switch to its default approval mode.',
+      );
+    const agent = this.process.connection.agent;
+    if (option !== undefined) {
+      if (!option.values.includes('default')) throw unavailable();
+      const result = await this.setSessionConfigOption(engineSessionId, option.id, 'default');
+      const updated = modeOption(result)?.currentValue;
+      if (updated !== undefined && updated !== 'default') throw unavailable();
+      settings.configOptions = result;
+    } else {
+      if (!modes?.availableModes?.some((mode) => mode.id === 'default')) throw unavailable();
+      await agent.request(methods.agent.session.setMode, {
+        sessionId: engineSessionId,
+        modeId: 'default',
+      });
+      settings.modes = { ...modes, currentModeId: 'default' };
+    }
   }
 }
 

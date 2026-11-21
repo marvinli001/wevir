@@ -107,7 +107,8 @@ export class AntigravityAccounts implements EngineAccounts {
   #endingFlow: Promise<void> | undefined;
   #stopping = false;
   #installing: InstallProgress | undefined;
-  /** 最近一次登录、安装失败或登录失效的原因（AccountState.lastError）。 */
+  #installError: string | undefined;
+  /** 最近一次登录失败或失效的原因（AccountState.lastError）。 */
   #lastError: string | undefined;
   /** 会话或刷新报了要登录：登录文件还在也算未登录，直到重新登录或刷新成功。 */
   #authRejected = false;
@@ -229,7 +230,10 @@ export class AntigravityAccounts implements EngineAccounts {
       const created = await connection.agent.request(methods.agent.session.new, {
         cwd,
         mcpServers: [],
-        _meta: antigravitySessionMeta(process.initializeResponse),
+        _meta: antigravitySessionMeta(
+          process.initializeResponse,
+          launcher.executable?.kind === 'native',
+        ),
       });
       current.sessionId = created.sessionId;
       return readModels(connection, created);
@@ -307,31 +311,36 @@ export class AntigravityAccounts implements EngineAccounts {
   async setExecutablePath(kind: AccountKind, executablePath: string | null): Promise<AccountState> {
     this.#check(kind);
     this.#customPath = executablePath?.trim() || null;
+    this.#installError = undefined;
     return this.read(kind);
   }
 
   async checkUpdate(kind: AccountKind) {
     this.#check(kind);
     const executable = await this.#resolve();
-    const asset = this.#context.installation.releaseAsset;
-    if (executable?.source !== 'managed' || executable.version === null || asset === null)
-      return undefined;
-    return { currentVersion: executable.version, latestVersion: asset.version };
+    if (executable?.source !== 'managed' || executable.version === null) return undefined;
+    const release = await this.#context.installation.latestRelease();
+    if (release === null) return undefined;
+    return { currentVersion: executable.version, latestVersion: release.version };
   }
 
   async install(kind: AccountKind): Promise<AccountState> {
     this.#check(kind);
     const { installation } = this.#context;
     if (this.#installing !== undefined || installation.installing) return this.#state;
-    const asset = installation.releaseAsset;
-    if (asset === null) {
+    if (!installation.canInstall) {
       throw new AdapterError(
         'invalid_input',
         `Google does not publish an Antigravity runtime for ${process.platform}-${process.arch}. Set a custom executable path.`,
       );
     }
-    this.#installing = { phase: 'downloading', completedBytes: 0, totalBytes: asset.archiveBytes };
-    this.#lastError = undefined;
+    const totalBytes = installation.installTotalBytes;
+    this.#installing = {
+      phase: 'downloading',
+      completedBytes: 0,
+      ...(totalBytes === undefined ? {} : { totalBytes }),
+    };
+    this.#installError = undefined;
     // 先发布“开始安装”再开始下载：下载很快就失败或完成时，那个状态排在它后面（#stateSeq）。
     const started = await this.#update();
     installation
@@ -348,7 +357,7 @@ export class AntigravityAccounts implements EngineAccounts {
         (error: unknown) => {
           this.#installing = undefined;
           if (!(error instanceof AntigravityInstallCancelled)) {
-            this.#lastError =
+            this.#installError =
               error instanceof AntigravityInstallationError
                 ? error.message
                 : 'Could not install Antigravity.';
@@ -403,7 +412,10 @@ export class AntigravityAccounts implements EngineAccounts {
   /** 不启动运行体的状态：运行体在不在（安装字段）、登录文件在不在、进行中的安装。 */
   async #snapshot(): Promise<AccountState> {
     const { fields, error } = await this.#installFields();
-    if (this.#flow !== undefined) return this.#signingIn(this.#flow, fields);
+    const installationError = this.#installError;
+    const installFields =
+      installationError === undefined ? fields : { ...fields, lastError: installationError };
+    if (this.#flow !== undefined) return this.#signingIn(this.#flow, installFields);
     const signedIn =
       fields.installed === true &&
       !this.#authRejected &&
@@ -411,10 +423,10 @@ export class AntigravityAccounts implements EngineAccounts {
     const lastError = this.#lastError ?? (fields.installing === undefined ? error : undefined);
     return {
       ...BASE,
-      ...fields,
+      ...installFields,
       ...(signedIn ? { status: 'signed_in' as const } : {}),
       ...(signedIn && this.#rateLimits !== undefined && { rateLimits: this.#rateLimits }),
-      ...(!signedIn && lastError !== undefined && { lastError }),
+      ...(installationError === undefined && !signedIn && lastError !== undefined && { lastError }),
     };
   }
 
@@ -449,14 +461,15 @@ export class AntigravityAccounts implements EngineAccounts {
   /** 安装字段；找不到运行体且不只是“没装”（指定的路径不对、记录坏了、本平台没有发布）时另给原因。 */
   async #installFields(): Promise<{ fields: Partial<AccountState>; error?: string }> {
     const { installation } = this.#context;
-    const asset = installation.releaseAsset;
     const installing =
       this.#installing === undefined
         ? {}
         : {
             installing: {
               completedBytes: this.#installing.completedBytes,
-              totalBytes: this.#installing.totalBytes,
+              ...(this.#installing.totalBytes === undefined
+                ? {}
+                : { totalBytes: this.#installing.totalBytes }),
             },
           };
     const custom = this.#customPath === null ? {} : { customPath: this.#customPath };
@@ -467,11 +480,11 @@ export class AntigravityAccounts implements EngineAccounts {
       const detail = error instanceof Error ? error.message : String(error);
       const fields: Partial<AccountState> = {
         installed: false,
-        ...(asset !== null && { canInstall: true }),
+        ...(installation.canInstall && { canInstall: true }),
         ...custom,
         ...installing,
       };
-      return this.#customPath !== null || asset === null || !/not installed/u.test(detail)
+      return this.#customPath !== null || !installation.canInstall || !/not installed/u.test(detail)
         ? { fields, error: detail }
         : { fields };
     }
@@ -601,7 +614,10 @@ export class AntigravityAccounts implements EngineAccounts {
         const created = await process.connection.agent.request(methods.agent.session.new, {
           cwd,
           mcpServers: [],
-          _meta: antigravitySessionMeta(process.initializeResponse),
+          _meta: antigravitySessionMeta(
+            process.initializeResponse,
+            launcher.executable?.kind === 'native',
+          ),
         });
         sessionId = created.sessionId;
         return readModels(process.connection, created);

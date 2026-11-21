@@ -31,16 +31,17 @@ export function fakeRuntimeFiles(): { executable: Buffer; harness: Buffer } {
   };
 }
 
-/** 在 `directory` 里放一对假运行体，返回可执行文件的路径。 */
-export function installFakeRuntime(directory: string): string {
+/** 安装假的旧版 pair 或原生 agy，返回可执行文件的路径。 */
+export function installFakeRuntime(directory: string, options: { native?: boolean } = {}): string {
   mkdirSync(directory, { recursive: true });
   const files = fakeRuntimeFiles();
-  const executable = path.join(directory, 'agy_acp_server.par');
-  const harness = path.join(directory, 'localharness_external');
-  writeFileSync(executable, files.executable);
-  writeFileSync(harness, files.harness);
-  chmodSync(executable, 0o755);
-  chmodSync(harness, 0o755);
+  const executable = path.join(directory, options.native ? 'agy' : 'agy_acp_server.par');
+  writeFileSync(executable, files.executable, { mode: 0o755 });
+  if (!options.native) {
+    const harness = path.join(directory, 'localharness_external');
+    writeFileSync(harness, files.harness);
+    chmodSync(harness, 0o755);
+  }
   return executable;
 }
 

@@ -521,34 +521,42 @@ export async function accountUpstreams(
 /** `wevir account install <种类>`：Wevir 替用户下载安装（`canInstall`），显示进度直到完成。 */
 export async function accountInstall(ctx: Context, value: string): Promise<number> {
   return withAccount(ctx, value, async (client, ref) => {
+    let finish!: (account: AccountState) => void;
     const done = new Promise<AccountState>((resolve) => {
-      let seen = false;
-      const stop = client.watchAccount(ref.kind, (account) => {
-        if (account.installing !== undefined) {
-          seen = true;
-          ctx.print(ctx.styles.dim(installProgress(account.installing)));
-        } else if (seen || account.installed !== false) {
-          stop();
-          resolve(account);
-        }
-      });
+      finish = resolve;
     });
-    const { account: started } = await client.request('account.install', { kind: ref.kind });
-    const account = started.installing === undefined ? started : await done;
-    if (account.installed === false) {
-      throw new CliError(
-        t('subscription.installFailed', { error: account.lastError ?? t('account.cancelled') }),
+    let seen = false;
+    const stop = client.watchAccount(ref.kind, (account) => {
+      if (account.installing !== undefined) {
+        seen = true;
+        ctx.print(ctx.styles.dim(installProgress(account.installing)));
+      } else if (seen) {
+        finish(account);
+      }
+    });
+    try {
+      const { account: started } = await client.request('account.install', { kind: ref.kind });
+      const account = started.installing === undefined ? started : await done;
+      if (
+        account.installed === false ||
+        (account.kind === 'antigravity' && account.lastError !== undefined)
+      ) {
+        throw new CliError(
+          t('subscription.installFailed', { error: account.lastError ?? t('account.cancelled') }),
+        );
+      }
+      ctx.print(
+        ctx.styles.green(
+          t('subscription.installed', {
+            name: accountName(account),
+            version: account.version ?? '-',
+          }),
+        ),
       );
+      return EXIT.ok;
+    } finally {
+      stop();
     }
-    ctx.print(
-      ctx.styles.green(
-        t('subscription.installed', {
-          name: accountName(account),
-          version: account.version ?? '-',
-        }),
-      ),
-    );
-    return EXIT.ok;
   });
 }
 

@@ -9,9 +9,13 @@
 
 // 1.4.2–1.4.5 仍写 run-workflow/SKILL.md；所有会话请求都经 session-meta.ts 禁用 run_workflow。
 export const ANTIGRAVITY_RELEASE_VERSION = '1.4.5';
+export const ANTIGRAVITY_CLI_MINIMUM_VERSION = '1.5.1';
+export const ANTIGRAVITY_CLI_MANIFEST_ORIGIN =
+  'https://antigravity-cli-auto-updater-974169037036.us-central1.run.app';
 
 /** 发布包所在的主机前缀；`WEVIR_ANTIGRAVITY_MIRROR` 替换它（大陆网络）。 */
 export const ANTIGRAVITY_DOWNLOAD_ORIGIN = 'https://dl.google.com';
+export const ANTIGRAVITY_CLI_DOWNLOAD_ORIGIN = 'https://storage.googleapis.com';
 
 export interface AntigravityReleaseAsset {
   readonly version: string;
@@ -20,6 +24,80 @@ export interface AntigravityReleaseAsset {
   readonly archiveBytes: number;
   readonly executable: { readonly name: string; readonly bytes: number };
   readonly harness: { readonly name: string; readonly bytes: number };
+}
+
+export interface AntigravityCliReleaseAsset {
+  readonly version: string;
+  readonly url: string;
+  readonly sha512: string;
+  readonly format: 'tar.gz' | 'executable';
+}
+
+const CLI_VERSION = /^\d+\.\d+\.\d+$/u;
+
+export function compareAntigravityVersions(left: string, right: string): number {
+  const leftParts = left.split('.').map(Number);
+  const rightParts = right.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const difference = (leftParts[i] ?? 0) - (rightParts[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+export function isAntigravityCliVersion(version: string): boolean {
+  return (
+    CLI_VERSION.test(version) &&
+    compareAntigravityVersions(version, ANTIGRAVITY_CLI_MINIMUM_VERSION) >= 0
+  );
+}
+
+export function antigravityCliManifestUrl(
+  platform: NodeJS.Platform,
+  arch: string,
+  musl = false,
+): string | undefined {
+  if (!['darwin', 'linux', 'win32'].includes(platform) || !['arm64', 'x64'].includes(arch)) {
+    return undefined;
+  }
+  const os = platform === 'win32' ? 'windows' : platform;
+  const cpu = arch === 'x64' ? 'amd64' : arch;
+  const suffix = platform === 'linux' && musl ? '_musl' : '';
+  return `${ANTIGRAVITY_CLI_MANIFEST_ORIGIN}/manifests/${os}_${cpu}${suffix}.json`;
+}
+
+export function parseAntigravityCliRelease(
+  data: unknown,
+  platform: NodeJS.Platform,
+  arch: string,
+  musl = false,
+): AntigravityCliReleaseAsset | undefined {
+  if (!antigravityCliManifestUrl(platform, arch, musl) || !data || typeof data !== 'object') {
+    return undefined;
+  }
+  const { version, url, sha512 } = data as Record<string, unknown>;
+  if (
+    typeof version !== 'string' ||
+    !isAntigravityCliVersion(version) ||
+    typeof sha512 !== 'string' ||
+    !/^[\da-f]{128}$/iu.test(sha512) ||
+    typeof url !== 'string'
+  ) {
+    return undefined;
+  }
+  const windows = platform === 'win32';
+  const os = windows ? 'windows' : platform;
+  const unixMusl = platform === 'linux' && musl;
+  const folder = `${os}-${arch === 'arm64' ? 'arm' : 'x64'}${unixMusl ? '-musl' : ''}`;
+  const file = `cli_${os === 'darwin' ? 'mac' : os}_${arch}${unixMusl ? '_musl' : ''}.${windows ? 'exe' : 'tar.gz'}`;
+  const prefix = `${ANTIGRAVITY_CLI_DOWNLOAD_ORIGIN}/antigravity-public/antigravity-cli/${version}-`;
+  const build = url.startsWith(prefix) ? /^\d+\//u.exec(url.slice(prefix.length))?.[0] : undefined;
+  if (build === undefined || url !== `${prefix}${build}${folder}/${file}`) return undefined;
+  return { version, url, sha512: sha512.toLowerCase(), format: windows ? 'executable' : 'tar.gz' };
+}
+
+export function antigravityCliExecutableName(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'agy.exe' : 'agy';
 }
 
 // https://github.com/agentclientprotocol/registry/blob/c804c2a1d170990efeda771e4433aa31bcdc0123/antigravity-acp/agent.json（1.4.5 的条目没有 sha256）
@@ -100,16 +178,18 @@ export function resolveAntigravityReleaseAsset(
 }
 
 /**
- * 实际下载的地址：`WEVIR_ANTIGRAVITY_MIRROR` 设了时替换 `https://dl.google.com` 前缀（例如内网镜像，路径与官方相同）。
- * 内容由钉住的 sha256 校验，镜像给错文件只会校验失败，不会装上。
+ * `WEVIR_ANTIGRAVITY_MIRROR` 替换归档所在的主机前缀，路径与官方相同。清单始终由 Google 提供。
  */
 export function antigravityDownloadUrl(
   asset: Pick<AntigravityReleaseAsset, 'url'>,
   env: NodeJS.ProcessEnv,
 ): string {
   const mirror = env.WEVIR_ANTIGRAVITY_MIRROR?.trim().replace(/\/+$/u, '');
-  if (!mirror || !asset.url.startsWith(`${ANTIGRAVITY_DOWNLOAD_ORIGIN}/`)) return asset.url;
-  return `${mirror}${asset.url.slice(ANTIGRAVITY_DOWNLOAD_ORIGIN.length)}`;
+  if (!mirror) return asset.url;
+  const origin = [ANTIGRAVITY_CLI_DOWNLOAD_ORIGIN, ANTIGRAVITY_DOWNLOAD_ORIGIN].find((value) =>
+    asset.url.startsWith(`${value}/`),
+  );
+  return origin === undefined ? asset.url : `${mirror}${asset.url.slice(origin.length)}`;
 }
 
 /** 运行体自报的版本是否就是这个发布（1.1.1 起报 `agy_acp_server_<版本>`，T3 核对的 1.3.0 报裸版本号）。 */

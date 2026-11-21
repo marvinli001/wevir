@@ -29,8 +29,10 @@ export { antigravityModelsFromSetup } from './models.js';
 export { type AntigravityPaths, antigravityPaths } from './process.js';
 export { antigravityUserSkillDirectories } from './profile.js';
 export {
+  ANTIGRAVITY_CLI_MINIMUM_VERSION,
   ANTIGRAVITY_DOWNLOAD_ORIGIN,
   ANTIGRAVITY_RELEASE_VERSION,
+  type AntigravityCliReleaseAsset,
   type AntigravityReleaseAsset,
   antigravityDownloadUrl,
   resolveAntigravityReleaseAsset,

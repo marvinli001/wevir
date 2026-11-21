@@ -137,7 +137,7 @@
 | 订阅 | Claude | 测试版 |
 | | OpenCode | 测试版 |
 | | Grok | 测试版 |
-| | Antigravity | 测试版 |
+| | [Antigravity CLI](https://antigravity.google/docs/ide/extensions/acp) | 测试版，支持应用内下载或使用 `agy` 1.5.1 及以上版本 |
 | | WorkBuddy | 测试版 |
 | | Devin | 测试版 |
 | | Cursor | 测试版 |

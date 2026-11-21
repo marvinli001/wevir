@@ -1,7 +1,7 @@
 // AntigravityAdapter 在契约之外的行为，跑在假运行体上：没登录时建会话、权限模式与会话中换设置、借审批方法的提问、
 // 恢复、登出时停掉进程、会话带来的模型列表。
 
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentEvent, EngineSession, SessionConfig } from '@wevir/runtime-adapter';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -32,16 +32,20 @@ afterEach(async () => {
   removeDir(home);
 });
 
-async function create(): Promise<AntigravityAdapter> {
+async function create(
+  options: { native?: boolean; env?: NodeJS.ProcessEnv } = {},
+): Promise<AntigravityAdapter> {
   const adapter = new AntigravityAdapter({
     home,
     logger: collectingLogger(),
-    env: { PATH: process.env.PATH, HOME: home },
+    env: { PATH: process.env.PATH, HOME: home, ...options.env },
   });
   adapters.push(adapter);
   await adapter.accounts.setExecutablePath(
     'antigravity',
-    path.join(home, 'bin', 'agy_acp_server.par'),
+    options.native
+      ? installFakeRuntime(path.join(home, 'bin'), { native: true })
+      : path.join(home, 'bin', 'agy_acp_server.par'),
   );
   return adapter;
 }
@@ -116,7 +120,7 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
       writeFakeToken(home);
       const first = await create();
       const session = await first.createSession(config({ ruleInstructions: 'First rules' }));
-      expect(first.ruleFiles().instructions).toBe(true);
+      expect((await first.ruleFiles()).instructions).toBe(true);
       const before = collect(first, session);
       expect(JSON.parse(replyText(await turn(first, session, before, 'session-meta?')))).toEqual({
         antigravity: { disabledTools: ['run_workflow'], systemPrompt: { append: 'First rules' } },
@@ -136,6 +140,98 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
       expect(existsSync(path.join(workspace, 'skills/system/run-workflow/SKILL.md'))).toBe(false);
     },
   );
+
+  it('原生 CLI 用 Wevir 标识，在原来的 profile 恢复旧会话并切回默认审批', async () => {
+    writeFakeToken(home);
+    const envDump = path.join(home, 'spawn.json');
+    const clientDump = path.join(home, 'client.json');
+    const adapter = await create({
+      env: { FAKE_AGY_ENV_DUMP: envDump, FAKE_AGY_CLIENT_DUMP: clientDump },
+    });
+    const session = await adapter.createSession(config({ permissionMode: 'full_access' }));
+    const oldPid = adapter.process.pid;
+    const agy = installFakeRuntime(path.join(home, 'bin'), { native: true });
+    await adapter.accounts.setExecutablePath('antigravity', agy);
+    const resumed = await adapter.resumeSession(
+      session.engineSessionId,
+      config({ permissionMode: 'full_access' }),
+    );
+    expect(resumed).toMatchObject({
+      engineSessionId: session.engineSessionId,
+      engineVersion: '1.5.13',
+    });
+    expect(adapter.process.pid).not.toBe(oldPid);
+    const profile = path.join(home, 'engines', 'antigravity', 'profile');
+    const spawn = JSON.parse(readFileSync(envDump, 'utf8'));
+    expect(spawn.argv).toEqual([
+      'acp',
+      '--gemini-dir',
+      profile,
+      '--app-data-dir',
+      'antigravity-acp',
+    ]);
+    expect(spawn.env).toMatchObject({ GEMINI_HOME: profile, AGY_CLI_DISABLE_AUTO_UPDATE: 'true' });
+    expect(spawn.env.ANTIGRAVITY_HARNESS_PATH).toBeUndefined();
+    expect(JSON.parse(readFileSync(clientDump, 'utf8'))).toMatchObject({ name: 'wevir' });
+    expect(
+      JSON.parse(readFileSync(path.join(profile, 'antigravity-acp', 'settings.json'), 'utf8')),
+    ).toMatchObject({
+      auth: { type: 'oauth-personal' },
+      agentMode: '',
+      toolPermission: 'strict',
+    });
+    const events = collect(adapter, resumed);
+    expect(replyText(await turn(adapter, resumed, events, 'mode?'))).toContain('mode=default');
+    const approved = await turn(adapter, resumed, events, 'approve');
+    expect(replyText(approved)).toBe('Wrote the file.');
+    expect(approved.some((event) => event.type === 'approval.requested')).toBe(false);
+    expect((await adapter.ruleFiles()).instructions).toBe(false);
+    expect(replyText(await turn(adapter, resumed, events, 'session-meta?'))).toBe('null');
+  });
+
+  it('只在原生 CLI 声明支持时给新会话与恢复会话附加系统规则', async () => {
+    writeFakeToken(home);
+    for (const append of [false, true]) {
+      const promptDump = path.join(home, 'prompt.txt');
+      const options = {
+        native: true,
+        env: { FAKE_AGY_APPEND: append ? '1' : undefined, FAKE_AGY_PROMPT_DUMP: promptDump },
+      };
+      const first = await create(options);
+      expect((await first.ruleFiles()).instructions).toBe(append);
+      if (!append) {
+        const session = await first.createSession(config({ ruleInstructions: 'Rule\n\n' }));
+        await turn(first, session, collect(first, session), 'Hello');
+        expect(readFileSync(promptDump, 'utf8')).toBe('Rule\n\nHello');
+        await first.dispose();
+        continue;
+      }
+      const session = await first.createSession(config({ ruleInstructions: 'Initial rule' }));
+      const initial = collect(first, session);
+      expect(JSON.parse(replyText(await turn(first, session, initial, 'session-meta?')))).toEqual({
+        antigravity: { systemPrompt: { append: 'Initial rule' } },
+      });
+      await first.dispose();
+      const second = await create(options);
+      const resumed = await second.resumeSession(
+        session.engineSessionId,
+        config({ ruleInstructions: 'Updated rule' }),
+      );
+      const events = collect(second, resumed);
+      expect(JSON.parse(replyText(await turn(second, resumed, events, 'session-meta?')))).toEqual({
+        antigravity: { systemPrompt: { append: 'Updated rule' } },
+      });
+    }
+  });
+
+  it('原生 CLI 无法从自动模式切回默认审批时拒绝建立会话', async () => {
+    writeFakeToken(home);
+    const native = await create({ native: true, env: { FAKE_AGY_UNSAFE_MODE_ONLY: '1' } });
+    await expect(native.createSession(config())).rejects.toMatchObject({
+      code: 'engine_unavailable',
+      message: expect.stringContaining('default approval mode'),
+    });
+  });
 
   it('没登录：建会话报 missing_credentials（不等用户去浏览器），账号改为未登录，进程停掉', async () => {
     const adapter = await create();

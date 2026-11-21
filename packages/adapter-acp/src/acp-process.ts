@@ -146,6 +146,8 @@ export interface AcpLauncher {
 }
 
 export interface AcpPreparedLaunch {
+  /** 运行体有多个发行形式时，可在解析到可执行文件后选择客户端标识。 */
+  clientInfo?: Implementation;
   /**
    * 这次的 spawn 参数。`prepare` 完成后由 `AcpProcess` 立即同步调用；这时读到的启动配置就是这个进程用的
    * （`launchConfigStale` 据此判断）。可以抛错（例如环境变量不合法），同样算启动失败。
@@ -423,10 +425,12 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
     const generation = ++this.#generation;
     this.#state = 'starting';
     let launch: Launch;
+    let clientInfo: Implementation;
     try {
       const prepared = await this.#options.launcher.prepare();
       if (this.#disposing !== undefined) throw this.#disposedError();
       const configRevision = this.#configRevision;
+      clientInfo = prepared.clientInfo ?? this.#options.clientInfo ?? DEFAULT_CLIENT_INFO;
       launch = this.#spawn(prepared.spawnSpec(), generation, configRevision);
     } catch (error) {
       if (this.#disposing !== undefined) throw this.#disposedError();
@@ -440,7 +444,6 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
     let timer: NodeJS.Timeout | undefined;
     try {
       const timeoutMs = this.#options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS;
-      const clientInfo: Implementation = this.#options.clientInfo ?? DEFAULT_CLIENT_INFO;
       const initializeMeta = this.#options.engine.initializeMeta;
       const capabilitiesMeta = this.#options.engine.clientCapabilitiesMeta;
       const initialize = launch.transport.initialize(

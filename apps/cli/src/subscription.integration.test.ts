@@ -4,6 +4,7 @@
 
 import { join } from 'node:path';
 import { createLogger, type RunningHost, startHost } from '@wevir/host';
+import type { AccountKind, AccountState } from '@wevir/protocol';
 import { EchoAccounts, EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type FakeRun, run, runFake, useTempDir } from './test-utils.js';
@@ -19,13 +20,11 @@ afterEach(async () => {
   for (const host of hosts.splice(0)) await host.shutdown();
 });
 
-class SubscriptionAdapter extends EchoAdapter {
-  readonly accounts = new EchoAccounts({ delayMs: 30 });
-}
-
-async function setup() {
+async function setup(accounts = new EchoAccounts({ delayMs: 30 })) {
   const home = join(tempDir(), 'home');
-  const adapter = new SubscriptionAdapter({ stepDelayMs: 1 });
+  const adapter = new (class extends EchoAdapter {
+    readonly accounts = accounts;
+  })({ stepDelayMs: 1 });
   hosts.push(
     await startHost({
       home,
@@ -125,6 +124,45 @@ describe('wevir account', () => {
     expect((await run(['account', 'list'], { home })).out).not.toMatch(
       /opencode\s+OpenCode\s+未安装/,
     );
+  });
+
+  it('Antigravity 升级失败时报告错误，旧运行体仍可用', async () => {
+    const describeUpgrade = (state: AccountState): AccountState => {
+      if (state.kind !== 'antigravity') return state;
+      return {
+        ...state,
+        installed: true,
+        status: 'signed_in',
+        version: 'v1.4.5',
+        ...(state.version === '1.3.0' && { lastError: 'Antigravity archive checksum failed.' }),
+      };
+    };
+    const { home } = await setup(
+      new (class extends EchoAccounts {
+        override async read(kind: AccountKind): Promise<AccountState> {
+          return describeUpgrade(await super.read(kind));
+        }
+
+        override async install(kind: AccountKind): Promise<AccountState> {
+          return describeUpgrade(await super.install(kind));
+        }
+
+        override onChange(listener: (state: AccountState) => void): () => void {
+          return super.onChange((state) => listener(describeUpgrade(state)));
+        }
+      })({ delayMs: 30 }),
+    );
+    const upgrade = await run(['account', 'install', 'antigravity'], { home });
+    expect(upgrade.code, upgrade.err).toBe(1);
+    expect(upgrade.err).toContain('安装失败：Antigravity archive checksum failed.');
+    expect(upgrade.out).not.toContain('已安装 Antigravity');
+    const status = await run(['account', 'status', 'antigravity', '--json'], { home });
+    expect(status.code, status.err).toBe(0);
+    expect(JSON.parse(status.out)).toMatchObject({
+      installed: true,
+      status: 'signed_in',
+      version: 'v1.4.5',
+    });
   });
 
   it('OpenCode 的上游：列出、以 API Key 接入（从 stdin 读）、断开', async () => {

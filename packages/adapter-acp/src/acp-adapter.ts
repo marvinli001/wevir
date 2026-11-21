@@ -22,6 +22,7 @@ import {
 } from '@agentclientprotocol/sdk';
 import type { EngineComposerCommand } from '@wevir/runtime-adapter';
 import {
+  type AccountState,
   AdapterError,
   type AgentEvent,
   type AgentInput,
@@ -693,15 +694,25 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   // ── 给引擎子类的扩展点 ───────────────────────────────────────────────────────────────
 
   /** 托管运行体升级后等全部回合结束，再换进程；既有会话由 Host 按需恢复。 */
-  protected watchRuntime(accounts: Pick<EngineAccounts, 'onChange'>): void {
+  protected watchRuntime(
+    accounts: Pick<EngineAccounts, 'onChange'>,
+    isCurrentRuntime?: (state: AccountState) => boolean,
+  ): void {
     let version: string | undefined;
     this.#runtimeWatchers.push(
       accounts.onChange((state) => {
-        if (state.version === undefined || state.installing !== undefined) return;
+        if (
+          state.installing !== undefined ||
+          (state.version === undefined && isCurrentRuntime === undefined)
+        ) {
+          return;
+        }
         const previous = version;
         version = state.version;
-        if (previous === undefined || previous === version || this.process.state !== 'ready')
-          return;
+        const changed = isCurrentRuntime
+          ? !isCurrentRuntime(state)
+          : previous !== undefined && version !== undefined && previous !== version;
+        if (!changed || this.process.state !== 'ready') return;
         this.#restartWhenIdle = true;
         void this.#restartIfRequested();
       }),

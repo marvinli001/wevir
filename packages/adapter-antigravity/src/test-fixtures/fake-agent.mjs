@@ -17,6 +17,12 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 
 const AUTH_PREFIX = 'Open the following link to authenticate the ACP server: ';
+const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  process.stdout.write(`${process.env.FAKE_AGY_CLI_VERSION ?? '1.5.13'}\n`);
+  process.exit(0);
+}
+const native = args[0] === 'acp';
 const home = process.env.GEMINI_HOME;
 if (!home) {
   process.stderr.write('GEMINI_HOME is not set\n');
@@ -127,11 +133,16 @@ const LEVEL_NAMES = {
   high: 'High',
   extra_high: 'Extra High',
 };
-const MODES = [
-  { value: 'default', name: 'Default' },
-  { value: 'auto_edit', name: 'Auto edit' },
-  { value: 'yolo', name: 'YOLO' },
-];
+const MODES = native
+  ? [
+      ...(!process.env.FAKE_AGY_UNSAFE_MODE_ONLY ? [{ value: 'default', name: 'Default' }] : []),
+      { value: 'auto', name: 'Auto' },
+    ]
+  : [
+      { value: 'default', name: 'Default' },
+      { value: 'auto_edit', name: 'Auto edit' },
+      { value: 'yolo', name: 'YOLO' },
+    ];
 
 /** initialize 报的 clientInfo.name（运行体源码 client_info.py 的 is_* 判断）。 */
 let clientName = '';
@@ -145,7 +156,7 @@ function thirdPartyAllowed() {
   );
 }
 function offered() {
-  return CATALOG.filter((model) => !model.thirdParty || thirdPartyAllowed());
+  return CATALOG.filter((model) => native || !model.thirdParty || thirdPartyAllowed());
 }
 /** 成组的家族（两个以上档位）的成员；只有一个档位的不成组。 */
 function familyMembers(family) {
@@ -231,6 +242,9 @@ function initializeResult() {
       mcpCapabilities: { http: true, sse: true },
       sessionCapabilities: { list: {}, resume: {} },
       auth: { logout: {} },
+      ...(process.env.FAKE_AGY_APPEND && {
+        _meta: { antigravity: { systemPrompt: { append: true } } },
+      }),
     },
     authMethods: [
       {
@@ -240,7 +254,7 @@ function initializeResult() {
       },
     ],
     agentInfo: {
-      name: process.env.FAKE_AGY_NAME ?? 'antigravity-acp',
+      name: process.env.FAKE_AGY_NAME ?? (native ? 'Antigravity ACP Server' : 'antigravity-acp'),
       title: 'Google Antigravity',
       version: process.env.FAKE_AGY_VERSION ?? '1.4.5',
     },
@@ -325,11 +339,12 @@ async function prompt(id, params) {
   }
   cancelled.delete(sessionId);
   const text = params.prompt.map((part) => part.text ?? '').join('');
+  if (process.env.FAKE_AGY_PROMPT_DUMP) fs.writeFileSync(process.env.FAKE_AGY_PROMPT_DUMP, text);
   const chunk = (value, kind = 'agent_message_chunk') =>
     notify(sessionId, { sessionUpdate: kind, content: { type: 'text', text: value } });
 
   if (text === 'session-meta?') {
-    chunk(JSON.stringify(session.meta));
+    chunk(JSON.stringify(session.meta ?? null));
     respond(id, { stopReason: 'end_turn' });
     return;
   }
@@ -364,7 +379,8 @@ async function prompt(id, params) {
   }
 
   if (/approve/i.test(text)) {
-    const target = path.join(path.dirname(session.cwd), 'outside.txt');
+    const target =
+      process.env.FAKE_AGY_APPROVAL_OUTPUT ?? path.join(path.dirname(session.cwd), 'outside.txt');
     notify(sessionId, {
       sessionUpdate: 'tool_call',
       toolCallId: 'call-write',
@@ -396,6 +412,7 @@ async function prompt(id, params) {
       respond(id, { stopReason: 'cancelled' });
       return;
     }
+    if (allowed && process.env.FAKE_AGY_APPROVAL_OUTPUT) fs.writeFileSync(target, 'hello');
     chunk(allowed ? 'Wrote the file.' : 'Did not write the file.');
     respond(id, { stopReason: 'end_turn' });
     return;
@@ -498,9 +515,13 @@ function handle(message) {
       }
       const sessionId = randomUUID();
       const sessions = loadSessions();
-      sessions[sessionId] = { cwd: params.cwd, model: CATALOG[0].id, mode: 'default' };
+      sessions[sessionId] = {
+        cwd: params.cwd,
+        model: CATALOG[0].id,
+        mode: native ? 'auto' : 'default',
+      };
       sessions[sessionId].meta = params._meta;
-      if (!params._meta?.antigravity?.disabledTools?.includes('run_workflow')) {
+      if (!native && !params._meta?.antigravity?.disabledTools?.includes('run_workflow')) {
         const skill = path.join(params.cwd, 'skills/system/run-workflow/SKILL.md');
         fs.mkdirSync(path.dirname(skill), { recursive: true });
         fs.writeFileSync(skill, 'workflow');

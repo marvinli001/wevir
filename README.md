@@ -137,7 +137,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 | Subscriptions | Claude | Beta |
 | | OpenCode | Beta |
 | | Grok | Beta |
-| | Antigravity | Beta |
+| | [Antigravity CLI](https://antigravity.google/docs/ide/extensions/acp) | Beta, managed download or `agy` 1.5.1+ |
 | | WorkBuddy | Beta |
 | | Devin | Beta |
 | | Cursor | Beta |

@@ -712,11 +712,17 @@ export class HostAccounts {
     const before = this.#last.get(id);
     const previous = before?.status;
     this.#last.set(id, raw);
-    // 首个账号的引擎装好了（Antigravity 的运行体由 Wevir 下载，账号们共用）：添加的账号重新检测，才看得到它。
-    if (!slot.added && raw.installed === true && before?.installed === false) {
+    // Antigravity 账号共用托管运行体，首装或升级后让附加账号重新检测。
+    const installed = before?.installed === false;
+    const upgraded =
+      slot.kind === 'antigravity' &&
+      before?.installed === true &&
+      raw.customPath === undefined &&
+      before.version !== raw.version;
+    if (!slot.added && raw.installed === true && (installed || upgraded)) {
       for (const other of this.#slots.values()) {
         if (other.added && other.kind === slot.kind) {
-          this.read(other, { refresh: true }).catch(() => undefined);
+          this.read(other, installed ? { refresh: true } : undefined).catch(() => undefined);
         }
       }
     }

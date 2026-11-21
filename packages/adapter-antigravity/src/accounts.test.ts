@@ -251,13 +251,14 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
     expect((await accounts.setExecutablePath('antigravity', null)).customPath).toBeUndefined();
   });
 
-  it('在应用里登录：BROWSER 钩子给出登录网址，浏览器回调之后已登录，模型列表存下，临时文件清掉', async () => {
+  it.each(['legacy', 'native'] as const)('%s 在应用里登录并保存账号与模型列表', async (runtime) => {
+    const binary = runtime === 'native' ? installFakeRuntime(bin, { native: true }) : executable();
     const dump = path.join(home, 'env.json');
     const clientDump = path.join(home, 'client.json');
     const { accounts, states } = create({
       env: { FAKE_AGY_ENV_DUMP: dump, FAKE_AGY_CLIENT_DUMP: clientDump, GEMINI_API_KEY: 'leak' },
     });
-    await accounts.setExecutablePath('antigravity', executable());
+    await accounts.setExecutablePath('antigravity', binary);
     const started = await accounts.login('antigravity', 'browser');
     expect(started.status).toBe('signing_in');
     const authUrl = started.login?.authUrl as string;
@@ -266,8 +267,10 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
     await completeBrowserSignIn(authUrl);
     await waitFor(() => states.at(-1)?.status === 'signed_in', '已登录');
     expect(states.at(-1)).toMatchObject({ status: 'signed_in', installed: true });
-    // 报成 Zed（运行体只给名单上的客户端列非 Gemini 模型）；各模型的档位是逐个选一遍读到的。
-    expect(JSON.parse(readFileSync(clientDump, 'utf8'))).toEqual({ name: 'zed', version: '0.0.0' });
+    expect(JSON.parse(readFileSync(clientDump, 'utf8'))).toEqual({
+      name: runtime === 'native' ? 'wevir' : 'zed',
+      version: '0.0.0',
+    });
     const models = {
       models: [
         {
@@ -304,13 +307,13 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
     expect(seen.env.GEMINI_API_KEY).toBeUndefined();
     expect(seen.env.TMPDIR?.startsWith(path.join(root(), 'tmp', 'run-'))).toBe(true);
     expect(seen.env.ANTIGRAVITY_HARNESS_PATH).toBe(
-      path.join(realpathSync(bin), 'localharness_external'),
+      runtime === 'legacy' ? path.join(realpathSync(bin), 'localharness_external') : undefined,
     );
     expect(seen.env.BROWSER).toContain('__WEVIR_ANTIGRAVITY_AUTH_URL__');
 
     // 新的适配器（Host 重启）不启动运行体也读得到已登录与模型列表。
     const restarted = create().accounts;
-    await restarted.setExecutablePath('antigravity', executable());
+    await restarted.setExecutablePath('antigravity', binary);
     expect((await restarted.read('antigravity')).status).toBe('signed_in');
     expect(await restarted.models('antigravity')).toEqual(models);
   });
@@ -413,19 +416,31 @@ describe.skipIf(!posix)('AntigravityAccounts', () => {
 
     const failing = create({
       installation: {
-        releaseAsset: { ...asset, url: 'https://dl.google.com/agy-extensions/releases/x.zip' },
+        releaseAsset: {
+          ...asset,
+          sha256: 'a'.repeat(64),
+          url: 'https://dl.google.com/agy-extensions/releases/x.zip',
+        },
         fetch: async () => {
           throw new TypeError('fetch failed', { cause: { code: 'ETIMEDOUT' } });
         },
       },
     });
-    // 换一个数据目录，免得看到上面装好的版本。
-    removeDir(path.join(home, 'engines'));
+    writeFakeToken(home);
+    expect(await failing.accounts.read('antigravity')).toMatchObject({
+      installed: true,
+      status: 'signed_in',
+    });
     await failing.accounts.install('antigravity');
     await waitFor(() => failing.states.at(-1)?.lastError, '安装失败');
     expect(failing.states.at(-1)?.lastError).toMatch(
       /Could not reach dl\.google\.com \(ETIMEDOUT\)/,
     );
     expect(failing.states.at(-1)?.installing).toBeUndefined();
+    expect(failing.states.at(-1)).toMatchObject({
+      installed: true,
+      status: 'signed_in',
+      version: ANTIGRAVITY_RELEASE_VERSION,
+    });
   });
 });

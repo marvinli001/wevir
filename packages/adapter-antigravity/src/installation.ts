@@ -12,32 +12,45 @@
 // versions/<sha256>/ 是装好的一个发布（两个可执行文件加 .install-complete.json），active.json 是指向它的原子指针，写下它才算
 // 装好；下载与解包都在 versions/.install-* 里进行，失败或取消不影响已装的版本。
 
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import * as fsp from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { promisify } from 'node:util';
+import { antigravityBaseEnvironment } from './profile.js';
 import {
+  ANTIGRAVITY_CLI_MINIMUM_VERSION,
+  type AntigravityCliReleaseAsset,
   type AntigravityReleaseAsset,
+  antigravityCliExecutableName,
+  antigravityCliManifestUrl,
   antigravityDownloadUrl,
   antigravityExecutableNames,
-  resolveAntigravityReleaseAsset,
+  compareAntigravityVersions,
+  isAntigravityCliVersion,
+  parseAntigravityCliRelease,
 } from './release.js';
 import { openZipArchive } from './zip.js';
 
 const DOWNLOAD_TIMEOUT_MS = 45 * 60_000;
 /** 多久收不到数据算下载卡住（含等响应头）。 */
 const DOWNLOAD_IDLE_TIMEOUT_MS = 60_000;
+const MANIFEST_TIMEOUT_MS = 10_000;
+const VERSION_TIMEOUT_MS = 5_000;
 const VALIDATION_TIMEOUT_MS = 90_000;
 const PROGRESS_INTERVAL_MS = 250;
 const FREE_SPACE_MARGIN = 256 * 1024 * 1024;
+const MAX_NATIVE_BYTES = 1024 * 1024 * 1024;
 const RECORD_MAX_BYTES = 8 * 1024;
 const RELEASE_RECORD = '.install-complete.json';
 const RELEASE_ID = /^[a-f0-9]{64}$/u;
 const PAGE_SIZE_TIMEOUT_MS = 5_000;
 const CODESIGN_TIMEOUT_MS = 60_000;
+const execFileAsync = promisify(execFile);
 const LARGE_PAGE_KERNEL_MESSAGE =
   "Google's linux-arm64 Antigravity runtime needs a kernel with 4 KiB memory pages, and this kernel uses larger pages (as on Asahi Linux or Raspberry Pi 5). Set a custom executable path.";
 const IPV6_MESSAGE =
@@ -96,10 +109,11 @@ export class AntigravityInstallCancelled extends Error {
 
 export interface AntigravityExecutable {
   readonly executablePath: string;
-  readonly harnessPath: string;
+  readonly harnessPath: string | null;
+  readonly kind: 'legacy' | 'native';
   /** override：account.setPath 指定的；managed：Wevir 下载的；path：PATH 上找到的。 */
   readonly source: 'override' | 'managed' | 'path';
-  /** Wevir 装的版本；别处来的不知道版本时为 null。 */
+  /** CLI 或托管运行体的版本，外部旧版运行体可能未知。 */
   readonly version: string | null;
   readonly managedVersionDirectory: string | null;
 }
@@ -107,7 +121,15 @@ export interface AntigravityExecutable {
 export interface InstallProgress {
   phase: 'downloading' | 'extracting' | 'verifying';
   completedBytes: number;
-  totalBytes: number;
+  totalBytes?: number;
+}
+
+type ReleaseAsset = AntigravityReleaseAsset | AntigravityCliReleaseAsset;
+interface DownloadSpec {
+  readonly url: string;
+  readonly checksum: string;
+  readonly algorithm: 'sha256' | 'sha512';
+  readonly archiveBytes?: number;
 }
 
 export interface AntigravityInstallationOptions {
@@ -116,8 +138,8 @@ export interface AntigravityInstallationOptions {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   arch?: string;
-  /** 测试换掉钉住的发布；null 表示本平台没有发布。 */
-  releaseAsset?: AntigravityReleaseAsset | null;
+  /** 测试换掉官方发布；null 表示本平台没有发布。 */
+  releaseAsset?: ReleaseAsset | null;
   /** 启动解出的运行体并核对它是这个发布；抛错即校验失败。 */
   validate?: (
     executable: AntigravityExecutable,
@@ -137,31 +159,38 @@ interface InstalledRecord {
   releaseId: string;
   version: string;
   executable: { name: string; bytes: number };
-  harness: { name: string; bytes: number };
+  kind?: AntigravityExecutable['kind'];
+  harness?: { name: string; bytes: number };
 }
 
 export class AntigravityInstallation {
   /** `<数据目录>/engines/antigravity/runtime/<平台>-<架构>`。 */
   readonly managedDirectory: string;
-  readonly releaseAsset: AntigravityReleaseAsset | null;
   readonly #options: AntigravityInstallationOptions;
   readonly #platform: NodeJS.Platform;
   readonly #arch: string;
   readonly #names: { executable: string; harness: string };
+  readonly #nativeName: string;
+  readonly #musl: boolean;
+  readonly #manifestUrl: string | undefined;
   readonly #versions: string;
   readonly #downloads: string;
   readonly #activePath: string;
+  readonly #externalVersions = new Map<string, { signature: string; version: Promise<string> }>();
   #running: { controller: AbortController; done: Promise<AntigravityExecutable> } | undefined;
 
   constructor(options: AntigravityInstallationOptions) {
     this.#options = options;
     this.#platform = options.platform ?? process.platform;
     this.#arch = options.arch ?? process.arch;
-    this.releaseAsset =
-      options.releaseAsset === undefined
-        ? resolveAntigravityReleaseAsset(this.#platform, this.#arch)
-        : options.releaseAsset;
     this.#names = antigravityExecutableNames(this.#platform);
+    this.#nativeName = antigravityCliExecutableName(this.#platform);
+    this.#musl =
+      this.#platform === 'linux' &&
+      process.platform === 'linux' &&
+      (process.report?.getReport() as { header?: { glibcVersionRuntime?: string } })?.header
+        ?.glibcVersionRuntime === undefined;
+    this.#manifestUrl = antigravityCliManifestUrl(this.#platform, this.#arch, this.#musl);
     this.managedDirectory = path.join(
       options.directory,
       'runtime',
@@ -177,25 +206,75 @@ export class AntigravityInstallation {
     return this.#running !== undefined;
   }
 
+  get canInstall(): boolean {
+    return this.#options.releaseAsset === undefined
+      ? this.#manifestUrl !== undefined
+      : this.#options.releaseAsset !== null;
+  }
+
+  get installTotalBytes(): number | undefined {
+    const asset = this.#options.releaseAsset;
+    return asset && 'archiveBytes' in asset ? asset.archiveBytes : undefined;
+  }
+
+  async latestRelease(signal?: AbortSignal): Promise<ReleaseAsset | null> {
+    if (this.#options.releaseAsset !== undefined) return this.#options.releaseAsset;
+    if (this.#manifestUrl === undefined) return null;
+    const timeout = AbortSignal.timeout(MANIFEST_TIMEOUT_MS);
+    const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+    try {
+      const response = await (this.#options.fetch ?? fetch)(this.#manifestUrl, {
+        redirect: 'error',
+        signal: requestSignal,
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const asset = parseAntigravityCliRelease(
+        await response.json(),
+        this.#platform,
+        this.#arch,
+        this.#musl,
+      );
+      if (asset === undefined) {
+        throw new Error(
+          `No valid release of Antigravity CLI ${ANTIGRAVITY_CLI_MINIMUM_VERSION} or later.`,
+        );
+      }
+      return asset;
+    } catch (cause) {
+      signal?.throwIfAborted();
+      throw new AntigravityInstallationError(
+        'download',
+        'Could not read the official Antigravity CLI release. Check the network or set a custom executable path.',
+        { cause },
+      );
+    }
+  }
+
   /**
-   * 找运行体：指定的路径 → Wevir 装的（active.json）→ PATH 上的 `agy_acp_server.par`。可执行文件与同目录的
-   * `localharness_external` 都要在、可执行。找不到抛 `AntigravityInstallationError`（operation `resolve`）。
+   * 指定路径优先，其次托管运行体，再找 PATH 和官方默认安装目录。旧版需要同目录的 harness。
    */
   async resolve(customPath?: string | null): Promise<AntigravityExecutable> {
     try {
       const override = customPath?.trim();
       if (override) {
+        const command =
+          this.#platform === 'win32' && override.toLowerCase() === 'agy'
+            ? this.#nativeName
+            : override;
         const candidates =
           path.isAbsolute(override) || override.includes('/') || override.includes('\\')
             ? [path.resolve(override)]
-            : this.#pathCandidates(override);
+            : this.#pathCandidates(command);
         for (const candidate of candidates) {
           const selected = await this.#fromExternal(candidate, 'override');
           if (selected) return selected;
         }
         throw new AntigravityInstallationError(
           'resolve',
-          'The custom Antigravity executable or its localharness_external sibling is missing or not executable.',
+          'The custom Antigravity executable is missing or not executable. The legacy runtime also requires its localharness_external sibling.',
         );
       }
       if (await exists(this.#activePath)) {
@@ -203,23 +282,26 @@ export class AntigravityInstallation {
         if (typeof active.releaseId !== 'string' || !RELEASE_ID.test(active.releaseId)) {
           throw invalidRecord();
         }
-        const managed = await this.#completedRelease(active.releaseId);
-        // 钉住的发布换了版本（Wevir 升级后）：旧的那份当作没装，设置里重新下载（Claude 低于最低版本时也这样）。
-        if (this.releaseAsset !== null && managed.version !== this.releaseAsset.version) {
-          throw new AntigravityInstallationError(
-            'resolve',
-            `The downloaded Antigravity runtime is ${managed.version}; this version of Wevir uses ${this.releaseAsset.version}. Download it again.`,
-          );
+        return this.#completedRelease(active.releaseId);
+      }
+      let versionError: AntigravityInstallationError | undefined;
+      for (const candidate of [
+        ...this.#pathCandidates(this.#nativeName),
+        ...this.#defaultCliPaths(),
+        ...this.#pathCandidates(this.#names.executable),
+      ]) {
+        try {
+          const selected = await this.#fromExternal(candidate, 'path');
+          if (selected) return selected;
+        } catch (error) {
+          if (!(error instanceof AntigravityInstallationError)) throw error;
+          versionError ??= error;
         }
-        return managed;
       }
-      for (const candidate of this.#pathCandidates(this.#names.executable)) {
-        const selected = await this.#fromExternal(candidate, 'path');
-        if (selected) return selected;
-      }
+      if (versionError !== undefined) throw versionError;
       throw new AntigravityInstallationError(
         'resolve',
-        this.releaseAsset
+        this.canInstall
           ? 'Antigravity is not installed.'
           : `Google does not publish an Antigravity runtime for ${this.#platform}-${this.#arch}. Set a custom executable path.`,
       );
@@ -234,13 +316,12 @@ export class AntigravityInstallation {
   }
 
   /**
-   * 下载、校验、解包、核对并启用钉住的发布。进度经 `onProgress` 报告。同一时刻只有一次安装，进行中时返回同一个
+   * 下载、校验、解包、核对并启用官方发布。进度经 `onProgress` 报告。同一时刻只有一次安装，进行中时返回同一个
    * Promise。失败抛 `AntigravityInstallationError`，取消抛 `AntigravityInstallCancelled`；已装的版本不受影响。
    */
   install(onProgress: (progress: InstallProgress) => void): Promise<AntigravityExecutable> {
     if (this.#running !== undefined) return this.#running.done;
-    const asset = this.releaseAsset;
-    if (asset === null) {
+    if (!this.canInstall) {
       return Promise.reject(
         new AntigravityInstallationError(
           'start',
@@ -249,7 +330,7 @@ export class AntigravityInstallation {
       );
     }
     const controller = new AbortController();
-    const done = this.#install(asset, onProgress, controller.signal).finally(() => {
+    const done = this.#installLatest(onProgress, controller.signal).finally(() => {
       if (this.#running?.controller === controller) this.#running = undefined;
     });
     this.#running = { controller, done };
@@ -261,17 +342,56 @@ export class AntigravityInstallation {
     this.#running?.controller.abort(new AntigravityInstallCancelled('Installation cancelled.'));
   }
 
-  async #install(
-    asset: AntigravityReleaseAsset,
+  async #installLatest(
     onProgress: (progress: InstallProgress) => void,
     signal: AbortSignal,
   ): Promise<AntigravityExecutable> {
-    const destination = path.join(this.#versions, asset.sha256);
-    const report = (phase: InstallProgress['phase'], completedBytes: number) =>
-      onProgress({ phase, completedBytes, totalBytes: asset.archiveBytes });
+    try {
+      const asset = await this.latestRelease(signal);
+      if (asset === null) {
+        throw new AntigravityInstallationError('download', 'No Antigravity release is available.');
+      }
+      if ('sha512' in asset && (await exists(this.#activePath))) {
+        const active = await this.resolve().catch(() => undefined);
+        if (
+          active?.kind === 'native' &&
+          active.version !== null &&
+          compareAntigravityVersions(active.version, asset.version) > 0
+        ) {
+          return active;
+        }
+      }
+      return await this.#install(asset, onProgress, signal);
+    } catch (error) {
+      if (signal.aborted) throw new AntigravityInstallCancelled('Installation cancelled.');
+      throw error;
+    }
+  }
+
+  async #install(
+    asset: ReleaseAsset,
+    onProgress: (progress: InstallProgress) => void,
+    signal: AbortSignal,
+  ): Promise<AntigravityExecutable> {
+    const legacy = 'sha256' in asset ? asset : undefined;
+    const download: DownloadSpec =
+      'sha512' in asset
+        ? { url: asset.url, checksum: asset.sha512, algorithm: 'sha512' }
+        : {
+            url: asset.url,
+            checksum: asset.sha256,
+            algorithm: 'sha256',
+            archiveBytes: asset.archiveBytes,
+          };
+    const releaseId = download.checksum.slice(0, 64);
+    const archiveName =
+      'format' in asset ? `${download.checksum}.${asset.format}.part` : `${releaseId}.zip.part`;
+    const destination = path.join(this.#versions, releaseId);
+    const report = (phase: InstallProgress['phase'], completedBytes: number, totalBytes?: number) =>
+      onProgress({ phase, completedBytes, ...(totalBytes === undefined ? {} : { totalBytes }) });
     try {
       // linux-arm64 的发布按 4 KiB 内存页编译，16 KiB 页的内核上一启动就崩：下载之前先说清楚。
-      if (this.#platform === 'linux' && this.#arch === 'arm64') {
+      if (legacy && this.#platform === 'linux' && this.#arch === 'arm64') {
         const pageSize = await (this.#options.pageSize ?? systemPageSize)();
         if (pageSize !== undefined && pageSize > 4096) {
           throw new AntigravityInstallationError('download', LARGE_PAGE_KERNEL_MESSAGE);
@@ -282,22 +402,26 @@ export class AntigravityInstallation {
       await this.#removeStaleStaging();
 
       if (await exists(destination)) {
-        const existing = await this.#completedRelease(asset.sha256);
-        if (existing.version !== asset.version) {
+        const existing = await this.#completedRelease(releaseId);
+        if (existing.version !== asset.version || (existing.kind === 'legacy') !== !!legacy) {
           throw new AntigravityInstallationError(
             'verify',
             'The existing managed release has the wrong version. Remove it before reinstalling.',
           );
         }
-        report('verifying', asset.archiveBytes);
+        report('verifying', legacy?.archiveBytes ?? 0, legacy?.archiveBytes);
+        if (existing.kind === 'native')
+          await this.#verifyCliVersion(existing.executablePath, asset.version, signal);
         await this.#validate(existing, asset.version, signal);
-        await this.#activate(asset);
-        await this.#removeOtherReleases(asset.sha256);
+        signal.throwIfAborted();
+        await this.#activate(releaseId);
+        if (legacy) await this.#removeOtherReleases(releaseId);
         return existing;
       }
 
       const required =
-        asset.archiveBytes + asset.executable.bytes + asset.harness.bytes + FREE_SPACE_MARGIN;
+        FREE_SPACE_MARGIN +
+        (legacy ? legacy.archiveBytes + legacy.executable.bytes + legacy.harness.bytes : 0);
       const available = await fsp
         .statfs(this.#versions, { bigint: true })
         .then((stats) => stats.bavail * stats.bsize)
@@ -309,22 +433,31 @@ export class AntigravityInstallation {
         );
       }
 
-      const archivePath = path.join(this.#downloads, `${asset.sha256}.zip.part`);
-      await this.#download(asset, archivePath, (bytes) => report('downloading', bytes), signal);
+      if (!legacy) await this.#removeOtherDownloads(archiveName);
+      const archivePath = path.join(this.#downloads, archiveName);
+      const archiveBytes = await this.#download(
+        download,
+        archivePath,
+        (bytes, total) => report('downloading', bytes, total),
+        signal,
+      );
 
-      report('extracting', asset.archiveBytes);
+      report('extracting', archiveBytes, archiveBytes);
       const staging = await fsp.mkdtemp(path.join(this.#versions, '.install-'));
       try {
         const pairDirectory = path.join(staging, 'runtime');
         await fsp.mkdir(pairDirectory);
-        await this.#extract(asset, archivePath, pairDirectory, signal);
-        const executablePath = path.join(pairDirectory, asset.executable.name);
-        const harnessPath = path.join(pairDirectory, asset.harness.name);
-        if (this.#platform !== 'win32') {
-          await fsp.chmod(executablePath, 0o755);
-          await fsp.chmod(harnessPath, 0o755);
+        const executableName = legacy?.executable.name ?? this.#nativeName;
+        const executablePath = path.join(pairDirectory, executableName);
+        const harnessPath = legacy ? path.join(pairDirectory, legacy.harness.name) : null;
+        if ('format' in asset) {
+          await this.#extractCli(asset, archivePath, executablePath, signal);
+        } else {
+          await this.#extract(asset, archivePath, pairDirectory, signal);
         }
-        if (this.#platform === 'darwin' && this.#arch === 'x64') {
+        await fsp.chmod(executablePath, 0o755);
+        if (harnessPath !== null && this.#platform !== 'win32') await fsp.chmod(harnessPath, 0o755);
+        if (harnessPath !== null && this.#platform === 'darwin' && this.#arch === 'x64') {
           // Google 给 Intel 版签的是带 hardened runtime、却没有 JIT 授权的签名，libffi 的可写可执行跳板会一直空转：核对
           // sha256 之后重新 ad-hoc 签名（签名改了文件大小，下面记的是签名后的大小）。
           try {
@@ -338,11 +471,13 @@ export class AntigravityInstallation {
             );
           }
         }
-        report('verifying', asset.archiveBytes);
+        report('verifying', archiveBytes, archiveBytes);
+        if (!legacy) await this.#verifyCliVersion(executablePath, asset.version, signal);
         await this.#validate(
           {
             executablePath,
             harnessPath,
+            kind: legacy ? 'legacy' : 'native',
             source: 'managed',
             version: asset.version,
             managedVersionDirectory: pairDirectory,
@@ -351,10 +486,14 @@ export class AntigravityInstallation {
           signal,
         );
         const record: InstalledRecord = {
-          releaseId: asset.sha256,
+          releaseId,
           version: asset.version,
-          executable: { name: asset.executable.name, bytes: (await fsp.stat(executablePath)).size },
-          harness: { name: asset.harness.name, bytes: (await fsp.stat(harnessPath)).size },
+          executable: { name: executableName, bytes: (await fsp.stat(executablePath)).size },
+          ...(!legacy && { kind: 'native' }),
+          ...(legacy &&
+            harnessPath !== null && {
+              harness: { name: legacy.harness.name, bytes: (await fsp.stat(harnessPath)).size },
+            }),
         };
         await fsp.writeFile(path.join(pairDirectory, RELEASE_RECORD), JSON.stringify(record), {
           flag: 'wx',
@@ -364,7 +503,7 @@ export class AntigravityInstallation {
           await fsp.rename(pairDirectory, destination);
         } catch (cause) {
           // 别的安装抢先放好了同一个发布：核对它是同一版本。
-          const existing = await this.#completedRelease(asset.sha256).catch(() => undefined);
+          const existing = await this.#completedRelease(releaseId).catch(() => undefined);
           if (existing?.version !== asset.version) {
             throw new AntigravityInstallationError(
               'activate',
@@ -377,9 +516,11 @@ export class AntigravityInstallation {
         await fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
       }
       await fsp.rm(archivePath, { force: true }).catch(() => {});
-      await this.#activate(asset);
-      await this.#removeOtherReleases(asset.sha256);
-      return await this.#completedRelease(asset.sha256);
+      signal.throwIfAborted();
+      await this.#activate(releaseId);
+      // 原生 CLI 启用时，旧进程可能还在使用上一个版本；下次 Host 启动再清除。
+      if (legacy) await this.#removeOtherReleases(releaseId);
+      return await this.#completedRelease(releaseId);
     } catch (error) {
       if (signal.aborted) {
         throw signal.reason instanceof AntigravityInstallCancelled
@@ -396,36 +537,40 @@ export class AntigravityInstallation {
   }
 
   /**
-   * 下载发布包到 `archivePath`：已有没下完的部分时用 Range 接着下（服务器不支持就从头来），边下边算 sha256，下完核对
-   * 大小与 sha256，不对就删掉重来。
+   * 下载发布包到 `archivePath`，用 Range 续传，核对大小（如有）和校验值。
    */
   async #download(
-    asset: AntigravityReleaseAsset,
+    asset: DownloadSpec,
     archivePath: string,
-    onBytes: (bytes: number) => void,
+    onBytes: (bytes: number, total?: number) => void,
     signal: AbortSignal,
-  ): Promise<void> {
+  ): Promise<number> {
     const url = antigravityDownloadUrl(asset, this.#options.env ?? process.env);
     let offset = await fsp
       .stat(archivePath)
       .then((stats) => stats.size)
       .catch(() => 0);
-    if (offset > asset.archiveBytes) {
+    const limit = asset.archiveBytes ?? MAX_NATIVE_BYTES;
+    if (offset > limit) {
       await fsp.rm(archivePath, { force: true });
       offset = 0;
     }
-    let hash = createHash('sha256');
+    let hash = createHash(asset.algorithm);
     if (offset > 0) {
       const handle = await fsp.open(archivePath, 'r');
       try {
         for await (const chunk of handle.createReadStream({ start: 0, end: offset - 1 })) {
+          signal.throwIfAborted();
           hash.update(chunk as Buffer);
         }
       } finally {
         await handle.close();
       }
     }
-    if (offset < asset.archiveBytes) {
+    if (
+      offset < limit &&
+      (asset.archiveBytes !== undefined || hash.copy().digest('hex') !== asset.checksum)
+    ) {
       ({ bytes: offset, hash } = await this.#fetchInto(
         url,
         asset,
@@ -436,14 +581,18 @@ export class AntigravityInstallation {
         signal,
       ));
     }
-    if (offset !== asset.archiveBytes || hash.digest('hex') !== asset.sha256) {
+    if (
+      (asset.archiveBytes !== undefined && offset !== asset.archiveBytes) ||
+      hash.digest('hex') !== asset.checksum
+    ) {
       await fsp.rm(archivePath, { force: true });
       throw new AntigravityInstallationError(
         'download',
-        'The Antigravity download failed its size or SHA-256 check. Nothing was installed. Try again.',
+        `The Antigravity download failed its size or ${asset.algorithm === 'sha256' ? 'SHA-256' : 'SHA-512'} check. Nothing was installed. Try again.`,
       );
     }
-    onBytes(asset.archiveBytes);
+    onBytes(offset, offset);
+    return offset;
   }
 
   /**
@@ -451,11 +600,11 @@ export class AntigravityInstallation {
    */
   async #fetchInto(
     url: string,
-    asset: AntigravityReleaseAsset,
+    asset: DownloadSpec,
     archivePath: string,
     offset: number,
     hash: ReturnType<typeof createHash>,
-    onBytes: (bytes: number) => void,
+    onBytes: (bytes: number, total?: number) => void,
     signal: AbortSignal,
   ): Promise<{ bytes: number; hash: ReturnType<typeof createHash> }> {
     const idleMs = this.#options.idleTimeoutMs ?? DOWNLOAD_IDLE_TIMEOUT_MS;
@@ -492,8 +641,10 @@ export class AntigravityInstallation {
       const encoding = response.headers.get('content-encoding')?.trim().toLowerCase();
       const identity = encoding === undefined || encoding === '' || encoding === 'identity';
       let start = offset;
+      let total = asset.archiveBytes;
       if (offset > 0 && response.status === 206 && identity) {
-        if (!matchesContentRange(response.headers.get('content-range'), offset, asset)) {
+        const rangeTotal = totalFromContentRange(response.headers.get('content-range'), offset);
+        if (rangeTotal === undefined || (total !== undefined && rangeTotal !== total)) {
           await response.body?.cancel().catch(() => {});
           await fsp.rm(archivePath, { force: true });
           throw new AntigravityInstallationError(
@@ -501,6 +652,7 @@ export class AntigravityInstallation {
             'The download server returned an unexpected range. Try again.',
           );
         }
+        total = rangeTotal;
       } else if (response.status === 200) {
         start = 0;
       } else if (response.status === 416) {
@@ -517,13 +669,27 @@ export class AntigravityInstallation {
           `Downloading Antigravity from ${host} failed with HTTP ${response.status}.${mirrorHint(host)}`,
         );
       }
-      const expected = asset.archiveBytes - start;
-      const length = response.headers.get('content-length');
-      if (identity && length !== null && Number(length) !== expected) {
+      const length = identity ? response.headers.get('content-length') : null;
+      const expected = length === null ? undefined : Number(length) + start;
+      if (
+        expected !== undefined &&
+        (!Number.isSafeInteger(expected) ||
+          expected < start ||
+          (total !== undefined && expected !== total))
+      ) {
         await response.body?.cancel().catch(() => {});
         throw new AntigravityInstallationError(
           'download',
-          'The Antigravity download size did not match the pinned release.',
+          'The Antigravity download size did not match the release.',
+        );
+      }
+      total ??= expected;
+      const limit = asset.archiveBytes ?? MAX_NATIVE_BYTES;
+      if (total !== undefined && total > limit) {
+        await response.body?.cancel().catch(() => {});
+        throw new AntigravityInstallationError(
+          'download',
+          'The Antigravity download is too large.',
         );
       }
       if (response.body === null) {
@@ -534,25 +700,26 @@ export class AntigravityInstallation {
       let written = start;
       let lastProgress = 0;
       // 服务器不支持 Range、从头下时，旧的部分已经算进 hash，换一个新的。
-      const digest = start === 0 && offset > 0 ? createHash('sha256') : hash;
+      const digest = start === 0 && offset > 0 ? createHash(asset.algorithm) : hash;
       try {
         for await (const chunk of response.body) {
           touch();
           written += chunk.byteLength;
-          if (written > asset.archiveBytes) {
+          if (written > (total ?? limit)) {
             throw new AntigravityInstallationError(
               'download',
-              'The Antigravity download exceeded the pinned release size.',
+              'The Antigravity download exceeded the expected size.',
             );
           }
           digest.update(chunk);
-          await handle.write(chunk);
+          await handle.writeFile(chunk);
           const now = Date.now();
           if (now - lastProgress >= (this.#options.progressIntervalMs ?? PROGRESS_INTERVAL_MS)) {
             lastProgress = now;
-            onBytes(written);
+            onBytes(written, total);
           }
         }
+        if (total !== undefined && written !== total) throw new Error('Incomplete download');
       } catch (error) {
         if (signal.aborted || error instanceof AntigravityInstallationError) throw error;
         throw networkError(host, error, idle.signal.aborted);
@@ -656,6 +823,115 @@ export class AntigravityInstallation {
     }
   }
 
+  async #extractCli(
+    asset: AntigravityCliReleaseAsset,
+    archivePath: string,
+    executablePath: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (asset.format === 'executable') {
+      await fsp.copyFile(archivePath, executablePath, constants.COPYFILE_EXCL);
+      return;
+    }
+    const timeout = AbortSignal.any([signal, AbortSignal.timeout(VALIDATION_TIMEOUT_MS)]);
+    const env = { ...(this.#options.env ?? process.env), LC_ALL: 'C' };
+    delete (env as NodeJS.ProcessEnv).TAR_OPTIONS;
+    const options = { env, signal: timeout, maxBuffer: 8 * 1024 };
+    try {
+      const { stdout: details } = await execFileAsync('tar', ['-tvzf', archivePath], options);
+      const entry = details.trimEnd();
+      if (!entry.startsWith('-') || !entry.endsWith(' antigravity') || entry.includes('\n')) {
+        throw new Error('The archive must contain one regular file named antigravity.');
+      }
+      const file = await fsp.open(executablePath, 'wx', 0o700);
+      try {
+        const child = spawn('tar', ['-xOzf', archivePath, 'antigravity'], {
+          env,
+          signal: timeout,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        const exited = new Promise<void>((resolve, reject) => {
+          child.once('error', reject);
+          child.once('close', (code) =>
+            code === 0 ? resolve() : reject(new Error(`tar exited with status ${code}`)),
+          );
+        });
+        let bytes = 0;
+        const limit = new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            bytes += chunk.byteLength;
+            callback(
+              bytes > MAX_NATIVE_BYTES ? new Error('The executable is too large.') : null,
+              chunk,
+            );
+          },
+        });
+        try {
+          await Promise.all([
+            pipeline(child.stdout, limit, file.createWriteStream(), { signal: timeout }),
+            exited,
+          ]);
+        } finally {
+          child.kill();
+        }
+      } finally {
+        await file.close().catch(() => {});
+      }
+    } catch (cause) {
+      signal.throwIfAborted();
+      throw new AntigravityInstallationError(
+        'extract',
+        'Could not extract the verified Antigravity CLI archive.',
+        { cause },
+      );
+    }
+  }
+
+  async #readCliVersion(executablePath: string, signal?: AbortSignal): Promise<string> {
+    const temporary = await fsp.mkdtemp(path.join(os.tmpdir(), 'wevir-agy-version-'));
+    try {
+      const { stdout } = await execFileAsync(executablePath, ['--version'], {
+        cwd: temporary,
+        env: {
+          ...antigravityBaseEnvironment(this.#options.env ?? process.env),
+          GEMINI_HOME: temporary,
+          AGY_CLI_DISABLE_AUTO_UPDATE: 'true',
+        },
+        maxBuffer: 8 * 1024,
+        timeout: VERSION_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
+        windowsHide: true,
+        signal,
+      });
+      const version =
+        /^(?:(?:agy|antigravity(?: cli)?)(?: version)?[: ]+)?v?(\d+\.\d+\.\d+)[ \t]*$/imu.exec(
+          stdout,
+        )?.[1];
+      if (version === undefined) throw new Error('Unrecognized version output.');
+      return version;
+    } finally {
+      await fsp.rm(temporary, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
+  async #verifyCliVersion(
+    executablePath: string,
+    expected: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    try {
+      const version = await this.#readCliVersion(executablePath, signal);
+      if (version !== expected) throw new Error(`Expected ${expected}, found ${version}.`);
+    } catch (cause) {
+      signal.throwIfAborted();
+      throw new AntigravityInstallationError(
+        'verify',
+        `The downloaded Antigravity CLI could not be verified as version ${expected}.`,
+        { cause },
+      );
+    }
+  }
+
   async #validate(
     executable: AntigravityExecutable,
     expectedVersion: string,
@@ -680,10 +956,10 @@ export class AntigravityInstallation {
   }
 
   /** 写 active.json（先写临时文件再 rename，原子）。写下它才算装好。 */
-  async #activate(asset: AntigravityReleaseAsset): Promise<void> {
+  async #activate(releaseId: string): Promise<void> {
     const temporary = path.join(this.managedDirectory, `active.json.${randomUUID()}.tmp`);
     try {
-      await fsp.writeFile(temporary, JSON.stringify({ releaseId: asset.sha256 }), {
+      await fsp.writeFile(temporary, JSON.stringify({ releaseId }), {
         flag: 'wx',
         mode: 0o600,
       });
@@ -699,8 +975,7 @@ export class AntigravityInstallation {
   }
 
   /**
-   * 删掉 active.json 没指着的发布与别的发布没下完的压缩包（Wevir 升级换了钉住的版本后，旧的一份几百 MB 一直留着）。正在安装、
-   * 或者还没装过时什么都不做。Host 启动时调一次，清掉以前的版本留下的。
+   * Host 启动时删掉非活动发布。清单变化后才能判断原生 CLI 的半截下载是否过期。
    */
   async removeInactiveReleases(): Promise<void> {
     if (this.#running !== undefined) return;
@@ -712,18 +987,21 @@ export class AntigravityInstallation {
     await this.#removeOtherReleases(releaseId);
   }
 
-  /** 新发布启用后删掉别的发布（Windows 上还有进程在用的删不掉，忽略），以及不是钉住的发布的半截下载。 */
   async #removeOtherReleases(keep: string): Promise<void> {
     for (const entry of await fsp.readdir(this.#versions).catch(() => [] as string[])) {
-      if (entry !== keep && !entry.startsWith('.')) {
+      if (entry !== keep && RELEASE_ID.test(entry)) {
         await fsp
           .rm(path.join(this.#versions, entry), { recursive: true, force: true })
           .catch(() => {});
       }
     }
-    const pending = this.releaseAsset === null ? undefined : `${this.releaseAsset.sha256}.zip.part`;
+    const asset = this.#options.releaseAsset;
+    if (asset && 'sha256' in asset) await this.#removeOtherDownloads(`${asset.sha256}.zip.part`);
+  }
+
+  async #removeOtherDownloads(keep: string): Promise<void> {
     for (const entry of await fsp.readdir(this.#downloads).catch(() => [] as string[])) {
-      if (entry !== pending) {
+      if (entry !== keep && entry.endsWith('.part')) {
         await fsp.rm(path.join(this.#downloads, entry), { force: true }).catch(() => {});
       }
     }
@@ -757,25 +1035,22 @@ export class AntigravityInstallation {
     const record = await this.#readRecord<Partial<InstalledRecord>>(
       path.join(directory, RELEASE_RECORD),
     ).catch(() => undefined);
+    const kind = record?.kind ?? 'legacy';
+    const name = kind === 'native' ? this.#nativeName : this.#names.executable;
+    const executablePath = path.join(directory, name);
+    const harnessPath = kind === 'legacy' ? path.join(directory, this.#names.harness) : null;
     if (
       record === undefined ||
       record.releaseId !== releaseId ||
-      record.executable?.name !== this.#names.executable ||
-      record.harness?.name !== this.#names.harness ||
-      !Number.isSafeInteger(record.executable.bytes) ||
-      record.executable.bytes <= 0 ||
-      !Number.isSafeInteger(record.harness.bytes) ||
-      record.harness.bytes <= 0 ||
       typeof record.version !== 'string' ||
       !record.version.trim() ||
-      !(await this.#isExecutableFile(
-        path.join(directory, this.#names.executable),
-        record.executable.bytes,
-      )) ||
-      !(await this.#isExecutableFile(
-        path.join(directory, this.#names.harness),
-        record.harness.bytes,
-      ))
+      !validInstalledFile(record.executable, name) ||
+      !(await this.#isExecutableFile(executablePath, record.executable.bytes)) ||
+      (kind === 'native'
+        ? !isAntigravityCliVersion(record.version) || record.harness !== undefined
+        : harnessPath === null ||
+          !validInstalledFile(record.harness, this.#names.harness) ||
+          !(await this.#isExecutableFile(harnessPath, record.harness.bytes)))
     ) {
       throw new AntigravityInstallationError(
         'resolve',
@@ -783,8 +1058,9 @@ export class AntigravityInstallation {
       );
     }
     return {
-      executablePath: path.join(directory, this.#names.executable),
-      harnessPath: path.join(directory, this.#names.harness),
+      executablePath,
+      harnessPath,
+      kind,
       source: 'managed',
       version: record.version,
       managedVersionDirectory: directory,
@@ -798,8 +1074,6 @@ export class AntigravityInstallation {
     if (!(await this.#isExecutableFile(candidate))) return null;
     const executablePath = await fsp.realpath(candidate);
     const directory = path.dirname(executablePath);
-    const harnessPath = path.join(directory, this.#names.harness);
-    if (!(await this.#isExecutableFile(harnessPath))) return null;
     const realVersions = await fsp.realpath(this.#versions).catch(() => undefined);
     if (
       realVersions !== undefined &&
@@ -807,9 +1081,56 @@ export class AntigravityInstallation {
       RELEASE_ID.test(path.basename(directory))
     ) {
       const installed = await this.#completedRelease(path.basename(directory));
-      return { ...installed, executablePath, harnessPath, source };
+      if (path.basename(installed.executablePath) !== path.basename(executablePath)) {
+        return null;
+      }
+      return { ...installed, source };
     }
-    return { executablePath, harnessPath, source, version: null, managedVersionDirectory: null };
+    const nativeName = /^(?:agy|antigravity)(?:\.exe)?$/iu;
+    if ([candidate, executablePath].some((file) => nativeName.test(path.basename(file)))) {
+      const stats = await fsp.stat(executablePath);
+      const signature = `${executablePath}:${stats.ino}:${stats.mtimeMs}:${stats.size}`;
+      const cached = this.#externalVersions.get(candidate);
+      const version =
+        cached?.signature === signature ? cached.version : this.#readCliVersion(candidate);
+      this.#externalVersions.set(candidate, { signature, version });
+      let reported: string;
+      try {
+        reported = await version;
+      } catch (cause) {
+        this.#externalVersions.delete(candidate);
+        throw new AntigravityInstallationError(
+          'resolve',
+          'Could not check the installed Antigravity CLI version.',
+          { cause },
+        );
+      }
+      if (!isAntigravityCliVersion(reported)) {
+        throw new AntigravityInstallationError(
+          'resolve',
+          `Antigravity CLI ${reported} is installed. Version ${ANTIGRAVITY_CLI_MINIMUM_VERSION} or later is required.`,
+        );
+      }
+      // 启动器可能按调用名路由，保留调用路径。
+      return {
+        executablePath: candidate,
+        harnessPath: null,
+        kind: 'native',
+        source,
+        version: reported,
+        managedVersionDirectory: null,
+      };
+    }
+    const harnessPath = path.join(directory, this.#names.harness);
+    if (!(await this.#isExecutableFile(harnessPath))) return null;
+    return {
+      executablePath,
+      harnessPath,
+      kind: 'legacy',
+      source,
+      version: null,
+      managedVersionDirectory: null,
+    };
   }
 
   async #isExecutableFile(filePath: string, bytes?: number): Promise<boolean> {
@@ -833,6 +1154,21 @@ export class AntigravityInstallation {
       .filter((directory) => directory.length > 0)
       .map((directory) => path.resolve(directory, binary));
   }
+
+  #defaultCliPaths(): string[] {
+    const env = this.#options.env ?? process.env;
+    if (this.#platform === 'win32') {
+      return env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'agy', 'bin', this.#nativeName)] : [];
+    }
+    return [path.join(env.HOME || os.homedir(), '.local', 'bin', this.#nativeName)];
+  }
+}
+
+function validInstalledFile(
+  entry: InstalledRecord['executable'] | undefined,
+  name: string,
+): entry is InstalledRecord['executable'] {
+  return entry?.name === name && Number.isSafeInteger(entry.bytes) && entry.bytes > 0;
 }
 
 function invalidRecord(): AntigravityInstallationError {
@@ -858,23 +1194,23 @@ function safeHost(url: string): string {
 }
 
 /** `Content-Range: bytes <offset>-<total-1>/<total>`。 */
-function matchesContentRange(
-  value: string | null,
-  offset: number,
-  asset: AntigravityReleaseAsset,
-): boolean {
+function totalFromContentRange(value: string | null, offset: number): number | undefined {
   const match = /^bytes (\d+)-(\d+)\/(\d+)$/u.exec(value?.trim() ?? '');
-  return (
-    match !== null &&
+  if (match === null) return undefined;
+  const total = Number(match[3]);
+  if (
+    Number.isSafeInteger(total) &&
+    total > offset &&
     Number(match[1]) === offset &&
-    Number(match[2]) === asset.archiveBytes - 1 &&
-    Number(match[3]) === asset.archiveBytes
-  );
+    Number(match[2]) === total - 1
+  )
+    return total;
+  return undefined;
 }
 
 function mirrorHint(host: string): string {
-  return host === 'dl.google.com'
-    ? ' dl.google.com is often unreachable from mainland China: set WEVIR_ANTIGRAVITY_MIRROR to a mirror of https://dl.google.com, or install the runtime yourself and set a custom executable path.'
+  return host === 'dl.google.com' || host === 'storage.googleapis.com'
+    ? ` ${host} is often unreachable from mainland China: set WEVIR_ANTIGRAVITY_MIRROR to a mirror of https://${host}, or install the runtime yourself and set a custom executable path.`
     : '';
 }
 

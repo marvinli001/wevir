@@ -120,8 +120,8 @@ export function subscriptionEngines(
       }),
       kinds: ['grok'],
     },
-    // Antigravity（Google 的 ACP 运行体，antigravity-event-mapping.md）：Wevir 下载钉住的版本或用指定的可执行文件，私有
-    // profile 在 <数据目录>/engines/antigravity；第一次建会话、登录或刷新时才启动。
+    // Antigravity：Wevir 从 Google 的发行清单安装 `agy` 或使用指定的可执行文件。
+    // 私有 profile 在 <数据目录>/engines/antigravity；第一次建会话、登录或刷新时才启动。
     {
       name: 'antigravity',
       adapter: new AntigravityAdapter({

@@ -4,6 +4,7 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8；之后的修复取自 a6e2236c4d4ed2f655c42e1766b8c79214ff4075（skills 目录不在时
 // 不留悬空链接，运行体留下的空占位目录换成链接）、385851d7fedc645d3ecf6363135c3c8c35c32b2d（钩子核对放宽到 30 s）、
 // 12085f0b0c1229198bbcbf47c63135f4931936f6（不传 CHROME_CRASHPAD_PIPE_NAME）
+// 原生 CLI 的私有 app-data-dir 参数参考 6b7027b1f43eebc4c7edf5304236a0775b2d8928（antigravityAuthSupport.ts）。
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS；只保留个人 Google 账号登录（oauth-personal），不做 T3 的 API Key、Gemini Enterprise 与
 // Vertex（Wevir 不保存这类密钥，AGENTS.md 规则 5）；BROWSER 钩子用 Host 自己的 Node（process.execPath，Electron 里靠
@@ -14,12 +15,13 @@
 // - GEMINI_HOME 指向 `<数据目录>/engines/antigravity/profile`，凭据（antigravity-acp/acp_token.json）只在这里，
 //   `AGY_ACP_FORCE_FILE_STORAGE=1` 不用系统钥匙串。Wevir 不读这个文件的内容，只看它在不在。
 // - 环境里的 `GEMINI_API_KEY`、`GOOGLE_*` 等去掉，运行体只用这个 profile 里的登录。
-// - 运行体是 PyInstaller 单文件，每次启动往临时目录解包约 1 GB：TMPDIR 指向 Wevir 自己的目录，每个进程一个，退出后删掉。
+// - 旧版每次启动会解包 PyInstaller：TMPDIR 指向 Wevir 自己的目录，每个进程一个，退出后删掉。
 // - 登录时运行体用 Python 的 webbrowser 打开 Google 的登录页：BROWSER 设成一个小 Node 脚本，它不开浏览器，只把网址
 //   带标记写到 stderr，Wevir 认出来交给界面（AccountState.login.authUrl）。1.1.1 也可能把网址直接写在 stdout 上，那一行不是
 //   JSON-RPC，在 ACP 解码之前去掉。
 
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -63,6 +65,7 @@ const REMOVED_ENVIRONMENT_KEYS = new Set([
   'AGY_ACP_ENABLE_OAUTH',
   'GEMINI_HOME',
   'AGY_ACP_FORCE_FILE_STORAGE',
+  'AGY_CLI_DISABLE_AUTO_UPDATE',
   'ANTIGRAVITY_HARNESS_PATH',
   'BROWSER',
   'PYTHONUNBUFFERED',
@@ -116,20 +119,22 @@ function quoteBrowserArgument(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
+export function antigravityBaseEnvironment(baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  // Windows 的环境变量名不分大小写，别名也去掉。
+  return Object.fromEntries(
+    Object.entries(baseEnv).filter(([key]) => !REMOVED_ENVIRONMENT_KEYS.has(key.toUpperCase())),
+  );
+}
+
 /** 交给运行体的环境：去掉会盖过 profile 登录的变量，加上 profile、BROWSER 钩子与自己的临时目录。 */
 export function antigravityEnvironment(
   profile: AntigravityProfile,
   baseEnv: NodeJS.ProcessEnv,
   runtimeTempDirectory?: string,
 ): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(baseEnv)) {
-    // Windows 的环境变量名不分大小写，别名也去掉。
-    if (!REMOVED_ENVIRONMENT_KEYS.has(key.toUpperCase())) environment[key] = value;
-  }
   const tempDirectory = runtimeTempDirectory ?? profile.tempDirectory;
   return {
-    ...environment,
+    ...antigravityBaseEnvironment(baseEnv),
     GEMINI_HOME: profile.geminiHome,
     AGY_ACP_FORCE_FILE_STORAGE: '1',
     BROWSER: profile.browserCommand,
@@ -151,6 +156,7 @@ export interface PrepareProfileOptions {
   /** BROWSER 钩子用的 Node；默认 Host 自己（process.execPath）。 */
   nodeExecutable?: string;
   platform?: NodeJS.Platform;
+  nativeCli?: boolean;
   userHome?: string;
   /** 告警出口（skills 链接不上等，不影响启动）。 */
   warn?: (message: string, fields?: Record<string, unknown>) => void;
@@ -198,11 +204,18 @@ export async function prepareAntigravityProfile(
     await fsp.mkdir(directory, { recursive: true, mode: 0o700 });
     if (platform !== 'win32') await fsp.chmod(directory, 0o700);
   }
-  // 每次启动都重写：运行体登录后也会在这里记下 auth.type，与写下的一致。
-  await fsp.writeFile(
-    path.join(acpDirectory, 'settings.json'),
-    `${JSON.stringify({ auth: { type: ANTIGRAVITY_AUTH_METHOD } })}\n`,
-  );
+  const settings = {
+    auth: { type: ANTIGRAVITY_AUTH_METHOD },
+    ...(options.nativeCli && { agentMode: '', toolPermission: 'strict' }),
+  };
+  // 登录、刷新与会话可能同时启动，运行体读到的必须是一份完整的权限设置。
+  const staged = path.join(acpDirectory, `.settings-${randomUUID()}.json`);
+  try {
+    await fsp.writeFile(staged, `${JSON.stringify(settings)}\n`, { flag: 'wx', mode: 0o600 });
+    await fsp.rename(staged, path.join(acpDirectory, 'settings.json'));
+  } finally {
+    await fsp.rm(staged, { force: true }).catch(() => {});
+  }
   await linkUserSkills(
     geminiHome,
     options.userHome ?? resolveAntigravityUserHome(platform, options.baseEnv),
@@ -312,7 +325,7 @@ async function linkUserSkills(
 }
 
 export interface SpawnSpecInput {
-  installation: { executablePath: string; harnessPath: string };
+  installation: { executablePath: string; harnessPath: string | null };
   profile: AntigravityProfile;
   /** 进程的 cwd；会话的目录经 ACP `session/new` 的 `cwd` 给出。 */
   cwd: string;
@@ -324,14 +337,22 @@ export interface SpawnSpecInput {
 /** 每个 Antigravity 进程同一套只用订阅登录的启动参数。 */
 export function antigravitySpawnSpec(input: SpawnSpecInput): AcpSpawnSpec {
   const { platform } = input.profile;
+  const { harnessPath } = input.installation;
+  const nativeCli = harnessPath === null;
   return {
     command: input.installation.executablePath,
-    args: platform === 'linux' ? ['--uid='] : [],
+    args: nativeCli
+      ? ['acp', '--gemini-dir', input.profile.geminiHome, '--app-data-dir', 'antigravity-acp']
+      : platform === 'linux'
+        ? ['--uid=']
+        : [],
     options: {
       cwd: input.cwd,
       env: {
         ...antigravityEnvironment(input.profile, input.baseEnv, input.runtimeTempDirectory),
-        ANTIGRAVITY_HARNESS_PATH: input.installation.harnessPath,
+        ...(nativeCli
+          ? { AGY_CLI_DISABLE_AUTO_UPDATE: 'true' }
+          : { ANTIGRAVITY_HARNESS_PATH: harnessPath }),
       },
       stdio: ['pipe', 'pipe', 'pipe'],
       // POSIX 上自成进程组，回收时连同它留下的工具子进程一起结束（acp-process.ts 的 signal）。
