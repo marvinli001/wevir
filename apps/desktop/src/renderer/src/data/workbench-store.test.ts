@@ -174,6 +174,30 @@ describe('WorkbenchStore 与 sessions.changed（0.101.0）', () => {
     store.dispose();
   });
 
+  it('同一连接读过已归档列表，归档推送移除活动行，取消归档才恢复订阅', async () => {
+    const active = session('ses_a');
+    const archived = { ...active, archivedAt: NOW };
+    const fake = fakeClient([
+      { sessions: [active], listVersion: 1 },
+      { sessions: [], listVersion: 2 },
+    ]);
+    const store = new WorkbenchStore(fake.client);
+    await store.refresh();
+    fake.push({ listVersion: 2, upserted: [archived], removed: [] });
+    expect(titles(store)).toEqual([]);
+    expect(fake.closed.has(active.id)).toBe(true);
+
+    await store.refresh();
+    fake.push({ listVersion: 3, upserted: [archived], removed: [] });
+    expect(titles(store)).toEqual([]);
+    expect(fake.subscribed).toEqual([active.id]);
+
+    fake.push({ listVersion: 4, upserted: [active], removed: [] });
+    expect(titles(store)).toEqual([active.title]);
+    expect(fake.subscribed).toEqual([active.id, active.id]);
+    store.dispose();
+  });
+
   it('版本不连续就重读一次列表', async () => {
     const fake = fakeClient([
       { sessions: [session('ses_a')], listVersion: 10 },

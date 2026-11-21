@@ -22,10 +22,9 @@ export function moreWindow(
   return { visible, floor, more: visible < length, less: visible > floor };
 }
 
-/** 第一段之后每段的起点与项，各自一个展开收起的过渡。 */
-export function moreChunks<T>(items: readonly T[], step: number) {
-  const chunks: { start: number; items: readonly T[] }[] = [];
-  for (let start = step; start < items.length; start += step)
-    chunks.push({ start, items: items.slice(start, start + step) });
-  return chunks;
+/** 收起过渡只保留段的起点。段里的行从当前列表取，归档掉的行不会随旧段再出现。 */
+export function moreChunks<T>(items: readonly T[], visible: number, step: number) {
+  const starts: number[] = [];
+  for (let start = step; start < visible; start += step) starts.push(start);
+  return { starts, itemsAt: (start: number) => items.slice(start, start + step) };
 }

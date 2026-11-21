@@ -29,7 +29,8 @@ import type { WorkbenchStore } from './workbench-store';
 /** Host 能改名、能归档（0.23.0）、能永久删除（0.43.0）。 */
 export function useSessionManagement(): { rename: boolean; archive: boolean; remove: boolean } {
   const { view } = useHostConnection();
-  if (view.status !== 'connected') return { rename: false, archive: false, remove: false };
+  if (view.status !== 'connected' || !view.hello.permissions.includes('session.write'))
+    return { rename: false, archive: false, remove: false };
   return {
     rename: hostSupports(view.hello.features, 'session_rename'),
     archive: hostSupports(view.hello.features, 'session_archive'),

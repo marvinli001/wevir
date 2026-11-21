@@ -28,10 +28,21 @@ describe('moreWindow', () => {
 describe('moreChunks', () => {
   it('第一段之后按段切开', () => {
     const items = Array.from({ length: 12 }, (_, index) => index);
-    expect(moreChunks(items, 5)).toEqual([
-      { start: 5, items: [5, 6, 7, 8, 9] },
-      { start: 10, items: [10, 11] },
+    const chunks = moreChunks(items, items.length, 5);
+    expect(chunks.starts).toEqual([5, 10]);
+    expect(chunks.starts.map(chunks.itemsAt)).toEqual([
+      [5, 6, 7, 8, 9],
+      [10, 11],
     ]);
-    expect(moreChunks(items.slice(0, 5), 5)).toEqual([]);
+  });
+
+  it('收起末段时保留其中的行，归档末行后不再显示它', () => {
+    const items = [1, 2, 3, 4, 5, 6];
+    const exiting = moreChunks(items, 6, 5).starts;
+    const collapsed = moreChunks(items, 5, 5);
+    expect(collapsed.starts).toEqual([]);
+    expect(exiting.flatMap(collapsed.itemsAt)).toEqual([6]);
+    const archived = moreChunks(items.slice(0, 5), 5, 5);
+    expect(exiting.flatMap(archived.itemsAt)).toEqual([]);
   });
 });

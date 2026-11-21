@@ -789,12 +789,14 @@ function MoreList<T>({
     if (open) setShown(limit);
   }
   const { visible, more, less } = moreWindow(items.length, limit, shown, activeIndex);
-  const chunks = useMemo(() => moreChunks(items.slice(0, visible), limit), [items, visible, limit]);
+  const chunks = useMemo(() => moreChunks(items, visible, limit), [items, visible, limit]);
   return (
     <>
       <ul className="space-y-0.5">{items.slice(0, limit).map(render)}</ul>
-      <AnimatedRows as="div" items={chunks} keyOf={(chunk) => String(chunk.start)}>
-        {(chunk) => <ul className="space-y-0.5 pt-0.5">{chunk.items.map(render)}</ul>}
+      <AnimatedRows as="div" items={chunks.starts} keyOf={String}>
+        {(start) => (
+          <ul className="space-y-0.5 pt-0.5 empty:hidden">{chunks.itemsAt(start).map(render)}</ul>
+        )}
       </AnimatedRows>
       {(more || less) && (
         <div className="mt-0.5 flex items-center gap-0.5">

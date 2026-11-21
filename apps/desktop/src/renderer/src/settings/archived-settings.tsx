@@ -2,7 +2,7 @@ import type { Session, SessionId } from '@wevir/protocol';
 import { Archive, LoaderCircle, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { archiveSession, useSessionManagement } from '@/data/session-actions';
+import { archiveSession } from '@/data/session-actions';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
@@ -20,8 +20,8 @@ import {
  * 每行标题、归档的时刻与“取消归档”。取消归档的会话回到左栏（仍是关闭的，发消息时恢复）。
  */
 export function ArchivedSettings() {
-  const { client } = useHostConnection();
-  const manage = useSessionManagement();
+  const { client, view } = useHostConnection();
+  const supported = view.status === 'connected' && client?.supports('session_archive');
   const data = useWorkbenchData();
   const store = useWorkbenchStore();
   const [sessions, setSessions] = useState<Session[]>();
@@ -30,7 +30,7 @@ export function ArchivedSettings() {
   const [busy, setBusy] = useState<string>();
 
   useEffect(() => {
-    if (!client || !manage.archive) return;
+    if (!client || !supported) return;
     let stopped = false;
     client
       .request('session.list', { archived: true })
@@ -43,7 +43,7 @@ export function ArchivedSettings() {
     return () => {
       stopped = true;
     };
-  }, [client, manage.archive]);
+  }, [client, supported]);
 
   const projectName = useMemo(() => {
     const names = new Map<string, string>();
@@ -87,7 +87,7 @@ export function ArchivedSettings() {
     }
   };
 
-  if (!manage.archive) {
+  if (!client || !supported) {
     return <NoticeBanner notice={{ tone: 'info', text: t('settings.archived.unsupported') }} />;
   }
 
@@ -147,20 +147,22 @@ export function ArchivedSettings() {
                         </p>
                       )}
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy === session.id}
-                      aria-busy={busy === session.id || undefined}
-                      className="aria-busy:opacity-100"
-                      onClick={() => void unarchive(session)}
-                      data-action="unarchive"
-                    >
-                      {busy === session.id && (
-                        <LoaderCircle className="animate-spin" data-icon="inline-start" />
-                      )}
-                      {t('session.unarchive')}
-                    </Button>
+                    {client.can('session.write') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy === session.id}
+                        aria-busy={busy === session.id || undefined}
+                        className="aria-busy:opacity-100"
+                        onClick={() => void unarchive(session)}
+                        data-action="unarchive"
+                      >
+                        {busy === session.id && (
+                          <LoaderCircle className="animate-spin" data-icon="inline-start" />
+                        )}
+                        {t('session.unarchive')}
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>

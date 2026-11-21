@@ -179,9 +179,17 @@ export class WorkbenchStore {
     }
     this.#listVersion = change.listVersion;
     if (change.upserted.length === 0 && change.removed.length === 0) return;
+    // Host 推送这条连接读过的所有列表。读过已归档列表后，归档会以 upserted 到达。
+    const upserted: Session[] = [];
+    const removed = [...change.removed];
+    for (const session of change.upserted) {
+      if (session.archivedAt !== undefined || session.parentSessionId !== undefined || session.side)
+        removed.push(session.id);
+      else upserted.push(session);
+    }
     // 会话所在的项目还不在列表里（助理开线程时登记的项目，0.134.0）：连项目一起重读，每个工作区只试一次（助理的隐藏工作区
     // 本来就不列）。
-    const unknown = change.upserted
+    const unknown = upserted
       .map((session) => session.workspaceId as string)
       .filter(
         (id) => !this.#triedWorkspaces.has(id) && !this.#workspaces?.some((item) => item.id === id),
@@ -191,17 +199,14 @@ export class WorkbenchStore {
       void this.refresh();
       return;
     }
-    this.#sessions = applySessionsChange(this.#sessions, {
-      ...change,
-      upserted: change.upserted.filter((session) => !session.side),
-    });
+    this.#sessions = applySessionsChange(this.#sessions, { upserted, removed });
     recordBaselines([...this.#sessions.values()]);
-    for (const id of change.removed) {
+    for (const id of removed) {
       if (this.#sessions.has(id)) continue;
       this.#subscriptions.get(id)?.close();
       this.#subscriptions.delete(id);
     }
-    for (const session of change.upserted) {
+    for (const session of upserted) {
       const current = this.#sessions.get(session.id);
       if (current) this.#follow(current);
     }
