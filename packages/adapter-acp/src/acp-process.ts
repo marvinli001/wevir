@@ -5,19 +5,18 @@ import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from 'node:c
 import { EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 import {
-  type AnyMessage,
-  type ClientConnection,
   type CreateElicitationRequest,
   type CreateElicitationResponse,
-  client,
   type Implementation,
   type InitializeResponse,
-  methods,
-  ndJsonStream,
   PROTOCOL_VERSION,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
+import {
+  ndJsonStream,
+  PROTOCOL_VERSION as V2_PROTOCOL_VERSION,
+} from '@agentclientprotocol/sdk/experimental/v2';
 import {
   AdapterError,
   isAdapterError,
@@ -25,6 +24,7 @@ import {
   redactDiagnostics,
   trackProcessGroup,
 } from '@wevir/runtime-adapter';
+import { type AcpConnection, AcpTransport } from './acp-transport.js';
 import type { AcpEngine } from './engine.js';
 
 /** `initialize` 的时限。dsh 实测冷启动到 initialize 完成中位约 0.5 s，最大 0.61 s（T0.3）。 */
@@ -193,15 +193,14 @@ export interface AcpProcessOptions {
   /** `initialize` 的 `clientInfo`，默认 `{name: 'wevir', version: '0.0.0'}`。 */
   clientInfo?: { name: string; version: string };
   /**
-   * 接受的 `initialize` 协议版本，默认只有 SDK 的 `PROTOCOL_VERSION`。有的引擎报的版本号与线上格式不一致（Antigravity
-   * 1.1.1 报 2，说的仍是 v1 的格式），由引擎的适配器放宽。
+   * v1 格式的响应接受的版本号，默认 1 和 2。部分引擎在线上仍用 v1 格式时会报 2。
    */
   protocolVersions?: readonly number[];
   /**
    * `initialize` 成功之后、进程报就绪之前调用（Antigravity：ACP `authenticate`）。抛错即这次启动失败；抛出的
    * `missing_credentials` 原样交给调用方（`start` / `restart`），其余包成 `engine_unavailable`。
    */
-  afterInitialize?: (connection: ClientConnection, response: InitializeResponse) => Promise<void>;
+  afterInitialize?: (connection: AcpConnection, response: InitializeResponse) => Promise<void>;
   /** stderr 的每一段（utf8）。只观察，不影响尾部的保留；不得抛错。 */
   onStderr?: (chunk: string) => void;
   /**
@@ -217,7 +216,8 @@ export interface AcpProcessOptions {
 interface Launch {
   generation: number;
   child: ChildProcess;
-  connection: ClientConnection;
+  transport: AcpTransport;
+  connection?: AcpConnection;
   stderrTail: string;
   /** 进程退出（或 spawn 失败）时兑现。 */
   exited: Promise<AcpExit>;
@@ -350,10 +350,10 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
   }
 
   /** 当前进程的 ACP 连接。不在 `ready` 时抛 `engine_unavailable`（`disposed` 之后抛 `disposed`）。 */
-  get connection(): ClientConnection {
+  get connection(): AcpConnection {
     if (this.#disposing !== undefined) throw this.#disposedError();
     const launch = this.#current;
-    if (this.#state !== 'ready' || launch === undefined) {
+    if (this.#state !== 'ready' || launch?.connection === undefined) {
       throw new AdapterError('engine_unavailable', `${this.#name} 进程不可用（${this.#state}）`);
     }
     return launch.connection;
@@ -443,21 +443,26 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       const clientInfo: Implementation = this.#options.clientInfo ?? DEFAULT_CLIENT_INFO;
       const initializeMeta = this.#options.engine.initializeMeta;
       const capabilitiesMeta = this.#options.engine.clientCapabilitiesMeta;
-      const initialize = launch.connection.agent.request(methods.agent.initialize, {
-        protocolVersion: PROTOCOL_VERSION,
-        // 不声明 fs 与 terminal：Host 不替引擎读写文件或执行命令，工具一律在引擎自己的沙箱里执行
-        // （ADR-0001 §1）。
-        clientCapabilities: {
-          // 压缩上下文时报 `compaction_update`（ACP 的 unstable 能力，不声明的引擎不发），映射成 `context.compacting` /
-          // `context.compacted`；Host 据此在下一回合重新补随消息交的规则。
-          session: { compaction: {} },
-          ...(this.#options.onElicitation !== undefined && { elicitation: { form: {}, url: {} } }),
-          ...(capabilitiesMeta !== undefined && { _meta: { ...capabilitiesMeta } }),
+      const initialize = launch.transport.initialize(
+        {
+          protocolVersion: PROTOCOL_VERSION,
+          // 不声明 fs 与 terminal：Host 不替引擎读写文件或执行命令，工具一律在引擎自己的沙箱里执行
+          // （ADR-0001 §1）。
+          clientCapabilities: {
+            // 压缩上下文时报 `compaction_update`（ACP 的 unstable 能力，不声明的引擎不发），映射成 `context.compacting` /
+            // `context.compacted`；Host 据此在下一回合重新补随消息交的规则。
+            session: { compaction: {} },
+            ...(this.#options.onElicitation !== undefined && {
+              elicitation: { form: {}, url: {} },
+            }),
+            ...(capabilitiesMeta !== undefined && { _meta: { ...capabilitiesMeta } }),
+          },
+          clientInfo,
+          ...(initializeMeta !== undefined && { _meta: { ...initializeMeta } }),
         },
-        clientInfo,
-        ...(initializeMeta !== undefined && { _meta: { ...initializeMeta } }),
-      });
-      const response = await Promise.race([
+        this.#options.protocolVersions ?? [PROTOCOL_VERSION, V2_PROTOCOL_VERSION],
+      );
+      const { connection, response } = await Promise.race([
         initialize,
         new Promise<never>((_, reject) => {
           timer = setTimeout(
@@ -466,18 +471,13 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
           );
         }),
       ]);
-      const accepted = this.#options.protocolVersions ?? [PROTOCOL_VERSION];
-      if (!accepted.includes(response.protocolVersion)) {
-        throw new Error(
-          `${this.#name} 的 ACP 协议版本是 ${response.protocolVersion}，客户端是 ${PROTOCOL_VERSION}`,
-        );
-      }
       if (launch.exit !== undefined) throw new Error(`${this.#name} 在 initialize 之后立即退出`);
       if (this.#options.afterInitialize !== undefined) {
         clearTimeout(timer);
-        await this.#options.afterInitialize(launch.connection, response);
+        await this.#options.afterInitialize(connection, response);
         if (launch.exit !== undefined) throw new Error(`${this.#name} 在启动过程中退出`);
       }
+      launch.connection = connection;
       launch.initialize = response;
       launch.readyAt = Date.now();
       this.#state = 'ready';
@@ -535,7 +535,7 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
               'engine_unavailable',
               `${this.#name} 的 stdout 已关闭，进程没有退出`,
             );
-            connection.close(error);
+            transport.close(error);
             launch.stderrTail = `${launch.stderrTail}[${error.message}]\n`.slice(
               -STDERR_TAIL_CHARS,
             );
@@ -547,56 +547,11 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
         }),
       ),
     );
-    const app = client({ name: 'wevir' }).onRequest(
-      methods.client.session.requestPermission,
-      ({ params, signal }) =>
-        this.#options.onRequestPermission !== undefined
-          ? this.#options.onRequestPermission(params, signal)
-          : { outcome: { outcome: 'cancelled' } },
-    );
-    const onElicitation = this.#options.onElicitation;
-    if (onElicitation !== undefined) {
-      app.onRequest(methods.client.elicitation.create, ({ params, signal }) =>
-        onElicitation(params, signal),
-      );
-    }
-    const onExtRequest = this.#options.onExtRequest;
-    if (onExtRequest !== undefined) {
-      for (const method of this.#options.engine.extensions?.requests ?? []) {
-        app.onRequest(method, RAW_PARAMS, ({ params, signal }) =>
-          onExtRequest(method, params, signal),
-        );
-      }
-    }
-    const extNotifications = new Set(this.#options.engine.extensions?.notifications ?? []);
-    const connection = app.connect({
-      writable: wire.writable,
-      readable: wire.readable.pipeThrough(
-        new TransformStream<AnyMessage, AnyMessage>({
-          transform: (message, controller) => {
-            const method = notificationMethod(message);
-            if (method !== methods.client.session.update && !extNotifications.has(method ?? '')) {
-              controller.enqueue(message);
-              return;
-            }
-            const params = (message as { params?: unknown }).params;
-            try {
-              if (method === methods.client.session.update) {
-                this.#options.onSessionUpdate?.(params);
-              } else {
-                this.#options.onExtNotification?.(method as string, params);
-              }
-            } catch {
-              // 回调约定不抛错；万一抛了也不能让 ACP 连接断开。
-            }
-          },
-        }),
-      ),
-    });
+    const transport = new AcpTransport(wire, this.#options);
     const launch: Launch = {
       generation,
       child,
-      connection,
+      transport,
       stderrTail: '',
       exited,
       configRevision,
@@ -630,7 +585,7 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       stdin.destroy();
       this.#lastExit = exit;
       settle(exit);
-      connection.close(
+      transport.close(
         new AdapterError('engine_unavailable', `${this.#name} 进程已退出（${describeExit(exit)}）`),
       );
       this.#onExit(launch, exit);
@@ -678,7 +633,7 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
   /** 回收阶梯：关连接（进行中的请求以 `reason` 失败）→ 关 stdin → SIGTERM → SIGKILL。 */
   #stop(launch: Launch, reason: unknown): Promise<AcpExit | undefined> {
     launch.stopping ??= (async () => {
-      launch.connection.close(reason);
+      launch.transport.close(reason);
       if (launch.exit !== undefined) return launch.exit;
       const t = this.#disposeTimeouts;
       launch.child.stdin?.end();
@@ -729,16 +684,6 @@ export async function settledWithin(promise: Promise<unknown>, ms: number): Prom
     clearTimeout(timer);
   }
 }
-
-/** 引擎写出的通知（没有 id 的 JSON-RPC 消息）的方法名；不是通知时 undefined。 */
-function notificationMethod(message: AnyMessage): string | undefined {
-  if (Array.isArray(message) || 'id' in message) return undefined;
-  const method = (message as { method?: unknown }).method;
-  return typeof method === 'string' ? method : undefined;
-}
-
-/** 扩展请求的参数原样交给处理器，由引擎的适配器自己检查。 */
-const RAW_PARAMS = { parse: (params: unknown) => params };
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

@@ -54,6 +54,10 @@ export const RAW_BY_DESIGN_ACP_UPDATES = Object.freeze([
   'available_commands_update',
   'current_mode_update',
   'session_info_update',
+  'state_update',
+  'terminal_output_chunk',
+  'terminal_update',
+  'replay_complete',
   'compaction_summary_chunk',
 ] as const);
 
@@ -208,6 +212,12 @@ export function mapAcpUpdate(
     case 'current_mode_update':
     case 'session_info_update':
       // 引擎的斜杠命令、模式与会话标题（Grok 每个回合都发）：Wevir 不用引擎的命令与模式，标题由 Host 生成。
+      return raw('by_design', kind);
+
+    case 'state_update':
+    case 'terminal_output_chunk':
+    case 'terminal_update':
+    case 'replay_complete':
       return raw('by_design', kind);
 
     default:

@@ -1,7 +1,7 @@
 import type { AgentEvent, AssistantDeltaEvent } from '@wevir/runtime-adapter';
 
 /**
- * 逐字流式的 ACP 引擎（引擎描述的 `messageChunks: 'streamed'`，Grok Build、Gemini CLI）：每条 `agent_message_chunk` /
+ * ACP v2 与逐字流式的 v1 引擎（`messageChunks: 'streamed'`，Grok Build、Gemini CLI）：每条 `agent_message_chunk` /
  * `agent_thought_chunk` 是一段增量，不是 dsh 那样一块已提交的完整内容（acp-event-mapping.md §1.5）。这里把它们变成
  * `assistant.delta`，并在一块内容结束时补一条替换这些增量的 `assistant.message` / `assistant.thought` 与
  * `assistant.stream_ended`，和 Codex 的增量与已提交消息同一个形状（codex-event-mapping.md）。
@@ -15,10 +15,16 @@ let attemptSeq = 0;
 
 export class ChunkStream {
   readonly #engineSessionId: string;
+  readonly #messageBlocks: Map<string, string[]> | undefined;
   #open: OpenBlock | undefined;
 
-  constructor(engineSessionId: string) {
+  constructor(engineSessionId: string, snapshots = false) {
     this.#engineSessionId = engineSessionId;
+    this.#messageBlocks = snapshots ? new Map() : undefined;
+  }
+
+  beginTurn(): void {
+    this.#messageBlocks?.clear();
   }
 
   /** 正在流式的块（还没提交）。 */
@@ -62,12 +68,44 @@ export class ChunkStream {
     return events;
   }
 
+  /** ACP v2 的完整消息会覆盖同 ID 的先前内容，包括工具或审批前已提交的流式块。 */
+  snapshot(kind: AssistantDeltaEvent['kind'], messageId: string, text: string): AgentEvent[] {
+    const events = this.flush();
+    const key = JSON.stringify([kind, messageId]);
+    const [first, ...rest] = this.#messageBlocks?.get(key) ?? [];
+    if (first === undefined) {
+      if (text.trim() !== '') events.push(...this.chunk(kind, messageId, text), ...this.flush());
+      return events;
+    }
+    const commit = (attemptId: string, text: string): AgentEvent => ({
+      type: kind === 'text' ? 'assistant.message' : 'assistant.thought',
+      engineSessionId: this.#engineSessionId,
+      messageId,
+      text,
+      replaces: [{ attemptId, blockIndex: 0 }],
+    });
+    events.push(...rest.map((id) => commit(id, '')), commit(first, text));
+    if (text.trim() === '') this.#messageBlocks?.delete(key);
+    else this.#messageBlocks?.set(key, [first]);
+    return events;
+  }
+
   /** 结束正在流式的块：已提交的消息或思考替换它的增量，再结束它的增量流。没有内容的块不发事件。 */
   flush(): AgentEvent[] {
     const block = this.#open;
     if (block === undefined) return [];
     this.#open = undefined;
     if (block.deltas === 0) return [];
+    if (
+      this.#messageBlocks !== undefined &&
+      block.messageId !== undefined &&
+      block.text.trim() !== ''
+    ) {
+      const key = JSON.stringify([block.kind, block.messageId]);
+      const refs = this.#messageBlocks.get(key) ?? [];
+      refs.push(block.attemptId);
+      this.#messageBlocks.set(key, refs);
+    }
     return [
       {
         type: block.kind === 'text' ? 'assistant.message' : 'assistant.thought',

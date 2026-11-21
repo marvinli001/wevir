@@ -6,13 +6,14 @@
 import * as fsp from 'node:fs/promises';
 import path from 'node:path';
 import {
+  type AcpConnection,
   type AcpLauncher,
   type AcpPreparedLaunch,
   AcpProcess,
   type AcpProcessHooks,
   type AdapterLogger,
 } from '@wevir/adapter-acp';
-import { type ClientConnection, type InitializeResponse, methods } from '@wevir/adapter-acp/sdk';
+import { type InitializeResponse, methods } from '@wevir/adapter-acp/sdk';
 import { AdapterError } from '@wevir/runtime-adapter';
 import { ANTIGRAVITY_ENGINE } from './engine.js';
 import {
@@ -203,7 +204,7 @@ export function createAntigravityProcess(options: AntigravityProcessOptions): {
     onStderr: antigravityStderrWatcher(onUrl),
     transformStdout: antigravityStdoutFilter(onUrl),
     ...(options.authenticate === 'session' && {
-      afterInitialize: (connection: ClientConnection) =>
+      afterInitialize: (connection: AcpConnection) =>
         authenticateSession(connection, (listener) => {
           urlListener = listener;
           return () => {
@@ -220,7 +221,7 @@ export function createAntigravityProcess(options: AntigravityProcessOptions): {
  * 不等用户。
  */
 async function authenticateSession(
-  connection: ClientConnection,
+  connection: AcpConnection,
   watch: (listener: (url: AntigravityAuthorizationUrl) => void) => () => void,
 ): Promise<void> {
   let unwatch: () => void = () => {};

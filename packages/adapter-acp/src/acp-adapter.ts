@@ -143,6 +143,7 @@ interface TrackedToolCall {
  * 不认识的类型不算。
  */
 const PROMPT_ACTIVITY_UPDATES: ReadonlySet<string> = new Set([
+  'state_update',
   'agent_message',
   'agent_message_chunk',
   'agent_thought',
@@ -790,12 +791,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   /**
    * 引擎报了这个会话的回合结束（不经 `session/prompt` 的结果，Grok 的 `prompt_complete`），按它结算进行中的回合；之后
    * 到的 `session/prompt` 结果不再上报。之前的 `session/update` 都已入队（扩展通知与它们在同一条流里按序截下）。
-   * 没有进行中的回合时返回 false。
+   * 没有进行中的回合时返回 false。ACP v2 一律由 idle 通知结束回合。
    */
   protected completeTurn(engineSessionId: string, completion: TurnCompletion): boolean {
     const session = this.#sessions.get(engineSessionId);
     const turn = session?.status === 'open' ? session.turn : undefined;
     if (session === undefined || turn === undefined || turn.settle !== undefined) return false;
+    if (this.process.connection.protocolVersion === 2) return false;
     this.#settle(
       session,
       turn,
@@ -1470,9 +1472,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   }
 
   /**
-   * `session/prompt` 的结果（或引擎自己报的回合结束）→ 回合的结算。`stopReason: error`（ACP v2 把回合失败报成带 `error` 的结果，
-   * 而不是 JSON-RPC 错误；SDK 不校验结果，这个值照样到这里）算失败，`error` 的 `code`、`message`、`data` 像 JSON-RPC 错误那样交给
-   * 引擎归类（T3 Code #24615），已经请求取消的回合仍算取消。引擎没做完就停下的 `refusal`、`max_tokens`、`max_turn_requests`
+   * `session/prompt` 或 v2 idle 的结果 → 回合的结算。`stopReason: error` 算失败，`error` 的 `code`、`message`、`data`
+   * 像 JSON-RPC 错误那样交给引擎归类，已经请求取消的回合仍算取消。引擎没做完就停下的 `refusal`、`max_tokens`、`max_turn_requests`
    * 也算失败（`provider`），给一句看得懂的原因（ACP 要求客户端把拒绝显示出来，T3 Code #28797）；其余的除 `cancelled` 外都算完成。
    */
   #promptOutcome(
@@ -1597,7 +1598,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const effort = config.reasoningEffort;
     const effortOption = route.reasoningEffortOption;
     const resend = activated && route.alwaysSetModel === true;
-    if (route.modelMethod === 'set_model') {
+    if (route.modelMethod === 'set_model' && connection.protocolVersion === 1) {
       // ACP 的 session/set_model（Grok）：推理强度跟着模型走，在同一请求的 _meta 里；没给推理强度时不带，不当作清掉
       // 引擎的默认档位（T3 的 applyGrokAcpModelSelection）。
       const current = currentOption(configOptions, modelOption);
@@ -1773,7 +1774,12 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       cwd: config.cwd,
       selection: { providerId: config.providerId, modelId: config.modelId },
       status: 'open',
-      queue: new SessionEventQueue(id, this.#warnOnce, this.engine),
+      queue: new SessionEventQueue(
+        id,
+        this.#warnOnce,
+        this.engine,
+        this.process.connection.protocolVersion,
+      ),
       approvals: new Map(),
       questions: new Map(),
       configOptions,

@@ -37,6 +37,7 @@ export {
   type RestartPolicy,
   STDERR_TAIL_CHARS,
 } from './acp-process.js';
+export type { AcpConnection } from './acp-transport.js';
 export { acpAdapterCapabilities } from './capabilities.js';
 export { ChunkStream } from './chunk-stream.js';
 export type {

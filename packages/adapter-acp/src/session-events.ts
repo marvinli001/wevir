@@ -40,7 +40,8 @@ export class SessionEventQueue {
   readonly engineSessionId: string;
   readonly #hub = new EventHub<AgentEvent>();
   readonly #tools: AcpToolPresentation;
-  /** 逐字流式的引擎（`messageChunks: 'streamed'`）才有。 */
+  readonly #v2: boolean;
+  /** ACP v2 和逐字流式的 v1 引擎使用增量流。 */
   readonly #chunks: ChunkStream | undefined;
   readonly #warnOnce: WarnOnce;
   #inTurn = false;
@@ -54,12 +55,16 @@ export class SessionEventQueue {
     engineSessionId: string,
     warnOnce: WarnOnce,
     engine: Pick<AcpEngine, 'tools' | 'messageChunks'>,
+    protocolVersion: 1 | 2 = 1,
   ) {
     this.engineSessionId = engineSessionId;
     this.#warnOnce = warnOnce;
     this.#tools = engine.tools;
+    this.#v2 = protocolVersion === 2;
     this.#chunks =
-      engine.messageChunks === 'streamed' ? new ChunkStream(engineSessionId) : undefined;
+      this.#v2 || engine.messageChunks === 'streamed'
+        ? new ChunkStream(engineSessionId, this.#v2)
+        : undefined;
   }
 
   get ended(): boolean {
@@ -77,10 +82,16 @@ export class SessionEventQueue {
   beginTurn(): void {
     this.#inTurn = true;
     this.#planToolCallId = undefined;
+    this.#chunks?.beginTurn();
   }
 
   acpUpdate(notification: AcpSessionNotification): void {
     const kind = notification.update.sessionUpdate;
+    if (this.#v2 && (kind === 'agent_message' || kind === 'agent_thought')) {
+      if (!this.#inTurn) this.#outsideTurn(notification);
+      else this.#snapshot(notification, kind === 'agent_message' ? 'text' : 'reasoning');
+      return;
+    }
     const onRaw = (reason: AcpRawReason, detail: string) => {
       if (reason === 'by_design') return;
       this.#warnOnce(
@@ -259,6 +270,23 @@ export class SessionEventQueue {
       { engineSessionId: this.engineSessionId, sessionUpdate: kind },
     );
     this.#hub.emit(rawEvent(notification));
+  }
+
+  #snapshot(notification: AcpSessionNotification, kind: 'text' | 'reasoning'): void {
+    const { messageId, content } = notification.update;
+    if (content === undefined) return;
+    if (typeof messageId !== 'string' || (content !== null && !Array.isArray(content))) {
+      this.#hub.emit(rawEvent(notification));
+      return;
+    }
+    const blocks = content ?? [];
+    const texts = blocks.flatMap((block: { type?: unknown; text?: unknown } | null) =>
+      block?.type === 'text' && typeof block.text === 'string' ? [block.text] : [],
+    );
+    for (const event of this.#chunks?.snapshot(kind, messageId, texts.join('')) ?? []) {
+      this.#hub.emit(event);
+    }
+    if (texts.length !== blocks.length) this.#hub.emit(rawEvent(notification));
   }
 
   #flushChunks(): void {
