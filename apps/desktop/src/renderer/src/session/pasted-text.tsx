@@ -1,11 +1,12 @@
-import { Button } from '@/components/ui/button';
 // 粘贴的大段文字（0.90.0，规则在 composer-pastes.ts）的界面，照 Codex 桌面端：输入框上方附件条里的卡片（开头几个字与“粘贴的文本”），
 // 消息上方的一行胶囊，点开看原文。附件条是一行，放不下时横向滚动，竖着的滚轮也能左右滑。
 
 import { cn } from 'cn';
 import { ScanText, X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { IconButton } from '@/components/icon-button';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogClose, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { t } from '@/i18n';
 import { lineCount, pastePreview } from './composer-pastes';
 import { CopyButton } from './copy-button';
@@ -155,19 +156,35 @@ export function PastedTextPreview({
   text: string | undefined;
   onClose: () => void;
 }) {
+  const bodyRef = useRef<HTMLPreElement>(null);
+  if (text === undefined) return null;
   return (
-    <Dialog open={text !== undefined} onOpenChange={(next) => !next && onClose()}>
+    <Dialog defaultOpen onOpenChangeComplete={(open) => !open && onClose()}>
       <DialogContent
-        className="flex max-h-[85vh] flex-col gap-3 sm:max-w-2xl"
+        showCloseButton={false}
+        initialFocus={bodyRef}
+        className="flex max-h-[85dvh] flex-col gap-3 overflow-hidden sm:max-w-2xl"
         data-testid="paste-preview"
       >
-        <div className="flex items-center gap-2 pr-8">
-          <DialogTitle className="min-w-0 flex-1 truncate text-sm">
-            {text !== undefined && t('transcript.pastedText', { lines: lineCount(text) })}
+        <div className="flex shrink-0 items-center gap-1">
+          <DialogTitle className="min-w-0 flex-1 text-sm">
+            {t('transcript.pastedText', { lines: lineCount(text) })}
           </DialogTitle>
-          {text !== undefined && <CopyButton text={text} className="text-muted-foreground" />}
+          <CopyButton text={text} size="icon-sm" />
+          <DialogClose
+            render={
+              <IconButton label={t('common.close')}>
+                <X />
+              </IconButton>
+            }
+          />
         </div>
-        <pre className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words">
+        <pre
+          ref={bodyRef}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: 可滚动的正文要能用键盘滚动。
+          tabIndex={0}
+          className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs wrap-anywhere whitespace-pre-wrap outline-none focus-visible:focus-field"
+        >
           {text}
         </pre>
       </DialogContent>
