@@ -569,9 +569,12 @@ describe('映射的边界情况', () => {
     ]);
   });
 
-  it('用量上限（usageLimitExceeded）：turn.failed 带空的 usageLimit，其他失败不带', () => {
+  it('用量上限（usageLimitExceeded）：保留错误中的兜底重置时间', () => {
     const fail = (codexErrorInfo: unknown) =>
-      new CodexEventMapper(id).map('turn/completed', {
+      new CodexEventMapper(id, {
+        now: () => Date.parse('2026-11-21T12:00:00Z'),
+        timeZone: 'UTC',
+      }).map('turn/completed', {
         threadId: id,
         turn: {
           id: turnId,
@@ -589,7 +592,7 @@ describe('映射的边界情况', () => {
         engineSessionId: id,
         category: 'provider',
         message: "You've hit your usage limit. Try again at 3:45 PM.",
-        usageLimit: {},
+        usageLimit: { fallbackResetsAt: '2026-11-21T15:46:00.000Z' },
       },
     ]);
     expect(fail('rateLimitExceeded')[0]).not.toHaveProperty('usageLimit');
