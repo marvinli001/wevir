@@ -71,7 +71,7 @@ export function SearchDialog() {
     <Dialog open={open} onOpenChange={(next) => searchOpen.set(next)}>
       <DialogContent
         showCloseButton={false}
-        className="top-[12vh] translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-[640px]"
+        className="top-[12vh] -translate-x-1/2 translate-y-0 gap-0 overflow-hidden p-0 sm:max-w-[640px]"
         data-search-dialog
       >
         <DialogTitle className="sr-only">{t('search.title')}</DialogTitle>
