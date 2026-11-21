@@ -378,6 +378,49 @@ describe('ChatgptAccount', () => {
     });
   });
 
+  it('使用额度返回的实际套餐和个人月度上限，稀疏更新不会丢掉月度窗口', async () => {
+    const { account } = setup({
+      'account/read': signedIn,
+      'account/rateLimits/read': () => ({
+        rateLimits: {
+          planType: 'enterprise_cbp_usage_based',
+          primary: { usedPercent: 10, windowDurationMins: null, resetsAt: null },
+          individualLimit: { remainingPercent: 10, resetsAt: 1_791_957_611 },
+        },
+      }),
+    });
+    const result = await account.read();
+    expect(result.plan).toBe('enterprise_cbp_usage_based');
+    expect(result.rateLimits?.windows).toEqual([
+      { usedPercent: 10, windowMinutes: 300 },
+      { usedPercent: 90, period: 'monthly', resetsAt: '2026-10-14T06:00:11.000Z' },
+    ]);
+    account.onNotification('account/rateLimits/updated', {
+      rateLimits: {
+        planType: 'unknown',
+        primary: { usedPercent: 20, windowDurationMins: null, resetsAt: null },
+      },
+    });
+    expect(account.state.rateLimits?.windows?.[1]?.usedPercent).toBe(90);
+    expect(account.state.plan).toBe('enterprise_cbp_usage_based');
+  });
+
+  it.each(['go', 'free'])('为缺少周期长度的 %s 套餐显示月度用量', async (planType) => {
+    const { account } = setup({
+      'account/read': signedIn,
+      'account/rateLimits/read': () => ({
+        rateLimits: {
+          planType,
+          primary: { usedPercent: 10, windowDurationMins: null, resetsAt: null },
+        },
+      }),
+    });
+    expect((await account.read()).rateLimits?.primary).toEqual({
+      usedPercent: 10,
+      period: 'monthly',
+    });
+  });
+
   it('模型单独的额度（rateLimitsByLimitId）另成窗口，额度名在 scope；稀疏更新按 limitId 合进对应的额度', async () => {
     const byLimit = () => ({
       ...usage(),

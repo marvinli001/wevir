@@ -73,7 +73,9 @@ describe('ChatGPT 账号的界面阶段（R6）', () => {
   it('套餐名：认得的换成显示名，认不出的原样，unknown 不显示', () => {
     expect(planLabel('plus')).toBe('Plus');
     expect(planLabel('prolite')).toBe('Pro Lite');
-    expect(planLabel('enterprise_cbp_usage_based')).toBe('enterprise_cbp_usage_based');
+    expect(planLabel('enterprise_cbp_usage_based')).toBe('Enterprise');
+    expect(planLabel('edu_pro')).toBe('Edu Pro');
+    expect(planLabel('self_serve_business_prolite')).toBe('Business Premium');
     expect(planLabel('unknown')).toBeUndefined();
     expect(planLabel(undefined)).toBeUndefined();
   });

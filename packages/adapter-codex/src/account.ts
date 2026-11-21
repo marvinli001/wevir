@@ -59,8 +59,10 @@ const MAIN_LIMIT = 'codex';
 /** 一份额度：主窗口与次窗口，模型单独的额度带名字。 */
 export interface CodexRateLimit {
   name?: string;
+  plan?: string;
   primary?: AccountRateLimitWindow;
   secondary?: AccountRateLimitWindow;
+  individual?: AccountRateLimitWindow;
 }
 
 /** 账号本身（不含进行中的登录）。 */
@@ -93,7 +95,7 @@ export class ChatgptAccount {
    * 每个额度上一条 `account/rateLimits/updated` 带的窗口。Codex 每次报 token 用量都重发会话里缓存的额度，可能早于随后
    * 重读到的用量（额度已经重置）；与上一条相同的窗口不是新消息，不覆盖。
    */
-  readonly #notified = new Map<string, Pick<CodexRateLimit, 'primary' | 'secondary'>>();
+  readonly #notified = new Map<string, CodexRateLimit>();
   #published = '';
   #resetCredits: AccountState['resetCredits'];
   #usageGeneration = 0;
@@ -111,7 +113,8 @@ export class ChatgptAccount {
     };
     if (base.signedIn) {
       if (base.email !== undefined) state.email = base.email;
-      if (base.plan !== undefined) state.plan = base.plan;
+      const plan = base.limits?.[MAIN_LIMIT]?.plan ?? base.plan;
+      if (plan !== undefined) state.plan = plan;
       const rateLimits = base.limits && codexRateLimits(base.limits);
       if (rateLimits !== undefined && this.#login === undefined) state.rateLimits = rateLimits;
       if (this.#resetCredits !== undefined && this.#login === undefined) {
@@ -152,7 +155,7 @@ export class ChatgptAccount {
       if (email !== undefined) base.email = email;
       if (plan !== undefined) base.plan = plan;
       if (email !== this.#base?.email) this.#resetCredits = undefined;
-      const limits = await this.#readRateLimits(rpc, true);
+      const limits = await this.#readRateLimits(rpc, true, plan);
       if (limits !== undefined) base.limits = limits;
       this.#base = base;
     } else {
@@ -366,20 +369,33 @@ export class ChatgptAccount {
     const id = nonEmpty(update.limitId) ?? MAIN_LIMIT;
     const limit: CodexRateLimit = { ...this.#base.limits?.[id] };
     const name = nonEmpty(update.limitName);
-    const primary = rateLimitWindow(update.primary);
-    const secondary = rateLimitWindow(update.secondary);
+    const plan = reportedPlan(update.planType);
+    const primary = rateLimitWindow(
+      update.primary,
+      primaryPeriod(plan ?? limit.plan ?? this.#base.plan),
+    );
+    const secondary = rateLimitWindow(update.secondary, { windowMinutes: 10080 });
+    const individual = individualWindow(update.individualLimit);
     const previous = this.#notified.get(id);
     this.#notified.set(id, {
       ...(primary !== undefined && { primary }),
       ...(secondary !== undefined && { secondary }),
+      ...(individual !== undefined && { individual }),
+      ...(plan !== undefined && { plan }),
     });
     const fresh = (window: AccountRateLimitWindow | undefined, last?: AccountRateLimitWindow) =>
       window !== undefined && !sameWindow(window, last);
-    const changed = fresh(primary, previous?.primary) || fresh(secondary, previous?.secondary);
+    const changed =
+      fresh(primary, previous?.primary) ||
+      fresh(secondary, previous?.secondary) ||
+      fresh(individual, previous?.individual) ||
+      (plan !== undefined && plan !== previous?.plan);
     if (name !== undefined) limit.name = name;
     if (fresh(primary, previous?.primary)) limit.primary = primary;
     if (fresh(secondary, previous?.secondary)) limit.secondary = secondary;
-    if (!changed || (limit.primary === undefined && limit.secondary === undefined)) return;
+    if (fresh(individual, previous?.individual)) limit.individual = individual;
+    if (plan !== undefined && plan !== previous?.plan) limit.plan = plan;
+    if (!changed) return;
     this.#base.limits = { ...this.#base.limits, [id]: limit };
     this.#publish();
   }
@@ -440,7 +456,11 @@ export class ChatgptAccount {
   }
 
   /** 全部额度（`rateLimitsByLimitId`，旧版本只有 `rateLimits`）；读不到时是上一次的。 */
-  async #readRateLimits(rpc: AccountRpc, includeResetDetails = false): Promise<Base['limits']> {
+  async #readRateLimits(
+    rpc: AccountRpc,
+    includeResetDetails = false,
+    accountPlan: string | undefined = this.#base?.plan,
+  ): Promise<Base['limits']> {
     const generation = this.#usageGeneration;
     try {
       const response = await rpc.request<GetAccountRateLimitsResponse>('account/rateLimits/read', {
@@ -480,14 +500,29 @@ export class ChatgptAccount {
       }
       const limits: Record<string, CodexRateLimit> = {};
       for (const [id, snapshot] of snapshots) {
-        const primary = rateLimitWindow(snapshot?.primary);
-        const secondary = rateLimitWindow(snapshot?.secondary);
-        if (primary === undefined && secondary === undefined) continue;
+        const plan =
+          reportedPlan(snapshot?.planType) ??
+          (id === MAIN_LIMIT ? reportedPlan(response.rateLimits?.planType) : undefined);
+        const primary = rateLimitWindow(snapshot?.primary, primaryPeriod(plan ?? accountPlan));
+        const secondary = rateLimitWindow(snapshot?.secondary, { windowMinutes: 10080 });
+        const individual = individualWindow(
+          snapshot?.individualLimit ??
+            (id === MAIN_LIMIT ? response.rateLimits?.individualLimit : undefined),
+        );
+        if (
+          primary === undefined &&
+          secondary === undefined &&
+          individual === undefined &&
+          plan === undefined
+        )
+          continue;
         const name = nonEmpty(snapshot?.limitName);
         limits[id] = {
           ...(name !== undefined && { name }),
+          ...(plan !== undefined && { plan }),
           ...(primary !== undefined && { primary }),
           ...(secondary !== undefined && { secondary }),
+          ...(individual !== undefined && { individual }),
         };
       }
       return Object.keys(limits).length === 0 ? undefined : limits;
@@ -589,6 +624,7 @@ export function codexRateLimits(
   const windows: AccountRateLimitWindow[] = [];
   if (main?.primary !== undefined) windows.push(main.primary);
   if (main?.secondary !== undefined) windows.push(main.secondary);
+  if (main?.individual !== undefined) windows.push(main.individual);
   for (const [id, limit] of extra) {
     const scope = limit.name ?? id;
     if (limit.primary !== undefined) windows.push({ ...limit.primary, scope });
@@ -600,24 +636,53 @@ export function codexRateLimits(
   return {
     ...(primary !== undefined && { primary }),
     ...(secondary !== undefined && { secondary }),
-    ...(extra.length > 0 && { windows }),
+    ...((extra.length > 0 || main?.individual !== undefined) && { windows }),
   };
 }
 
 function rateLimitWindow(
   window: RateLimitWindow | null | undefined,
+  fallback: Pick<AccountRateLimitWindow, 'period' | 'windowMinutes'>,
 ): AccountRateLimitWindow | undefined {
-  if (window === null || window === undefined || typeof window.usedPercent !== 'number') {
+  if (window === null || window === undefined || !Number.isFinite(window.usedPercent)) {
     return undefined;
   }
   const result: AccountRateLimitWindow = { usedPercent: Math.max(0, window.usedPercent) };
   if (typeof window.windowDurationMins === 'number' && window.windowDurationMins >= 1) {
     result.windowMinutes = Math.round(window.windowDurationMins);
-  }
-  if (typeof window.resetsAt === 'number' && Number.isFinite(window.resetsAt)) {
-    result.resetsAt = new Date(window.resetsAt * 1000).toISOString();
-  }
+  } else Object.assign(result, fallback);
+  const resetsAt =
+    typeof window.resetsAt === 'number' && window.resetsAt > 0
+      ? isoTime(window.resetsAt * 1000)
+      : undefined;
+  if (resetsAt !== undefined) result.resetsAt = resetsAt;
   return result;
+}
+
+function primaryPeriod(
+  plan: string | undefined,
+): Pick<AccountRateLimitWindow, 'period' | 'windowMinutes'> {
+  return plan === 'free' || plan === 'go' ? { period: 'monthly' } : { windowMinutes: 300 };
+}
+
+function reportedPlan(value: unknown): string | undefined {
+  const plan = nonEmpty(value);
+  return plan === 'unknown' ? undefined : plan;
+}
+
+function individualWindow(
+  limit: RateLimitSnapshot['individualLimit'],
+): AccountRateLimitWindow | undefined {
+  if (limit === null || limit === undefined || !Number.isFinite(limit.remainingPercent))
+    return undefined;
+  return rateLimitWindow(
+    {
+      usedPercent: 100 - limit.remainingPercent,
+      windowDurationMins: null,
+      resetsAt: limit.resetsAt,
+    },
+    { period: 'monthly' },
+  );
 }
 
 function sameWindow(a: AccountRateLimitWindow, b: AccountRateLimitWindow | undefined): boolean {
@@ -625,6 +690,7 @@ function sameWindow(a: AccountRateLimitWindow, b: AccountRateLimitWindow | undef
     b !== undefined &&
     a.usedPercent === b.usedPercent &&
     a.windowMinutes === b.windowMinutes &&
+    a.period === b.period &&
     a.resetsAt === b.resetsAt
   );
 }

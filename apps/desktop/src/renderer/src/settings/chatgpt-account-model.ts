@@ -52,9 +52,16 @@ const PLAN_LABELS: Readonly<Record<string, string>> = {
   prolite: 'Pro Lite',
   promax: 'Pro Max',
   team: 'Team',
+  self_serve_business_prolite: 'Business Premium',
+  self_serve_business_usage_based: 'Business',
   business: 'Business',
+  ent26: 'Enterprise',
+  enterprise_cbp_automation: 'Enterprise',
+  enterprise_cbp_usage_based: 'Enterprise',
   enterprise: 'Enterprise',
   edu: 'Edu',
+  edu_plus: 'Edu Plus',
+  edu_pro: 'Edu Pro',
 };
 
 /** Codex 的 PlanType 原值 → 显示名；认不出的原样（`unknown` 不显示）。 */

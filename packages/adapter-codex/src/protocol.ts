@@ -978,6 +978,7 @@ export interface RateLimitSnapshot {
   limitName?: string | null;
   primary: RateLimitWindow | null;
   secondary: RateLimitWindow | null;
+  individualLimit?: { remainingPercent: number; resetsAt: number } | null;
   planType: string | null;
 }
 
