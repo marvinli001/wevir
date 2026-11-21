@@ -1,7 +1,7 @@
 // 纯函数的单元测试：找可执行文件、模型目录、环境、回合结果的归类、工具展示。
 
 import { describe, expect, it } from 'vitest';
-import { claudeEnv, NESTED_SESSION_ENV } from './env.js';
+import { claudeEnv, hasClaudeManagedMcpConfig, NESTED_SESSION_ENV } from './env.js';
 import {
   claudeLoginCommand,
   claudeNpmPackage,
@@ -29,10 +29,10 @@ import { claudeToolDisplay, isSubagentTool } from './tool-display.js';
 import {
   CONTEXT_WINDOW_FULL_ERROR,
   isAbortedResult,
-  rejectedUsageLimit,
   resultFailure,
   retryingOf,
   USAGE_LIMIT_ERROR,
+  usageLimitChange,
 } from './turn-result.js';
 
 describe('找 claude', () => {
@@ -215,7 +215,13 @@ describe('找 claude', () => {
 
   it('环境：去掉另一个 Claude Code 会话的标记，关掉后台任务', () => {
     const env = claudeEnv(
-      { CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli', HOME: '/h', ANTHROPIC_API_KEY: 'k' },
+      {
+        ...Object.fromEntries(NESTED_SESSION_ENV.map((key) => [key, 'inherited'])),
+        CLAUDE_EFFORT: 'low',
+        ELECTRON_RUN_AS_NODE: '1',
+        HOME: '/h',
+        ANTHROPIC_API_KEY: 'k',
+      },
       '/opt/claude',
     );
     for (const name of NESTED_SESSION_ENV) expect(env[name]).toBeUndefined();
@@ -224,6 +230,21 @@ describe('找 claude', () => {
       ANTHROPIC_API_KEY: 'k',
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
     });
+  });
+
+  it('检查系统托管 MCP 文件的位置', () => {
+    expect(
+      hasClaudeManagedMcpConfig(
+        'darwin',
+        (file) => file === '/Library/Application Support/ClaudeCode/managed-mcp.json',
+      ),
+    ).toBe(true);
+    expect(
+      hasClaudeManagedMcpConfig('linux', (file) => file === '/etc/claude-code/managed-mcp.json'),
+    ).toBe(true);
+    expect(
+      hasClaudeManagedMcpConfig('win32', (file) => file.endsWith('\\ClaudeCode\\managed-mcp.json')),
+    ).toBe(true);
   });
 });
 
@@ -472,17 +493,17 @@ describe('回合结果（录音里的真实结果）', () => {
   });
 
   it('用量上限：被拒的 rate_limit_event 给出重置时刻与窗口，回合失败带 usageLimit', () => {
-    const limit = rejectedUsageLimit({
+    const limit = usageLimitChange({
       status: 'rejected',
       rateLimitType: 'five_hour',
       resetsAt: 1_792_000_000,
       utilization: 1,
-    });
+    })?.limit;
     expect(limit).toEqual({ resetsAt: '2026-10-14T17:46:40.000Z', windowMinutes: 300 });
-    expect(rejectedUsageLimit({ status: 'allowed_warning', rateLimitType: 'five_hour' })).toBe(
-      undefined,
-    );
-    expect(rejectedUsageLimit({ status: 'rejected', rateLimitType: 'overage' })).toEqual({});
+    expect(usageLimitChange({ status: 'allowed_warning', rateLimitType: 'five_hour' })).toEqual({
+      type: 'five_hour',
+    });
+    expect(usageLimitChange({ status: 'rejected', rateLimitType: 'overage' })?.limit).toEqual({});
     const base = resultOf('plain');
     const limited = {
       ...base,

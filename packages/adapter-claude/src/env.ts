@@ -3,6 +3,8 @@
 // Claude Code 会话里”的标记——Host 本身由 Claude Code 拉起时（开发时常见）这些变量会让 `claude` 当成嵌套会话；Windows 上把
 // 找到的 Git Bash 交给 `CLAUDE_CODE_GIT_BASH_PATH`（`findGitBash`）。版本探测、SDK 探测会话与真实会话都经这里，所以只在这里补。
 
+import { existsSync } from 'node:fs';
+import { win32 } from 'node:path';
 import { claudePath, findGitBash, GIT_BASH_ENV } from './executable.js';
 
 /** 另一个 Claude Code 会话留下的标记，交给 `claude` 前去掉。 */
@@ -10,12 +12,36 @@ export const NESTED_SESSION_ENV: readonly string[] = Object.freeze([
   'CLAUDECODE',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_HOST_SESSION_ID',
   'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ATTENDED',
+  'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN',
   'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_CODE_DESKTOP_APP_VERSION',
   'CLAUDE_CODE_SSE_PORT',
   'CLAUDE_AGENT_SDK_VERSION',
   'CLAUDE_PID',
+  'CLAUDE_EFFORT',
+  'ELECTRON_RUN_AS_NODE',
 ]);
+
+export function hasClaudeManagedMcpConfig(
+  platform: NodeJS.Platform = process.platform,
+  exists: (file: string) => boolean = existsSync,
+): boolean {
+  const file =
+    platform === 'darwin'
+      ? '/Library/Application Support/ClaudeCode/managed-mcp.json'
+      : platform === 'win32'
+        ? win32.join(
+            process.env.ProgramFiles ?? 'C:\\Program Files',
+            'ClaudeCode',
+            'managed-mcp.json',
+          )
+        : '/etc/claude-code/managed-mcp.json';
+  return exists(file);
+}
 
 /** 测试用：换掉平台与文件系统，在别的平台上走 Windows 的分支。 */
 export interface ClaudeEnvOptions {
@@ -32,7 +58,10 @@ export function claudeEnv(
 ): Record<string, string | undefined> {
   const platform = options.platform ?? process.platform;
   const env: Record<string, string | undefined> = { ...parent };
-  for (const name of NESTED_SESSION_ENV) delete env[name];
+  for (const name of Object.keys(env)) {
+    if (NESTED_SESSION_ENV.includes(platform === 'win32' ? name.toUpperCase() : name))
+      delete env[name];
+  }
   env.PATH = claudePath(executable, parent, platform, options.home, options.isDir);
   // 子 agent 与后台命令都在回合里跑完（claude-event-mapping.md §6.4）：Claude 默认把 Agent 工具放到后台、做完后自己再开一轮
   // 回答，Wevir 的顶层会话没有引擎自己开的回合，那一轮的输出会丢。

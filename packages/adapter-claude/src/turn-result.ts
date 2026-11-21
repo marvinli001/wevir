@@ -9,7 +9,7 @@
 // 回合结果（SDK 的 `result` 消息）→ 回合的终结事件（claude-event-mapping.md §5.6）。SDK 把 API 层的失败（401、429、529…）也
 // 报成 `subtype: "success"` 加 `is_error`，`terminal_reason` 比外层的成功标记更可信。
 
-import type { TurnFailedEvent, TurnRetryingEvent } from '@wevir/runtime-adapter';
+import { isoTime, type TurnFailedEvent, type TurnRetryingEvent } from '@wevir/runtime-adapter';
 import type { SDKAPIRetryMessage, SDKRateLimitInfo, SDKResultMessage } from './sdk.js';
 
 /** 用量上限挡下回合时的说明（T3 的 `failureHint`）。 */
@@ -149,22 +149,36 @@ const LIMIT_WINDOW_MINUTES: Partial<
 };
 
 /**
- * 被拒的 `rate_limit_event`（0.119.0）→ 回合失败时的 `usageLimit`：账号的套餐用量到了上限，`resetsAt` 是秒级时间戳。没被拒
- * （`allowed` / `allowed_warning`）时 undefined。
+ * 订阅额度窗口是否阻塞。CLI 会节流 `rate_limit_event`，被挡下的助手消息也可能带相同的 payload。
  */
-export function rejectedUsageLimit(
-  info: SDKRateLimitInfo,
-): NonNullable<TurnFailedEvent['usageLimit']> | undefined {
+export function usageLimitChange(
+  value: unknown,
+): { type: string; limit?: NonNullable<TurnFailedEvent['usageLimit']> } | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const info = value as SDKRateLimitInfo & { overageInUse?: unknown };
+  const type = typeof info.rateLimitType === 'string' ? info.rateLimitType : 'unknown';
+  if (
+    info.status === 'allowed' ||
+    info.status === 'allowed_warning' ||
+    info.overageStatus === 'allowed' ||
+    info.overageStatus === 'allowed_warning' ||
+    info.isUsingOverage === true ||
+    info.overageInUse === true
+  )
+    return { type };
   if (info.status !== 'rejected') return undefined;
   const minutes =
     info.rateLimitType === undefined ? undefined : LIMIT_WINDOW_MINUTES[info.rateLimitType];
   const resetsAt =
-    typeof info.resetsAt === 'number' && Number.isFinite(info.resetsAt)
-      ? new Date(info.resetsAt * 1000).toISOString()
+    typeof info.resetsAt === 'number' && info.resetsAt > 0
+      ? isoTime(info.resetsAt * 1000)
       : undefined;
   return {
-    ...(resetsAt !== undefined && { resetsAt }),
-    ...(minutes !== undefined && { windowMinutes: minutes }),
+    type,
+    limit: {
+      ...(resetsAt !== undefined && { resetsAt }),
+      ...(minutes !== undefined && { windowMinutes: minutes }),
+    },
   };
 }
 
@@ -204,6 +218,7 @@ export function resultFailure(
     return {
       category: authFailed ? 'missing_credentials' : 'unknown',
       message: listed ?? (result.errors.join('\n') || result.subtype),
+      ...(usageLimit !== undefined && !authFailed && { usageLimit }),
     };
   }
   const apiError =

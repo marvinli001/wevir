@@ -26,7 +26,7 @@ import {
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
 import { NpmInstallCancelled, NpmPackageInstaller } from '@wevir/runtime-adapter/npm-package';
-import { type ClaudeEnvOptions, claudeEnv } from './env.js';
+import { type ClaudeEnvOptions, claudeEnv, hasClaudeManagedMcpConfig } from './env.js';
 import {
   CLAUDE_INSTALL_COMMAND,
   CLAUDE_LOGIN_COMMAND,
@@ -228,12 +228,14 @@ function mergeRateLimits(
   current: AccountState['rateLimits'],
   updates: readonly AccountRateLimitWindow[],
 ): AccountState['rateLimits'] {
+  const key = (window: AccountRateLimitWindow) =>
+    `${window.scope ?? ''}/${window.period ?? window.windowMinutes ?? ''}`;
   const windows = new Map(
     (current?.windows ?? [current?.primary, current?.secondary])
       .filter((window): window is AccountRateLimitWindow => window !== undefined)
-      .map((window) => [window.period ?? window.windowMinutes, window]),
+      .map((window) => [key(window), window]),
   );
-  for (const window of updates) windows.set(window.period ?? window.windowMinutes, window);
+  for (const window of updates) windows.set(key(window), window);
   return accountRateLimits([...windows.values()]);
 }
 
@@ -268,9 +270,28 @@ export function usageRateLimits(
   const primary = window(response.rate_limits.five_hour, FIVE_HOURS);
   const secondary = window(response.rate_limits.seven_day, ONE_WEEK);
   const monthly = spendPercent(response.rate_limits);
+  const scoped = (response.rate_limits as { model_scoped?: unknown }).model_scoped;
+  const modelWindows = Array.isArray(scoped)
+    ? scoped.flatMap((entry: unknown): AccountRateLimitWindow[] => {
+        if (typeof entry !== 'object' || entry === null) return [];
+        const { display_name: name, utilization, resets_at } = entry as Record<string, unknown>;
+        const scope = typeof name === 'string' ? name.trim() : '';
+        if (!scope || typeof utilization !== 'number' || !Number.isFinite(utilization)) return [];
+        const resetsAt = typeof resets_at === 'string' ? isoOrUndefined(resets_at) : undefined;
+        return [
+          {
+            scope,
+            usedPercent: utilization,
+            windowMinutes: ONE_WEEK,
+            ...(resetsAt !== undefined && { resetsAt }),
+          },
+        ];
+      })
+    : [];
   return accountRateLimits([
     ...(primary !== undefined ? [primary] : []),
     ...(secondary !== undefined ? [secondary] : []),
+    ...modelWindows,
     ...(monthly !== undefined ? [{ usedPercent: monthly, period: 'monthly' as const }] : []),
   ]);
 }
@@ -287,46 +308,29 @@ export function applyRateLimitEvent(
   const unified = (
     info as { unifiedWindows?: Record<string, { utilization?: unknown; resetsAt?: unknown }> }
   ).unifiedWindows;
-  if (unified !== undefined && typeof unified === 'object') {
-    const window = (
-      entry: { utilization?: unknown; resetsAt?: unknown } | undefined,
-      minutes: number,
-    ): AccountRateLimitWindow | undefined => {
-      if (entry === undefined || typeof entry.utilization !== 'number') return undefined;
-      const resetsAt = isoOrUndefined(
-        typeof entry.resetsAt === 'number' ? entry.resetsAt : undefined,
-      );
-      return {
-        usedPercent: clampPercent(entry.utilization * 100),
-        windowMinutes: minutes,
-        ...(resetsAt !== undefined && { resetsAt }),
-      };
-    };
-    const primary = window(unified.five_hour, FIVE_HOURS);
-    const secondary = window(unified.seven_day, ONE_WEEK);
-    if (primary !== undefined || secondary !== undefined) {
-      return mergeRateLimits(current, [
-        ...(primary !== undefined ? [primary] : []),
-        ...(secondary !== undefined ? [secondary] : []),
-      ]);
-    }
-  }
-  if (typeof info.utilization !== 'number') return undefined;
-  const slot =
-    info.rateLimitType === 'five_hour'
-      ? 'primary'
-      : info.rateLimitType === 'seven_day'
-        ? 'secondary'
-        : undefined;
-  if (slot === undefined) return undefined;
-  const resetsAt = isoOrUndefined(info.resetsAt);
-  return mergeRateLimits(current, [
-    {
-      usedPercent: clampPercent(info.utilization * 100),
-      windowMinutes: slot === 'primary' ? FIVE_HOURS : ONE_WEEK,
+  const scope = current?.windows?.find(
+    (window) => window.windowMinutes === ONE_WEEK && window.scope !== undefined,
+  )?.scope;
+  const updates: AccountRateLimitWindow[] = [];
+  for (const [type, windowMinutes] of [
+    ['five_hour', FIVE_HOURS],
+    ['seven_day', ONE_WEEK],
+    ['seven_day_overage_included', ONE_WEEK],
+  ] as const) {
+    const scoped = type === 'seven_day_overage_included';
+    if (scoped && scope === undefined) continue;
+    const entry = unified?.[type] ?? (info.rateLimitType === type ? info : undefined);
+    if (typeof entry?.utilization !== 'number' || !Number.isFinite(entry.utilization)) continue;
+    const resetsAt =
+      typeof entry.resetsAt === 'number' ? isoOrUndefined(entry.resetsAt) : undefined;
+    updates.push({
+      usedPercent: entry.utilization * 100,
+      windowMinutes,
+      ...(scoped && scope !== undefined && { scope }),
       ...(resetsAt !== undefined && { resetsAt }),
-    },
-  ]);
+    });
+  }
+  return updates.length > 0 ? mergeRateLimits(current, updates) : undefined;
 }
 
 /** 探测会话的 SDK 选项（T3 的 `buildClaudeCapabilitiesProbeQueryOptions`）。 */
@@ -344,9 +348,9 @@ export function probeQueryOptions(input: {
     // 不跑用户的 hooks：每次检测都会触发 SessionStart。
     settings: { disableAllHooks: true },
     allowedTools: [],
-    // 不连任何 MCP 服务器（含 claude.ai 上连接的）：只要初始化结果。
+    // 只读初始化结果。企业策略独占 MCP 时，Claude 不接受 --strict-mcp-config。
     mcpServers: {},
-    strictMcpConfig: true,
+    ...(!hasClaudeManagedMcpConfig() && { strictMcpConfig: true }),
     env: {
       ...input.env,
       ENABLE_CLAUDEAI_MCP_SERVERS: 'false',

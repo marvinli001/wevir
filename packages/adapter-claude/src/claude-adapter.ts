@@ -68,7 +68,7 @@ import {
 import { linkUserEntries } from '@wevir/runtime-adapter/private-home';
 import { ClaudeAccounts, type ClaudeInstallation } from './account.js';
 import { claudeContextBreakdown } from './context-breakdown.js';
-import { claudeEnv } from './env.js';
+import { claudeEnv, hasClaudeManagedMcpConfig } from './env.js';
 import {
   type ClaudeEffort,
   canonicalClaudeModel,
@@ -114,10 +114,10 @@ import {
 import { claudeToolDisplay, isSubagentTool } from './tool-display.js';
 import {
   isAbortedResult,
-  rejectedUsageLimit,
   resultFailure,
   retryingOf,
   USAGE_LIMIT_ERROR,
+  usageLimitChange,
 } from './turn-result.js';
 import {
   type ClaudeRequest,
@@ -304,8 +304,8 @@ interface Turn {
   /** 用户选了“拒绝并停止”：回合随后的中断按取消结算。 */
   stoppedByUser: boolean;
   authFailed: boolean;
-  /** 回合里被拒的 `rate_limit_event`（0.119.0）：账号的用量到了上限，回合失败时报 `usageLimit`。 */
-  usageLimit?: NonNullable<TurnFailedEvent['usageLimit']>;
+  /** 仍处在拒绝状态的额度窗口。 */
+  usageLimits?: Map<string, NonNullable<TurnFailedEvent['usageLimit']>>;
   steers: Array<{ steerId: string; uuid: string; folded: boolean; dropped?: boolean }>;
   /** 插话还没进回合时到的结果：等插话那一轮结束（或插话被 Claude 丢掉）再结算。 */
   deferredResult?: SDKResultMessage;
@@ -341,6 +341,27 @@ interface LiveQuery {
    * `requested` 时以 `actual` 为准，不在进程里再改；换模型时重起进程，让新模型重新协商。
    */
   fallback?: { requested: SdkPermissionMode; actual: SdkPermissionMode };
+}
+
+function noteUsageLimit(turn: Turn | undefined, info: unknown): void {
+  if (turn === undefined) return;
+  const update = usageLimitChange(info);
+  if (update === undefined) return;
+  if (update.limit === undefined) {
+    turn.usageLimits?.delete(update.type);
+    return;
+  }
+  turn.usageLimits ??= new Map();
+  turn.usageLimits.set(update.type, update.limit);
+}
+
+function turnUsageLimit(turn: Turn): TurnFailedEvent['usageLimit'] {
+  let latest: NonNullable<TurnFailedEvent['usageLimit']> | undefined;
+  for (const window of turn.usageLimits?.values() ?? []) {
+    if (window.resetsAt === undefined) return window;
+    if (latest === undefined || window.resetsAt > (latest.resetsAt ?? '')) latest = window;
+  }
+  return latest;
 }
 
 /** 进程启动时定下的设置（有的能在进程里改，有的要重起，见 `#applyLive`）。 */
@@ -640,6 +661,10 @@ function isAsyncLaunchAck(structured: unknown, text: string | undefined): boolea
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ROOT_PERMISSION_REFUSAL =
+  '--dangerously-skip-permissions cannot be used with root/sudo privileges';
+const ROOT_PERMISSION_MESSAGE =
+  'Claude Code refuses Full access under root or sudo. Run Wevir as a regular user or choose another permission mode.';
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -653,22 +678,26 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined>
 
 /**
  * 让 `claude` 自成进程组（T3 的 `spawnClaudeProcessGroup`）：它退出时只停它起的 MCP 服务器，不停它们的子进程，所以退出后
- * 给整个组发 SIGKILL。Agent 的 Bash 工具起的命令自成一组，不受影响。stderr 丢掉（SDK 自己起进程时也只在退出错误里带尾部）。
+ * 给整个组发 SIGKILL。Agent 的 Bash 工具起的命令自成一组，不受影响。
  */
-function spawnProcessGroup(options: {
-  command: string;
-  args: string[];
-  cwd?: string;
-  env: Record<string, string | undefined>;
-  signal: AbortSignal;
-}) {
+function spawnProcessGroup(
+  options: {
+    command: string;
+    args: string[];
+    cwd?: string;
+    env: Record<string, string | undefined>;
+    signal: AbortSignal;
+  },
+  onStderr: (text: string) => void,
+) {
   const child = spawn(options.command, options.args, {
     ...(options.cwd !== undefined && { cwd: options.cwd }),
     env: options.env as NodeJS.ProcessEnv,
     signal: options.signal,
-    stdio: ['pipe', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });
+  child.stderr.setEncoding('utf8').on('data', onStderr);
   trackProcessGroup(child, { kind: 'engine', name: 'claude' });
   child.once('exit', () => {
     try {
@@ -1215,7 +1244,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           settingSources: [],
           settings: { disableAllHooks: true },
           mcpServers: {},
-          strictMcpConfig: true,
+          ...(!hasClaudeManagedMcpConfig() && { strictMcpConfig: true }),
           permissionMode: 'dontAsk',
           outputFormat: { type: 'json_schema', schema: request.outputSchema },
           stderr: () => {},
@@ -1433,6 +1462,10 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       this.#historyScriptWritten = true;
     }
     const input = new PushQueue<SDKUserMessage>();
+    const startup: { tail: string | undefined; drained?: Promise<void> } = { tail: '' };
+    const onStderr = (chunk: string) => {
+      if (startup.tail !== undefined) startup.tail = (startup.tail + chunk).slice(-2048);
+    };
     const env = { ...claudeEnv(this.#env, installation.executablePath), ...session.config.env };
     // 恢复的会话（T3 的 #34822）：Claude Code 默认不等 MCP 服务连上就发第一个请求，模型会被告知 wevir 与读历史的工具断开了。
     // 用户或环境自己设了的照旧。
@@ -1474,8 +1507,14 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       systemPrompt: systemPrompt(session.config),
       ...(session.persisted ? { resume: session.id } : { sessionId: session.id }),
       ...(session.side && { persistSession: false }),
-      ...(process.platform !== 'win32' && { spawnClaudeCodeProcess: spawnProcessGroup }),
-      stderr: () => {},
+      ...(process.platform !== 'win32' && {
+        spawnClaudeCodeProcess: (spawnOptions) => {
+          const child = spawnProcessGroup(spawnOptions, onStderr);
+          startup.drained = new Promise((resolve) => child.stderr.once('close', resolve));
+          return child;
+        },
+      }),
+      stderr: onStderr,
     };
     let query: Query;
     try {
@@ -1495,14 +1534,19 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       backgroundTasks: false,
       taskOutputRoot: claudeTaskOutputRoot(env),
     };
-    live.done = this.#pump(session, live);
+    live.done = this.#pump(session, live, startup);
     return live;
   }
 
-  async #pump(session: RootSession, live: LiveQuery): Promise<void> {
+  async #pump(
+    session: RootSession,
+    live: LiveQuery,
+    startup: { tail: string | undefined; drained?: Promise<void> },
+  ): Promise<void> {
     let failure: unknown;
     try {
       for await (const message of iterate(live.query)) {
+        startup.tail = undefined;
         if (this.#disposed) break;
         if (session.live !== live) continue;
         try {
@@ -1518,11 +1562,16 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     } catch (error) {
       failure = error;
     }
-    this.#liveEnded(session, live, failure);
+    if (startup.tail !== undefined && live.applied.dangerous && startup.drained !== undefined) {
+      await withTimeout(startup.drained, 1_000);
+    }
+    const refusedRoot = startup.tail?.includes(ROOT_PERMISSION_REFUSAL) === true;
+    startup.tail = undefined;
+    this.#liveEnded(session, live, failure, refusedRoot);
   }
 
   /** 进程的消息流结束（退出、被关掉）：未结算的回合按取消或失败结算，下次发消息时再起进程。 */
-  #liveEnded(session: RootSession, live: LiveQuery, failure: unknown): void {
+  #liveEnded(session: RootSession, live: LiveQuery, failure: unknown, refusedRoot: boolean): void {
     if (session.live === live) session.live = undefined;
     live.input.close();
     if (this.#disposed) return;
@@ -1538,7 +1587,14 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       return;
     }
     this.#endRequests(session, 'engine_exited');
-    const message = failure === undefined ? 'claude exited during the turn' : describe(failure);
+    const telemetry = (failure as { telemetryMessage?: unknown } | null)?.telemetryMessage;
+    const message = refusedRoot
+      ? ROOT_PERMISSION_MESSAGE
+      : typeof telemetry === 'string'
+        ? telemetry
+        : failure === undefined
+          ? 'claude exited during the turn'
+          : describe(failure);
     this.#settle(session, turn, {
       type: 'turn.failed',
       category: /log ?in|authenticat|credential/i.test(message) ? 'missing_credentials' : 'unknown',
@@ -2122,6 +2178,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         }
         return;
       case 'assistant':
+        if (message.error === 'rate_limit' && message.parent_tool_use_id === null) {
+          const info = (message as { api_error_params?: { rate_limit_info?: unknown } })
+            .api_error_params?.rate_limit_info;
+          noteUsageLimit(session.turn, info);
+        }
         this.#assistant(session, message);
         return;
       case 'user':
@@ -2134,8 +2195,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         return;
       case 'rate_limit_event': {
         this.accounts.applyRateLimit(message.rate_limit_info);
-        const limit = rejectedUsageLimit(message.rate_limit_info);
-        if (limit !== undefined && session.turn !== undefined) session.turn.usageLimit = limit;
+        noteUsageLimit(session.turn, message.rate_limit_info);
         return;
       }
       case 'system':
@@ -2841,10 +2901,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       });
       return;
     }
+    const usageLimit = turnUsageLimit(turn);
     // 用量上限挡下的 `/compact` 照样以成功的结果结束：算失败，带上 usageLimit，Host 不把排着的消息发进同一个上限（T3 499c9ee）。
     if (
       turn.kind === 'compact' &&
-      turn.usageLimit !== undefined &&
+      usageLimit !== undefined &&
       turn.compactionFailure !== undefined &&
       message.subtype === 'success'
     ) {
@@ -2852,11 +2913,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         type: 'turn.failed',
         category: 'provider',
         message: turn.compactionFailure.message ?? USAGE_LIMIT_ERROR,
-        usageLimit: turn.usageLimit,
+        usageLimit,
       });
       return;
     }
-    const failure = resultFailure(message, turn.authFailed, turn.usageLimit);
+    const failure = resultFailure(message, turn.authFailed, usageLimit);
     if (failure !== undefined) {
       this.#settle(session, turn, { type: 'turn.failed', ...failure });
       return;

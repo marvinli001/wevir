@@ -80,6 +80,35 @@ function collect(adapter: ClaudeAdapter, id: string) {
 
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
+it('完全访问因 root 被拒时，回合错误只报告可行动的原因', async () => {
+  const { adapter, sdk } = harness();
+  const original = sdk.query.bind(sdk);
+  vi.spyOn(sdk, 'query').mockImplementation((params) => {
+    const query = original(params);
+    if (params.options?.canUseTool !== undefined) {
+      params.options.stderr?.(
+        'private stderr\n--dangerously-skip-permissions cannot be used with root/sudo privileges',
+      );
+      query.next = async () => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        throw new Error('process exited with code 1');
+      };
+    }
+    return query;
+  });
+  const { engineSessionId } = await adapter.createSession({
+    ...CONFIG,
+    permissionMode: 'full_access',
+  });
+  const log = collect(adapter, engineSessionId);
+  await adapter.send(engineSessionId, text('hello'));
+  expect(await log.until(isTurnTerminal)).toMatchObject({
+    type: 'turn.failed',
+    message:
+      'Claude Code refuses Full access under root or sudo. Run Wevir as a regular user or choose another permission mode.',
+  });
+});
+
 /** 会话的 query（去掉账号探测与生成标题的那几次）。 */
 function sessionQueries(sdk: FakeClaudeSdk) {
   return sdk.queries.filter((query) => query.options.canUseTool !== undefined);
@@ -1612,6 +1641,60 @@ describe('压缩上下文（0.24.0）', () => {
       type: 'turn.settled',
       outcome: 'completed',
     });
+  });
+
+  it.each([
+    {},
+    { status: 'allowed' },
+    { overageStatus: 'allowed_warning' },
+    { overageInUse: true },
+  ])('被节流的额度事件使用助手附带的重置时间，并清理已放行的上限 (%j)', async (update) => {
+    const limit = { status: 'rejected', rateLimitType: 'five_hour', resetsAt: 1_792_000_000 };
+    const assistant = recordedMessages('plain').find((message) => message.type === 'assistant');
+    const { adapter } = harness({
+      script: (prompt) =>
+        prompt === '/compact'
+          ? {
+              steps: [
+                {
+                  kind: 'message',
+                  message: {
+                    ...assistant,
+                    type: 'assistant',
+                    parent_tool_use_id: null,
+                    error: 'rate_limit',
+                    api_error_params: { rate_limit_info: limit },
+                  },
+                },
+                ...(Object.keys(update).length === 0
+                  ? []
+                  : [
+                      {
+                        kind: 'message' as const,
+                        message: {
+                          type: 'rate_limit_event',
+                          rate_limit_info: { ...limit, ...update },
+                        },
+                      },
+                    ]),
+                status('compacting'),
+                status(null, { compact_result: 'failed', compact_error: "You've hit your limit" }),
+                compactResult,
+              ],
+            }
+          : undefined,
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.compact(engineSessionId);
+    expect(await log.until(isTurnTerminal)).toMatchObject(
+      Object.keys(update).length > 0
+        ? { type: 'turn.settled' }
+        : {
+            type: 'turn.failed',
+            usageLimit: { windowMinutes: 300, resetsAt: '2026-10-14T17:46:40.000Z' },
+          },
+    );
   });
 
   it('Claude 在回合中自己压缩：auto；压缩失败的不报完成', async () => {

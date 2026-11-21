@@ -78,6 +78,34 @@ describe('套餐与登录状态（T3 的 claudeSubscriptionLabel / claudeAuthSta
 });
 
 describe('用量', () => {
+  it('模型专属周额度与总周额度分开保存和更新', () => {
+    const limits = usageRateLimits({
+      rate_limits_available: true,
+      rate_limits: {
+        seven_day: { utilization: 45, resets_at: null },
+        model_scoped: [
+          { display_name: 'Fable', utilization: 75, resets_at: '2026-10-20T00:00:00Z' },
+        ],
+      },
+    } as never);
+    expect(limits?.windows?.[1]).toEqual({
+      scope: 'Fable',
+      usedPercent: 75,
+      windowMinutes: 10080,
+      resetsAt: '2026-10-20T00:00:00.000Z',
+    });
+    const updated = applyRateLimitEvent(limits, {
+      status: 'rejected',
+      rateLimitType: 'seven_day_overage_included',
+      utilization: 1,
+      resetsAt: 1_792_000_000,
+    });
+    expect(updated?.windows).toMatchObject([
+      { usedPercent: 45, windowMinutes: 10080 },
+      { scope: 'Fable', usedPercent: 100, windowMinutes: 10080 },
+    ]);
+  });
+
   it('get_usage：5 小时是 primary，7 天是 secondary；没有套餐用量时 undefined', () => {
     expect(
       usageRateLimits({
