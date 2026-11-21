@@ -61,10 +61,6 @@
     width: var(--anchor-width);
     min-width: 10rem;
   }
-  .list {
-    position: relative;
-    isolation: isolate;
-  }
   .copy {
     display: grid;
     min-width: 0;

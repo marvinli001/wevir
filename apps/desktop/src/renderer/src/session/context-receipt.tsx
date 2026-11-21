@@ -1,7 +1,14 @@
 import type { ContextPackReceipt, ContextSourceRef } from '@wevir/protocol';
 import { Layers } from 'lucide-react';
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { t } from '@/i18n';
 
 function sourceLabel(source: ContextSourceRef): string {
@@ -42,31 +49,37 @@ export function ContextReceipt({
         {receipt.legacy ? t('context.receipt.legacy') : label}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
-          <DialogHeader>
+        <DialogContent className="max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-xl">
+          <DialogHeader className="pe-8">
             <DialogTitle>{t('context.receipt.title')}</DialogTitle>
+            <DialogDescription>
+              {label} ·{' '}
+              {t(
+                receipt.engineSession === 'new' ? 'context.receipt.new' : 'context.receipt.frozen',
+              )}
+            </DialogDescription>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            {label} ·{' '}
-            {t(receipt.engineSession === 'new' ? 'context.receipt.new' : 'context.receipt.frozen')}
-          </p>
-          <dl className="grid gap-3 text-sm">
-            <dt className="text-muted-foreground">{t('context.receipt.hash')}</dt>
-            <dd className="break-all font-mono text-xs">{receipt.hash}</dd>
-            {(['included', 'omitted'] as const).map((key) => (
-              <div key={key}>
-                <dt className="mb-1 text-muted-foreground">
-                  {t(key === 'included' ? 'context.receipt.included' : 'context.receipt.omitted')} ·{' '}
-                  {receipt[key].length}
-                </dt>
-                <dd className="space-y-1 break-all font-mono text-xs">
-                  {receipt[key].map((source) => (
-                    <p key={sourceLabel(source)}>{sourceLabel(source)}</p>
-                  ))}
-                </dd>
+          <ScrollArea fade className="-mx-1 rounded-md">
+            <dl className="grid gap-3 py-1 ps-1 pe-4 text-sm">
+              <div>
+                <dt className="mb-1 text-muted-foreground">{t('context.receipt.hash')}</dt>
+                <dd className="break-all font-mono text-xs">{receipt.hash}</dd>
               </div>
-            ))}
-          </dl>
+              {(['included', 'omitted'] as const).map((key) => (
+                <div key={key}>
+                  <dt className="mb-1 text-muted-foreground">
+                    {t(key === 'included' ? 'context.receipt.included' : 'context.receipt.omitted')}{' '}
+                    · {receipt[key].length}
+                  </dt>
+                  <dd className="space-y-1 break-all font-mono text-xs">
+                    {receipt[key].map((source) => (
+                      <p key={sourceLabel(source)}>{sourceLabel(source)}</p>
+                    ))}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </ScrollArea>
         </DialogContent>
       </Dialog>
     </div>

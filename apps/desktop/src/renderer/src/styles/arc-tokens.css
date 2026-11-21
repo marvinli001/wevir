@@ -45,6 +45,8 @@
   --arc-font-display: var(--font-ui);
   --arc-font-code: var(--font-code);
   --arc-radius-control: 1.125rem;
+  --arc-radius-menu-item: var(--radius-control);
+  --arc-menu-padding: 5px;
   --arc-radius-panel: 1.625rem;
   --arc-radius-surface: 2.125rem;
   --arc-radius-pill: 9999px;

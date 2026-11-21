@@ -36,8 +36,10 @@ function ContextMenuContent({
           className={withClasses(cn(menu.popup, styles.menu), className)}
           {...props}
         >
-          <MenuHighlight />
-          {props.children}
+          <div className={menu.list}>
+            <MenuHighlight />
+            {props.children}
+          </div>
         </ContextMenuPrimitive.Popup>
       </ContextMenuPrimitive.Positioner>
     </ContextMenuPrimitive.Portal>

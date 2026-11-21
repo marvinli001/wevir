@@ -14,9 +14,9 @@
     overflow-y: auto;
     max-height: var(--available-height);
     max-width: var(--available-width);
-    padding: 5px;
+    padding: var(--arc-menu-padding);
     border: 1px solid var(--arc-border);
-    border-radius: var(--arc-radius-panel);
+    border-radius: calc(var(--arc-radius-menu-item) + var(--arc-menu-padding) + 1px);
     background: var(--arc-surface-raised);
     color: var(--arc-raised-foreground);
     box-shadow: var(--arc-shadow-floating);
@@ -45,6 +45,21 @@
     transition-duration: var(--arc-duration-instant);
     pointer-events: none;
   }
+  .popup:has(> .list) {
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+  }
+  .list {
+    position: relative;
+    isolation: isolate;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--arc-foreground) 22%, transparent) transparent;
+    border-radius: var(--arc-radius-menu-item);
+  }
   .menu {
     width: var(--anchor-width);
     min-width: 8rem;
@@ -60,7 +75,7 @@
     gap: 0.5rem;
     min-height: var(--arc-control-height-xs);
     padding: 0.25rem 0.625rem;
-    border-radius: calc(var(--arc-radius-panel) - 6px);
+    border-radius: var(--arc-radius-menu-item);
     color: inherit;
     font-size: var(--arc-text-sm);
     line-height: 1.5;
@@ -95,7 +110,7 @@
   }
   .highlight {
     background: var(--arc-surface-muted);
-    border-radius: calc(var(--arc-radius-panel) - 6px);
+    border-radius: var(--arc-radius-menu-item);
     opacity: 0;
   }
   .highlight[data-shown] {

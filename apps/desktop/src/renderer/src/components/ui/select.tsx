@@ -74,7 +74,7 @@ export function Select<Value extends string>({
             data-slot="select-content"
             className={cn(menu.popup, styles.popup, popupClassName)}
           >
-            <SelectPrimitive.List className={styles.list}>
+            <SelectPrimitive.List className={menu.list}>
               <MenuHighlight />
               {options.map((option) => (
                 <SelectPrimitive.Item

@@ -50,8 +50,10 @@ function DropdownMenuContent({
           className={withClasses(cn(styles.popup, styles.menu), className)}
           {...props}
         >
-          <MenuHighlight />
-          {props.children}
+          <div className={styles.list}>
+            <MenuHighlight />
+            {props.children}
+          </div>
         </MenuPrimitive.Popup>
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
