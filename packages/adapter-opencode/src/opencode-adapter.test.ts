@@ -30,6 +30,21 @@ import { TITLE_SESSION_TITLE } from './title.js';
 
 const MODEL = 'mock/echo';
 
+it('恢复另一代 CLI 的会话时提示切回版本，并保留恢复能力', async () => {
+  const { adapter, home } = setup();
+  await expect(
+    adapter.resumeSession('ses_saved_v2', {
+      cwd: home,
+      providerId: 'opencode',
+      modelId: MODEL,
+      resumeEngineVersion: '2.3.2',
+    }),
+  ).rejects.toMatchObject({
+    code: 'engine_unavailable',
+    message: 'Select an OpenCode 2.x executable to resume this session.',
+  });
+});
+
 let harness: FakeHarness | undefined;
 afterEach(async () => {
   await harness?.cleanup();

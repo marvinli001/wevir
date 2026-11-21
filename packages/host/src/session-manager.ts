@@ -1117,11 +1117,18 @@ export class SessionManager {
     rules?: RulePlan | undefined,
     engineSessionId?: string,
   ): Promise<SessionConfig> {
+    const existing = engineSessionId === undefined ? undefined : this.#runtimes.get(sessionId);
+    const resumeEngineVersion =
+      existing !== undefined && existing.engineSessionId === engineSessionId
+        ? this.#snapshot(existing).session.engineVersion
+        : undefined;
+    const withVersion =
+      resumeEngineVersion === undefined ? config : { ...config, resumeEngineVersion };
     // 规则文件（0.68.0）：进引擎说明的那种随配置交过去，每次建立或恢复都按当时的文件。
     const withRules =
       rules?.text !== undefined && rules.rules.channel === 'instructions'
-        ? { ...config, ruleInstructions: rules.text }
-        : config;
+        ? { ...withVersion, ruleInstructions: rules.text }
+        : withVersion;
     // 项目的连接器（0.74.0）：按会话所在的工作区，不按 cwd（worktree 里的会话 cwd 不在项目根下）。
     const workspaceId = this.workspaceOf(sessionId);
     const connectors =

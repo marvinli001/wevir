@@ -22,6 +22,8 @@ import type { EnginePluginConfig } from './plugins.js';
 
 /** 建会话与恢复会话的参数。 */
 export interface SessionConfig {
+  /** Engine version recorded for this session when resuming existing history. */
+  resumeEngineVersion?: string;
   /**
    * 工作区根目录的 realpath，即 ACP `session/new` 的 `cwd`。`resumeSession` 必须传创建时的同一个值
    * （dsh 按 realpath 比较，T0.3 §3.2）。

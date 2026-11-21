@@ -75,7 +75,12 @@ import {
   permissionRules,
   subagentOwnRules,
 } from './permissions.js';
-import { OpenCodeRuntime, type OpenCodeRuntimeOptions, type ServerLease } from './runtime.js';
+import {
+  isOpenCodeV2,
+  OpenCodeRuntime,
+  type OpenCodeRuntimeOptions,
+  type ServerLease,
+} from './runtime.js';
 import {
   type Event,
   errorMessage,
@@ -490,6 +495,18 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     const settings = await this.#settings(config);
     await this.accounts.requireReady();
     const stream = await this.#stream(config.cwd);
+    const previousVersion = config.resumeEngineVersion;
+    if (
+      previousVersion !== undefined &&
+      isOpenCodeV2(previousVersion) !== (stream.client.generation === 2)
+    ) {
+      this.#releaseStream(stream);
+      const generation = isOpenCodeV2(previousVersion) ? '2.x' : '1.x';
+      throw new AdapterError(
+        'engine_unavailable',
+        `Select an OpenCode ${generation} executable to resume this session.`,
+      );
+    }
     const rules = sessionRules(settings);
     try {
       await stream.client.getSession(engineSessionId);
