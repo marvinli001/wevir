@@ -823,6 +823,8 @@ export interface AccountState {
     startedAt: string;
   };
   lastError?: string;
+  /** 引擎能提供稳定身份时，用作重置卡确认和回执的账号标识。 */
+  resetCreditIdentity?: string;
   resetCredits?: {
     availableCount: number;
     credits?: AccountResetCredit[];

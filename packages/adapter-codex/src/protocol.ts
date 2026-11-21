@@ -960,6 +960,7 @@ export interface GetAccountParams {
 export interface GetAccountResponse {
   account: CodexAccount | null;
   requiresOpenaiAuth: boolean;
+  workspaceRouting?: { chatgptAccountId: string } | null;
 }
 
 /** v2/RateLimitWindow.ts：`resetsAt` 是 Unix 秒。 */

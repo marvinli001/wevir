@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { createAccountResetCreditRepository } from './account-reset-credits.js';
 import {
   createSubscriptionAccountRepository,
   type SubscriptionAccountRepository,
@@ -70,6 +71,7 @@ export interface Storage {
   readonly sessionContexts: SessionContextRepository;
   /** 订阅的多个账号（0013_subscription_accounts）。 */
   readonly accounts: SubscriptionAccountRepository;
+  readonly accountResetCredits: ReturnType<typeof createAccountResetCreditRepository>;
   /** diff 上的行级批注（0015_review_comments）。 */
   readonly reviewComments: ReviewCommentRepository;
   /** 任务回顾的投影与模型摘要（0016_session_retros）。 */
@@ -125,6 +127,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       contextIndex: createContextIndexRepository(db),
       sessionContexts: createSessionContextRepository(db),
       accounts: createSubscriptionAccountRepository(db),
+      accountResetCredits: createAccountResetCreditRepository(db),
       reviewComments: createReviewCommentRepository(db),
       retros: createRetroRepository(db),
       episodes: createEpisodeRepository(db),

@@ -139,7 +139,6 @@ export function ChatgptAccountSection({
           onLogout={() => setConfirmLogout(true)}
           onSaved={() => void store?.refresh()}
           onError={setError}
-          onAccountChanged={setAccount}
         />
       )}
       {setupOnly && phase.kind !== 'browser' && phase.kind !== 'device_code' && (
@@ -296,7 +295,6 @@ function SignedIn({
   onLogout,
   onSaved,
   onError,
-  onAccountChanged,
 }: {
   client: WevirClient;
   account: AccountState;
@@ -306,7 +304,6 @@ function SignedIn({
   onLogout: () => void;
   onSaved: () => void;
   onError: (error: string | undefined) => void;
-  onAccountChanged: (account: AccountState) => void;
 }) {
   const modelSelect = useId();
   const [saving, setSaving] = useState(false);
@@ -350,10 +347,9 @@ function SignedIn({
       </div>
       <UsageCards windows={windows} />
       <ChatgptResetCredits
-        key={`${idOf(account)}:${account.email ?? ''}`}
+        key={`${idOf(account)}:${account.resetCreditIdentity ?? account.email ?? ''}`}
         client={client}
         account={account}
-        onChanged={onAccountChanged}
       />
       <div className={SUBSCRIPTION_SETTING_ROW}>
         <label htmlFor={modelSelect} className="shrink-0 text-muted-foreground">

@@ -8,6 +8,7 @@ import type {
   AccountKind,
   AccountLoginMethod,
   AccountModels,
+  AccountResetCreditRequest,
   AccountState,
   AgentRuntimeAdapter,
   EngineAccounts,
@@ -15,7 +16,7 @@ import type {
   ProviderIssue,
 } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mergeAccountModelSettings } from './accounts.js';
 import { EngineRouter } from './engine-router.js';
 import { type RunningHost, startHost } from './host-process.js';
@@ -196,9 +197,9 @@ describe('ChatGPT 账号（account.*）', () => {
       },
     });
     expect(consumed).toEqual([[], [request]]);
-    expect((await client.request('account.get', { kind: 'chatgpt' })).account.resetCredits).toEqual(
-      { availableCount: 1 },
-    );
+    expect(
+      (await client.request('account.get', { kind: 'chatgpt' })).account.resetCredits,
+    ).toMatchObject({ availableCount: 1 });
     expect(client.notifications('account.updated').at(-1)?.account.id).toBe(account.id);
     expect(
       (await client.call('account.consumeResetCredit', { kind: 'claude', ...request })).error?.code,
@@ -212,6 +213,213 @@ describe('ChatGPT 账号（account.*）', () => {
         })
       ).error?.code,
     ).toBe(-32602);
+  });
+
+  it('合并同一账号的并发兑换，旧客户端重发时返回回执，拒绝过期的数量确认', async () => {
+    const adapter = new AccountAdapter();
+    adapter.accounts.set({
+      kind: 'chatgpt',
+      status: 'signed_in',
+      email: 'me@example.com',
+      resetCredits: { availableCount: 2 },
+    });
+    let entered = () => {};
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release = () => {};
+    const proceed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const consumed: AccountResetCreditRequest[] = [];
+    adapter.accounts.consumeResetCredit = async (_kind, request) => {
+      consumed.push(request);
+      entered();
+      await proceed;
+      return { account: adapter.accounts.state, outcome: 'reset' };
+    };
+    const { connect } = await start(adapter);
+    const a = (await connect()).client;
+    const b = (await connect()).client;
+    const { account } = await a.request('account.get', { kind: 'chatgpt' });
+    const request = {
+      kind: 'chatgpt' as const,
+      expectedAvailableCount: 2,
+      expectedCreditRevision: account.resetCredits?.revision,
+    };
+    const legacy = { ...request, idempotencyKey: '5e29ff5a-0a10-4cc8-8db0-c375d56b4045' };
+    const first = a.request('account.consumeResetCredit', request);
+    await started;
+    const second = b.request('account.consumeResetCredit', legacy);
+    try {
+      expect(
+        (await b.request('account.get', { kind: 'chatgpt' })).account.pendingResetCredit,
+      ).toBeDefined();
+    } finally {
+      release();
+    }
+    expect((await Promise.all([first, second])).map(({ outcome }) => outcome)).toEqual([
+      'reset',
+      'reset',
+    ]);
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0]?.idempotencyKey).not.toBe(legacy.idempotencyKey);
+    expect((await b.request('account.consumeResetCredit', legacy)).outcome).toBe('reset');
+    expect(
+      (await a.request('account.get', { kind: 'chatgpt' })).account.resetCredits?.availableCount,
+    ).toBe(2);
+    expect((await a.call('account.consumeResetCredit', request)).error?.code).toBe(-32602);
+    expect(consumed).toHaveLength(1);
+  });
+
+  it('同一账号的登出等兑换完成后才改变凭据', async () => {
+    const adapter = new AccountAdapter();
+    adapter.accounts.set({
+      kind: 'chatgpt',
+      status: 'signed_in',
+      email: 'me@example.com',
+      resetCredits: { availableCount: 1 },
+    });
+    let release = () => {};
+    const proceed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    adapter.accounts.consumeResetCredit = async () => {
+      await proceed;
+      return { account: adapter.accounts.state, outcome: 'reset' };
+    };
+    const { connect } = await start(adapter);
+    const a = (await connect()).client;
+    const b = (await connect()).client;
+    const ref = { kind: 'chatgpt' as const };
+    await a.request('account.get', ref);
+    const redemption = a.request('account.consumeResetCredit', {
+      ...ref,
+      expectedAvailableCount: 1,
+    });
+    try {
+      await vi.waitFor(() => {
+        expect(a.notifications('account.updated').at(-1)?.account.pendingResetCredit).toBeDefined();
+      });
+      const logout = b.request('account.logout', ref);
+      expect((await b.request('account.get', ref)).account.status).toBe('signed_in');
+      release();
+      expect((await redemption).account.status).toBe('signed_in');
+      expect((await logout).account.status).toBe('signed_out');
+    } finally {
+      release();
+      await redemption.catch(() => undefined);
+    }
+  });
+
+  it('Host 重启后仍可确认结果未知的兑换，即使可用卡已变化', async () => {
+    const home = join(tempDir(), 'reset-credit-restart');
+    const account: AccountState = {
+      kind: 'chatgpt',
+      status: 'signed_in',
+      email: 'me@example.com',
+      resetCredits: {
+        availableCount: 1,
+        credits: [{ id: 'first', resetType: 'codexRateLimits', status: 'available' }],
+      },
+    };
+    const firstAdapter = new AccountAdapter();
+    firstAdapter.accounts.set(account);
+    const consumed: AccountResetCreditRequest[] = [];
+    firstAdapter.accounts.consumeResetCredit = async (_kind, request) => {
+      consumed.push(request);
+      throw new Error('redemption response lost');
+    };
+    const firstHost = await start(firstAdapter, home);
+    const a = (await firstHost.connect()).client;
+    const signedIn = (await a.request('account.get', { kind: 'chatgpt' })).account;
+    const request = {
+      kind: 'chatgpt' as const,
+      expectedAccountIdentity: signedIn.resetCreditIdentity,
+      creditId: 'first',
+    };
+    expect((await a.call('account.consumeResetCredit', request)).error?.message).toBe(
+      'redemption response lost',
+    );
+    const { pendingResetCredit } = (await a.request('account.get', { kind: 'chatgpt' })).account;
+    expect(pendingResetCredit).toMatchObject({ creditId: 'first', attemptId: expect.any(Number) });
+    a.ws.terminate();
+    await firstHost.host.shutdown();
+    running.splice(running.indexOf(firstHost.host), 1);
+
+    const newAdapter = new AccountAdapter();
+    const nextAccount: AccountState = {
+      ...account,
+      resetCredits: {
+        availableCount: 1,
+        credits: [{ id: 'second', resetType: 'codexRateLimits', status: 'available' }],
+      },
+    };
+    newAdapter.accounts.set({ ...nextAccount, email: 'other@example.com' });
+    newAdapter.accounts.consumeResetCredit = async (_kind, input) => {
+      consumed.push(input);
+      return { account: newAdapter.accounts.state, outcome: 'alreadyRedeemed' };
+    };
+    const b = (await (await start(newAdapter, home)).connect()).client;
+    const retry = { kind: 'chatgpt' as const, pendingAttemptId: pendingResetCredit?.attemptId };
+    expect(
+      (await b.request('account.get', { kind: 'chatgpt' })).account.pendingResetCredit,
+    ).toBeUndefined();
+    expect((await b.call('account.consumeResetCredit', retry)).error?.code).toBe(-32602);
+    newAdapter.accounts.set(nextAccount);
+    expect(
+      (await b.request('account.get', { kind: 'chatgpt' })).account.pendingResetCredit,
+    ).toEqual(pendingResetCredit);
+    expect(
+      (await b.call('account.consumeResetCredit', { kind: 'chatgpt', creditId: 'second' })).error
+        ?.code,
+    ).toBe(-32602);
+    const result = await b.request('account.consumeResetCredit', retry);
+    expect(result.outcome).toBe('alreadyRedeemed');
+    expect(result.account.pendingResetCredit).toBeUndefined();
+    expect(result.account.resetCredits).toMatchObject({
+      availableCount: 1,
+      credits: nextAccount.resetCredits?.credits,
+    });
+    expect((await b.request('account.consumeResetCredit', retry)).outcome).toBe('alreadyRedeemed');
+    expect(consumed).toEqual([expect.objectContaining({ creditId: 'first' }), consumed[0]]);
+  });
+
+  it('兑换后的第一次额度读取未刷新时继续读取并推送', async () => {
+    const adapter = new AccountAdapter();
+    adapter.accounts.set({
+      kind: 'chatgpt',
+      status: 'signed_in',
+      email: 'me@example.com',
+      resetCredits: { availableCount: 1 },
+      rateLimits: { primary: { usedPercent: 99 } },
+    });
+    adapter.accounts.consumeResetCredit = async () => {
+      adapter.accounts.state = { ...adapter.accounts.state, resetCredits: { availableCount: 0 } };
+      delete adapter.accounts.state.rateLimits;
+      return { account: adapter.accounts.state, outcome: 'reset' };
+    };
+    const { connect } = await start(adapter);
+    const a = (await connect()).client;
+    const b = (await connect()).client;
+    await b.request('account.get', { kind: 'chatgpt' });
+    const result = await a.request('account.consumeResetCredit', {
+      kind: 'chatgpt',
+      expectedAvailableCount: 1,
+    });
+    expect(result.account.rateLimits).toBeUndefined();
+    adapter.accounts.state = {
+      ...adapter.accounts.state,
+      rateLimits: { primary: { usedPercent: 0 } },
+    };
+    await vi.waitFor(
+      () => {
+        expect(
+          b.notifications('account.updated').at(-1)?.account.rateLimits?.primary.usedPercent,
+        ).toBe(0);
+      },
+      { timeout: 2_500 },
+    );
   });
 
   it('窗口元数据暂缺时保留上次配置；上限下降时裁剪生效值并保留用户选择', () => {

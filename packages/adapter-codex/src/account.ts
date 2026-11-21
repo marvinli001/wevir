@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -69,6 +70,7 @@ export interface CodexRateLimit {
 interface Base {
   signedIn: boolean;
   email?: string;
+  resetCreditIdentity?: string;
   plan?: string;
   /** 按 `limitId` 记的额度；主额度是 `codex`。 */
   limits?: Record<string, CodexRateLimit>;
@@ -113,6 +115,8 @@ export class ChatgptAccount {
     };
     if (base.signedIn) {
       if (base.email !== undefined) state.email = base.email;
+      if (base.resetCreditIdentity !== undefined)
+        state.resetCreditIdentity = base.resetCreditIdentity;
       const plan = base.limits?.[MAIN_LIMIT]?.plan ?? base.plan;
       if (plan !== undefined) state.plan = plan;
       const rateLimits = base.limits && codexRateLimits(base.limits);
@@ -154,7 +158,18 @@ export class ChatgptAccount {
       const plan = nonEmpty((account as { planType?: unknown }).planType);
       if (email !== undefined) base.email = email;
       if (plan !== undefined) base.plan = plan;
-      if (email !== this.#base?.email) this.#resetCredits = undefined;
+      const workspaceId = nonEmpty(response.workspaceRouting?.chatgptAccountId);
+      if (workspaceId !== undefined) {
+        base.resetCreditIdentity = createHash('sha256')
+          .update(JSON.stringify([workspaceId, email ?? null]))
+          .digest('hex');
+      }
+      if (
+        email !== this.#base?.email ||
+        base.resetCreditIdentity !== this.#base?.resetCreditIdentity
+      ) {
+        this.#resetCredits = undefined;
+      }
       const limits = await this.#readRateLimits(rpc, true, plan);
       if (limits !== undefined) base.limits = limits;
       this.#base = base;

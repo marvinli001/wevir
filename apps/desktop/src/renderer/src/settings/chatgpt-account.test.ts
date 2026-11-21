@@ -39,4 +39,16 @@ describe('订阅详情的首帧用量', () => {
     expect(html).toContain('data-reset-credits');
     expect(html).not.toContain('sample@example.test');
   });
+
+  it('重新打开详情后，仍可确认 Host 保留的兑换请求', () => {
+    const html = render({
+      kind: 'chatgpt',
+      status: 'signed_in',
+      resetCredits: { availableCount: 0, credits: [] },
+      pendingResetCredit: { attemptId: 1 },
+    });
+    const button = html.match(/<button\b[^>]+data-action="use-reset-credit"[^>]*>/)?.[0];
+    expect(button).toBeDefined();
+    expect(button).not.toContain('disabled');
+  });
 });

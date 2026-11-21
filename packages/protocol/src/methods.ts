@@ -1216,8 +1216,13 @@ export const AccountResultSchema = z.object({
 export const AccountConsumeResetCreditParamsSchema = z.object({
   kind: z.literal('chatgpt'),
   ...AccountIdField,
-  idempotencyKey: z.uuid(),
+  /** 旧客户端的请求标识；发给引擎的兑换请求由 Host 协调。 */
+  idempotencyKey: z.uuid().optional(),
   creditId: z.string().min(1).max(512).optional(),
+  pendingAttemptId: z.int().positive().optional(),
+  expectedAvailableCount: z.int().positive().optional(),
+  expectedCreditRevision: z.int().nonnegative().optional(),
+  expectedAccountIdentity: z.string().min(1).optional(),
 });
 
 export const AccountConsumeResetCreditResultSchema = z.object({

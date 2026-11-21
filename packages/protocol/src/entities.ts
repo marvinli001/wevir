@@ -435,11 +435,21 @@ export const AccountStateSchema = z.object({
   login: AccountLoginSchema.optional(),
   /** 引擎原文。 */
   lastError: z.string().optional(),
+  /** ChatGPT 兑换确认用的不透明账号标识。 */
+  resetCreditIdentity: z.string().min(1).optional(),
   /** 0.169.0：省略表示未知；明细可能少于总数。 */
   resetCredits: z
     .object({
       availableCount: z.int().min(0),
       credits: z.array(AccountResetCreditSchema).optional(),
+      revision: z.int().nonnegative().optional(),
+    })
+    .optional(),
+  /** 兑换结果未确认时，客户端可以继续确认同一次兑换。 */
+  pendingResetCredit: z
+    .object({
+      attemptId: z.int().positive(),
+      creditId: z.string().min(1).optional(),
     })
     .optional(),
   /**

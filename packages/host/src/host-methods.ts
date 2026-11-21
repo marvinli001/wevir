@@ -1468,11 +1468,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       ),
     }),
 
-    'account.consumeResetCredit': async ({ kind, id, idempotencyKey, creditId }) =>
-      requireAccounts().consumeResetCredit(
-        { kind, id },
-        { idempotencyKey, ...(creditId !== undefined && { creditId }) },
-      ),
+    'account.consumeResetCredit': async ({ kind, id, ...request }) =>
+      requireAccounts().consumeResetCredit({ kind, id }, request),
 
     // 0.63.0：同一来源的多个账号。
     'account.add': async ({ kind, label }) => ({

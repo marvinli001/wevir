@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type {
@@ -6,6 +6,7 @@ import type {
   AccountLoginMethod,
   AccountState,
   AccountUpstream,
+  MethodParams,
   SessionId,
 } from '@wevir/protocol';
 import type {
@@ -132,10 +133,18 @@ interface Slot {
   unsubscribe?: () => void;
 }
 
+type ResetCreditRequest = Omit<MethodParams<'account.consumeResetCredit'>, 'kind' | 'id'>;
+
+interface ResetCreditRun {
+  result: Promise<AccountResetCreditResult>;
+  shared?: { identity: string; attemptId: number; result: Promise<AccountResetCreditResult> };
+}
+
 /**
  * Host 侧的账号（R6，host-api.md §3.1 `account.*`，domain-model §3.6）：方法交给引擎（`EngineAccounts`，多个引擎时是路由合并的），
  * 引擎报的状态变化转给调用过 `account.*` 的连接（`watch`），并维护每个账号的 Provider（ID 与账号 ID 相同）——第一次读到已登录时
  * 建它，之后读到已登录时刷新模型列表。账号状态与凭据都在引擎那边，Host 不存；用户指定的可执行文件记在 `engines.json`。
+ * 重置卡的兑换回执由 Host 保存，重启后可继续确认结果。
  *
  * 0.63.0 起一种可以有多个账号：首个账号的 ID 等于种类（以前唯一的那个），添加的账号（`add`）是 `<种类>-<4 位十六进制>`，每个
  * 是同类引擎的一个实例（`pool`），凭据与会话在 `<数据目录>/accounts/<id>/`，登记在存储的 `subscription_accounts` 里（首个账号
@@ -154,6 +163,9 @@ export class HostAccounts {
   readonly #updates = new Map<string, NonNullable<AccountState['runtimeUpdate']>>();
   readonly #modelsRefreshedAt = new Map<string, number>();
   readonly #refreshing = new Map<string, Promise<void>>();
+  readonly #resetCreditRuns = new Map<string, ResetCreditRun>();
+  readonly #credentialChanges = new Map<string, Promise<unknown>>();
+  readonly #resetCreditRefresh = new Map<string, ReturnType<typeof setTimeout>>();
   /** 用量的自动刷新（usage-refresh.ts）；`startUsageRefresh` 之后才定时读。 */
   readonly usage: UsageRefresher;
 
@@ -356,7 +368,9 @@ export class HostAccounts {
         );
       }
     }
-    return this.#stamped(slot, () => slot.engine.login(slot.kind, method, options));
+    return this.#changeCredentials(slot, () =>
+      this.#stamped(slot, () => slot.engine.login(slot.kind, method, options)),
+    );
   }
 
   /** 订阅来源后面能在应用内接的上游（`account.upstreams`；0.104.0 起按账号，`connected` 是这个账号的）。 */
@@ -372,24 +386,231 @@ export class HostAccounts {
 
   cancelLogin(ref: AccountRef, loginId?: string): Promise<AccountState> {
     const slot = this.#slot(ref);
-    return this.#stamped(slot, () => slot.engine.cancelLogin(slot.kind, loginId));
+    return this.#changeCredentials(slot, () =>
+      this.#stamped(slot, () => slot.engine.cancelLogin(slot.kind, loginId)),
+    );
   }
 
   logout(ref: AccountRef, options?: { upstream?: string }): Promise<AccountState> {
     const slot = this.#slot(ref);
-    return this.#stamped(slot, () => slot.engine.logout(slot.kind, options));
+    return this.#changeCredentials(slot, () =>
+      this.#stamped(slot, () => slot.engine.logout(slot.kind, options)),
+    );
+  }
+
+  // 登录与兑换共用 app-server 的当前凭据。
+  async #changeCredentials<T>(slot: Slot, change: () => Promise<T>): Promise<T> {
+    if (slot.kind !== 'chatgpt' || slot.engine.consumeResetCredit === undefined) return change();
+    const running = Promise.allSettled([
+      this.#credentialChanges.get(slot.id),
+      this.#resetCreditRuns.get(slot.id)?.result,
+    ]).then(() => {
+      if (this.#slots.get(slot.id) !== slot) {
+        throw invalidAccount(['id'], 'This ChatGPT account was removed.');
+      }
+      return change();
+    });
+    this.#credentialChanges.set(slot.id, running);
+    try {
+      return await running;
+    } finally {
+      if (this.#credentialChanges.get(slot.id) === running) this.#credentialChanges.delete(slot.id);
+    }
   }
 
   async consumeResetCredit(
     ref: AccountRef,
-    request: AccountResetCreditRequest,
+    request: ResetCreditRequest,
   ): Promise<AccountResetCreditResult> {
     const slot = this.#slot(ref);
     const consume = slot.engine.consumeResetCredit;
     if (consume === undefined) throw invalidAccount(['kind'], 'this account has no reset credits');
-    const result = await this.#call(() => consume.call(slot.engine, slot.kind, request));
-    this.#last.set(slot.id, result.account);
-    return { ...result, account: this.#stamp(slot, result.account) };
+    const previous = this.#resetCreditRuns.get(slot.id);
+    const changing = this.#credentialChanges.get(slot.id);
+    const expectedIdentity =
+      request.expectedAccountIdentity ?? resetCreditIdentity(this.#last.get(slot.id));
+    const run: ResetCreditRun = {
+      result: Promise.resolve().then(async () => {
+        await Promise.allSettled([previous?.result, changing]);
+        if (changing === undefined) run.shared = previous?.shared;
+        return this.#redeemResetCredit(slot, request, expectedIdentity, run, (input) =>
+          this.#call(() => consume.call(slot.engine, slot.kind, input)),
+        );
+      }),
+    };
+    this.#resetCreditRuns.set(slot.id, run);
+    try {
+      return await run.result;
+    } finally {
+      if (this.#resetCreditRuns.get(slot.id) === run) this.#resetCreditRuns.delete(slot.id);
+    }
+  }
+
+  async #redeemResetCredit(
+    slot: Slot,
+    request: ResetCreditRequest,
+    expectedIdentity: string | undefined,
+    run: ResetCreditRun,
+    consume: (input: AccountResetCreditRequest) => Promise<AccountResetCreditResult>,
+  ): Promise<AccountResetCreditResult> {
+    const account = await this.read(slot, { refresh: true });
+    if (this.#slots.get(slot.id) !== slot) {
+      throw invalidAccount(['id'], 'This ChatGPT account was removed.');
+    }
+    const identity = resetCreditIdentity(account);
+    if (
+      identity === undefined ||
+      (expectedIdentity !== undefined && identity !== expectedIdentity)
+    ) {
+      throw invalidAccount(
+        ['id'],
+        'The signed-in ChatGPT account could not be confirmed. Reopen the account settings.',
+      );
+    }
+    const { creditId, idempotencyKey, pendingAttemptId } = request;
+    const { storage } = this.#options;
+    const receipts = storage.accountResetCredits;
+    const legacy =
+      idempotencyKey === undefined ? undefined : receipts.legacy(slot.id, identity, idempotencyKey);
+    let attempt =
+      pendingAttemptId === undefined ? legacy : receipts.get(slot.id, identity, pendingAttemptId);
+    if (pendingAttemptId !== undefined && attempt === undefined) {
+      throw invalidAccount(
+        ['pendingAttemptId'],
+        'This reset credit attempt is no longer available.',
+      );
+    }
+    const shared = run.shared?.identity === identity ? run.shared : undefined;
+    attempt ??=
+      shared === undefined ? undefined : receipts.get(slot.id, identity, shared.attemptId);
+    if (account.pendingResetCredit !== undefined) {
+      attempt ??= receipts.get(slot.id, identity, account.pendingResetCredit.attemptId);
+    }
+    if (attempt === undefined) {
+      this.#checkResetCredit(account, request);
+      const key = idempotencyKey ?? randomUUID();
+      const attemptId = storage.transaction(() => {
+        const id = receipts.insert(slot.id, identity, key, creditId);
+        if (idempotencyKey !== undefined) receipts.saveLegacy(id, idempotencyKey);
+        return id;
+      });
+      attempt = { attemptId, idempotencyKey: key, creditId };
+    } else {
+      if (creditId !== undefined && creditId !== attempt.creditId) {
+        throw invalidAccount(
+          ['creditId'],
+          'The reset credit changed. Review the current credit and try again.',
+        );
+      }
+      if (
+        pendingAttemptId === undefined &&
+        idempotencyKey === undefined &&
+        creditId === undefined &&
+        attempt.creditId !== undefined
+      ) {
+        throw invalidAccount(
+          ['pendingAttemptId'],
+          'A reset credit is already pending. Review it and try again.',
+        );
+      }
+      if (idempotencyKey !== undefined && legacy === undefined) {
+        receipts.saveLegacy(attempt.attemptId, idempotencyKey);
+      }
+      if (attempt.outcome !== undefined) return { account, outcome: attempt.outcome };
+      if (shared?.attemptId === attempt.attemptId) return shared.result;
+    }
+    run.shared = { identity, attemptId: attempt.attemptId, result: run.result };
+    clearTimeout(this.#resetCreditRefresh.get(slot.id));
+    this.#resetCreditRefresh.delete(slot.id);
+    const before = this.#stamp(slot, account);
+    this.#broadcast(before);
+    let result: AccountResetCreditResult;
+    try {
+      result = await consume({
+        idempotencyKey: attempt.idempotencyKey,
+        ...(attempt.creditId !== undefined && { creditId: attempt.creditId }),
+      });
+    } catch (error) {
+      this.#refreshAfterResetCredit(slot, identity, account);
+      throw error;
+    }
+    receipts.settle(attempt.attemptId, result.outcome);
+    if (
+      resetCreditIdentity(result.account) === identity &&
+      resetCreditIdentity(this.#last.get(slot.id)) === identity
+    ) {
+      this.#onChange(slot.id, result.account);
+    }
+    if (
+      (result.outcome === 'reset' || result.outcome === 'alreadyRedeemed') &&
+      !resetCreditUsageChanged(account, result.account)
+    ) {
+      this.#refreshAfterResetCredit(slot, identity, account);
+    }
+    return { ...result, account: this.peek(slot.id) ?? this.#stamp(slot, result.account) };
+  }
+
+  #checkResetCredit(account: AccountState, request: ResetCreditRequest): void {
+    const { creditId, expectedAvailableCount, expectedCreditRevision, idempotencyKey } = request;
+    if (
+      creditId === undefined &&
+      expectedAvailableCount === undefined &&
+      idempotencyKey === undefined
+    ) {
+      throw invalidAccount(['creditId'], 'Confirm the current reset credit before redeeming it.');
+    }
+    const summary = account.resetCredits;
+    if (expectedCreditRevision !== undefined && summary?.revision !== expectedCreditRevision) {
+      throw invalidAccount(
+        ['expectedCreditRevision'],
+        'The reset credit balance changed. Review it and confirm again.',
+      );
+    }
+    if (
+      expectedAvailableCount !== undefined &&
+      summary?.availableCount !== expectedAvailableCount
+    ) {
+      throw invalidAccount(
+        ['expectedAvailableCount'],
+        'The available reset credit count changed. Review it and try again.',
+      );
+    }
+    const credit = summary?.credits?.find((entry) => entry.id === creditId);
+    if (
+      creditId !== undefined &&
+      (summary?.availableCount === 0 ||
+        (credit !== undefined &&
+          (credit.status !== 'available' ||
+            credit.resetType !== 'codexRateLimits' ||
+            (credit.expiresAt !== undefined && Date.parse(credit.expiresAt) <= this.#now()))))
+    ) {
+      throw invalidAccount(['creditId'], 'This reset credit is no longer available.');
+    }
+  }
+
+  #refreshAfterResetCredit(slot: Slot, identity: string, before: AccountState, attempt = 0): void {
+    clearTimeout(this.#resetCreditRefresh.get(slot.id));
+    const timer = setTimeout(
+      async () => {
+        if (
+          this.#slots.get(slot.id) !== slot ||
+          resetCreditIdentity(this.#last.get(slot.id)) !== identity
+        ) {
+          this.#resetCreditRefresh.delete(slot.id);
+          return;
+        }
+        const current = await this.read(slot, { refresh: true }).catch(() => undefined);
+        if (this.#resetCreditRefresh.get(slot.id) !== timer) return;
+        this.#resetCreditRefresh.delete(slot.id);
+        if (current !== undefined) this.#broadcast(current);
+        if (!resetCreditUsageChanged(before, current) && attempt < 2) {
+          this.#refreshAfterResetCredit(slot, identity, before, attempt + 1);
+        }
+      },
+      1_000 * 2 ** attempt,
+    );
+    timer.unref();
+    this.#resetCreditRefresh.set(slot.id, timer);
   }
 
   /** 指定可执行文件（`account.setPath`，按种类，这种的账号都用它）：先交给引擎（它重新检测），再记进 `engines.json`。 */
@@ -466,6 +687,11 @@ export class HostAccounts {
     if (!slot.added) {
       throw invalidAccount(['id'], `the first ${slot.kind} account cannot be removed`);
     }
+    return this.#changeCredentials(slot, () => this.#removeSlot(slot, openSessions));
+  }
+
+  async #removeSlot(slot: Slot, openSessions: () => string[]): Promise<void> {
+    const { id } = slot;
     const open = openSessions();
     if (open.length > 0) {
       throw new HostError('RESOURCE_IN_USE', `account ${id} is used by open sessions`, {
@@ -490,6 +716,9 @@ export class HostAccounts {
       if (removed) await this.#options.applyProviders();
     });
     storage.accounts.remove(id);
+    storage.accountResetCredits.remove(id);
+    clearTimeout(this.#resetCreditRefresh.get(id));
+    this.#resetCreditRefresh.delete(id);
     await rm(this.#rootOf(id), { recursive: true, force: true });
   }
 
@@ -545,6 +774,8 @@ export class HostAccounts {
 
   dispose(): void {
     this.usage.dispose();
+    for (const timer of this.#resetCreditRefresh.values()) clearTimeout(timer);
+    this.#resetCreditRefresh.clear();
     this.#unsubscribe();
     for (const slot of this.#slots.values()) slot.unsubscribe?.();
     this.#watchers.clear();
@@ -610,12 +841,35 @@ export class HostAccounts {
 
   /** 引擎给的状态加上账号的字段（0.63.0）。 */
   #stamp(slot: Slot, state: AccountState): AccountState {
-    const { id: _id, label: _label, localLogin: _local, multiAccount: _multi, ...rest } = state;
+    const {
+      id: _id,
+      label: _label,
+      localLogin: _local,
+      multiAccount: _multi,
+      resetCreditIdentity: _resetCreditIdentity,
+      pendingResetCredit: _pendingResetCredit,
+      ...rest
+    } = state;
+    const identity = resetCreditIdentity(state);
+    const attempt =
+      identity === undefined
+        ? undefined
+        : this.#options.storage.accountResetCredits.latest(slot.id, identity);
     return {
       ...rest,
       kind: slot.kind,
       id: slot.id,
       ...(slot.label !== undefined && { label: slot.label }),
+      ...(identity !== undefined && {
+        resetCreditIdentity: identity,
+        ...(state.resetCredits !== undefined && {
+          resetCredits: { ...state.resetCredits, revision: attempt?.attemptId ?? 0 },
+        }),
+      }),
+      ...(attempt !== undefined &&
+        attempt.outcome === undefined && {
+          pendingResetCredit: { attemptId: attempt.attemptId, creditId: attempt.creditId },
+        }),
       ...(state.customPath === undefined &&
         this.#updates.get(slot.id)?.currentVersion === state.version && {
           runtimeUpdate: this.#updates.get(slot.id),
@@ -781,6 +1035,23 @@ export class HostAccounts {
   #now(): number {
     return this.#options.now?.() ?? Date.now();
   }
+}
+
+function resetCreditIdentity(account: AccountState | undefined): string | undefined {
+  if (account?.kind !== 'chatgpt' || account.status !== 'signed_in') return;
+  return (
+    account.resetCreditIdentity ??
+    (account.email
+      ? createHash('sha256').update(`email:${account.email}`).digest('hex')
+      : undefined)
+  );
+}
+
+function resetCreditUsageChanged(before: AccountState, current: AccountState | undefined): boolean {
+  return (
+    current?.rateLimits !== undefined &&
+    JSON.stringify(current.rateLimits) !== JSON.stringify(before.rateLimits)
+  );
 }
 
 function invalidAccount(path: string[], message: string): HostError {

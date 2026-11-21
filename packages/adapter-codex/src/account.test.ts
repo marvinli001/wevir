@@ -229,6 +229,24 @@ describe('ChatgptAccount', () => {
     expect(state.rateLimits).toBeUndefined();
   });
 
+  it('没有邮箱时用 Codex 工作区区分重置卡归属', async () => {
+    let workspaceId = 'workspace-1';
+    const { account } = setup({
+      'account/read': () => ({
+        account: { type: 'chatgpt', email: null, planType: 'business' },
+        requiresOpenaiAuth: true,
+        workspaceRouting: { chatgptAccountId: workspaceId },
+      }),
+      'account/rateLimits/read': usage,
+    });
+    const first = await account.read();
+    expect(first.email).toBeUndefined();
+    expect(first.resetCreditIdentity).toMatch(/^[a-f0-9]{64}$/);
+    expect((await account.read()).resetCreditIdentity).toBe(first.resetCreditIdentity);
+    workspaceId = 'workspace-2';
+    expect((await account.read()).resetCreditIdentity).not.toBe(first.resetCreditIdentity);
+  });
+
   it('设备码登录：登录中带网址与码；成功的通知之后重读账号', async () => {
     let read = signedOut;
     const { account, states } = setup({

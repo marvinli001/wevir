@@ -1,5 +1,5 @@
 import { accountId, type WevirClient } from '@wevir/client-sdk';
-import type { AccountResetCreditOutcome, AccountState } from '@wevir/protocol';
+import type { AccountResetCreditOutcome, AccountState, MethodParams } from '@wevir/protocol';
 import { useState } from 'react';
 import { Collapse } from '@/components/collapse';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -7,28 +7,36 @@ import { Button } from '@/components/ui/button';
 import { currentLocale, t } from '@/i18n';
 import { nextResetCredit } from './chatgpt-account-model';
 
+type ResetCreditRequest = MethodParams<'account.consumeResetCredit'>;
+
 export function ChatgptResetCredits({
   client,
   account,
-  onChanged,
 }: {
   client: WevirClient;
   account: AccountState;
-  onChanged: (account: AccountState) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [pending, setPending] = useState<{ idempotencyKey: string; creditId?: string }>();
+  const [confirmation, setConfirmation] = useState<ResetCreditRequest>();
+  const [legacyAttempt, setLegacyAttempt] = useState<ResetCreditRequest>();
   const [outcome, setOutcome] = useState<AccountResetCreditOutcome>();
+  const pending = account.pendingResetCredit;
+  const retry = pending ?? legacyAttempt;
   const summary = account.resetCredits;
   const [lastSummary, setLastSummary] = useState(summary);
   if (summary && summary !== lastSummary) setLastSummary(summary);
   const visible =
     client.supports('account_reset_credits') &&
-    (summary !== undefined || pending !== undefined || outcome !== undefined);
+    (summary !== undefined ||
+      retry !== undefined ||
+      confirmation !== undefined ||
+      outcome !== undefined);
   const shown = visible ? summary : lastSummary;
-  const credit = nextResetCredit(shown);
+  const credit =
+    retry === undefined
+      ? nextResetCredit(shown)
+      : shown?.credits?.find((item) => item.id === retry.creditId);
   const canUse =
-    pending !== undefined ||
+    retry !== undefined ||
     ((summary?.availableCount ?? 0) > 0 &&
       (summary?.credits === undefined || credit !== undefined));
 
@@ -79,15 +87,27 @@ export function ChatgptResetCredits({
             disabled={!canUse}
             data-action="use-reset-credit"
             onClick={() => {
-              if (pending === undefined)
-                setPending({
-                  idempotencyKey: crypto.randomUUID(),
-                  ...(credit !== undefined && { creditId: credit.id }),
-                });
-              setOpen(true);
+              const creditId = pending === undefined ? credit?.id : pending.creditId;
+              setOutcome(undefined);
+              setConfirmation(
+                legacyAttempt ?? {
+                  kind: 'chatgpt',
+                  id: accountId(account),
+                  ...(account.resetCreditIdentity !== undefined && {
+                    expectedAccountIdentity: account.resetCreditIdentity,
+                  }),
+                  ...(creditId !== undefined && { creditId }),
+                  ...(pending !== undefined
+                    ? { pendingAttemptId: pending.attemptId }
+                    : creditId === undefined && {
+                        expectedAvailableCount: summary?.availableCount,
+                        expectedCreditRevision: summary?.revision,
+                      }),
+                },
+              );
             }}
           >
-            {t('account.chatgpt.reset.use')}
+            {retry === undefined ? t('account.chatgpt.reset.use') : t('usage.retry')}
           </Button>
         </div>
         <Collapse open={status !== undefined} motion="height">
@@ -95,22 +115,37 @@ export function ChatgptResetCredits({
             {status}
           </p>
         </Collapse>
-        {open && pending !== undefined && (
+        {confirmation !== undefined && (
           <ConfirmDialog
             open
-            onOpenChange={setOpen}
+            onOpenChange={(open) => {
+              if (!open) setConfirmation(undefined);
+            }}
             title={t('account.chatgpt.reset.confirmTitle')}
-            confirmLabel={t('account.chatgpt.reset.use')}
+            confirmLabel={
+              confirmation.pendingAttemptId === undefined &&
+              confirmation.idempotencyKey === undefined
+                ? t('account.chatgpt.reset.use')
+                : t('usage.retry')
+            }
             failure={(error) => t('account.chatgpt.reset.failed', { error })}
             onConfirm={async () => {
-              const result = await client.request('account.consumeResetCredit', {
-                kind: 'chatgpt',
-                id: accountId(account),
-                ...pending,
-              });
-              onChanged(result.account);
+              let request = confirmation;
+              if (
+                confirmation.expectedAccountIdentity === undefined &&
+                confirmation.pendingAttemptId === undefined
+              ) {
+                request = legacyAttempt ?? {
+                  kind: 'chatgpt',
+                  id: confirmation.id,
+                  creditId: confirmation.creditId,
+                  idempotencyKey: crypto.randomUUID(),
+                };
+                setLegacyAttempt(request);
+              }
+              const result = await client.request('account.consumeResetCredit', request);
+              setLegacyAttempt(undefined);
               setOutcome(result.outcome);
-              setPending(undefined);
             }}
           >
             {t('account.chatgpt.reset.confirmation', {
