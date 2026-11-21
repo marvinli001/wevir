@@ -32,11 +32,10 @@ export const USAGE_REFRESH_TIMEOUT_MS = 5_000;
 const MAX_TICK_MS = 60_000;
 
 /**
- * 引擎报的用量上限 → 事件里的 `usageLimit`：引擎没报重置时刻时，从账号最近的用量里取用完的窗口（用到 100%、知道何时重置）中最晚
- * 重置的那个，窗口长度跟着它。都没有时原样返回。
+ * 引擎没报重置时刻时，所有已耗尽窗口都确认重置时间才可继续。没有账号窗口依据时可以使用引擎提示里的兜底时间。
  */
 export function completeUsageLimit(
-  limit: { resetsAt?: string; windowMinutes?: number },
+  limit: { resetsAt?: string; windowMinutes?: number; fallbackResetsAt?: string },
   account: AccountState | undefined,
 ): UsageLimit {
   const known = isoOrUndefined(limit.resetsAt);
@@ -48,13 +47,19 @@ export function completeUsageLimit(
   }
   let latest: { window: AccountRateLimitWindow; at: number } | undefined;
   for (const window of rateLimitWindows(account)) {
+    if (window.usedPercent < 100) continue;
     const at = window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt);
-    if (window.usedPercent < 100 || Number.isNaN(at)) continue;
+    if (Number.isNaN(at))
+      return limit.windowMinutes === undefined ? {} : { windowMinutes: limit.windowMinutes };
     if (latest === undefined || at > latest.at) latest = { window, at };
   }
   const windowMinutes = limit.windowMinutes ?? latest?.window.windowMinutes;
+  const resetsAt =
+    latest === undefined
+      ? isoOrUndefined(limit.fallbackResetsAt)
+      : new Date(latest.at).toISOString();
   return {
-    ...(latest !== undefined && { resetsAt: new Date(latest.at).toISOString() }),
+    ...(resetsAt !== undefined && { resetsAt }),
     ...(windowMinutes !== undefined && { windowMinutes }),
   };
 }

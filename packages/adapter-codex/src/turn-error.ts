@@ -90,6 +90,69 @@ export function isUsageLimit(error: TurnError | null | undefined, subscription: 
   return isRecord(exhausted) && exhausted.httpStatusCode === 429;
 }
 
+const RESET_TIME =
+  /\btry again at (?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})(?:st|nd|rd|th), (\d{4}) )?(\d{1,2}):(\d{2}) (AM|PM)\./iu;
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const DAY_MS = 86_400_000;
+
+/** Codex rounds down to the minute in its own time zone. Wait through that minute. */
+export function codexMessageResetAt(
+  message: string,
+  failedAt: number,
+  timeZone?: string,
+): string | undefined {
+  const match = RESET_TIME.exec(message);
+  if (match === null) return undefined;
+  const [, month, day, year, rawHour, rawMinute, meridiem] = match;
+  const hour = Number(rawHour);
+  const minute = Number(rawMinute);
+  if (hour < 1 || hour > 12 || minute > 59) return undefined;
+  let formatter: Intl.DateTimeFormat;
+  try {
+    formatter = new Intl.DateTimeFormat('en-GB', {
+      ...(timeZone && { timeZone: timeZone.replace(/^:/u, '') }),
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hourCycle: 'h23',
+    });
+  } catch {
+    return undefined;
+  }
+  const localAt = (instant: number) => {
+    const parts = formatter.formatToParts(instant);
+    const value = (key: Intl.DateTimeFormatPartTypes) =>
+      Number(parts.find(({ type }) => type === key)?.value);
+    return Date.UTC(
+      value('year'),
+      value('month') - 1,
+      value('day'),
+      value('hour'),
+      value('minute'),
+      value('second'),
+    );
+  };
+  const today = new Date(localAt(failedAt));
+  const targetDay = day === undefined ? today.getUTCDate() : Number(day);
+  const target = Date.UTC(
+    year === undefined ? today.getUTCFullYear() : Number(year),
+    month === undefined ? today.getUTCMonth() : MONTHS.indexOf(month.toLowerCase()),
+    targetDay,
+    (hour % 12) + (meridiem?.toUpperCase() === 'PM' ? 12 : 0),
+    minute,
+  );
+  if (new Date(target).getUTCDate() !== targetDay) return undefined;
+  // Offsets on either side of a clock change can give two matches. Use the later one.
+  const candidates = [target - DAY_MS, target, target + DAY_MS]
+    .map((instant) => target - (localAt(instant) - instant))
+    .filter((instant) => localAt(instant) === target);
+  const reset = Math.max(...candidates) + 60_000;
+  return reset > failedAt ? new Date(reset).toISOString() : undefined;
+}
+
 function httpStatusOf(info: unknown): number | undefined {
   if (!isRecord(info)) return undefined;
   for (const key of HTTP_VARIANTS) {

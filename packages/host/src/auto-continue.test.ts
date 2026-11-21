@@ -14,6 +14,24 @@ const account = (rateLimits: AccountState['rateLimits']): AccountState => ({
 });
 
 describe('completeUsageLimit', () => {
+  it('已耗尽的未知窗口挡住自动继续，错误文字仅在缺少账号时刻时兜底', () => {
+    const fallbackResetsAt = '2026-10-23T10:00:00.000Z';
+    expect(
+      completeUsageLimit(
+        { fallbackResetsAt },
+        account({
+          windows: [
+            { usedPercent: 100, windowMinutes: 300, resetsAt: fallbackResetsAt },
+            { usedPercent: 100, windowMinutes: 10080 },
+          ],
+        }),
+      ),
+    ).toEqual({});
+    expect(completeUsageLimit({ fallbackResetsAt }, undefined)).toEqual({
+      resetsAt: fallbackResetsAt,
+    });
+  });
+
   it('引擎报了重置时刻就用它', () => {
     expect(
       completeUsageLimit(

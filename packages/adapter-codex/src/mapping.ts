@@ -55,7 +55,7 @@ import {
   toolOutput,
   toolStatus,
 } from './tool-display.js';
-import { classifyTurnError, isUsageLimit } from './turn-error.js';
+import { classifyTurnError, codexMessageResetAt, isUsageLimit } from './turn-error.js';
 
 // codex-app-server 的通知 → AgentEvent（docs/architecture/codex-event-mapping.md §6，codex-notes §10）。一个会话
 // （一个 thread）一个映射器，按通知到达的顺序调用 `map`；回合开始时 `reset`。输入是 app-server 写出的原始参数，
@@ -201,6 +201,7 @@ export interface CodexEventMapperOptions {
   now?: () => number;
   /** ChatGPT 登录的进程：订阅账号的 429 是额度到了（`isUsageLimit`）。 */
   subscription?: boolean;
+  timeZone?: string;
 }
 
 /** 量一次请求的时刻（0.62.0）：开始、第一段与最后一段模型输出。 */
@@ -226,6 +227,7 @@ export class CodexEventMapper {
   readonly #model: () => string | undefined;
   readonly #now: () => number;
   readonly #subscription: boolean;
+  readonly #timeZone: string | undefined;
   readonly #gatewayUsage: boolean;
   /** 这个回合里的压缩怎么来的：`compact` 开的回合是 `manual`，其余是引擎自己压缩（0.24.0）。 */
   #compaction: 'manual' | 'auto' = 'auto';
@@ -243,6 +245,7 @@ export class CodexEventMapper {
     this.#model = options.model ?? (() => undefined);
     this.#now = options.now ?? Date.now;
     this.#subscription = options.subscription === true;
+    this.#timeZone = options.timeZone;
   }
 
   readonly denials = new Map<string, GuardianDenial>();
@@ -1036,6 +1039,11 @@ export class CodexEventMapper {
         const error = turn.error;
         const details = error?.additionalDetails;
         const { category, httpStatus } = classifyTurnError(error);
+        const usageLimit = isUsageLimit(error, this.#subscription);
+        const fallbackResetsAt =
+          usageLimit && error !== null && error !== undefined
+            ? codexMessageResetAt(`${error.message}\n${details ?? ''}`, this.#now(), this.#timeZone)
+            : undefined;
         terminal = {
           type: 'turn.failed',
           engineSessionId: this.engineSessionId,
@@ -1044,8 +1052,9 @@ export class CodexEventMapper {
             (error?.message ?? 'Codex 报告回合失败') +
             (details !== null && details !== undefined && details !== '' ? `\n${details}` : ''),
           ...(httpStatus !== undefined && { code: httpStatus }),
-          // 额度恢复的时刻 Codex 只写在原文里（本地化的时间），Host 从账号的用量补。
-          ...(isUsageLimit(error, this.#subscription) && { usageLimit: {} }),
+          ...(usageLimit && {
+            usageLimit: { ...(fallbackResetsAt !== undefined && { fallbackResetsAt }) },
+          }),
         };
         break;
       }

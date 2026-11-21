@@ -3633,9 +3633,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   #usageOptions(model: () => ProviderModelConfig): CodexEventMapperOptions {
     // 每次请求的用量记会话当前的模型（0.62.0）。
     if (this.#chatgpt) {
+      const timeZone = (this.#options.parentEnv ?? process.env).TZ;
       return {
         model: () => model().id,
         subscription: true,
+        ...(timeZone !== undefined && { timeZone }),
       };
     }
     return {

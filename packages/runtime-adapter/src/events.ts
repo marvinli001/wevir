@@ -320,7 +320,7 @@ export interface TurnFailedEvent {
    * `RateLimitError` / 429 / 用量上限错误码，OpenCode 上游的 HTTP 429，这两家报之前先重读账号的用量）。引擎报了额度恢复的
    * 时刻与窗口长度时带上；都没报时是空对象，Host 从账号的用量里补。
    */
-  usageLimit?: { resetsAt?: string; windowMinutes?: number };
+  usageLimit?: { resetsAt?: string; windowMinutes?: number; fallbackResetsAt?: string };
 }
 
 /**

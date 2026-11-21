@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { TurnError } from './protocol.js';
-import { classifyTurnError } from './turn-error.js';
+import { classifyTurnError, codexMessageResetAt } from './turn-error.js';
 
 // 回合失败的归类（turn-error.ts，codex-event-mapping.md §6.7）。样本由 record-app-server.test.ts 用真实
 // codex-app-server + 网关 + mock 上游录制（test-fixtures/app-server/errors/turn-*.json）；Codex 改了 codexErrorInfo
@@ -91,5 +91,21 @@ describe('classifyTurnError', () => {
         additionalDetails: null,
       }),
     ).toEqual({ category: 'provider' });
+  });
+});
+
+describe('Codex 额度错误文字', () => {
+  it('当地时间必须等过所报分钟，夏令时重复时等第二次', () => {
+    const failedAt = Date.parse('2026-11-01T04:30:00Z');
+    expect(codexMessageResetAt('Try again at 1:37 AM.', failedAt, 'America/New_York')).toBe(
+      '2026-11-01T06:38:00.000Z',
+    );
+    expect(codexMessageResetAt('Try again at Nov 11th, 2026 3:37 PM.', failedAt, 'UTC')).toBe(
+      '2026-11-11T15:38:00.000Z',
+    );
+    expect(codexMessageResetAt('Try again at 4:00 AM.', failedAt, 'UTC')).toBeUndefined();
+    expect(
+      codexMessageResetAt('Try again at Nov 31st, 2026 3:37 PM.', failedAt, 'UTC'),
+    ).toBeUndefined();
   });
 });

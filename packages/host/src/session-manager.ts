@@ -6785,9 +6785,20 @@ ${JSON.stringify({ reviewId, action })}`;
     refreshed = false,
   ): void {
     const { providerId } = this.#snapshot(runtime).session;
+    const reported = event.usageLimit;
     const usageLimit =
-      event.usageLimit &&
-      completeUsageLimit(event.usageLimit, this.#autoContinue?.account?.(providerId));
+      reported &&
+      completeUsageLimit(
+        refreshed || this.#autoContinue?.refreshUsage === undefined
+          ? reported
+          : {
+              ...(reported.resetsAt !== undefined && { resetsAt: reported.resetsAt }),
+              ...(reported.windowMinutes !== undefined && {
+                windowMinutes: reported.windowMinutes,
+              }),
+            },
+        this.#autoContinue?.account?.(providerId),
+      );
     if (
       !refreshed &&
       usageLimit?.resetsAt === undefined &&
