@@ -574,6 +574,7 @@ export class ProcessManager {
   ): Promise<WaitResult> {
     const managed = this.#get(sessionId, id);
     if (managed.info.status === 'exited') return Promise.resolve({ reason: 'exit' });
+    if (signal.aborted) return Promise.resolve({ reason: 'aborted' });
     return new Promise<WaitResult>((resolve) => {
       const done = (result: WaitResult) => {
         clearTimeout(timer);

@@ -168,6 +168,14 @@ describe.runIf(posix)('ProcessManager', () => {
     expect(await pending).toEqual({ reason: 'aborted' });
   });
 
+  it('等待开始前已经取消时直接返回 aborted', async () => {
+    const h = setup();
+    const info = await h.manager.start(A, { command: 'sleep 30', cwd: h.root });
+    expect(await h.manager.wait(A, info.id, undefined, 50, AbortSignal.abort())).toEqual({
+      reason: 'aborted',
+    });
+  });
+
   it('notifyPattern 的通知之间隔开 notifyIntervalMs，发满 notifyLimit 条就停', async () => {
     const h = setup();
     const at: number[] = [];
