@@ -459,6 +459,10 @@ export const fr: Messages = {
   'newSession.noSources': 'Aucun service de modèles sur l’ordinateur',
   'permission.on_request': 'Demander l’approbation',
   'permission.auto_review': 'Approbation automatique',
+  'permission.full_access': 'Accès complet',
+  'permission.choose': 'Choisir les autorisations',
+  'permission.fullAccessGrant':
+    'Sur l’ordinateur, ouvrez Paramètres → Appareils, sélectionnez ce téléphone et activez « Règles d’approbation et garde-fous ».',
   'effort.default': 'Par défaut',
   'effort.off': 'Désactivé',
   'effort.minimal': 'Minimal',

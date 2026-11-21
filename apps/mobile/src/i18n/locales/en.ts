@@ -457,6 +457,10 @@ export const en: Messages = {
   'newSession.noSources': 'No model services on the computer',
   'permission.on_request': 'Ask for approval',
   'permission.auto_review': 'Auto-approve',
+  'permission.full_access': 'Full access',
+  'permission.choose': 'Choose permissions',
+  'permission.fullAccessGrant':
+    'On the computer, open Settings → Devices, select this phone and enable “Approval rules and guardrails”.',
   'effort.default': 'Default',
   'effort.off': 'No reasoning',
   'effort.minimal': 'Minimal',

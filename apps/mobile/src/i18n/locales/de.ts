@@ -459,6 +459,10 @@ export const de: Messages = {
   'newSession.noSources': 'Keine Modelldienste auf dem Computer',
   'permission.on_request': 'Freigabe anfordern',
   'permission.auto_review': 'Automatisch freigeben',
+  'permission.full_access': 'Vollzugriff',
+  'permission.choose': 'Berechtigungen wählen',
+  'permission.fullAccessGrant':
+    'Auf dem Computer unter „Einstellungen → Geräte“ dieses Smartphone auswählen und „Genehmigungsregeln und Leitplanken“ aktivieren.',
   'effort.default': 'Standard',
   'effort.off': 'Aus',
   'effort.minimal': 'Minimal',

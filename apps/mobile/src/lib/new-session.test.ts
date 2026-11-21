@@ -1,14 +1,20 @@
 import { WevirRpcError } from '@wevir/client-sdk';
-import { type AccountState, ErrorCode, type ProviderProfile } from '@wevir/protocol';
+import {
+  type AccountState,
+  type EngineFeatures,
+  ErrorCode,
+  type ProviderProfile,
+} from '@wevir/protocol';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createErrorKey,
   createParams,
   effortsOf,
   initialDraft,
   isNewSessionMemory,
   loadOptions,
   type NewSessionClient,
-  PHONE_PERMISSION_MODES,
+  newSessionPermissions,
   pickableProviders,
   providerTitle,
   rememberDraft,
@@ -103,8 +109,59 @@ describe('new session', () => {
     expect(effortsOf([p], { providerId: 'p', modelId: 'b' })).toEqual([]);
   });
 
-  it('never offers full access on the phone', () => {
-    expect(PHONE_PERMISSION_MODES).not.toContain('full_access');
+  it('selects full access only with the device grant, including when restoring the last choice', () => {
+    const engine: EngineFeatures = {
+      engine: 'codex',
+      permissionModes: ['on_request', 'auto_review', 'full_access'],
+    };
+    const saved = rememberDraft({
+      choice: { providerId: 'p', modelId: 'a' },
+      newWorktree: false,
+      permissionMode: 'full_access',
+    });
+    const { permissionMode } = initialDraft(
+      {
+        kind: 'ready',
+        workspaces: [],
+        providers: [provider('p')],
+        accounts: [],
+        features: FEATURES,
+      },
+      saved,
+    );
+    expect(newSessionPermissions(permissionMode, engine, true)).toEqual({
+      modes: engine.permissionModes,
+      selected: 'full_access',
+    });
+    expect(newSessionPermissions(permissionMode, engine, false)).toEqual({
+      modes: engine.permissionModes,
+      selected: 'on_request',
+    });
+    expect(newSessionPermissions('on_request', engine, true).selected).toBe('on_request');
+  });
+
+  it('respects each engine and requires an explicit choice if it only supports full access', () => {
+    const cursor = { engine: 'cursor', permissionModes: ['full_access' as const] };
+    expect(newSessionPermissions('auto_review', cursor, true)).toEqual({
+      modes: ['full_access'],
+      selected: undefined,
+    });
+    expect(newSessionPermissions('full_access', cursor, false).selected).toBeUndefined();
+    expect(newSessionPermissions('full_access', cursor, true).selected).toBe('full_access');
+    expect(newSessionPermissions('full_access', { engine: 'other' }, true)).toEqual({
+      modes: ['on_request'],
+      selected: 'on_request',
+    });
+    expect(newSessionPermissions('auto_review', undefined, false).selected).toBe('auto_review');
+  });
+
+  it('points to the device grant if it is revoked during creation', () => {
+    const error = new WevirRpcError('session.create', {
+      code: ErrorCode.DEVICE_FORBIDDEN,
+      message: 'forbidden',
+      data: { missing: ['policy.write'] },
+    });
+    expect(createErrorKey(error)).toBe('permission.fullAccessGrant');
   });
 
   it('uses inferred relay levels and keeps explicit fixed effort', () => {
@@ -136,7 +193,7 @@ describe('new session', () => {
     ).toMatchObject({ workspaceId: 'wsp_1', worktree: 'new', permissionMode: 'on_request' });
     expect(
       createParams(
-        { workspaceId: 'wsp_1' as never, newWorktree: true, choice, permissionMode: 'on_request' },
+        { workspaceId: 'wsp_1' as never, newWorktree: true, choice, permissionMode: 'full_access' },
         { chats: true, worktree: false, permissionModes: false },
       ),
     ).toEqual({ workspaceId: 'wsp_1', providerId: 'p', modelId: 'a', reasoningEffort: 'high' });
@@ -208,7 +265,7 @@ describe('new session', () => {
     });
   });
 
-  it('creates the session and sends the first message', async () => {
+  it('creates the session in the selected mode and sends the first message', async () => {
     const calls: { method: string; params: unknown }[] = [];
     const client: NewSessionClient = {
       identity: { clientId: 'mobile-1' },
@@ -228,7 +285,7 @@ describe('new session', () => {
       {
         newWorktree: false,
         choice: { providerId: 'p', modelId: 'a' },
-        permissionMode: 'on_request',
+        permissionMode: 'full_access',
       },
       FEATURES,
       [{ type: 'text', text: 'hello' }],
@@ -236,6 +293,7 @@ describe('new session', () => {
     );
     expect(result).toEqual({ session: { id: 'ses_new' }, sent: true });
     expect(calls.map((c) => c.method)).toEqual(['session.create', 'session.send']);
+    expect(calls[0]?.params).toMatchObject({ permissionMode: 'full_access' });
     expect(calls[1]?.params).toEqual({
       sessionId: 'ses_new',
       content: [{ type: 'text', text: 'hello' }],
@@ -272,6 +330,45 @@ describe('new session', () => {
     const second = await startSession(client, draft, FEATURES, content, 'm-1', first.session);
     expect(second).toEqual({ session: { id: 'ses_new' }, sent: true });
     expect(calls).toEqual(['session.create', 'session.send', 'session.send']);
+  });
+
+  it('retries the first message only after the bound session adopts the newly selected mode', async () => {
+    const previous = { id: 'ses_existing', permissionMode: 'full_access' } as const;
+    const updated = { ...previous, permissionMode: 'on_request' };
+    const error = new Error('configuration failed');
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce({ session: updated })
+      .mockResolvedValueOnce({});
+    const retry = () =>
+      startSession(
+        { request } as never,
+        {
+          newWorktree: false,
+          choice: { providerId: 'p', modelId: 'a' },
+          permissionMode: 'on_request',
+        },
+        FEATURES,
+        [{ type: 'text', text: 'hello' }],
+        'm-1',
+        previous as never,
+      );
+    expect(await retry()).toEqual({ session: previous, sent: false, error });
+    expect(await retry()).toEqual({ session: updated, sent: true });
+    expect(request.mock.calls.map(([method]) => method)).toEqual([
+      'session.configure',
+      'session.configure',
+      'session.send',
+    ]);
+    expect(request.mock.calls[0]?.[1]).toEqual({
+      sessionId: previous.id,
+      permissionMode: 'on_request',
+    });
+    expect(request.mock.calls[2]?.[1]).toMatchObject({
+      sessionId: previous.id,
+      clientMessageId: 'm-1',
+    });
   });
 
   describe('remembered choices', () => {

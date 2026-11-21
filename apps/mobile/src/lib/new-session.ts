@@ -1,5 +1,5 @@
 // 新建会话（M2）：选项目（或不在项目里的对话）、同目录或新工作树、来源（引擎与账号）、模型与思考力度、权限模式，写第一条消息；
-// `session.create` 之后 `session.send`（同桌面：发出第一条消息时才建）。权限模式只给“请求批准”和“自动批准”，完全放行只在电脑上。
+// `session.create` 之后 `session.send`（同桌面：发出第一条消息时才建）。完全访问需要电脑授予这台设备 `policy.write`。
 // 列模型服务要 `provider.read`，手机没有时说明只能在电脑上新建。每台电脑上次的选择记在手机上（`NewSessionDefaults`），下次照用，
 // 多数时候打开就能直接写、直接发。纯逻辑，连接由调用方注入。
 
@@ -17,16 +17,25 @@ import type {
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
-import { resolveProviderModels, SUBSCRIPTION_KINDS } from '@wevir/protocol';
+import { PermissionModeSchema, resolveProviderModels, SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { MessageKey } from '../i18n';
 import type { SessionClient } from './session-watch';
 
-/** 手机上能选的权限模式：没有“完全放行”（`policy.write` 只在电脑上）。 */
-export const PHONE_PERMISSION_MODES = [
-  'on_request',
-  'auto_review',
-] as const satisfies readonly PermissionMode[];
-export type PhonePermissionMode = (typeof PHONE_PERMISSION_MODES)[number];
+export function newSessionPermissions(
+  preferred: PermissionMode,
+  engine: EngineFeatures | undefined,
+  canWritePolicy: boolean,
+) {
+  const modes = PermissionModeSchema.options.filter(
+    (mode) => engine === undefined || (engine.permissionModes ?? ['on_request']).includes(mode),
+  );
+  // 换引擎或电脑收回授权时，不能靠回退逻辑自动选中完全访问。
+  const selected =
+    modes.includes(preferred) && (preferred !== 'full_access' || canWritePolicy)
+      ? preferred
+      : modes.find((mode) => mode !== 'full_access');
+  return { modes, selected };
+}
 
 /** 订阅来源的顺序与名称（软件名照原文，不翻译）；ChatGPT 订阅跑在 Codex 上，叫 Codex。同桌面 data/sources.ts。 */
 const SOURCE_KINDS = ['chatgpt', ...SUBSCRIPTION_KINDS] as const;
@@ -162,7 +171,7 @@ export interface NewSessionDraft {
   /** 在项目的仓库里新开一个工作树。 */
   newWorktree: boolean;
   choice: ModelChoice;
-  permissionMode: PhonePermissionMode;
+  permissionMode: PermissionMode;
 }
 
 /** 这台电脑支持的部分（看 `host.hello` 的功能位）。 */
@@ -252,7 +261,7 @@ export interface NewSessionDefaults {
   /** 只对同一个项目沿用。 */
   newWorktree?: boolean;
   choice?: ModelChoice;
-  permissionMode?: PhonePermissionMode;
+  permissionMode?: PermissionMode;
 }
 
 /** 手机上记着的：上次用的电脑与每台电脑的选择。 */
@@ -296,7 +305,7 @@ export function initialDraft(
       saved.newWorktree === true,
     choice: resolveChoice(options.providers, saved?.choice),
     permissionMode:
-      savedMode !== undefined && (PHONE_PERMISSION_MODES as readonly string[]).includes(savedMode)
+      savedMode !== undefined && PermissionModeSchema.options.includes(savedMode)
         ? savedMode
         : 'on_request',
   };
@@ -314,7 +323,7 @@ export function rememberDraft(draft: NewSessionDraft): NewSessionDefaults {
 
 /**
  * 建会话并发出第一条消息；返回建好的会话。消息没发出时会话已经建好，照样返回：界面留在原页、保留文字与照片，再发时把上次建好的
- * 会话作为 `existing` 传进来，只发消息、不再建一个。
+ * 会话作为 `existing` 传进来；若权限选择已变，先更新这个会话，再重试同一条消息。
  */
 export async function startSession(
   client: SessionClient,
@@ -325,7 +334,7 @@ export async function startSession(
   existing?: Session,
   sessionId?: Session['id'],
 ): Promise<{ session: Session; sent: boolean; error?: unknown }> {
-  const session =
+  let session =
     existing ??
     (
       await client.request(
@@ -338,6 +347,17 @@ export async function startSession(
       )
     ).session;
   try {
+    if (
+      existing &&
+      features.permissionModes &&
+      (existing.permissionMode ?? 'on_request') !== draft.permissionMode
+    ) {
+      ({ session } = await client.request(
+        'session.configure',
+        { sessionId: existing.id, permissionMode: draft.permissionMode },
+        { queue: false },
+      ));
+    }
     await client.request(
       'session.send',
       {
@@ -355,6 +375,9 @@ export async function startSession(
 
 /** 建会话失败时给界面的一句话。 */
 export function createErrorKey(error: unknown): MessageKey {
-  if (isRpcError(error, 'DEVICE_FORBIDDEN')) return 'error.computerOnly';
+  if (isRpcError(error, 'DEVICE_FORBIDDEN'))
+    return error.data?.missing.includes('policy.write')
+      ? 'permission.fullAccessGrant'
+      : 'error.computerOnly';
   return 'newSession.failed';
 }

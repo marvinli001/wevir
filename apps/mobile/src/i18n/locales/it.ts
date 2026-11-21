@@ -459,6 +459,10 @@ export const it: Messages = {
   'newSession.noSources': 'Nessun servizio modello sul computer',
   'permission.on_request': 'Chiedi approvazione',
   'permission.auto_review': 'Approvazione automatica',
+  'permission.full_access': 'Accesso completo',
+  'permission.choose': 'Scegli i permessi',
+  'permission.fullAccessGrant':
+    'Sul computer, apri Impostazioni → Dispositivi, seleziona questo telefono e attiva «Regole di approvazione e protezioni».',
   'effort.default': 'Predefinito',
   'effort.off': 'Nessun ragionamento',
   'effort.minimal': 'Minimo',

@@ -4,12 +4,13 @@
 // 这台手机没有“查看模型服务”或“发消息”的权限时只说明要在电脑上新建。
 
 import { ConnectionLostError, isRpcError, sendOutcomeUnknown } from '@wevir/client-sdk';
-import type { Session, UserImageMimeType } from '@wevir/protocol';
+import type { PermissionMode, Session, UserImageMimeType } from '@wevir/protocol';
 import { getRandomBytes } from 'expo-crypto';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   Platform,
   ScrollView,
@@ -31,8 +32,7 @@ import {
   type ModelChoice,
   type NewSessionMemory,
   type NewSessionOptions,
-  PHONE_PERMISSION_MODES,
-  type PhonePermissionMode,
+  newSessionPermissions,
   rememberDraft,
   startSession,
 } from '../lib/new-session';
@@ -44,6 +44,12 @@ import { acknowledgeDraft, bindDraftSession, loadDraft } from '../state/drafts';
 import { usePhotoAttachments } from '../state/photo-attachments';
 import { useComputers, useRegistry } from '../state/registry';
 import { SPACE, TEXT, useTheme } from '../theme';
+
+const PERMISSION_ICONS: Record<PermissionMode, IconName> = {
+  on_request: { ios: 'hand.raised', android: 'back_hand' },
+  auto_review: { ios: 'checkmark.shield', android: 'verified_user' },
+  full_access: { ios: 'exclamationmark.shield', android: 'gpp_maybe' },
+};
 
 export default function NewSessionScreen() {
   const theme = useTheme();
@@ -60,14 +66,10 @@ export default function NewSessionScreen() {
   const [workspaceId, setWorkspaceId] = useState<string>();
   const [newWorktree, setNewWorktree] = useState(false);
   const [choice, setChoice] = useState<ModelChoice>();
-  const [permissionMode, setPermissionMode] = useState<PhonePermissionMode>('on_request');
+  const [preferredMode, setPreferredMode] = useState<PermissionMode>('on_request');
   const [error, setError] = useState<MessageKey>();
-  /** 建好了、第一条消息没发出的会话：再发时发进它。换了电脑、项目、模型或权限就作废（重新建）。 */
+  /** 首条消息发送失败时复用已建的会话；选项变化后按草稿绑定的 ID 重读。 */
   const created = useRef<{ computer: string; session: Session }>(undefined);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 选项一变就作废
-  useEffect(() => {
-    created.current = undefined;
-  }, [computer, workspaceId, newWorktree, choice, permissionMode]);
   const [keyboard, setKeyboard] = useState(0);
   // 从会话页带来的项目只在第一次读到这台电脑的选项时用；换了电脑就不再管它。
   const requested = useRef(params.workspace);
@@ -97,7 +99,7 @@ export default function NewSessionScreen() {
       setWorkspaceId(draft.workspaceId);
       setNewWorktree(draft.newWorktree);
       setChoice(draft.choice);
-      setPermissionMode(draft.permissionMode);
+      setPreferredMode(draft.permissionMode);
     });
     return () => {
       stopped = true;
@@ -121,10 +123,22 @@ export default function NewSessionScreen() {
 
   const ready = options?.kind === 'ready' ? options : undefined;
   const provider = ready?.providers.find((p) => p.id === choice?.providerId);
+  const canWritePolicy = client?.canWritePolicy === true;
+  const permissions = newSessionPermissions(
+    preferredMode,
+    provider && client?.engineFeatures?.[provider.kind],
+    canWritePolicy,
+  );
+  const permissionMode = ready?.features.permissionModes ? permissions.selected : 'on_request';
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 选项一变就作废
+  useEffect(() => {
+    created.current = undefined;
+  }, [computer, workspaceId, newWorktree, choice, permissionMode]);
   const workspace = ready?.workspaces.find((w) => w.id === workspaceId);
   const canStart =
     ready !== undefined &&
     choice !== undefined &&
+    permissionMode !== undefined &&
     (workspaceId !== undefined || ready.features.chats);
 
   const draftKey = `${snapshot?.record.routeId ?? 'unassigned'}/new-session`;
@@ -248,7 +262,11 @@ export default function NewSessionScreen() {
       // 会话建好了、消息没发出：留在这里（文字与照片都在），再点发送时发进这个会话。
       created.current = { computer, session };
       setMonitorId(session.id);
-      setError('session.sendFailed');
+      setError(
+        isRpcError(sendError, 'DEVICE_FORBIDDEN')
+          ? createErrorKey(sendError)
+          : 'session.sendFailed',
+      );
       throw sendError;
     }
     created.current = undefined;
@@ -319,11 +337,16 @@ export default function NewSessionScreen() {
 
   const permissionMenu: MenuSection[] = [
     {
-      items: PHONE_PERMISSION_MODES.map((mode) => ({
-        label: t(`permission.${mode}`),
-        checked: mode === permissionMode,
-        onPress: () => setPermissionMode(mode),
-      })),
+      items: permissions.modes.map((mode) => {
+        const label = t(`permission.${mode}`);
+        if (mode === 'full_access' && !canWritePolicy)
+          return {
+            label,
+            icon: 'lock',
+            onPress: () => Alert.alert(label, t('permission.fullAccessGrant')),
+          };
+        return { label, checked: mode === permissionMode, onPress: () => setPreferredMode(mode) };
+      }),
     },
   ];
 
@@ -396,12 +419,13 @@ export default function NewSessionScreen() {
                 />
                 {ready.features.permissionModes && (
                   <Chip
-                    icon={
-                      permissionMode === 'auto_review'
-                        ? { ios: 'checkmark.shield', android: 'verified_user' }
-                        : { ios: 'hand.raised', android: 'back_hand' }
+                    icon={PERMISSION_ICONS[permissionMode ?? 'on_request']}
+                    iconColor={permissionMode === 'full_access' ? theme.warning : undefined}
+                    text={
+                      permissionMode === undefined
+                        ? t('permission.choose')
+                        : t(`permission.${permissionMode}`)
                     }
-                    text={t(`permission.${permissionMode}`)}
                     label={t('newSession.permission')}
                     sections={permissionMenu}
                   />
@@ -455,12 +479,14 @@ export default function NewSessionScreen() {
 /** 输入栏上面的一枚选项胶囊：图标、当前的值、下拉箭头，点开从胶囊处展开的菜单。 */
 function Chip({
   icon,
+  iconColor,
   text,
   label,
   sections,
   testID,
 }: {
   icon: IconName;
+  iconColor?: string | undefined;
   text: string;
   label: string;
   sections: readonly MenuSection[];
@@ -476,7 +502,7 @@ function Chip({
       {...(testID !== undefined && { testID })}
     >
       <View style={[styles.chip, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <Icon name={icon} size={14} color={theme.softForeground} />
+        <Icon name={icon} size={14} color={iconColor ?? theme.softForeground} />
         <Text style={[styles.chipText, { color: theme.foreground }]} numberOfLines={1}>
           {text}
         </Text>

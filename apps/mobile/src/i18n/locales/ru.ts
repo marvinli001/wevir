@@ -458,6 +458,10 @@ export const ru: Messages = {
   'newSession.noSources': 'На компьютере нет сервисов моделей',
   'permission.on_request': 'Запрашивать подтверждение',
   'permission.auto_review': 'Автоподтверждение',
+  'permission.full_access': 'Полный доступ',
+  'permission.choose': 'Выбрать разрешения',
+  'permission.fullAccessGrant':
+    'На компьютере откройте «Настройки → Устройства», выберите этот телефон и включите «Правила одобрения и ограничители».',
   'effort.default': 'По умолчанию',
   'effort.off': 'Без рассуждений',
   'effort.minimal': 'Минимальный',

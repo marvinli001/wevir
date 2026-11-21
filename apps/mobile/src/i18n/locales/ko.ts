@@ -454,6 +454,10 @@ export const ko: Messages = {
   'newSession.noSources': '컴퓨터에 사용 가능한 모델 서비스 없음',
   'permission.on_request': '승인 요청',
   'permission.auto_review': '자동 승인',
+  'permission.full_access': '전체 액세스',
+  'permission.choose': '권한 선택',
+  'permission.fullAccessGrant':
+    '컴퓨터의 설정 → 기기에서 이 휴대폰을 선택하고 ‘승인 규칙과 가드레일’을 켜세요.',
   'effort.default': '기본값',
   'effort.off': '추론 안 함',
   'effort.minimal': '최소',

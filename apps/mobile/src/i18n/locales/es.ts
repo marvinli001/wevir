@@ -458,6 +458,10 @@ export const es: Messages = {
   'newSession.noSources': 'No hay servicios de modelos en el ordenador',
   'permission.on_request': 'Solicitar aprobación',
   'permission.auto_review': 'Aprobación automática',
+  'permission.full_access': 'Acceso total',
+  'permission.choose': 'Elegir permisos',
+  'permission.fullAccessGrant':
+    'En el ordenador, abre Configuración → Dispositivos, selecciona este teléfono y activa «Reglas de aprobación y salvaguardas».',
   'effort.default': 'Predeterminado',
   'effort.off': 'Sin razonamiento',
   'effort.minimal': 'Mínimo',

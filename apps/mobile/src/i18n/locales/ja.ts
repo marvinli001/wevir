@@ -458,6 +458,10 @@ export const ja: Messages = {
   'newSession.noSources': 'コンピュータに使えるモデルサービスがありません',
   'permission.on_request': '承認を求める',
   'permission.auto_review': '自動承認',
+  'permission.full_access': 'フルアクセス',
+  'permission.choose': '権限を選択',
+  'permission.fullAccessGrant':
+    'パソコンの「設定 → デバイス」でこの端末を選択し、「承認ルールとガードレール」をオンにしてください。',
   'effort.default': 'デフォルト',
   'effort.off': '推論なし',
   'effort.minimal': '最小',
