@@ -28,6 +28,7 @@ import type {
 
 /** 锁定的 SDK 版本（package.json 钉的确切版本）。 */
 export const OPENCODE_SDK_VERSION = '1.18.34';
+const STATUS_TIMEOUT_MS = 10_000;
 
 /** 一次 `promptAsync` 的参数（文本与图片文件）。 */
 export interface PromptInput {
@@ -236,7 +237,15 @@ export function loadOpenCodeSdk(): Promise<OpenCodeSdk> {
             required('session.children', (await client.session.children({ sessionID })).data),
           messages: async (sessionID) =>
             required('session.messages', (await client.session.messages({ sessionID })).data),
-          status: async () => required('session.status', (await client.session.status()).data),
+          status: async () =>
+            required(
+              'session.status',
+              (
+                await client.session.status(undefined, {
+                  signal: AbortSignal.timeout(STATUS_TIMEOUT_MS),
+                })
+              ).data,
+            ),
           commands: async (signal) =>
             required(
               'command.list',

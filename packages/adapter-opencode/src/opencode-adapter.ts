@@ -410,6 +410,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
         : openCodeAccountEnv(options.env ?? process.env, options.account.dataHome);
     this.#runtime = new OpenCodeRuntime({
       engineDir: openCodeEngineDir(options.home),
+      ...(options.account !== undefined && { accountDataHome: options.account.dataHome }),
       ...(env !== undefined && { env }),
       ...(options.sdk !== undefined && { sdk: options.sdk }),
       ...(logger !== undefined && { warn: (message, fields) => logger.warn(message, fields) }),

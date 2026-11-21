@@ -29,7 +29,20 @@ export const OPENCODE_INSTALL_COMMAND = 'npm install -g opencode-ai';
 export const OPENCODE_LOGIN_COMMAND = 'opencode auth login';
 
 /** 登录命令：Wevir 替用户装的 `opencode` 不在 PATH 里，终端里要写全路径。 */
-export function openCodeLoginCommand(executablePath: string | undefined, managed: boolean): string {
+export function openCodeLoginCommand(
+  executablePath: string | undefined,
+  managed: boolean,
+  dataHome?: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (dataHome !== undefined && executablePath !== undefined) {
+    if (platform === 'win32') {
+      const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
+      return `Remove-Item Env:OPENCODE_DATA_DIR, Env:OPENCODE_DB -ErrorAction SilentlyContinue; $env:XDG_DATA_HOME = ${quote(dataHome)}; & ${quote(executablePath)} auth login`;
+    }
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    return `env -u OPENCODE_DATA_DIR -u OPENCODE_DB XDG_DATA_HOME=${quote(dataHome)} ${quote(executablePath)} auth login`;
+  }
   return managed && executablePath !== undefined
     ? `"${executablePath}" auth login`
     : OPENCODE_LOGIN_COMMAND;
@@ -309,13 +322,25 @@ export function openCodeEnv(
 /** 首个账号的凭据来源：添加的账号（`openCodeAccountEnv`）不继承，只用它自己 auth.json 里登录的。 */
 const MAIN_ACCOUNT_KEYS = ['OPENCODE_AUTH_CONTENT', 'OPENCODE_API_KEY'] as const;
 
+export function openCodeDatabaseEnv(
+  parent: NodeJS.ProcessEnv,
+  dataHome: string,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...parent, XDG_DATA_HOME: dataHome };
+  for (const key of Object.keys(env)) {
+    const name = process.platform === 'win32' ? key.toUpperCase() : key;
+    if (name === 'OPENCODE_DATA_DIR' || name === 'OPENCODE_DB') delete env[key];
+  }
+  return env;
+}
+
 /**
  * 添加的 OpenCode 账号（0.63.0 的多账号）的环境：只把 `XDG_DATA_HOME` 换成账号自己的目录。opencode 的登录（auth.json）、会话库
  * 与日志都在数据目录里，换了就互不相通；配置（`~/.config/opencode`，含用户接上的上游）、缓存与状态目录照旧共用。别的上游的
  * 环境变量 Key 也照旧共用，它们属于配置。
  */
 export function openCodeAccountEnv(parent: NodeJS.ProcessEnv, dataHome: string): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...parent, XDG_DATA_HOME: dataHome };
+  const env = openCodeDatabaseEnv(parent, dataHome);
   for (const key of MAIN_ACCOUNT_KEYS) delete env[key];
   return env;
 }

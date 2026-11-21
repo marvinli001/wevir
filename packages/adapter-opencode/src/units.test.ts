@@ -236,6 +236,8 @@ describe('executable', () => {
         XDG_DATA_HOME: '/home/u/.data',
         OPENCODE_API_KEY: 'main',
         OPENCODE_AUTH_CONTENT: '{}',
+        OPENCODE_DATA_DIR: '/home/u/other-opencode',
+        OPENCODE_DB: '/home/u/opencode.db',
         ANTHROPIC_API_KEY: 'shared',
       },
       '/wevir/accounts/opencode-ab12/opencode',

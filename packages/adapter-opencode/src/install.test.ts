@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import zlib from 'node:zlib';
 import type { AccountState } from '@wevir/runtime-adapter';
 import { NpmInstallCancelled } from '@wevir/runtime-adapter/npm-package';
@@ -208,7 +209,12 @@ describe('OpenCodeInstaller', () => {
 // 账号 + 运行环境 + 默认安装器（假 registry）：装好后用的是 Wevir 装的那份，版本不支持的下载不会被启用。
 describe('OpenCodeAccounts：下载安装', () => {
   function setup(
-    options: { version?: string; packages?: Parameters<typeof fakeRegistry>[0] } = {},
+    options: {
+      version?: string;
+      systemVersion?: string;
+      env?: NodeJS.ProcessEnv;
+      packages?: Parameters<typeof fakeRegistry>[0];
+    } = {},
   ) {
     const fake = new FakeOpenCode();
     const engineDir = tempDir();
@@ -223,13 +229,19 @@ describe('OpenCodeAccounts：下载安装', () => {
     const probed: string[] = [];
     const runtime = new OpenCodeRuntime({
       engineDir,
-      env: { PATH: '' },
+      env: { PATH: '', HOME: engineDir, ...options.env },
       sdk: async () => fake,
-      // 用户自己没装：只有 Wevir 装的那份。
-      findExecutable: (_custom, managed) => managed,
+      findExecutable: (_custom, managed) =>
+        options.systemVersion === undefined ? managed : '/test-bin/system-opencode',
       probeVersion: async (executable) => {
         probed.push(executable);
-        return { ok: true, version: options.version ?? FAKE_OPENCODE_VERSION };
+        return {
+          ok: true,
+          version:
+            executable === '/test-bin/system-opencode'
+              ? options.systemVersion
+              : (options.version ?? FAKE_OPENCODE_VERSION),
+        };
       },
       startServer: fake.start,
       idleTtlMs: 20,
@@ -294,6 +306,29 @@ describe('OpenCodeAccounts：下载安装', () => {
     // 重新检测清掉失败的原因。
     expect((await accounts.read('opencode', { refresh: true })).lastError).toBeUndefined();
   });
+
+  it.each(['system', 'database'] as const)(
+    '托管 1.x 与 2.x 共存时隔离服务器和终端登录（%s）',
+    async (source) => {
+      const databasePath = join(tempDir(), 'shared.db');
+      if (source === 'database') {
+        const database = new DatabaseSync(databasePath);
+        database.exec('CREATE TABLE session_v2 (id TEXT PRIMARY KEY)');
+        database.close();
+      }
+      const { accounts, fake, engineDir, seen } = setup({
+        ...(source === 'system' && { systemVersion: '2.0.1' }),
+        env: { OPENCODE_DB: databasePath, OPENCODE_DATA_DIR: '/shared' },
+      });
+      await accounts.install('opencode');
+      await vi.waitFor(() => expect(seen.at(-1)?.installed).toBe(true));
+      const dataHome = join(engineDir, 'data-v1');
+      expect(seen.at(-1)?.loginCommand).toContain(dataHome);
+      expect(fake.startOptions.at(-1)?.env.XDG_DATA_HOME).toBe(dataHome);
+      expect(fake.startOptions.at(-1)?.env).not.toHaveProperty('OPENCODE_DB');
+      expect(fake.startOptions.at(-1)?.env).not.toHaveProperty('OPENCODE_DATA_DIR');
+    },
+  );
 
   it('下载失败：registry 连不上时说明原因，仍可再下', async () => {
     const { accounts, seen } = setup({ packages: {} });

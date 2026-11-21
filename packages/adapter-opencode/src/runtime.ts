@@ -11,6 +11,10 @@
 // 服务器第一次读账号或建会话时才起；会话挂着、或正在读账号时借着它，都还回来 30 秒后停掉；意外退出时通知适配器（会话以
 // engine.exited 脱开），下次要用时重起。
 
+import { existsSync } from 'node:fs';
+import { mkdir, stat } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { AppToolsEndpoint } from '@wevir/runtime-adapter';
 import { appToolsPluginEntry, writeAppToolsPlugin } from './app-tools.js';
 import {
@@ -18,6 +22,7 @@ import {
   findOpenCode,
   MINIMUM_OPENCODE_VERSION,
   OPENCODE_INSTALL_COMMAND,
+  openCodeDatabaseEnv,
   openCodeEnv,
   probeOpenCodeVersion,
 } from './executable.js';
@@ -36,14 +41,50 @@ import {
   type StartServerOptions,
   startOpenCodeServer,
 } from './server.js';
+import { openCodeAuthPath } from './usage.js';
 
 /** 没人借用之后多久停掉服务器（T3 的 OPENCODE_SERVER_IDLE_TTL）。 */
 export const SERVER_IDLE_TTL_MS = 30_000;
+
+async function hasMigratedDatabase(env: NodeJS.ProcessEnv): Promise<boolean> {
+  const database = env.OPENCODE_DB?.trim() || 'opencode.db';
+  if (database === ':memory:') return false;
+  const directories = [
+    dirname(openCodeAuthPath(env)),
+    ...(env.OPENCODE_DATA_DIR?.split(',') ?? []),
+  ];
+  const files = new Set(directories.map((directory) => resolve(directory.trim(), database)));
+  for (const file of files) {
+    try {
+      if (!(await stat(file)).isFile()) continue;
+      const db = new DatabaseSync(file, { readOnly: true });
+      try {
+        if (
+          db
+            .prepare(
+              "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name IN ('session_v2', 'credential')",
+            )
+            .get()
+        ) {
+          return true;
+        }
+      } finally {
+        db.close();
+      }
+    } catch (error) {
+      // A locked or unreadable database cannot safely be handed to the older CLI.
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return true;
+    }
+  }
+  return false;
+}
 
 /** 检测到的 `opencode`。 */
 export interface OpenCodeInstallation {
   executablePath: string;
   version: string | undefined;
+  /** 托管 1.x 与系统 2.x 共存时用的独立数据目录。 */
+  dataHome?: string;
 }
 
 export type Detection =
@@ -73,6 +114,7 @@ export interface ServerLease {
 export interface OpenCodeRuntimeOptions {
   /** `<数据目录>/engines/opencode`：台账与账号检测的工作目录。 */
   engineDir: string;
+  accountDataHome?: string;
   env?: NodeJS.ProcessEnv;
   sdk?: () => Promise<OpenCodeSdk>;
   warn?: (message: string, fields?: Record<string, unknown>) => void;
@@ -98,6 +140,7 @@ export class OpenCodeRuntime {
   #customPath: string | null = null;
   #installation: OpenCodeInstallation | undefined;
   #server: OpenCodeServerHandle | undefined;
+  #serverDataHome: string | undefined;
   /** 应用级工具的引擎令牌（Host 监听之后给）；正在跑的服务器挂没挂上插件。 */
   #appTools: (() => AppToolsEndpoint | undefined) | undefined;
   #serverHasAppTools = false;
@@ -123,6 +166,10 @@ export class OpenCodeRuntime {
 
   get customPath(): string | null {
     return this.#customPath;
+  }
+
+  get dataHome(): string | undefined {
+    return this.#installation?.dataHome ?? this.#options.accountDataHome;
   }
 
   /** 最近一次检测到的安装（会话直接用它）。 */
@@ -192,12 +239,16 @@ export class OpenCodeRuntime {
     const found = await this.#check(executablePath, isManaged);
     if (found.ok || isManaged || managed === undefined || this.#customPath !== null) return found;
     // 自己找到的不能用（如 Homebrew 的 opencode 已是 2.x）而 Wevir 装过 1.x：用 Wevir 的那份。
-    const fallback = await this.#check(managed.path, true);
+    const fallback = await this.#check(
+      managed.path,
+      true,
+      !found.ok && found.version !== undefined && Number(found.version.split('.')[0]) >= 2,
+    );
     return fallback.ok ? fallback : found;
   }
 
   /** 跑 `--version` 核对版本，能用就记下来。 */
-  async #check(executablePath: string, isManaged: boolean): Promise<Detection> {
+  async #check(executablePath: string, isManaged: boolean, systemV2 = false): Promise<Detection> {
     const parentEnv = this.#options.env ?? process.env;
     const probe = await (this.#options.probeVersion ?? probeOpenCodeVersion)(
       executablePath,
@@ -228,7 +279,8 @@ export class OpenCodeRuntime {
         managed: isManaged,
       };
     }
-    const installation = { executablePath, version };
+    const dataHome = isManaged ? await this.#managedDataHome(parentEnv, systemV2) : undefined;
+    const installation = { executablePath, version, ...(dataHome !== undefined && { dataHome }) };
     if (
       this.#installation !== undefined &&
       this.#installation.executablePath !== executablePath &&
@@ -239,6 +291,13 @@ export class OpenCodeRuntime {
     }
     this.#installation = installation;
     return { ok: true, installation, managed: isManaged };
+  }
+
+  async #managedDataHome(env: NodeJS.ProcessEnv, systemV2: boolean): Promise<string | undefined> {
+    const isolated = join(this.#options.accountDataHome ?? this.engineDir, 'data-v1');
+    if (!systemV2 && !existsSync(isolated) && !(await hasMigratedDatabase(env))) return undefined;
+    await mkdir(isolated, { recursive: true, mode: 0o700 });
+    return isolated;
   }
 
   /** 借服务器：没有在跑的就起一个（要先 `detect` 成功过）。 */
@@ -316,6 +375,13 @@ export class OpenCodeRuntime {
   }
 
   async #ensureServer(installation: OpenCodeInstallation): Promise<OpenCodeServerHandle> {
+    // Reap a server still pointing at the shared database before lending out the isolated one.
+    if (installation.dataHome !== undefined) {
+      const existing = this.#server ?? (await this.#starting);
+      if (existing !== undefined && this.#serverDataHome !== installation.dataHome) {
+        await existing.stop();
+      }
+    }
     if (this.#server !== undefined) return this.#server;
     this.#starting ??= this.#start(installation).finally(() => {
       this.#starting = undefined;
@@ -331,7 +397,12 @@ export class OpenCodeRuntime {
     const pluginUrl = writeAppToolsPlugin(this.#options.engineDir);
     const server = await (this.#options.startServer ?? startOpenCodeServer)({
       executable: installation.executablePath,
-      env: openCodeEnv(parentEnv, installation.executablePath),
+      env: openCodeEnv(
+        installation.dataHome === undefined
+          ? parentEnv
+          : openCodeDatabaseEnv(parentEnv, installation.dataHome),
+        installation.executablePath,
+      ),
       ledger: this.#ledger,
       // 即使没有应用级工具，命令回合仍通过 chat.message 接收本会话的系统规则。
       appToolsPlugin: appTools ? appToolsPluginEntry(pluginUrl, appTools) : [pluginUrl, {}],
@@ -353,6 +424,7 @@ export class OpenCodeRuntime {
       throw new Error('the OpenCode engine has been disposed');
     }
     this.#server = server;
+    this.#serverDataHome = installation.dataHome;
     this.#serverHasAppTools = appTools !== undefined;
     void server.exited.then((exit) => {
       if (this.#server !== server) return;

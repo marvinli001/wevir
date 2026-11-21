@@ -626,7 +626,11 @@ export class OpenCodeAccounts implements EngineAccounts {
       status: 'signed_out',
       signIn: 'in_app',
       loginMethods: ['browser', 'device_code'],
-      loginCommand: openCodeLoginCommand(executablePath, detection.managed === true),
+      loginCommand: openCodeLoginCommand(
+        executablePath,
+        detection.managed === true,
+        runtime.dataHome,
+      ),
       ...(runtime.customPath !== null && { customPath: runtime.customPath }),
     };
     if (!detection.ok) {
@@ -706,7 +710,12 @@ export class OpenCodeAccounts implements EngineAccounts {
   async #readUsage(): Promise<AccountState['rateLimits']> {
     try {
       return await readOpenCodeGoUsage({
-        env: this.#options.env ?? process.env,
+        env: {
+          ...(this.#options.env ?? process.env),
+          ...(this.#options.runtime.dataHome !== undefined && {
+            XDG_DATA_HOME: this.#options.runtime.dataHome,
+          }),
+        },
         ...(this.#options.fetch !== undefined && { fetch: this.#options.fetch }),
         ...(this.#options.readFile !== undefined && { readFile: this.#options.readFile }),
       });
