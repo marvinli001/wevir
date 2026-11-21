@@ -316,11 +316,11 @@ export class AcpTransport {
     const wire = this.#wire;
     const { onExtNotification, engine } = this.#hooks;
     const extensions = new Set(engine.extensions?.notifications ?? []);
-    const read = async function* () {
+    const read = (async function* () {
       if (replay !== undefined) yield await replay;
       yield* buffered;
       yield* wire.readable;
-    };
+    })();
     const consume = (message: unknown): boolean => {
       if (!isRecord(message) || 'id' in message || typeof message.method !== 'string') return false;
       const method = message.method;
@@ -333,7 +333,16 @@ export class AcpTransport {
       }
       return true;
     };
-    return ReadableStream.from(read()).pipeThrough(
+    return new ReadableStream<v2.AnyWireMessage>({
+      async pull(controller) {
+        const next = await read.next();
+        if (next.done) controller.close();
+        else controller.enqueue(next.value);
+      },
+      async cancel() {
+        await read.return();
+      },
+    }).pipeThrough(
       new TransformStream({
         transform(message, controller) {
           if (Array.isArray(message) && replay !== undefined && message.length > 0) {
