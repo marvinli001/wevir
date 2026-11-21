@@ -87,7 +87,7 @@ describe('readGrokCredential', () => {
 });
 
 describe('grokUsageWindows', () => {
-  it('每周的周期报 10080 分钟，每月的按月，别的长度不明；没有百分比时是空的', () => {
+  it('每周的周期报 10080 分钟，每月的按月，别的长度不明', () => {
     expect(grokUsageWindows(BILLING)).toEqual([
       { usedPercent: 37.5, windowMinutes: 10080, resetsAt: '2026-10-20T00:00:00.000Z' },
     ]);
@@ -99,6 +99,20 @@ describe('grokUsageWindows', () => {
     expect(grokUsageWindows({ config: { creditUsagePercent: 5 } })).toEqual([{ usedPercent: 5 }]);
     expect(grokUsageWindows({ config: {} })).toEqual([]);
     expect(grokUsageWindows(null)).toEqual([]);
+  });
+
+  it('周期区间完整而没有百分比时，显示零用量', () => {
+    expect(
+      grokUsageWindows({
+        config: {
+          currentPeriod: {
+            type: 'USAGE_PERIOD_TYPE_WEEKLY',
+            start: '2026-10-13T00:00:00Z',
+            end: '2026-10-20T00:00:00Z',
+          },
+        },
+      }),
+    ).toEqual([{ usedPercent: 0, windowMinutes: 10080, resetsAt: '2026-10-20T00:00:00.000Z' }]);
   });
 });
 

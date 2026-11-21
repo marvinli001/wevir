@@ -22,6 +22,7 @@ export const GROK_DEFAULT_MODELS: AccountModels = Object.freeze({
 });
 
 const REASONING_EFFORT_TOKEN = /^[a-z0-9][a-z0-9._-]{0,31}$/i;
+const REASONING_EFFORT_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 /** T3 的 `isValidGrokReasoningEffortToken`。 */
 export function isValidReasoningEffort(value: string): boolean {
@@ -104,7 +105,22 @@ function reasoningEfforts(meta: Record<string, unknown> | undefined): string[] |
     );
     if (value !== undefined && !efforts.includes(value)) efforts.push(value);
   }
-  return efforts.length > 0 ? efforts : undefined;
+  const rank = (effort: string) => {
+    const index = REASONING_EFFORT_ORDER.indexOf(effort);
+    return index === -1 ? REASONING_EFFORT_ORDER.length : index;
+  };
+  return efforts.length > 0 ? efforts.sort((a, b) => rank(a) - rank(b)) : undefined;
+}
+
+export function grokOfferedReasoningEfforts(
+  initialize: unknown,
+  modelId: string,
+): readonly string[] | undefined {
+  const state = record(record(record(initialize)?._meta)?.modelState);
+  if (!Array.isArray(state?.availableModels)) return undefined;
+  const model = record(state.availableModels.find((entry) => record(entry)?.modelId === modelId));
+  const meta = record(model?._meta);
+  return meta?.supportsReasoningEffort === false ? [] : reasoningEfforts(meta);
 }
 
 /**

@@ -73,7 +73,7 @@ describe('GrokAccounts', () => {
       id: 'grok-4.7',
       displayName: 'Grok 4.7',
       contextWindow: 500_000,
-      reasoningEfforts: ['xhigh', 'high', 'medium', 'low'],
+      reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
     });
     expect(readLog(log).map((message) => message.method)).toEqual(['initialize']);
     subject.dispose();

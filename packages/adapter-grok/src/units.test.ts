@@ -307,7 +307,7 @@ describe('模型', () => {
       id: 'grok-4.5',
       displayName: 'Grok 4.5',
       contextWindow: 500_000,
-      reasoningEfforts: ['high', 'medium', 'low'],
+      reasoningEfforts: ['low', 'medium', 'high'],
     });
     expect(modelsFromInitialize({ _meta: {} })).toBeUndefined();
   });

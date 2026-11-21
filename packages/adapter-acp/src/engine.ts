@@ -132,6 +132,8 @@ export interface AcpRouteCodec {
   readonly modelCategory?: string;
   /** 选推理强度的 config option（dsh：`reasoning_effort`）；没有就不设、不读。 */
   readonly reasoningEffortOption?: string;
+  /** `set_model` 可以从引擎的模型目录预先读出目标模型的可用档位。 */
+  offeredReasoningEfforts?(initialize: unknown, modelId: string): readonly string[] | undefined;
   /**
    * 可选：建会话与恢复后总是写一次选定的模型，即使引擎报的当前值已经是它（Copilot：`session/new` 报的是内置的默认值，不是
    * 它实际要跑的模型，github/copilot-cli#5363；T3 Code #35199）。会话中换模型照常只在值不同时写。

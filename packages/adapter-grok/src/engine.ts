@@ -8,7 +8,7 @@ import type {
   ClassifiedResumeError,
   ClassifiedTurnError,
 } from '@wevir/adapter-acp';
-import { GROK_DEFAULT_MODEL } from './models.js';
+import { GROK_DEFAULT_MODEL, grokOfferedReasoningEfforts } from './models.js';
 import { grokToolDisplay, isGrokTodoTool, normalizeGrokMcpUpdate } from './tool-display.js';
 import {
   GROK_INITIALIZE_META,
@@ -29,6 +29,7 @@ export const GROK_ROUTE: AcpRouteCodec = Object.freeze<AcpRouteCodec>({
   modelMethod: 'set_model',
   modelOption: 'model',
   reasoningEffortOption: 'reasoning_effort',
+  offeredReasoningEfforts: grokOfferedReasoningEfforts,
   // `grok-build` 是 CLI 的产品名（检测不到模型时唯一的模型），选它就用会话当前的模型，不发 set_model（T3）。
   encode: (_providerId, modelId) => (modelId === GROK_DEFAULT_MODEL ? undefined : modelId),
   decodeModel: (value) => (value === '' ? undefined : value),

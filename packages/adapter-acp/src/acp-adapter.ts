@@ -1600,27 +1600,58 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     if (route.modelMethod === 'set_model') {
       // ACP 的 session/set_model（Grok）：推理强度跟着模型走，在同一请求的 _meta 里；没给推理强度时不带，不当作清掉
       // 引擎的默认档位（T3 的 applyGrokAcpModelSelection）。
-      const effortChanged =
-        effort !== undefined &&
-        effortOption !== undefined &&
-        currentOption(configOptions, effortOption) !== effort;
       const current = currentOption(configOptions, modelOption);
       const target = value ?? current;
-      if ((value === undefined || (value === current && !resend)) && !effortChanged) {
-        return;
-      }
       // 只换推理强度又不知道当前模型：没法发 set_model，用引擎的默认档位。
       if (target === undefined) return;
-      let result: { _meta?: unknown } | undefined;
-      try {
-        result = await connection.agent.request<{ _meta?: unknown } | undefined>(
+      const offered = route.offeredReasoningEfforts?.(this.process.initializeResponse, target);
+      let appliedEffort = effort;
+      if (
+        appliedEffort !== undefined &&
+        offered !== undefined &&
+        !offered.includes(appliedEffort)
+      ) {
+        appliedEffort = undefined;
+      }
+      const modelChanged = value !== undefined && (value !== current || resend);
+      const effortChanged =
+        appliedEffort !== undefined &&
+        effortOption !== undefined &&
+        currentOption(configOptions, effortOption) !== appliedEffort;
+      if (!modelChanged && !effortChanged) return;
+      const setModel = async (requestedEffort: string | undefined) => {
+        const result = await connection.agent.request<{ _meta?: unknown } | undefined>(
           'session/set_model',
           {
             sessionId: engineSessionId,
             modelId: target,
-            ...(effort !== undefined && { _meta: { reasoningEffort: effort } }),
+            ...(requestedEffort !== undefined && { _meta: { reasoningEffort: requestedEffort } }),
           },
         );
+        const rejected = (result?._meta as { model?: { Err?: unknown } } | undefined)?.model?.Err;
+        if (rejected !== undefined) {
+          throw new AdapterError(
+            'invalid_input',
+            typeof rejected === 'string' ? rejected : JSON.stringify(rejected),
+          );
+        }
+      };
+      try {
+        try {
+          await setModel(appliedEffort);
+        } catch (error) {
+          if (
+            appliedEffort === undefined ||
+            route.offeredReasoningEfforts === undefined ||
+            !(
+              isAdapterError(error, 'invalid_input') ||
+              typeof (error as { code?: unknown } | null)?.code === 'number'
+            )
+          )
+            throw error;
+          appliedEffort = undefined;
+          await setModel(undefined);
+        }
       } catch (error) {
         const failed = engineError(error, 'session/set_model');
         throw new AdapterError(
@@ -1629,17 +1660,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           { cause: error },
         );
       }
-      const rejected = (result?._meta as { model?: { Err?: unknown } } | undefined)?.model?.Err;
-      if (rejected !== undefined) {
-        throw new AdapterError(
-          'invalid_input',
-          `${name} 选不上模型 ${config.modelId}：${typeof rejected === 'string' ? rejected : JSON.stringify(rejected)}`,
-        );
-      }
       if (options.value === configOptions) {
         options.value = withCurrentOption(configOptions, modelOption, target);
-        if (effort !== undefined && effortOption !== undefined) {
-          options.value = withCurrentOption(options.value, effortOption, effort);
+        if (effortOption !== undefined && (appliedEffort !== undefined || modelChanged)) {
+          options.value = withCurrentOption(options.value, effortOption, appliedEffort ?? '');
         }
       }
       return;

@@ -101,16 +101,26 @@ export async function readGrokCredential(
 
 /**
  * 计费接口的 JSON → 用量窗口（T3 的 `grokUsageResponseToLimits`）：一个窗口，周期是每周时 `windowMinutes` 10080，每月时按月，
- * 其他周期长度不明。没有百分比（账号还没用过，xAI 这时不给这个字段）时是空的。
+ * 其他周期长度不明。周/月周期的区间完整而未带百分比时，是一个尚未使用的周期。
  */
 export function grokUsageWindows(response: unknown): AccountRateLimitWindow[] {
   const config = (response as { config?: Record<string, unknown> } | null)?.config;
-  const usedPercent = config?.creditUsagePercent;
-  if (typeof usedPercent !== 'number' || !Number.isFinite(usedPercent)) return [];
-  const period = config?.currentPeriod as { type?: unknown; end?: unknown } | undefined;
+  let usedPercent = config?.creditUsagePercent;
+  const period = config?.currentPeriod as
+    | { type?: unknown; end?: unknown; start?: unknown }
+    | undefined;
   const type =
     typeof period?.type === 'string' ? period.type.replace(/^USAGE_PERIOD_TYPE_/, '') : '';
   const resetsAt = typeof period?.end === 'string' ? isoTime(period.end) : undefined;
+  if (
+    usedPercent === undefined &&
+    (type === 'WEEKLY' || type === 'MONTHLY') &&
+    typeof period?.start === 'string' &&
+    resetsAt !== undefined &&
+    Date.parse(period.start) < Date.parse(resetsAt)
+  )
+    usedPercent = 0;
+  if (typeof usedPercent !== 'number' || !Number.isFinite(usedPercent)) return [];
   return [
     {
       usedPercent,
