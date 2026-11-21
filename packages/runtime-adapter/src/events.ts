@@ -533,7 +533,7 @@ export type AgentEvent =
   | QuestionRequestedEvent
   | QuestionCancelledEvent
   | UsageUpdatedEvent
-  | { type: 'turn.bound'; engineSessionId: string; engineTurnId: string }
+  | { type: 'turn.bound'; engineSessionId: string; engineTurnId: string; forkPoint?: true }
   | UsageRecordedEvent
   | ContextCompactingEvent
   | ContextCompactedEvent

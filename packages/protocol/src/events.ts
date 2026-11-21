@@ -328,6 +328,10 @@ export const EventPayloadSchemas = {
     outcome: TurnOutcomeSchema,
     /** 引擎原值。 */
     engineStopReason: z.string().optional(),
+    /** 引擎提供的分支位置，只适用于记录它的原生会话。 */
+    engineRef: z
+      .object({ engineSessionId: z.string().min(1), messageId: z.string().min(1) })
+      .optional(),
     durationMs: z.int().min(0),
   }),
   /**

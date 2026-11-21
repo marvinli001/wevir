@@ -17,7 +17,7 @@ export function record(value: unknown): Record<string, unknown> | undefined {
 }
 
 /** 已登录账号的 `kiro-cli chat --list-models --format json`。 */
-export function parseKiroModelList(output: string): AccountModels | undefined {
+export function parseKiroModelList(output: string, withEfforts = false): AccountModels | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(output);
@@ -26,13 +26,18 @@ export function parseKiroModelList(output: string): AccountModels | undefined {
   }
   const fields = record(parsed);
   if (!Array.isArray(fields?.models)) return undefined;
-  return kiroModels(undefined, {
+  const catalog = kiroModels(undefined, {
     currentModelId: fields.default_model ?? 'auto',
     availableModels: fields.models.map((entry: unknown) => {
       const model = record(entry);
       return { modelId: model?.model_id, name: model?.model_name };
     }),
   });
+  if (catalog === undefined || !withEfforts) return catalog;
+  return {
+    ...catalog,
+    models: catalog.models.map((model) => ({ ...model, ...documentedEfforts(model.id) })),
+  };
 }
 
 /**
@@ -67,18 +72,91 @@ export function selectEntries(options: unknown): Array<{ value: string; name: st
   });
 }
 
+export function kiroSelectOption(configOptions: unknown, id: string) {
+  if (!Array.isArray(configOptions)) return undefined;
+  const option = configOptions
+    .map(record)
+    .find((entry) => entry?.id === id && entry.type === 'select');
+  return option === undefined
+    ? undefined
+    : {
+        id,
+        currentValue: typeof option.currentValue === 'string' ? option.currentValue : undefined,
+        values: selectEntries(option.options).map((entry) => entry.value),
+      };
+}
+
+const EFFORTS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+
+export function fromKiroEffort(value: string): string {
+  return value === 'none' ? 'off' : value;
+}
+
+type ModelEfforts = Pick<ProviderModelConfig, 'reasoningEfforts' | 'defaultReasoningEffort'>;
+
+/** 初次打开模型选择时 CLI 目录没有档位，用 Kiro 官方的模型表；写档位前仍以会话实际公布的选项为准。 */
+function documentedEfforts(id: string): ModelEfforts | undefined {
+  const levels = ['low', 'medium', 'high', 'xhigh', 'max'];
+  switch (id) {
+    case 'claude-opus-5.5':
+      return { reasoningEfforts: levels, defaultReasoningEffort: 'medium' };
+    case 'claude-opus-5':
+    case 'claude-opus-4.8':
+    case 'claude-opus-4.7':
+    case 'claude-sonnet-5.5':
+    case 'claude-sonnet-5':
+      return { reasoningEfforts: levels };
+    case 'claude-opus-4.6':
+    case 'claude-sonnet-4.6':
+      return { reasoningEfforts: ['low', 'medium', 'high', 'max'] };
+    case 'gpt-5.6-sol':
+    case 'gpt-5.6-terra':
+    case 'gpt-5.6-luna':
+      return { reasoningEfforts: ['off', ...levels], defaultReasoningEffort: 'high' };
+    default:
+      return undefined;
+  }
+}
+
 /**
  * 会话的模型 → 账号的模型。Kiro 的 v2 引擎用 ACP 的 `session/set_model`，模型列表应在 `session/new` 结果的 `models`
  * （`availableModels` 与 `currentModelId`）里；`configOptions` 里的模型选项也认（v3 引擎换成了 `set_config_option`）。登录后的
  * 形状没有账号核对过。都没有或是空的时 undefined（用“默认”）。
  */
-export function kiroModels(configOptions: unknown, models?: unknown): AccountModels | undefined {
+export function kiroModels(
+  configOptions: unknown,
+  models?: unknown,
+  previous?: AccountModels,
+): AccountModels | undefined {
   const seen = new Set<string>();
   const list: ProviderModelConfig[] = [];
+  const previousModels = new Map(previous?.models.map((model) => [model.id, model]));
+  const nativeModel = modelOption(configOptions);
+  const nativeEffort = kiroSelectOption(configOptions, 'effortLevel');
+  const hasV3Options =
+    nativeEffort !== undefined || kiroSelectOption(configOptions, 'autopilot') !== undefined;
   const add = (id: string, name: string) => {
     if (seen.has(id)) return;
     seen.add(id);
-    list.push({ id, displayName: name || id });
+    const prior = previousModels.get(id);
+    const documented = hasV3Options ? documentedEfforts(id) : undefined;
+    const reasoningEfforts =
+      nativeModel?.currentValue === id && nativeEffort !== undefined
+        ? [
+            ...new Set(
+              nativeEffort.values.map(fromKiroEffort).filter((effort) => EFFORTS.has(effort)),
+            ),
+          ]
+        : (prior?.reasoningEfforts ?? documented?.reasoningEfforts);
+    const defaultReasoningEffort =
+      prior?.defaultReasoningEffort ?? documented?.defaultReasoningEffort;
+    list.push({
+      id,
+      displayName: name || id,
+      ...(reasoningEfforts !== undefined && { reasoningEfforts }),
+      ...(defaultReasoningEffort !== undefined &&
+        reasoningEfforts?.includes(defaultReasoningEffort) && { defaultReasoningEffort }),
+    });
   };
   const state = record(models);
   let current: unknown = state?.currentModelId;
@@ -90,9 +168,8 @@ export function kiroModels(configOptions: unknown, models?: unknown): AccountMod
     }
   }
   if (list.length === 0) {
-    const option = modelOption(configOptions);
-    current = option?.currentValue;
-    for (const entry of selectEntries(option?.options)) add(entry.value, entry.name);
+    current = nativeModel?.currentValue;
+    for (const entry of selectEntries(nativeModel?.options)) add(entry.value, entry.name);
   }
   if (list.length === 0) return undefined;
   return {

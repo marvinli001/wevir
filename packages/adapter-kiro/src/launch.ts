@@ -11,6 +11,7 @@ import path from 'node:path';
 import {
   type AcpLauncher,
   type AcpPreparedLaunch,
+  compareVersions,
   type ExternalExecutableSpec,
   type ResolvedExecutable,
   resolveExternalExecutable,
@@ -232,11 +233,46 @@ export interface KiroExecutable {
   env: NodeJS.ProcessEnv;
 }
 
-/**
- * `kiro-cli` 作 ACP 服务的参数：固定用 v2 引擎（`acp` 的默认；用户在设置里改成 v3 时它换成别的扩展与 `set_config_option`，
- * Wevir 的映射按 v2 写）。
- */
+export type KiroGeneration = 'v2' | 'v3';
+
+const KIRO_V3_MIN_VERSION = '3.0.0';
+const KIRO_V3_ID_PREFIX = 'kiro-v3:';
+
+/** CLI 3.0 正式启用 V3。可选协议能力仍由当前 ACP 连接协商。 */
+export function kiroGenerationForVersion(version: string | undefined): KiroGeneration {
+  return version !== undefined &&
+    !version.includes('-') &&
+    compareVersions(version, KIRO_V3_MIN_VERSION) >= 0
+    ? 'v3'
+    : 'v2';
+}
+
+/** V2 与 V3 的历史分别保存在各自的会话库里；已有会话 ID 属于 V2。 */
+export function encodeKiroSessionId(id: string, generation: KiroGeneration): string {
+  return generation === 'v3' ? `${KIRO_V3_ID_PREFIX}${id}` : id;
+}
+
+export function decodeKiroSessionId(id: string): { id: string; generation: KiroGeneration } {
+  return id.startsWith(KIRO_V3_ID_PREFIX)
+    ? { id: id.slice(KIRO_V3_ID_PREFIX.length), generation: 'v3' }
+    : { id, generation: 'v2' };
+}
+
 export const KIRO_ACP_ARGS: readonly string[] = ['acp', '--agent-engine', 'v2'];
+const KIRO_V3_ACP_ARGS: readonly string[] = ['acp', '--agent-engine=v3', '--auth-method=cli'];
+
+function acpArgs(generation: KiroGeneration, version: string | undefined): readonly string[] {
+  if (generation === 'v3') {
+    if (kiroGenerationForVersion(version) !== 'v3') {
+      throw new Error(`This Kiro session requires Kiro CLI ${KIRO_V3_MIN_VERSION} or later.`);
+    }
+    return KIRO_V3_ACP_ARGS;
+  }
+  // `acp --agent-engine` was added in 2.36. Older CLI versions use their built-in harness.
+  return version !== undefined && compareVersions(version, '2.36.0') >= 0 ? KIRO_ACP_ARGS : ['acp'];
+}
+
+type VersionedKiroExecutable = KiroExecutable & { version: string | undefined };
 
 /**
  * 官方的 `kiro-cli acp` 进程的启动器（`AcpLauncher`）：每次启动前重新取可执行文件（用户可能刚换了路径或装上 Kiro），工作
@@ -245,20 +281,27 @@ export const KIRO_ACP_ARGS: readonly string[] = ['acp', '--agent-engine', 'v2'];
  */
 export class KiroLauncher implements AcpLauncher {
   readonly #workDir: string;
-  readonly #resolve: () => Promise<KiroExecutable>;
+  readonly #resolve: () => Promise<VersionedKiroExecutable>;
+  readonly #generation: KiroGeneration;
 
-  constructor(workDir: string, resolve: () => Promise<KiroExecutable>) {
+  constructor(
+    workDir: string,
+    resolve: () => Promise<VersionedKiroExecutable>,
+    generation: KiroGeneration,
+  ) {
     this.#workDir = workDir;
     this.#resolve = resolve;
+    this.#generation = generation;
   }
 
   async prepare(): Promise<AcpPreparedLaunch> {
     const executable = await this.#resolve();
+    const args = acpArgs(this.#generation, executable.version);
     mkdirSync(this.#workDir, { recursive: true });
     return {
       spawnSpec: () => ({
         command: executable.path,
-        args: [...KIRO_ACP_ARGS],
+        args: [...args],
         options: {
           cwd: this.#workDir,
           env: executable.env,

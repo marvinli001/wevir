@@ -4,10 +4,15 @@
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SessionId, TurnId, WevirEvent } from '@wevir/protocol';
-import type { AgentEvent } from '@wevir/runtime-adapter';
+import type { AgentEvent, AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
-import { FileSecretStore } from '@wevir/storage';
+import { FileSecretStore, type ProviderProfileRecord } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  fakeKiroAdapter,
+  fakeKiroEnv,
+  readLog,
+} from '../../adapter-kiro/src/test-fixtures/harness.js';
 import { EventStore } from './event-store.js';
 import { createHostMethods } from './host-methods.js';
 import { SessionManager } from './session-manager.js';
@@ -24,6 +29,21 @@ afterEach(async () => {
 });
 
 function setup(adapter = new EchoAdapter({ stepDelayMs: 0 })) {
+  return setupHost(adapter, {
+    id: 'mock',
+    kind: 'openai-compatible',
+    displayName: 'Mock',
+    api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9/v1',
+    models: [{ id: 'm' }],
+    defaultModelId: 'm',
+  });
+}
+
+function setupHost<A extends AgentRuntimeAdapter>(
+  adapter: A,
+  provider: Omit<ProviderProfileRecord, 'createdAt' | 'updatedAt'>,
+) {
   harnesses += 1;
   const root = join(realpathSync(tempDir()), `h${harnesses}`);
   mkdirSync(root);
@@ -38,17 +58,7 @@ function setup(adapter = new EchoAdapter({ stepDelayMs: 0 })) {
     createdAt: T0,
     updatedAt: T0,
   });
-  storage.providers.insert({
-    id: 'mock',
-    kind: 'openai-compatible',
-    displayName: 'Mock',
-    api: 'openai-completions',
-    baseURL: 'http://127.0.0.1:9/v1',
-    models: [{ id: 'm' }],
-    defaultModelId: 'm',
-    createdAt: T0,
-    updatedAt: T0,
-  });
+  storage.providers.insert({ ...provider, createdAt: T0, updatedAt: T0 });
   const errors: unknown[] = [];
   const events = new EventStore({ storage, deltaWindowMs: 5, onError: (e) => errors.push(e) });
   const manager = new SessionManager({ storage, events, adapter, onError: (e) => errors.push(e) });
@@ -63,7 +73,7 @@ function setup(adapter = new EchoAdapter({ stepDelayMs: 0 })) {
     (
       await manager.create({
         workspaceId: 'ws_1',
-        providerId: 'mock',
+        providerId: provider.id,
         permissionMode: 'full_access',
         reasoningEffort: 'high',
       })
@@ -97,6 +107,68 @@ function transcript(events: readonly WevirEvent[]): string[] {
 }
 
 describe('session.fork 分支（0.38.0）', () => {
+  it('forks Kiro v3 history at the persisted native message and sends to the child', async () => {
+    const root = join(tempDir(), 'kiro-fork');
+    mkdirSync(root, { recursive: true });
+    const log = join(root, 'rpc.ndjson');
+    const adapter = fakeKiroAdapter(
+      root,
+      fakeKiroEnv({
+        FAKE_KIRO_VERSION: '3.2.0',
+        FAKE_KIRO_SIGNED_IN: '1',
+        FAKE_KIRO_STORE: join(root, 'sessions'),
+        FAKE_KIRO_LOG: log,
+      }),
+    );
+    const h = setupHost(adapter, {
+      id: 'kiro',
+      kind: 'kiro',
+      displayName: 'Kiro',
+      models: [{ id: 'auto' }],
+      defaultModelId: 'auto',
+    });
+    try {
+      const { session: source } = await h.methods['session.create'](
+        { workspaceId: 'ws_1', providerId: 'kiro' },
+        context,
+      );
+      for (const text of ['first', 'second']) {
+        await h.send(source.id, text);
+        await h.settle(source.id);
+      }
+      const first = h.all(source.id).find((event) => event.type === 'turn.finished');
+      const nativePrompt = readLog(log).find((entry) => entry.method === 'session/prompt');
+      expect(first?.payload.engineRef).toMatchObject({
+        engineSessionId: expect.stringMatching(/^kiro-v3:/),
+        messageId: `native-user-message-${nativePrompt?.id}`,
+      });
+      const { session: branch } = await h.methods['session.fork'](
+        { sessionId: source.id, turnId: first?.payload.turnId },
+        context,
+      );
+      const branchId = h.storage.sessions.get(branch.id)?.engineSessionId;
+      expect(branchId).toMatch(/^kiro-v3:/);
+      expect(readLog(log).find((entry) => entry.method === 'session/fork')).toMatchObject({
+        params: {
+          sessionId: nativePrompt?.params.sessionId,
+          _meta: { kiro: { messageId: first?.payload.engineRef?.messageId } },
+        },
+      });
+      expect(transcript(h.all(branch.id))).toEqual(['> first', 'echo: first']);
+
+      await h.send(branch.id, 'follow-up');
+      await h.settle(branch.id);
+      expect(h.answer(branch.id)).toBe('echo: follow-up');
+      expect(readLog(log).findLast((entry) => entry.method === 'session/prompt')).toMatchObject({
+        params: { sessionId: branchId?.slice('kiro-v3:'.length) },
+      });
+      expect(h.errors).toEqual([]);
+    } finally {
+      await h.manager.dispose();
+      await adapter.dispose();
+    }
+  });
+
   it('从中间的回合分：顶层会话，标题与设置沿用，带到那个回合为止的消息记录，引擎只记得那些回合；原会话不受影响', async () => {
     const h = setup();
     const main = await h.create();
@@ -196,6 +268,76 @@ describe('session.fork 分支（0.38.0）', () => {
     const before = h.events.snapshot(branch.id)?.session;
     const replayed = new EventStore({ storage: h.storage }).snapshot(branch.id)?.session;
     expect(replayed).toEqual(before);
+  });
+
+  it('uses the original native fork point after restart and leaves copied points unbound', async () => {
+    class MessageBoundEcho extends EchoAdapter {
+      #next = 0;
+
+      override async *subscribe(engineSessionId: string): AsyncGenerator<AgentEvent> {
+        for await (const event of super.subscribe(engineSessionId)) {
+          if (event.type === 'turn.settled' && event.stopReason !== 'compacted') {
+            yield {
+              type: 'turn.bound',
+              engineSessionId,
+              engineTurnId: `message-${++this.#next}`,
+              forkPoint: true,
+            };
+          }
+          yield event;
+        }
+      }
+    }
+    const h = setup(new MessageBoundEcho({ stepDelayMs: 0 }));
+    const main = await h.create();
+    await h.send(main, 'one');
+    await h.settle(main);
+    const [first] = turnIds(h.all(main)) as [TurnId];
+    vi.spyOn(h.adapter, 'send').mockRejectedValueOnce(new Error('engine refused the prompt'));
+    await h.send(main, 'interrupted');
+    await h.manager.resume(main);
+    await h.manager.compact(main);
+    await h.settle(main);
+    await h.send(main, 'two');
+    await h.settle(main);
+    await h.manager.dispose();
+
+    const events = new EventStore({ storage: h.storage });
+    const manager = new SessionManager({ storage: h.storage, events, adapter: h.adapter });
+    managers.push(manager);
+    const nativeFork = h.adapter.fork.bind(h.adapter);
+    const fork = vi
+      .spyOn(h.adapter, 'fork')
+      .mockImplementationOnce((id, config) =>
+        nativeFork(id, config, { kind: 'branch', dropTurns: 2 }),
+      );
+    const branch = await manager.fork({ sessionId: main, turnId: first });
+    expect(fork).toHaveBeenLastCalledWith(expect.any(String), expect.any(Object), {
+      kind: 'branch',
+      dropTurns: 3,
+      nativeTurnId: 'message-1',
+      atHead: false,
+    });
+    expect(transcript(events.readSince(branch.id, 0))).toEqual(['> one', 'Echo: one']);
+
+    await manager.fork({ sessionId: branch.id });
+    expect(fork).toHaveBeenLastCalledWith(expect.any(String), expect.any(Object), {
+      kind: 'branch',
+      dropTurns: 0,
+      atHead: true,
+    });
+
+    await manager.send(
+      { sessionId: branch.id, content: [{ type: 'text', text: 'three' }] },
+      identity,
+    );
+    await h.settle(branch.id);
+    await manager.fork({ sessionId: branch.id, turnId: first });
+    expect(fork).toHaveBeenLastCalledWith(expect.any(String), expect.any(Object), {
+      kind: 'branch',
+      dropTurns: 1,
+      atHead: false,
+    });
   });
 });
 

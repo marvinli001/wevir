@@ -375,7 +375,16 @@ export interface EngineSession {
  * 新会话（持久化的普通会话，没有边界说明），去掉最后 `dropTurns` 个完成的回合，带到它们之前为止（0 表示到最近一个完成的回合）。
  * 回合按引擎自己的回合数，从后往前数，Host 数的是它的回合里没被撤回的（domain-model §3.18）。
  */
-export type ForkOptions = { kind: 'side' } | { kind: 'branch'; dropTurns: number };
+export type ForkOptions =
+  | { kind: 'side' }
+  | {
+      kind: 'branch';
+      dropTurns: number;
+      /** The engine's persisted reference for the selected turn, when it reported one. */
+      nativeTurnId?: string;
+      /** The target is the latest finished turn and no turn is running. */
+      atHead?: boolean;
+    };
 
 /** 用户输入的一段文本。 */
 export interface AgentTextInput {

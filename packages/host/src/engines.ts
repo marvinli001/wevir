@@ -170,8 +170,7 @@ export function subscriptionEngines(
       }),
       kinds: ['copilot'],
     },
-    // Kiro（kiro-event-mapping.md）：用户自己装的或 Wevir 下载的 `kiro-cli acp`（v2 引擎）与 Kiro 自己存的登录，复用通用 ACP 与
-    // MCP 桥；完全访问由 Wevir 批准它的权限请求，恢复用 session/load，换模型用 session/set_model。
+    // Kiro 使用 CLI 自管登录及通用 ACP MCP 桥。CLI 3.x 的新会话用 V3，存量会话继续通过原引擎加载。
     {
       name: 'kiro',
       adapter: new KiroAdapter({

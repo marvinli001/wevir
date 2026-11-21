@@ -369,6 +369,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   }
 
   async createSession(config: SessionConfig): Promise<EngineSession> {
+    return this.activateNewSession(config);
+  }
+
+  protected async activateNewSession(
+    config: SessionConfig,
+    fork?: { sessionId: string; _meta: Record<string, unknown> },
+  ): Promise<EngineSession> {
     this.assertUsable();
     if (!config.cwd) throw new AdapterError('invalid_input', 'cwd 不能为空');
     const connection = await this.#readyConnection();
@@ -381,15 +388,18 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         models?: unknown;
       };
       try {
-        response = await this.#withAuth(() =>
-          connection.agent.request(methods.agent.session.new, {
+        response = await this.#withAuth<typeof response>(() => {
+          const params = {
             cwd: config.cwd,
             mcpServers: this.#sessionMcpServers(config),
             _meta: this.sessionMeta(config),
-          }),
-        );
+          };
+          return fork === undefined
+            ? connection.agent.request(methods.agent.session.new, params)
+            : connection.agent.request('session/fork', { ...params, ...fork });
+        });
       } catch (error) {
-        throw engineError(error, 'session/new');
+        throw engineError(error, fork === undefined ? 'session/new' : 'session/fork');
       }
       const id = response.sessionId;
       const options = this.#activationOptions(id, response.configOptions, response.models);
@@ -540,6 +550,30 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     this.#validateModel(session.configOptions.value, session.selection);
     const connection = this.process.connection;
+    let outcome: ReturnType<AcpAdapter['watchPromptOutcome']>;
+    this.startRequestTurn(
+      engineSessionId,
+      () => {
+        const meta = this.promptMeta(engineSessionId);
+        outcome = this.watchPromptOutcome(engineSessionId);
+        return connection.agent.request(methods.agent.session.prompt, {
+          sessionId: engineSessionId,
+          prompt: blocks,
+          ...(meta !== undefined && { _meta: meta }),
+        });
+      },
+      (response) => outcome?.(response),
+    );
+  }
+
+  /** 跟踪一个在 RPC 返回时结算的回合。 */
+  protected startRequestTurn(
+    engineSessionId: string,
+    request: () => Promise<PromptResponse>,
+    outcome?: (response: PromptResponse) => TurnFailedEvent | undefined,
+  ): void {
+    const session = this.#openSession(engineSessionId);
+    if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     let finish!: () => void;
     const done = new Promise<void>((resolve) => {
       finish = resolve;
@@ -548,15 +582,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     session.turn = turn;
     session.toolCalls.clear();
     session.queue.beginTurn();
-    const meta = this.promptMeta(engineSessionId);
-    const outcome = this.watchPromptOutcome(engineSessionId);
-    // ACP 的 session/prompt 到回合结束才返回（适配器接口注释第 7 条），这里发出请求就返回。
-    const prompt: Promise<PromptResponse> = connection.agent.request(methods.agent.session.prompt, {
-      sessionId: engineSessionId,
-      prompt: blocks,
-      ...(meta !== undefined && { _meta: meta }),
-    });
-    prompt.then(
+    const operation = (async () => request())();
+    operation.then(
       (response) => {
         if (session.turn !== turn || turn.settle !== undefined) return;
         const failure = turn.cancelRequested ? undefined : outcome?.(response);
@@ -841,6 +868,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     engineSessionId: string,
     compactionId: string,
     phase: 'compacting' | 'compacted',
+    trigger: 'auto' | 'manual' = 'auto',
   ): boolean {
     const session = this.#sessions.get(engineSessionId);
     if (session?.status !== 'open' || !session.queue.inTurn) return false;
@@ -848,7 +876,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       type: phase === 'compacting' ? 'context.compacting' : 'context.compacted',
       engineSessionId,
       compactionId: `${engineSessionId}:${compactionId}`,
-      trigger: 'auto',
+      trigger,
     });
     return true;
   }
@@ -857,6 +885,17 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   protected inTurn(engineSessionId: string): boolean {
     const session = this.#sessions.get(engineSessionId);
     return session?.status === 'open' && session.turn !== undefined;
+  }
+
+  protected acceptsSteer(engineSessionId: string): boolean {
+    const turn = this.#openSession(engineSessionId).turn;
+    return turn !== undefined && !turn.cancelRequested && turn.settle === undefined;
+  }
+
+  protected reportTurnEvent(
+    event: Extract<AgentEvent, { type: 'turn.bound' | 'turn.steered' }>,
+  ): void {
+    this.#sessions.get(event.engineSessionId)?.queue.turnEvent(event);
   }
 
   /**

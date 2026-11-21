@@ -251,6 +251,8 @@ export interface AgentRuntimeAdapter {
    * Host 才声明 `session_branches`、在 `engineFeatures` 里报 `branch`。
    */
   readonly branches?: boolean;
+  /** A persistent-only fork implementation must opt out of ephemeral side sessions. */
+  readonly sideSessions?: boolean;
 
   /**
    * 一次撤回最后 `count` 个已结束的原生回合，默认一个。Host 提供最早一个的原生 ID 时必须与引擎历史相符（Codex：

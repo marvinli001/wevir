@@ -19,6 +19,7 @@ import {
   type KiroExecutable,
   kiroApiKeyEnv,
   kiroEnv,
+  kiroGenerationForVersion,
   kiroInstallCommand,
   kiroLoginCommand,
   managedKiroEnv,
@@ -382,7 +383,7 @@ export class KiroAccounts implements EngineAccounts {
 
   /** 会话建起来时见到的模型列表（`session/new` 的 `models` 或 `configOptions`）：换上它。 */
   noteSessionModels(configOptions: unknown, models?: unknown): void {
-    const next = kiroModels(configOptions, models);
+    const next = kiroModels(configOptions, models, this.#models);
     if (next === undefined || this.#disposed) return;
     this.#models = next;
   }
@@ -594,7 +595,9 @@ export class KiroAccounts implements EngineAccounts {
       signal,
     );
     const models =
-      modelRun.ok && modelRun.code === 0 ? parseKiroModelList(modelRun.stdout) : undefined;
+      modelRun.ok && modelRun.code === 0
+        ? parseKiroModelList(modelRun.stdout, kiroGenerationForVersion(version) === 'v3')
+        : undefined;
     return {
       executable,
       ...(models !== undefined && { models }),

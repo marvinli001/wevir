@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 合成的 Kiro CLI：不登录、不联网、不运行工具。形状依据 2.36.0 的官方程序与 ACP 文档，非真实账号录音。
+// 合成的 Kiro CLI：不登录、不联网、不运行工具。形状依据官方 ACP 文档和 Kiro 的配置通知，非真实账号录音。
 import { spawn } from 'node:child_process';
 import {
   appendFileSync,
@@ -96,6 +96,10 @@ if (args[0] === 'login') {
     }, 25);
   }
 } else if (args[0] === 'acp') {
+  if (args.includes('--agent-engine=v3') && env.FAKE_KIRO_V3_UNSUPPORTED === '1') {
+    process.stderr.write('V3 is currently not supported on this system\n');
+    process.exit(1);
+  }
   if (!signedIn()) {
     process.stderr.write(
       'Not logged in. Set the KIRO_API_KEY environment variable or run `kiro-cli login` first.\n',
@@ -108,6 +112,8 @@ if (args[0] === 'login') {
 }
 
 function serve() {
+  const v3 = args.includes('--agent-engine=v3');
+  const extensions = v3 && env.FAKE_KIRO_V3_EXTENSIONS !== '0';
   if (process.platform === 'win32') {
     const launcher = process.ppid;
     setInterval(() => {
@@ -128,6 +134,11 @@ function serve() {
     process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
   const update = (sessionId, value) =>
     send({ method: 'session/update', params: { sessionId, update: value } });
+  const info = (sessionId, kind, fields = {}) =>
+    update(sessionId, {
+      sessionUpdate: 'session_info_update',
+      _meta: { kiro: { kind, ...fields } },
+    });
   const sessions = new Map();
   const pending = new Map();
   let nextRequest = 1000;
@@ -142,35 +153,129 @@ function serve() {
     mkdirSync(env.FAKE_KIRO_STORE, { recursive: true });
     writeFileSync(
       join(env.FAKE_KIRO_STORE, `${id}.json`),
-      JSON.stringify({ cwd: state.cwd, model: state.model, history: state.history }),
+      JSON.stringify({
+        cwd: state.cwd,
+        model: state.model,
+        history: state.history,
+        ...(v3 && { v3, mode: state.mode, effort: state.effort, turns: state.turns }),
+      }),
     );
   }
   function restore(id) {
     if (!env.FAKE_KIRO_STORE) return undefined;
     const file = join(env.FAKE_KIRO_STORE, `${id}.json`);
-    return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : undefined;
+    if (!existsSync(file)) return undefined;
+    const state = JSON.parse(readFileSync(file, 'utf8'));
+    if (Boolean(state.v3) !== v3) return undefined;
+    return v3 ? { ...state, modelAdvertised: true, autopilot: 'on' } : state;
   }
   function models(state) {
     const value = sample('models');
     value.currentModelId = state.model;
     return value;
   }
+  function options(state) {
+    const select = (id, currentValue, values, category) => ({
+      id,
+      name: id,
+      type: 'select',
+      currentValue,
+      ...(category && { category }),
+      options: values.map((value) => ({ value, name: value })),
+    });
+    return [
+      select('mode', state.mode, ['vibe', 'custom', 'fixture-custom', 'plan'], 'mode'),
+      select('autopilot', state.autopilot, ['off', 'on']),
+      ...(state.modelAdvertised
+        ? [
+            select(
+              'model',
+              state.model,
+              sample('models').availableModels.map((model) => model.modelId),
+              'model',
+            ),
+            select('effortLevel', state.effort, ['medium', 'high', 'max']),
+          ]
+        : []),
+    ];
+  }
+  const sessionChoices = (state) =>
+    v3 ? { configOptions: options(state) } : { models: models(state), modes: sample('modes') };
+  function newSession(cwd, original) {
+    const sessionId = `kiro-fake-${process.pid}-${sessions.size + 1}-${nextRequest++}`;
+    const state = {
+      cwd,
+      model: 'auto',
+      history: [...(original?.history ?? [])],
+      ...(v3 && {
+        mode: original?.mode ?? 'custom',
+        autopilot: 'on',
+        effort: 'medium',
+        turns: [...(original?.turns ?? [])],
+      }),
+    };
+    sessions.set(sessionId, state);
+    persist(sessionId, state);
+    if (env.FAKE_KIRO_SESSION_LOG)
+      appendFileSync(env.FAKE_KIRO_SESSION_LOG, `${JSON.stringify({ new: sessionId })}\n`);
+    return { sessionId, ...sessionChoices(state) };
+  }
+  const publishConfig = (sessionId, state) =>
+    update(sessionId, { sessionUpdate: 'config_option_update', configOptions: options(state) });
   const handlers = {
-    initialize: () => sample('initialize'),
-    'session/new': (params) => {
-      const sessionId = `kiro-fake-${process.pid}-${sessions.size + 1}-${nextRequest++}`;
-      const state = { cwd: params.cwd, model: 'auto', history: [] };
-      sessions.set(sessionId, state);
-      persist(sessionId, state);
-      if (env.FAKE_KIRO_SESSION_LOG)
-        appendFileSync(env.FAKE_KIRO_SESSION_LOG, `${JSON.stringify({ new: sessionId })}\n`);
-      return { sessionId, models: models(state), modes: sample('modes') };
+    initialize: () => {
+      const result = sample('initialize');
+      result.agentInfo.version = env.FAKE_KIRO_VERSION ?? result.agentInfo.version;
+      if (v3) result.protocolVersion = 2;
+      if (extensions) {
+        result.agentCapabilities.sessionCapabilities = {
+          fork: { _meta: { kiro: { messageId: true } } },
+        };
+        result.agentCapabilities._meta = {
+          kiro: { extensionMethods: ['_session/steer', '_kiro/session/compact'] },
+        };
+      }
+      return result;
     },
+    'session/new': ({ cwd }) => newSession(cwd),
     'session/resume': () => {
       throw { code: -32601, message: 'Method not found' };
     },
-    'session/set_config_option': () => {
-      throw { code: -32601, message: 'Method not found' };
+    'session/set_config_option': ({ sessionId, configId, value }) => {
+      if (!v3) throw { code: -32601, message: 'Method not found' };
+      const state = sessions.get(sessionId);
+      if (!state) throw sample('notFound');
+      const stale = sessionChoices(state);
+      switch (configId) {
+        case 'model': {
+          state.model = value;
+          state.effort = 'medium';
+          state.modelAdvertised = false;
+          const advertise = () => {
+            state.modelAdvertised = true;
+            publishConfig(sessionId, state);
+          };
+          if (env.FAKE_KIRO_V3_UPDATE_FIRST === '1') advertise();
+          else setTimeout(advertise, 30);
+          return stale;
+        }
+        case 'effortLevel':
+          if (!state.modelAdvertised) throw { code: -32602, message: 'Effort unavailable' };
+          state.effort = value;
+          break;
+        case 'mode':
+          state.mode = value;
+          state.model = 'auto';
+          state.effort = 'medium';
+          state.autopilot = 'on';
+          break;
+        case 'autopilot':
+          state.autopilot = value;
+          break;
+        default:
+          throw { code: -32602, message: 'Unknown configuration option' };
+      }
+      return sessionChoices(state);
     },
     'session/close': (params) => {
       if (env.FAKE_KIRO_SESSION_LOG)
@@ -181,6 +286,7 @@ function serve() {
       return {};
     },
     'session/set_model': (params) => {
+      if (v3) throw { code: -32601, message: 'Method not found' };
       const state = sessions.get(params.sessionId);
       if (!state) throw sample('notFound');
       if (!sample('models').availableModels.some((model) => model.modelId === params.modelId))
@@ -188,6 +294,34 @@ function serve() {
       state.model = params.modelId;
       persist(params.sessionId, state);
       return {};
+    },
+    '_session/steer': ({ sessionId, message }) => {
+      if (!extensions) throw { code: -32601, message: 'Method not found' };
+      const messageId = `native-steer-${++nextRequest}`;
+      info(sessionId, 'steering_queued', { messageId });
+      if (message === 'inject now') info(sessionId, 'steering_injected', { messageId });
+      return { messageId, queued: true };
+    },
+    '_kiro/session/compact': ({ sessionId }) => {
+      if (!extensions) throw { code: -32601, message: 'Method not found' };
+      info(sessionId, 'summarization_completed', { summarization: { status: 'success' } });
+      return { success: true };
+    },
+    'session/fork': ({ sessionId, cwd, _meta }) => {
+      if (!extensions) throw { code: -32601, message: 'Method not found' };
+      const state = sessions.get(sessionId);
+      if (!state) throw sample('notFound');
+      const boundary = _meta?.kiro?.messageId;
+      const position =
+        boundary === undefined ? state.turns.length : state.turns.indexOf(boundary) + 1;
+      if (boundary !== undefined && position === 0)
+        throw { code: -32602, message: 'Unknown fork boundary' };
+      const fork = newSession(cwd, {
+        ...state,
+        history: state.history.slice(0, position),
+        turns: state.turns.slice(0, position),
+      });
+      return env.FAKE_KIRO_V3_SPARSE_FORK === '1' ? { sessionId: fork.sessionId } : fork;
     },
   };
 
@@ -205,7 +339,7 @@ function serve() {
         content: { type: 'text', text: `echo: ${text}` },
       });
     }
-    send({ id, result: { models: models(state), modes: sample('modes') } });
+    send({ id, result: sessionChoices(state) });
   }
 
   async function prompt(id, params) {
@@ -237,6 +371,16 @@ function serve() {
     );
     state.acceptCancel = true;
     const text = params.prompt?.find((part) => part.type === 'text')?.text ?? '';
+    if (v3) {
+      const messageId = `native-user-message-${id}`;
+      state.turns.push(messageId);
+      info(sessionId, 'user_message_id_assigned', { userMessageId: messageId });
+      if (env.FAKE_KIRO_SESSION_LOG) {
+        const { mode, model, autopilot, effort } = state;
+        const entry = { prompt: { mode, model, autopilot, effort } };
+        appendFileSync(env.FAKE_KIRO_SESSION_LOG, `${JSON.stringify(entry)}\n`);
+      }
+    }
     const emit = (name) => update(sessionId, sample(name));
     let stopReason = 'end_turn';
     try {
@@ -294,29 +438,32 @@ function serve() {
         await new Promise((resolve) => setTimeout(resolve, 20));
       } else if (
         text === 'approval' ||
+        text === 'approval-read' ||
         text === 'approval-no-start' ||
         text === 'approval-id-only' ||
         text === 'approval-always-only'
       ) {
         const toolCallId = `tool-${id}`;
-        const rawInput = { command: 'echo ok > approve.txt' };
+        const tool =
+          text === 'approval-read'
+            ? { title: 'fs_read', kind: 'read', rawInput: { path: 'fixture.txt' } }
+            : {
+                title: 'execute_bash',
+                kind: 'execute',
+                rawInput: { command: 'echo ok > approve.txt' },
+              };
         if (text !== 'approval-no-start')
           update(sessionId, {
             sessionUpdate: 'tool_call',
             toolCallId,
-            title: 'execute_bash',
-            kind: 'execute',
             status: 'pending',
-            rawInput,
+            ...tool,
           });
         const answer = await Promise.race([
           request('session/request_permission', {
             sessionId,
             // ACP 允许审批请求只用 toolCallId 指向已报过的工具调用。
-            toolCall:
-              text === 'approval-id-only'
-                ? { toolCallId }
-                : { toolCallId, title: 'execute_bash', kind: 'execute', rawInput },
+            toolCall: text === 'approval-id-only' ? { toolCallId } : { toolCallId, ...tool },
             options: sample('permissionOptions').filter(
               (option) => text !== 'approval-always-only' || option.kind !== 'allow_once',
             ),
@@ -370,7 +517,7 @@ function serve() {
         persist(sessionId, state);
       }
       // Kiro 的扩展通知：适配器不认识，SDK 丢掉。
-      send({ method: '_kiro.dev/metadata', params: { sessionId, ...sample('metadata') } });
+      if (!v3) send({ method: '_kiro.dev/metadata', params: { sessionId, ...sample('metadata') } });
       send({ id, result: { stopReason } });
     } catch (error) {
       send({ id, error: { code: -32603, message: error.message } });

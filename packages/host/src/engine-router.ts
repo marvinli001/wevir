@@ -82,6 +82,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly appTools?: boolean;
   readonly planMode?: boolean;
   readonly branches?: boolean;
+  readonly sideSessions: boolean;
   readonly accounts?: EngineAccounts;
   /** 0.63.0：能给添加的账号开引擎时有（构造时给了 `accountEngines`）。 */
   readonly accountPool?: AccountPool;
@@ -163,6 +164,9 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.appTools === true)) this.appTools = true;
     if (adapters.some((adapter) => adapter.planMode === true)) this.planMode = true;
     if (adapters.some((adapter) => adapter.branches === true)) this.branches = true;
+    this.sideSessions = adapters.some(
+      (adapter) => adapter.fork !== undefined && adapter.sideSessions !== false,
+    );
     const accounts = routes.flatMap((route) =>
       route.adapter.accounts === undefined || route.providerIds !== undefined
         ? []
@@ -190,6 +194,9 @@ export class EngineRouter implements AgentRuntimeAdapter {
       this.fork = async (id, config, options) => {
         const route = this.#forSession(id);
         if (route.adapter.fork === undefined) throw unsupported(route, 'fork');
+        if (options?.kind !== 'branch' && route.adapter.sideSessions === false) {
+          throw unsupported(route, 'side sessions');
+        }
         if (options?.kind === 'branch' && route.adapter.branches !== true) {
           throw unsupported(route, 'branching');
         }
@@ -603,7 +610,7 @@ export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): En
     skills: adapter.skills === true,
     ...(adapter.steer !== undefined && { steer: true }),
     ...(adapter.configureSession !== undefined && { configure: true }),
-    ...(adapter.fork !== undefined && { fork: true }),
+    ...(adapter.fork !== undefined && adapter.sideSessions !== false && { fork: true }),
     ...(adapter.respondToQuestion !== undefined && { questions: true }),
     ...(adapter.permissionModes !== undefined && { permissionModes: [...adapter.permissionModes] }),
     ...(adapter.additionalRoots === true && { additionalRoots: true }),

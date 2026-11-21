@@ -82,6 +82,7 @@ import {
   type UserImagePart,
   type UserQuestion,
   type WevirEvent,
+  type WevirEventPayload,
   type WevirEventType,
   type WorkspaceId,
   type WrapUpAction,
@@ -589,6 +590,7 @@ interface FinishedSessionTurn {
   turnId: TurnId;
   seq: number;
   outcome: TurnOutcome;
+  engineRef?: NonNullable<WevirEventPayload<'turn.finished'>['engineRef']>;
 }
 
 /** 进行中的回合在 Host 内存里的部分：引擎 ID 到 Host ID 的映射、未收尾的工具。 */
@@ -602,6 +604,7 @@ interface TurnRuntime {
   readonly tools: Map<string, ToolInfo>;
   /** `turn.finished` 写入时完成。 */
   readonly finished: Deferred;
+  forkPoint?: string;
   continuation?: 'manual' | 'on_restart';
   /**
    * 回合在 `cancelling` 时加入的待发消息（R11，domain-model §4.6）：用户按了停止之后又发的，取消结算后不暂停、照常发出。
@@ -2771,11 +2774,15 @@ export class SessionManager {
     const steer = this.#adapter.steer?.bind(this.#adapter);
     if (steer === undefined) return;
     try {
-      await steer(
-        runtime.engineSessionId,
-        pending.id,
-        await this.#agentInput(relayContent(pending.from, pastedContent(pending.content))),
+      const input = await this.#agentInput(
+        relayContent(pending.from, pastedContent(pending.content)),
       );
+      await steer(runtime.engineSessionId, pending.id, {
+        ...input,
+        ...(pending.collaborationMode !== undefined && {
+          collaborationMode: pending.collaborationMode,
+        }),
+      });
     } catch (error) {
       if (this.#disposed) return;
       const current = this.#events.pending(runtime.id, pending.id);
@@ -4527,9 +4534,17 @@ export class SessionManager {
       if (target.seq < handoffSeq) {
         throw refuse('the turn is from before the session switched models');
       }
+      const nativeTurnId =
+        target.engineRef?.engineSessionId === source.engineSessionId
+          ? target.engineRef.messageId
+          : undefined;
+      const atHead = session.state === 'idle' && index === turns.length - 1;
+      const following = turns.slice(index + 1);
       const dropTurns = side
         ? 0
-        : this.#nativeSuffix(source, target, turns.slice(index + 1)).afterCount;
+        : nativeTurnId === undefined
+          ? this.#nativeSuffix(source, target, following).afterCount
+          : following.length;
       if (!source.attachment) await this.#autoResume(source);
       if (!side && this.#adapter.supports?.(source.engineSessionId, 'branch') === false) {
         throw refuse("the session's engine cannot branch");
@@ -4593,7 +4608,14 @@ export class SessionManager {
         engineSession = await fork(
           source.engineSessionId,
           await this.#engineConfig(sessionId, config, rules),
-          side ? { kind: 'side' } : { kind: 'branch', dropTurns },
+          side
+            ? { kind: 'side' }
+            : {
+                kind: 'branch',
+                dropTurns,
+                ...(nativeTurnId !== undefined && { nativeTurnId }),
+                atHead,
+              },
         );
       } catch (error) {
         this.#creating.delete(sessionId);
@@ -5007,6 +5029,7 @@ export class SessionManager {
           turnId: event.payload.turnId,
           seq: event.seq,
           outcome: event.payload.outcome,
+          ...(event.payload.engineRef !== undefined && { engineRef: event.payload.engineRef }),
         });
       else if (event.type === 'turn.rewound') {
         const index = turns.findIndex((turn) => turn.turnId === event.payload.turnId);
@@ -6463,6 +6486,9 @@ ${JSON.stringify({ reviewId, action })}`;
             this.#boundTurns.get(runtime.engineSessionId) ?? new Map<string, TurnId>();
           bindings.set(event.engineTurnId, runtime.turn.turnId);
           this.#boundTurns.set(runtime.engineSessionId, bindings);
+          if (event.forkPoint && !runtime.turn.beforeSend && event.engineTurnId !== '') {
+            runtime.turn.forkPoint ??= event.engineTurnId;
+          }
         }
         return;
       }
@@ -7898,6 +7924,9 @@ ${JSON.stringify({ reviewId, action })}`;
         finalOutcome === 'cancelled' || finalOutcome === 'interrupted'
           ? turn.continuation
           : undefined,
+        turn.forkPoint === undefined
+          ? undefined
+          : { engineSessionId: runtime.engineSessionId, messageId: turn.forkPoint },
       ),
       stateChanged(state, 'idle', 'turn_finished'),
       // 待发消息（domain-model §4.6）：没插进去的插话改为排队；回合没完成就暂停（取消过程中加入的除外）。
@@ -8859,6 +8888,7 @@ function finishTurn(
   durationMs: number,
   engineStopReason?: string,
   continuation?: 'manual' | 'on_restart',
+  engineRef?: FinishedSessionTurn['engineRef'],
 ): AppendInput[] {
   const inputs: AppendInput[] = [...openTools].map((toolCallId) => ({
     type: 'tool.finished',
@@ -8874,6 +8904,7 @@ function finishTurn(
       durationMs,
       ...(engineStopReason !== undefined && { engineStopReason }),
       ...(continuation && { continuation }),
+      ...(engineRef !== undefined && { engineRef }),
     },
   });
   return inputs;

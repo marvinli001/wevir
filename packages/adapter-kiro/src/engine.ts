@@ -65,18 +65,17 @@ export const KIRO_COMPACTION_STATUS = '_kiro.dev/compaction/status';
 /** Kiro 每个回合与压缩之后重算的上下文用量（`contextUsagePercentage` 等）。 */
 export const KIRO_METADATA = '_kiro.dev/metadata';
 
-export const KIRO_ENGINE: AcpEngine = {
+const kiroModelRoute: AcpEngine['route'] = {
+  modelOption: 'model',
+  modelCategory: 'model',
+  encode: (_providerId, modelId) => (modelId === KIRO_DEFAULT_MODEL ? undefined : modelId),
+  decodeModel: (value) => value || undefined,
+};
+
+const kiroEngine = {
   name: 'kiro',
   version: 'unknown',
   capabilities: { toolCalls: true, approvals: true, resume: true, concurrentSessions: true },
-  route: {
-    // v2 引擎（`kiro-cli acp` 的默认，Wevir 固定用它）换模型用 ACP 的 `session/set_model`（kiro.dev/docs/cli/acp）。
-    modelMethod: 'set_model',
-    modelOption: 'model',
-    modelCategory: 'model',
-    encode: (_providerId, modelId) => (modelId === KIRO_DEFAULT_MODEL ? undefined : modelId),
-    decodeModel: (value) => value || undefined,
-  },
   tools: {
     display: kiroToolDisplay,
     isPlanTool: (name) => /^todo_?list$/i.test(name),
@@ -86,9 +85,19 @@ export const KIRO_ENGINE: AcpEngine = {
   images: true,
   // 声明 `loadSession: true`，没有 session/resume：用 session/load，适配器在恢复期间丢掉它回放的历史。
   resumeMethod: 'load',
+  classifyTurnError: classifyKiroTurnError,
+  classifyResumeError: classifyKiroResumeError,
+} satisfies Omit<AcpEngine, 'route'>;
+
+export const KIRO_ENGINE: AcpEngine = {
+  ...kiroEngine,
+  route: { ...kiroModelRoute, modelMethod: 'set_model' },
   sessionModels: withModelOption,
   // 压缩上下文（2.36.0 不发 ACP 的 `compaction_update`）：Kiro 自己的进度通知，与压缩后重算上下文用量的 `metadata`（kiro-adapter.ts）。
   extensions: { notifications: [KIRO_COMPACTION_STATUS, KIRO_METADATA] },
-  classifyTurnError: classifyKiroTurnError,
-  classifyResumeError: classifyKiroResumeError,
+};
+
+export const KIRO_V3_ENGINE: AcpEngine = {
+  ...kiroEngine,
+  route: { ...kiroModelRoute, modelMethod: 'config_option' },
 };
