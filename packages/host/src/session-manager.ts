@@ -6640,7 +6640,7 @@ ${JSON.stringify({ reviewId, action })}`;
         return;
       }
       case 'tool.finished': {
-        // 取消期间的 failed 记为 cancelled，原文保留（domain-model §6.4）。
+        // 引擎没区分失败和取消时，用回合是否正在取消推断，原文保留（domain-model §6.4）。
         const cancelling = this.#snapshot(runtime).session.state === 'cancelling';
         turn.openTools.delete(event.toolCallId);
         this.#write(runtime, [
@@ -6650,7 +6650,10 @@ ${JSON.stringify({ reviewId, action })}`;
             payload: {
               turnId,
               toolCallId: event.toolCallId,
-              status: event.status === 'failed' && cancelling ? 'cancelled' : event.status,
+              status:
+                event.status === 'failed' && event.failureConfirmed !== true && cancelling
+                  ? 'cancelled'
+                  : event.status,
               ...(event.exitCode !== undefined && { exitCode: event.exitCode }),
               ...(event.output !== undefined && {
                 output: {

@@ -564,6 +564,79 @@ describe('工具（录音 tool）', () => {
       output: expect.stringContaining('wevir fixture'),
     });
   });
+
+  it('同批工具按调用 ID 读取结果元数据，实际错误保留失败', async () => {
+    const toolResults = [
+      { id: 'cancel', kind: 'cancelled', status: 'cancelled' },
+      { id: 'interrupt', kind: 'interrupted', status: 'cancelled' },
+      { id: 'reject', kind: 'user-rejected', status: 'cancelled' },
+      { id: 'blocked', kind: 'permission-rule', status: 'failed' },
+      { id: 'fail', kind: undefined, status: 'failed' },
+    ];
+    const { adapter } = harness({
+      script: () => ({
+        steps: [
+          {
+            kind: 'message',
+            message: {
+              type: 'assistant',
+              parent_tool_use_id: null,
+              message: {
+                id: 'parallel-tools',
+                model: CONFIG.modelId,
+                content: toolResults.map(({ id }) => ({
+                  type: 'tool_use',
+                  id,
+                  name: 'Read',
+                  input: {},
+                })),
+              },
+            },
+          },
+          {
+            kind: 'message',
+            message: {
+              type: 'user',
+              parent_tool_use_id: null,
+              message: {
+                role: 'user',
+                content: toolResults.map(({ id }) => ({
+                  type: 'tool_result',
+                  tool_use_id: id,
+                  content: 'User cancelled tool execution.',
+                  is_error: true,
+                })),
+              },
+              tool_result_meta: [...toolResults]
+                .reverse()
+                .filter(({ kind }) => kind !== undefined)
+                .map(({ id, kind }) => ({ id, non_execution_kind: kind })),
+            },
+          },
+          ...recordedMessages('plain').map((message) => ({ kind: 'message' as const, message })),
+        ],
+      }),
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Run the tools'));
+    expect(await log.until(isTurnTerminal)).toMatchObject({ outcome: 'completed' });
+    expect(
+      log.events
+        .filter((event) => event.type === 'tool.finished')
+        .map(({ toolCallId, status, failureConfirmed }) => ({
+          id: toolCallId,
+          status,
+          failureConfirmed,
+        })),
+    ).toEqual(
+      toolResults.map(({ id, status }) => ({
+        id,
+        status,
+        failureConfirmed: status === 'failed' ? true : undefined,
+      })),
+    );
+  });
 });
 
 describe('审批（录音 approval.*）', () => {
@@ -656,14 +729,28 @@ describe('审批（录音 approval.*）', () => {
     await adapter.respondToApproval(engineSessionId, request.requestId, { optionId: 'decline' });
   });
 
-  it('拒绝并停止：Claude 中断回合，按取消结算', async () => {
+  it.each([
+    { optionId: 'decline', outcome: 'completed' },
+    { optionId: 'cancel', outcome: 'cancelled' },
+  ])('拒绝 $optionId 时工具记为取消，回合结算为 $outcome', async ({ optionId, outcome }) => {
     const { adapter } = harness();
     const { engineSessionId, log, request } = await approval(adapter);
-    await adapter.respondToApproval(engineSessionId, request.requestId, { optionId: 'cancel' });
-    const terminal = await log.until(isTurnTerminal);
-    expect(terminal).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
+    await adapter.respondToApproval(engineSessionId, request.requestId, { optionId });
+    expect(await log.until(isTurnTerminal)).toMatchObject({ type: 'turn.settled', outcome });
     expect(log.events.find((event) => event.type === 'tool.finished')).toMatchObject({
-      status: 'failed',
+      toolCallId: request.toolCallId,
+      status: 'cancelled',
+    });
+  });
+
+  it('审批挂起时停止回合，录音中的工具结果记为取消', async () => {
+    const { adapter } = harness();
+    const { engineSessionId, log, request } = await approval(adapter);
+    await adapter.cancel(engineSessionId);
+    expect(await log.until(isTurnTerminal)).toMatchObject({ outcome: 'cancelled' });
+    expect(log.events.find((event) => event.type === 'tool.finished')).toMatchObject({
+      toolCallId: request.toolCallId,
+      status: 'cancelled',
     });
   });
 

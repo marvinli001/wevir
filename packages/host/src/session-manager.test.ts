@@ -400,14 +400,19 @@ describe('SessionManager：回合', () => {
     expect(transitions(h, id)).toEqual(['idle→running:turn_started', 'running→idle:turn_finished']);
   });
 
-  it.each([0, 2])('命令最终退出码 %s 与输出写入事件库', async (exitCode) => {
+  it.each([
+    { status: 'completed', exitCode: 0 },
+    { status: 'failed', exitCode: 2 },
+    { status: 'cancelled', exitCode: undefined },
+  ] as const)('工具的 $status 状态与最终输出写入事件库', async ({ status, exitCode }) => {
     const h = setup();
     const subscribe = h.adapter.subscribe.bind(h.adapter);
-    const status = exitCode === 0 ? 'completed' : 'failed';
     const output = 'present:1:match\nrg: missing: No such file or directory (os error 2)\n';
     vi.spyOn(h.adapter, 'subscribe').mockImplementationOnce(async function* (engineSessionId) {
       for await (const event of subscribe(engineSessionId)) {
-        yield event.type === 'tool.finished' ? { ...event, status, exitCode, output } : event;
+        yield event.type === 'tool.finished'
+          ? { ...event, status, ...(exitCode !== undefined && { exitCode }), output }
+          : event;
       }
     });
     const id = await create(h);
@@ -415,7 +420,7 @@ describe('SessionManager：回合', () => {
     await waitForState(h, id, 'idle');
     expect(ofType(h, id, 'tool.finished')[0]?.payload).toMatchObject({
       status,
-      exitCode,
+      ...(exitCode !== undefined && { exitCode }),
       output: { text: output, truncated: false },
     });
   });
@@ -920,6 +925,22 @@ describe('SessionManager：审批规则（0.80.0）', () => {
   });
 });
 describe('SessionManager：取消与关闭', () => {
+  it('引擎确认的工具错误在回合取消期间保留失败状态', async () => {
+    const h = setup();
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementationOnce(async function* (engineSessionId) {
+      for await (const event of subscribe(engineSessionId)) {
+        yield event.type === 'tool.finished' ? { ...event, failureConfirmed: true } : event;
+      }
+    });
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    await h.manager.cancel(id);
+    expect(ofType(h, id, 'tool.finished')[0]?.payload.status).toBe('failed');
+    expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('cancelled');
+  });
+
   it('#5 #8：取消时未决审批结为 cancelled，失败的工具记为 cancelled', async () => {
     const h = setup();
     const id = await create(h);

@@ -303,6 +303,8 @@ interface Turn {
   cancelPromise?: Promise<void>;
   /** 用户选了“拒绝并停止”：回合随后的中断按取消结算。 */
   stoppedByUser: boolean;
+  /** SDK 回调里的人工拒绝也会报 permission-rule，按调用 ID 和自动规则区分。 */
+  rejectedTools: Set<string>;
   authFailed: boolean;
   /** 仍处在拒绝状态的额度窗口。 */
   usageLimits?: Map<string, NonNullable<TurnFailedEvent['usageLimit']>>;
@@ -954,6 +956,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       settled: false,
       cancelRequested: false,
       stoppedByUser: false,
+      rejectedTools: new Set(),
       authFailed: false,
       steers: [],
       waiters: [],
@@ -1711,6 +1714,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     return async (toolName, toolInput, options): Promise<PermissionResult> => {
       const turn = session.turn;
       if (turn === undefined || turn.settled || turn.cancelRequested || this.#disposed) {
+        if (turn?.cancelRequested === true) turn.rejectedTools.add(options.toolUseID);
         return {
           behavior: 'deny',
           message: 'No turn is in progress.',
@@ -1721,7 +1725,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       this.#toolStarted(session, owner, options.toolUseID, toolName, toolInput);
 
       if (toolName === 'AskUserQuestion') {
-        return this.#ask(owner, options.toolUseID, toolInput, options.signal);
+        return this.#ask(turn, owner, options.toolUseID, toolInput, options.signal);
       }
       // 计划（0.36.0，T3 的做法）：计划已在 `#toolStarted` 报出；拒掉退出计划模式，让 Claude 停下等用户。实施是用户另发的一条
       // 默认模式的消息。
@@ -1758,6 +1762,9 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           info,
           decide: (decision, feedback) => {
             if (decision === 'cancel') turn.stoppedByUser = true;
+            if (decision === 'decline' || decision === 'cancel') {
+              turn.rejectedTools.add(options.toolUseID);
+            }
             finish(
               permissionResult({
                 decision,
@@ -1771,6 +1778,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           },
           end: (reason) => {
             if (done) return;
+            if (reason === 'turn_cancelled') turn.rejectedTools.add(options.toolUseID);
             owner.hub.emit({
               type: 'approval.cancelled',
               engineSessionId: owner.id,
@@ -1939,6 +1947,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       settled: false,
       cancelRequested: false,
       stoppedByUser: false,
+      rejectedTools: new Set(),
       authFailed: false,
       steers: [],
       waiters: [],
@@ -1949,6 +1958,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
 
   /** AskUserQuestion：问用户，回答作为工具的输入交回去（T3 的做法）。 */
   #ask(
+    turn: Turn,
     owner: Owner,
     toolUseID: string,
     toolInput: Record<string, unknown>,
@@ -1973,6 +1983,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           }),
         end: (reason) => {
           if (done) return;
+          if (reason === 'turn_cancelled') turn.rejectedTools.add(toolUseID);
           owner.hub.emit({
             type: 'question.cancelled',
             engineSessionId: owner.id,
@@ -2522,7 +2533,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         this.#toolStarted(session, owner, fields.id, fields.name, fields.input);
       }
     }
-    this.#toolResults(session, owner, message.message.content);
+    this.#toolResults(session, owner, message);
     owner.blockCounts.set(messageId, index);
   }
 
@@ -2772,18 +2783,20 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       return;
     }
     if (owner === session && typeof message.uuid === 'string') turn.lastEntryUuid = message.uuid;
-    const content = message.message.content;
-    if (!Array.isArray(content)) return;
-    this.#toolResults(session, owner, content, message.tool_use_result);
+    this.#toolResults(session, owner, message);
   }
 
   #toolResults(
     session: RootSession,
     owner: Owner,
-    content: readonly unknown[],
-    result?: unknown,
+    message: Extract<SDKMessage, { type: 'assistant' | 'user' }>,
   ): void {
+    const content = message.message.content;
+    if (!Array.isArray(content)) return;
+    const metadata = record(message).tool_result_meta;
     const results = content.filter((part) => TOOL_RESULT_TYPES.has(record(part).type));
+    const structured =
+      message.type === 'user' && results.length === 1 ? message.tool_use_result : undefined;
     for (const part of results) {
       const fields = record(part);
       const toolCallId = fields.tool_use_id;
@@ -2803,16 +2816,26 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       const failed =
         fields.is_error === true ||
         (typeof resultType === 'string' && resultType.endsWith('_tool_result_error'));
+      const meta = Array.isArray(metadata)
+        ? metadata.find((entry: unknown) => record(entry).id === toolCallId)
+        : undefined;
+      const kind = record(meta).non_execution_kind;
+      const cancelled =
+        kind === 'user-rejected' ||
+        kind === 'cancelled' ||
+        kind === 'interrupted' ||
+        (kind === 'permission-rule' && session.turn?.rejectedTools.has(toolCallId) === true);
+      const status = cancelled ? 'cancelled' : failed ? 'failed' : 'completed';
       owner.hub.emit({
         type: 'tool.finished',
         engineSessionId: owner.id,
         toolCallId,
-        status: failed ? 'failed' : 'completed',
+        status,
+        ...(status === 'failed' && { failureConfirmed: true }),
         ...(text !== undefined && boundedToolOutput(text)),
       });
       const tool = owner.tools.get(toolCallId);
-      const structured = results.length === 1 ? result : undefined;
-      if (tool !== undefined && !failed && TASK_TOOLS.has(tool.name)) {
+      if (tool !== undefined && status === 'completed' && TASK_TOOLS.has(tool.name)) {
         const tasks = applyTaskTool(owner.tasks, tool.name, tool.input, structured);
         if (tasks !== undefined) {
           owner.tasks = tasks;
@@ -2825,14 +2848,18 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         }
       }
       if (child !== undefined) {
-        if (!failed && isAsyncLaunchAck(structured, raw)) {
+        if (status === 'completed' && isAsyncLaunchAck(structured, raw)) {
           child.background = true;
         } else {
           this.#settleChild(
             child,
-            failed
+            status === 'failed'
               ? { type: 'turn.failed', category: 'unknown', message: text ?? 'the subagent failed' }
-              : { type: 'turn.settled', outcome: 'completed', stopReason: 'end_turn' },
+              : {
+                  type: 'turn.settled',
+                  outcome: status,
+                  stopReason: status === 'cancelled' ? 'cancelled' : 'end_turn',
+                },
             text,
             record(structured).usage,
           );

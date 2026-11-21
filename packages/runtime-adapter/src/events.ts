@@ -114,14 +114,15 @@ export interface AgentToolOutputMeta {
 }
 
 /**
- * 工具调用结束。只有引擎报的两种状态；`cancelled`（取消期间的 failed）与 `unknown`（回合结束仍未
- * 收尾）由 Host 推导（domain-model.md §6.4）。
+ * 工具调用结束。引擎可以明确报告取消；回合结束仍未收尾的工具由 Host 记为 `unknown`。
  */
 export interface ToolFinishedEvent {
   type: 'tool.finished';
   engineSessionId: string;
   toolCallId: string;
-  status: 'completed' | 'failed';
+  status: 'completed' | 'failed' | 'cancelled';
+  /** 引擎区分了失败和取消，即使回合正在取消也应保留 `failed`。 */
+  failureConfirmed?: true;
   /** 命令的最终退出码；引擎没有给时省略。 */
   exitCode?: number;
   output?: string;

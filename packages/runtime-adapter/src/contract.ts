@@ -257,7 +257,9 @@ export function runAdapterContract<A extends AgentRuntimeAdapter>(
         type: 'turn.settled',
         outcome: rejected.kind === 'reject_cancel' ? 'cancelled' : 'completed',
       });
-      expect(toolFinished(turn.events, request.toolCallId)?.status).toBe('failed');
+      expect(['failed', 'cancelled']).toContain(
+        toolFinished(turn.events, request.toolCallId)?.status,
+      );
       expect(await adapter.listPendingApprovals(session.id)).toEqual([]);
     });
 
@@ -316,7 +318,7 @@ export function runAdapterContract<A extends AgentRuntimeAdapter>(
         );
         expect(approvalEnd).toMatchObject({ reason: 'turn_cancelled' });
         const tool = toolFinished(cancelled.events, request.toolCallId);
-        if (tool) expect(tool.status).toBe('failed');
+        if (tool) expect(['failed', 'cancelled']).toContain(tool.status);
 
         const next = await finishTurn(session, from + cancelled.events.length);
         expect(next.terminal).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
