@@ -60,21 +60,28 @@ export interface KiroWhoami {
 }
 
 /**
- * 读 `whoami --format json` 的输出。登录后的 `account` 里有哪些字段没有账号核对过：有 `email` 用它，否则用任何像邮箱的字符串，
- * 再否则是 `username` / `userId`；读不懂时 undefined。
+ * 读 `whoami --format json` 的输出。Identity Center 会在首行 JSON 后追加 `Profile:` 文本。
  */
 export function parseKiroWhoami(output: string): KiroWhoami | undefined {
   let json: unknown;
   try {
-    json = JSON.parse(output.trim());
+    json = JSON.parse(output);
   } catch {
-    return undefined;
+    try {
+      json = JSON.parse(output.trimStart().split('\n', 1)[0] ?? '');
+    } catch {
+      return undefined;
+    }
   }
   const fields = record(json);
-  if (fields === undefined || !('account' in fields)) return undefined;
-  const account = fields.account;
-  if (account === null || account === undefined || account === false) return { signedIn: false };
+  if (fields === undefined) return undefined;
+  const account = 'account' in fields ? fields.account : fields;
+  if (account === null || account === false) return { signedIn: false };
+  if (record(account) === undefined) return undefined;
   const label = accountLabel(account);
+  if (account === fields && label === undefined && typeof fields.accountType !== 'string') {
+    return undefined;
+  }
   return { signedIn: true, ...(label !== undefined && { label }) };
 }
 
@@ -566,7 +573,7 @@ export class KiroAccounts implements EngineAccounts {
       signal,
     );
     const whoami = whoamiRun.ok ? parseKiroWhoami(whoamiRun.stdout) : undefined;
-    if (whoami === undefined) {
+    if (whoami === undefined || (whoami.signedIn && whoamiRun.ok && whoamiRun.code !== 0)) {
       return {
         executable,
         state: {

@@ -67,6 +67,21 @@ describe('parseKiroWhoami', () => {
     expect(parseKiroWhoami('Logged in')).toBeUndefined();
     expect(parseKiroWhoami('{"user":null}')).toBeUndefined();
   });
+
+  it('读取 Identity Center 的首行 JSON，忽略后续 Profile 文本', () => {
+    expect(
+      parseKiroWhoami(
+        '\n{"accountType":"IdentityCenter","email":"ada@example.com"}\r\nProfile: dev',
+      ),
+    ).toEqual({
+      signedIn: true,
+      label: 'ada@example.com',
+    });
+    expect(parseKiroWhoami('{"account":{"email":"ada@example.com"}}\nProfile: dev')).toEqual({
+      signedIn: true,
+      label: 'ada@example.com',
+    });
+  });
 });
 
 describe('KiroAccounts', () => {
