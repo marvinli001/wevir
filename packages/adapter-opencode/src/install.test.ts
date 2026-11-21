@@ -299,7 +299,7 @@ describe('OpenCodeAccounts：下载安装', () => {
       expect(seen.at(-1)).toMatchObject({
         installed: false,
         canInstall: true,
-        lastError: expect.stringContaining('(2.x) is not supported yet'),
+        lastError: expect.stringContaining('managed 1.x release line'),
       }),
     );
     expect(await runtime.installer?.active()).toBeUndefined();
@@ -399,7 +399,7 @@ describe('OpenCodeAccounts：下载安装', () => {
     expect((await custom.accounts.read('opencode')).canInstall).toBeUndefined();
   });
 
-  it('PATH 上的 opencode 是 2.x（如 Homebrew）：先给下载，装好后用 Wevir 的 1.x', async () => {
+  it('PATH 上的 opencode 版本过旧：先给下载，装好后用 Wevir 的 1.x', async () => {
     const fake = new FakeOpenCode();
     const engineDir = tempDir();
     const registry = fakeRegistry({
@@ -409,11 +409,11 @@ describe('OpenCodeAccounts：下载安装', () => {
       engineDir,
       env: {},
       sdk: async () => fake,
-      // 用户的 PATH 里总能找到 Homebrew 的 2.x，排在 Wevir 装的前面。
+      // PATH 上不支持的版本排在 Wevir 装的前面。
       findExecutable: () => '/opt/homebrew/bin/opencode',
       probeVersion: async (executable) => ({
         ok: true,
-        version: executable === '/opt/homebrew/bin/opencode' ? '2.2.1' : FAKE_OPENCODE_VERSION,
+        version: executable === '/opt/homebrew/bin/opencode' ? '2.0.1' : FAKE_OPENCODE_VERSION,
       }),
       startServer: fake.start,
       idleTtlMs: 20,
@@ -428,8 +428,8 @@ describe('OpenCodeAccounts：下载安装', () => {
     expect(await accounts.read('opencode')).toMatchObject({
       installed: false,
       canInstall: true,
-      version: '2.2.1',
-      lastError: expect.stringContaining('(2.x) is not supported yet'),
+      version: '2.0.1',
+      lastError: expect.stringContaining('too old for the 2.x API'),
     });
     const seen: AccountState[] = [];
     accounts.onChange((state) => seen.push(state));

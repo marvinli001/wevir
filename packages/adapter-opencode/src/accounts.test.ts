@@ -138,10 +138,12 @@ describe('OpenCodeAccounts', () => {
     await expect(accounts.requireReady()).rejects.toMatchObject({ code: 'engine_unavailable' });
   });
 
-  it('2.x 与太旧的版本不能用', async () => {
-    const v2 = await setup({ version: '2.0.29' }).accounts.read('opencode');
-    expect(v2).toMatchObject({ installed: true, status: 'signed_out', version: '2.0.29' });
-    expect(v2.lastError).toMatch(/2\.x\) is not supported/);
+  it('接口太旧或未知大版本不能用', async () => {
+    const v2 = await setup({ version: '2.0.1' }).accounts.read('opencode');
+    expect(v2).toMatchObject({ installed: true, status: 'signed_out', version: '2.0.1' });
+    expect(v2.lastError).toMatch(/2\.x API/);
+    const future = await setup({ version: '3.0.0' }).accounts.read('opencode');
+    expect(future.lastError).toMatch(/3\.0\.0 is not supported/);
     const old = await setup({ version: '1.14.0' }).accounts.read('opencode');
     expect(old.lastError).toMatch(/too old\. Upgrade to v1\.14\.19/);
   });

@@ -32,7 +32,7 @@ import {
   openCodeLoginCommand,
 } from './executable.js';
 import { accountModels, contextWindowOf, planLabel, variantsOf } from './models.js';
-import type { OpenCodeRuntime, ServerLease } from './runtime.js';
+import { isOpenCodeV2, type OpenCodeRuntime, type ServerLease } from './runtime.js';
 import {
   authErrorMessage,
   errorMessage,
@@ -48,6 +48,7 @@ import {
   upstreamCatalog,
 } from './upstreams.js';
 import { OPENCODE_GO_PROVIDER, readOpenCodeGoUsage } from './usage.js';
+import { openCodeV2LoginCommand } from './v2-runtime.js';
 
 /** 检测结果的有效期（同 adapter-claude 的 PROBE_TTL_MS）。 */
 export const PROBE_TTL_MS = 5 * 60_000;
@@ -626,16 +627,15 @@ export class OpenCodeAccounts implements EngineAccounts {
       status: 'signed_out',
       signIn: 'in_app',
       loginMethods: ['browser', 'device_code'],
-      loginCommand: openCodeLoginCommand(
-        executablePath,
-        detection.managed === true,
-        runtime.dataHome,
-      ),
+      loginCommand:
+        detection.ok && isOpenCodeV2(detection.installation.version)
+          ? openCodeV2LoginCommand(detection.installation.executablePath, runtime.v2DataHome)
+          : openCodeLoginCommand(executablePath, detection.managed === true, runtime.dataHome),
       ...(runtime.customPath !== null && { customPath: runtime.customPath }),
     };
     if (!detection.ok) {
       this.#providers = undefined;
-      // 没找到、Wevir 装的这份跑不起来，或没指定路径时找到的不能用（如 Homebrew 的 2.x）：当作没装，设置里下载 Wevir 自己的 1.x。
+      // 没找到、Wevir 装的这份跑不起来，或没指定路径时找到的不能用：当作没装，设置里下载 Wevir 自己的 1.x。
       const canInstall =
         runtime.installer !== undefined &&
         (detection.reason === 'missing' ||
@@ -708,6 +708,7 @@ export class OpenCodeAccounts implements EngineAccounts {
 
   /** OpenCode Go 的用量；读不到时是上一次的（usage.ts）。 */
   async #readUsage(): Promise<AccountState['rateLimits']> {
+    if (isOpenCodeV2(this.#options.runtime.installation?.version)) return undefined;
     try {
       return await readOpenCodeGoUsage({
         env: {

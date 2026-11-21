@@ -135,7 +135,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 | Models | Codex runtime with API keys, OpenAI-compatible endpoints, or Ollama | Supported |
 | | ChatGPT sign-in | Supported |
 | Subscriptions | Claude | Beta |
-| | OpenCode | Beta |
+| | OpenCode | Beta · 1.x from 1.14.19, 2.x from 2.0.28 |
 | | Grok | Beta |
 | | [Antigravity CLI](https://antigravity.google/docs/ide/extensions/acp) | Beta, managed download or `agy` 1.5.1+ |
 | | WorkBuddy | Beta |
@@ -152,6 +152,7 @@ A local Host owns the session timeline, the model gateway, every engine, and the
 ## Known limitations
 
 - **Subscription sources.** They depend on each vendor's client or SDK and your existing sign-in, are subject to vendor terms, and may break when the client changes.
+- **OpenCode 2.** Wevir stores each account's credentials and sessions in a separate 2.x data directory. Sign in from Wevir Settings. For a project MCP server configured in OpenCode, use the terminal sign-in command shown for the account and replace `auth login` with `mcp auth <server>` from the project directory.
 - **Mobile app.** Android background notifications require an APK configured for Firebase Cloud Messaging, a device with Google Play services, and an FCM-enabled push gateway. Builds without FCM show alerts while the app is open.
 - **Platforms.** No Windows on Arm build. Computer use is macOS only. On Linux only the AppImage updates in place; the deb build shows new versions with a link to the download page.
 

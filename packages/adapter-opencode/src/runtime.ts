@@ -16,7 +16,7 @@ import { mkdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { AppToolsEndpoint } from '@wevir/runtime-adapter';
-import { appToolsPluginEntry, writeAppToolsPlugin } from './app-tools.js';
+import { appToolsPluginEntry, type OpenCodePluginEntry, writeAppToolsPlugin } from './app-tools.js';
 import {
   compareVersions,
   findOpenCode,
@@ -42,6 +42,9 @@ import {
   startOpenCodeServer,
 } from './server.js';
 import { openCodeAuthPath } from './usage.js';
+import { v2AppToolsPluginEntry, writeV2AppToolsPlugin } from './v2-app-tools.js';
+import { createOpenCodeV2Client } from './v2-client.js';
+import { MINIMUM_OPENCODE_V2_VERSION, openCodeV2DataHome, openCodeV2Env } from './v2-runtime.js';
 
 /** 没人借用之后多久停掉服务器（T3 的 OPENCODE_SERVER_IDLE_TTL）。 */
 export const SERVER_IDLE_TTL_MS = 30_000;
@@ -53,7 +56,12 @@ async function hasMigratedDatabase(env: NodeJS.ProcessEnv): Promise<boolean> {
     dirname(openCodeAuthPath(env)),
     ...(env.OPENCODE_DATA_DIR?.split(',') ?? []),
   ];
-  const files = new Set(directories.map((directory) => resolve(directory.trim(), database)));
+  const files = new Set(
+    directories
+      .map((directory) => directory.trim())
+      .filter(Boolean)
+      .map((directory) => resolve(directory, database)),
+  );
   for (const file of files) {
     try {
       if (!(await stat(file)).isFile()) continue;
@@ -140,7 +148,7 @@ export class OpenCodeRuntime {
   #customPath: string | null = null;
   #installation: OpenCodeInstallation | undefined;
   #server: OpenCodeServerHandle | undefined;
-  #serverDataHome: string | undefined;
+  #serverInstallation: OpenCodeInstallation | undefined;
   /** 应用级工具的引擎令牌（Host 监听之后给）；正在跑的服务器挂没挂上插件。 */
   #appTools: (() => AppToolsEndpoint | undefined) | undefined;
   #serverHasAppTools = false;
@@ -162,6 +170,10 @@ export class OpenCodeRuntime {
 
   get engineDir(): string {
     return this.#options.engineDir;
+  }
+
+  get v2DataHome(): string {
+    return openCodeV2DataHome(this.#options.engineDir, this.#options.accountDataHome);
   }
 
   get customPath(): string | null {
@@ -212,14 +224,21 @@ export class OpenCodeRuntime {
     return this.#appTools?.();
   }
 
-  /** 正在跑的服务器缺应用级工具，换一个起。 */
+  /** 二进制或应用级工具变了，空闲后换一个服务器。 */
   get #outdated(): boolean {
     return (
-      this.#server !== undefined && !this.#serverHasAppTools && this.#appTools?.() !== undefined
+      (this.#server !== undefined &&
+        !this.#serverHasAppTools &&
+        this.#appTools?.() !== undefined) ||
+      (this.#serverInstallation !== undefined &&
+        this.#installation !== undefined &&
+        (this.#serverInstallation.executablePath !== this.#installation.executablePath ||
+          this.#serverInstallation.version !== this.#installation.version ||
+          this.#serverInstallation.dataHome !== this.#installation.dataHome))
     );
   }
 
-  /** 找 `opencode` 并跑 `--version`（T3 的版本探测；2.x 与太旧的版本不能用）。 */
+  /** 找 `opencode` 并跑 `--version`，选用对应大版本的客户端。 */
   async detect(): Promise<Detection> {
     const parentEnv = this.#options.env ?? process.env;
     const managed = await this.installer?.active();
@@ -238,7 +257,7 @@ export class OpenCodeRuntime {
     }
     const found = await this.#check(executablePath, isManaged);
     if (found.ok || isManaged || managed === undefined || this.#customPath !== null) return found;
-    // 自己找到的不能用（如 Homebrew 的 opencode 已是 2.x）而 Wevir 装过 1.x：用 Wevir 的那份。
+    // 自己找到的不能用而 Wevir 装过 1.x：用 Wevir 的那份。
     const fallback = await this.#check(
       managed.path,
       true,
@@ -267,7 +286,7 @@ export class OpenCodeRuntime {
       };
     }
     const version = probe.version;
-    const unsupported = unsupportedVersion(version);
+    const unsupported = unsupportedVersion(version, isManaged);
     if (unsupported !== undefined) {
       this.#installation = undefined;
       return {
@@ -281,15 +300,8 @@ export class OpenCodeRuntime {
     }
     const dataHome = isManaged ? await this.#managedDataHome(parentEnv, systemV2) : undefined;
     const installation = { executablePath, version, ...(dataHome !== undefined && { dataHome }) };
-    if (
-      this.#installation !== undefined &&
-      this.#installation.executablePath !== executablePath &&
-      this.#server !== undefined
-    ) {
-      // 换了一个 opencode（升级、改了 PATH）：旧的服务器空闲时停掉，下次用新的起。
-      this.#scheduleIdleStop(0);
-    }
     this.#installation = installation;
+    if (this.#outdated) this.#scheduleIdleStop(0);
     return { ok: true, installation, managed: isManaged };
   }
 
@@ -311,14 +323,20 @@ export class OpenCodeRuntime {
     this.#leases += 1;
     this.#cancelIdleStop();
     let server: OpenCodeServerHandle;
+    let sdk: OpenCodeSdk;
     try {
       server = await this.#ensureServer(installation);
+      if (isOpenCodeV2(server.version) !== isOpenCodeV2(installation.version)) {
+        throw new Error('Close the active OpenCode sessions to switch server versions.');
+      }
+      sdk = isOpenCodeV2(server.version)
+        ? { connect: createOpenCodeV2Client }
+        : await this.#loadSdk();
     } catch (error) {
       this.#leases -= 1;
       if (this.#leases === 0) this.#scheduleIdleStop();
       throw error;
     }
-    const sdk = await this.#loadSdk();
     let released = false;
     return {
       server,
@@ -368,7 +386,7 @@ export class OpenCodeRuntime {
           signal,
         );
         if (!probe.ok) throw new Error(probe.message);
-        const unsupported = unsupportedVersion(probe.version);
+        const unsupported = unsupportedVersion(probe.version, true);
         if (unsupported !== undefined) throw new Error(unsupported);
       },
     });
@@ -378,7 +396,7 @@ export class OpenCodeRuntime {
     // Reap a server still pointing at the shared database before lending out the isolated one.
     if (installation.dataHome !== undefined) {
       const existing = this.#server ?? (await this.#starting);
-      if (existing !== undefined && this.#serverDataHome !== installation.dataHome) {
+      if (existing !== undefined && this.#serverInstallation?.dataHome !== installation.dataHome) {
         await existing.stop();
       }
     }
@@ -391,31 +409,45 @@ export class OpenCodeRuntime {
 
   async #start(installation: OpenCodeInstallation): Promise<OpenCodeServerHandle> {
     await this.#ledger.reapOrphans();
-    const sdk = await this.#loadSdk();
+    const v2 = isOpenCodeV2(installation.version);
+    const sdk: OpenCodeSdk = v2 ? { connect: createOpenCodeV2Client } : await this.#loadSdk();
     const parentEnv = this.#options.env ?? process.env;
+    const env = openCodeEnv(
+      installation.dataHome === undefined
+        ? parentEnv
+        : openCodeDatabaseEnv(parentEnv, installation.dataHome),
+      installation.executablePath,
+    );
     const appTools = this.#appTools?.();
-    const pluginUrl = writeAppToolsPlugin(this.#options.engineDir);
+    let appToolsPlugin: OpenCodePluginEntry | undefined;
+    if (!v2) {
+      const url = writeAppToolsPlugin(this.#options.engineDir);
+      appToolsPlugin = appTools ? appToolsPluginEntry(url, appTools) : [url, {}];
+    }
     const server = await (this.#options.startServer ?? startOpenCodeServer)({
       executable: installation.executablePath,
-      env: openCodeEnv(
-        installation.dataHome === undefined
-          ? parentEnv
-          : openCodeDatabaseEnv(parentEnv, installation.dataHome),
-        installation.executablePath,
-      ),
+      env: v2 ? openCodeV2Env(env, this.v2DataHome) : env,
+      ...(v2 && { generation: 2 }),
       ledger: this.#ledger,
-      // 即使没有应用级工具，命令回合仍通过 chat.message 接收本会话的系统规则。
-      appToolsPlugin: appTools ? appToolsPluginEntry(pluginUrl, appTools) : [pluginUrl, {}],
+      ...(appToolsPlugin !== undefined && { appToolsPlugin }),
+      ...(v2 &&
+        appTools !== undefined && {
+          v2AppToolsPlugin: v2AppToolsPluginEntry(
+            writeV2AppToolsPlugin(this.#options.engineDir),
+            appTools,
+          ),
+        }),
       signal: this.#abort.signal,
       verify: async (url, password) => {
-        // T3 的 verifyOpenCodeServerVersion：5 秒内要答 `/global/health`，版本要够新。
-        const health = await withTimeout(
-          sdk.connect({ baseUrl: url, directory: this.#options.engineDir, password }).health(),
-          5_000,
-          'OpenCode health check',
-        );
+        const signal = AbortSignal.any([this.#abort.signal, AbortSignal.timeout(5_000)]);
+        const health = await sdk
+          .connect({ baseUrl: url, directory: this.#options.engineDir, password })
+          .health(signal);
         const unsupported = unsupportedVersion(health.version);
         if (unsupported !== undefined) throw new Error(unsupported);
+        if (isOpenCodeV2(health.version) !== v2) {
+          throw new Error(`OpenCode reported an unexpected server version: ${health.version}`);
+        }
         return health.version;
       },
     });
@@ -424,11 +456,12 @@ export class OpenCodeRuntime {
       throw new Error('the OpenCode engine has been disposed');
     }
     this.#server = server;
-    this.#serverDataHome = installation.dataHome;
+    this.#serverInstallation = installation;
     this.#serverHasAppTools = appTools !== undefined;
     void server.exited.then((exit) => {
       if (this.#server !== server) return;
       this.#server = undefined;
+      this.#serverInstallation = undefined;
       this.#cancelIdleStop();
       for (const listener of [...this.#exitListeners]) {
         try {
@@ -444,6 +477,7 @@ export class OpenCodeRuntime {
   async #stopServer(): Promise<void> {
     const server = this.#server;
     this.#server = undefined;
+    this.#serverInstallation = undefined;
     this.#cancelIdleStop();
     await server?.stop();
   }
@@ -476,24 +510,29 @@ export class OpenCodeRuntime {
   }
 }
 
-/** 版本不能用的原因（2.x、太旧、读不出版本）；能用时 undefined。 */
-export function unsupportedVersion(version: string | undefined): string | undefined {
+export function isOpenCodeV2(version: string | undefined): boolean {
+  return version?.startsWith('2.') === true;
+}
+
+/** 版本不能用的原因；能用时 undefined。 */
+export function unsupportedVersion(
+  version: string | undefined,
+  managed = false,
+): string | undefined {
   if (version === undefined) {
     return `Unable to determine the OpenCode version. Wevir requires OpenCode v${MINIMUM_OPENCODE_VERSION} or newer.`;
   }
-  if (compareVersions(version, '2.0.0') >= 0) {
-    return `OpenCode v${version} (2.x) is not supported yet; install the 1.x CLI with \`${OPENCODE_INSTALL_COMMAND}\`.`;
+  if (compareVersions(version, '2.0.0') >= 0 && managed) {
+    return `OpenCode v${version} is outside the managed 1.x release line.`;
+  }
+  if (compareVersions(version, '3.0.0') >= 0) {
+    return `OpenCode v${version} is not supported. Use a 1.x or 2.x CLI.`;
+  }
+  if (isOpenCodeV2(version) && compareVersions(version, MINIMUM_OPENCODE_V2_VERSION) < 0) {
+    return `OpenCode v${version} is too old for the 2.x API. Upgrade to v${MINIMUM_OPENCODE_V2_VERSION} or newer.`;
   }
   if (compareVersions(version, MINIMUM_OPENCODE_VERSION) < 0) {
     return `OpenCode v${version} is too old. Upgrade to v${MINIMUM_OPENCODE_VERSION} or newer.`;
   }
   return undefined;
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }

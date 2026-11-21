@@ -518,8 +518,9 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   async listCommands(engineSessionId: string): Promise<EngineComposerCommand[]> {
     const session = this.#attached(engineSessionId);
     if (!session.stream || session.parent) return [];
-    const commands = (await session.stream.client.commands())
-      .filter((command) => commandAllowed(command, '', session.settings))
+    const { client } = session.stream;
+    const commands = (await client.commands())
+      .filter((command) => commandAllowed(command, '', session.settings, client.generation))
       .map(({ name, description, hints }) => ({
         name,
         ...(description && { description }),
@@ -562,7 +563,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
             `OpenCode command /${slash.name} is no longer available`,
           );
         if (known) {
-          if (!commandAllowed(known, slash.args, session.settings))
+          if (!commandAllowed(known, slash.args, session.settings, stream.client.generation))
             throw new AdapterError(
               'invalid_input',
               'OpenCode cannot enforce this session’s permissions on the command template',
@@ -575,9 +576,14 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
             );
           const request = {
             sessionID: session.id,
-            messageID: session.settings.system ? `${messageId.slice(0, -10)}WevirRules` : messageId,
+            messageID:
+              session.settings.system && stream.client.generation !== 2
+                ? `${messageId.slice(0, -10)}WevirRules`
+                : messageId,
             model: session.settings.modelId,
             ...variantOf(session.settings),
+            ...(stream.client.generation === 2 &&
+              session.settings.system !== undefined && { system: session.settings.system }),
             command: known.name,
             arguments: slash.args,
             parts: files,
@@ -634,7 +640,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     signal: AbortSignal,
   ): Promise<void> {
     let file: string | undefined;
-    if (session.settings.system) {
+    if (session.settings.system && client.generation !== 2) {
       // session.command 没有 system 参数；本机插件在 OpenCode 存下本条用户消息之前读取其规则。
       const dir = path.join(this.#runtime.engineDir, 'command-rules');
       await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -915,7 +921,10 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       throw new AdapterError('approval_not_found', `OpenCode has no pending approval ${requestId}`);
     }
     const reply = permissionReply(decision.optionId, decision.message);
-    if (reply === undefined) {
+    if (
+      reply === undefined ||
+      !approval.pending.options.some(({ optionId }) => optionId === decision.optionId)
+    ) {
       throw new AdapterError('invalid_option', `unknown approval option ${decision.optionId}`);
     }
     const client = session.stream?.client;
@@ -1744,7 +1753,9 @@ ${skill.description ?? ''}`,
       engineSessionId: session.id,
       requestId: request.id,
       toolCallId,
-      options: APPROVAL_OPTIONS.map((option) => ({ ...option })),
+      options: APPROVAL_OPTIONS.filter(
+        (option) => client?.generation !== 2 || option.optionId !== 'acceptForSession',
+      ).map((option) => ({ ...option })),
     };
     session.approvals.set(request.id, { pending, synthetic });
     this.#emit(session, [

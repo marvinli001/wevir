@@ -135,7 +135,7 @@
 | 模型 | Codex 运行时 + API Key、OpenAI 兼容接口或 Ollama | 支持 |
 | | ChatGPT 账号登录 | 支持 |
 | 订阅 | Claude | 测试版 |
-| | OpenCode | 测试版 |
+| | OpenCode | 测试版 · 1.x 从 1.14.19 起，2.x 从 2.0.28 起 |
 | | Grok | 测试版 |
 | | [Antigravity CLI](https://antigravity.google/docs/ide/extensions/acp) | 测试版，支持应用内下载或使用 `agy` 1.5.1 及以上版本 |
 | | WorkBuddy | 测试版 |
@@ -152,6 +152,7 @@
 ## 已知限制
 
 - **订阅来源。** 依赖厂商官方客户端或 SDK 与本机登录，受厂商条款约束，客户端变更可能导致失效。
+- **OpenCode 2。** Wevir 为每个账号单独保存 2.x 的凭据和会话，可在设置中登录。项目里通过 OpenCode 配置的 MCP 服务也可单独授权。从项目目录运行该账号设置里的终端登录命令，将 `auth login` 改为 `mcp auth <服务名>`。
 - **移动端。** Android 后台推送需要已配置 Firebase Cloud Messaging 的 APK、支持 Google Play 服务的设备和已启用 FCM 的推送网关。未配置的 APK 仅在前台提醒。
 - **平台。** 无 Windows on Arm 安装包。电脑操作只有 macOS 版。Linux 上只有 AppImage 在应用内更新，deb 版只提示新版本并给出下载页。
 

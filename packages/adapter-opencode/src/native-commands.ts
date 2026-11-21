@@ -12,9 +12,12 @@ export function commandAllowed(
     permissionMode?: PermissionMode;
     deniedTools?: EngineToolClass[];
   },
+  generation?: 2,
 ): boolean {
   if (!command.name || /\s/.test(command.name)) return false;
   if (settings.permissionMode === 'full_access' && !settings.deniedTools?.length) return true;
+  // OpenCode 2's command list omits templates, but custom commands still interpolate shell.
+  if (generation === 2) return command.name === 'compact';
   if (command.source === 'mcp' || typeof command.template !== 'string') return false;
   const template = command.template;
   if (!/[!@]/.test(template) && !/[!@]/.test(raw)) return true;

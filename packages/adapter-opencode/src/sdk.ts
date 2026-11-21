@@ -7,7 +7,7 @@
 //
 // OpenCode 的官方 SDK（`@opencode-ai/sdk`，只有本包能声明与 import，AGENTS.md 规则 2）。它只是 `opencode serve` 的 HTTP 客户端：
 // 引擎是用户自己装的 `opencode`，适配器在本机起它的服务器（server.ts），经这里的窄接口说话。用 SDK 的 `v2` 入口（T3 同）：
-// 1.x 服务器的会话、消息、权限与提问接口。2.x 是另一套协议（`@opencode/client`），还不支持（opencode-event-mapping.md §1）。
+// 1.x 服务器的会话、消息、权限与提问接口。2.x 由 v2-client.ts 接入，两代共用 OpenCodeClient。
 
 import type {
   AssistantMessage,
@@ -70,11 +70,13 @@ export interface NativeCommandInput {
   command: string;
   arguments: string;
   variant?: string;
+  system?: string;
   parts: Extract<PromptInput['parts'][number], { type: 'file' }>[];
 }
 
 /** 适配器用到的 opencode 服务器接口（一个客户端对应一个工作目录，`x-opencode-directory`）。 */
 export interface OpenCodeClient {
+  readonly generation?: 2;
   health(signal?: AbortSignal): Promise<{ healthy: true; version: string }>;
   providers(signal?: AbortSignal): Promise<ProviderListResponse>;
   /** 各上游的登录方式（`provider.auth`）：上游 ID → 方式；只有 OAuth 或要填额外信息的上游才有条目。 */

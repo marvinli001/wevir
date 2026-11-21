@@ -5,7 +5,7 @@
 // MISE_OFFLINE，mise 的 shim 不替没装的 opencode 下载）
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS；T3 的桌面端读登录 shell 的环境，Wevir 改为在 PATH 之外再找常见的安装位置（同
-// adapter-claude 的 executable.ts），并补进交给 opencode 的 PATH；2.x 不支持，按版本号认出来后提示。
+// adapter-claude 的 executable.ts），并补进交给 opencode 的 PATH；两代协议由 runtime 按版本选择。
 //
 // 找用户自己装的 `opencode`（opencode-event-mapping.md §2）：用户指定的路径 → `WEVIR_OPENCODE_BIN` → PATH → 常见的安装位置 →
 // Wevir 自己装的（§2.3，最后才用：用户已经有 `opencode` 时不动它）。官方安装脚本放在 ~/.opencode/bin，npm / bun / Homebrew
@@ -326,11 +326,13 @@ export function openCodeDatabaseEnv(
   parent: NodeJS.ProcessEnv,
   dataHome: string,
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...parent, XDG_DATA_HOME: dataHome };
+  const env: NodeJS.ProcessEnv = { ...parent };
   for (const key of Object.keys(env)) {
     const name = process.platform === 'win32' ? key.toUpperCase() : key;
-    if (name === 'OPENCODE_DATA_DIR' || name === 'OPENCODE_DB') delete env[key];
+    if (name === 'OPENCODE_DATA_DIR' || name === 'OPENCODE_DB' || name === 'XDG_DATA_HOME')
+      delete env[key];
   }
+  env.XDG_DATA_HOME = dataHome;
   return env;
 }
 
@@ -341,7 +343,10 @@ export function openCodeDatabaseEnv(
  */
 export function openCodeAccountEnv(parent: NodeJS.ProcessEnv, dataHome: string): NodeJS.ProcessEnv {
   const env = openCodeDatabaseEnv(parent, dataHome);
-  for (const key of MAIN_ACCOUNT_KEYS) delete env[key];
+  for (const key of Object.keys(env)) {
+    const name = process.platform === 'win32' ? key.toUpperCase() : key;
+    if (MAIN_ACCOUNT_KEYS.some((main) => name === main)) delete env[key];
+  }
   return env;
 }
 

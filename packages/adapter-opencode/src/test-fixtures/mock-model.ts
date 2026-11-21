@@ -126,8 +126,9 @@ export function scriptStep(request: ChatRequest): Step {
         };
   }
   if (has(DEFAULT_CONTRACT_PROMPTS.approval)) {
-    return afterTool
-      ? { kind: 'text', chunks: ['The command ', 'ran.'] }
+    if (afterTool) return { kind: 'text', chunks: ['The command ', 'ran.'] };
+    return toolNames(request).includes('shell')
+      ? { kind: 'tool', name: 'shell', args: { command: 'echo wevir' } }
       : {
           kind: 'tool',
           name: 'bash',

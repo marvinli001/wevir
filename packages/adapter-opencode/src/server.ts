@@ -22,6 +22,7 @@ import path from 'node:path';
 import { killTree, trackProcessGroup } from '@wevir/runtime-adapter';
 import type { OpenCodePluginEntry } from './app-tools.js';
 import { serverConfigContent } from './permissions.js';
+import { type OpenCodeV2PluginEntry, v2ServerConfigContent } from './v2-app-tools.js';
 
 /** 等服务器就绪的时限（T3 的 DEFAULT_OPENCODE_SERVER_TIMEOUT_MS）。 */
 export const SERVER_START_TIMEOUT_MS = 30_000;
@@ -89,11 +90,13 @@ export interface OpenCodeServerHandle {
 export interface StartServerOptions {
   executable: string;
   env: Record<string, string | undefined>;
-  /** 核对版本：连上 `url` 读 `/global/health`，返回版本号，不合要求时抛错。 */
+  generation?: 2;
+  /** 核对对应协议的服务端版本。 */
   verify: (url: string, password: string) => Promise<string>;
   ledger?: ServerLedger;
   /** 应用级工具的插件（app-tools.ts），并进配置的 `plugin`。 */
   appToolsPlugin?: OpenCodePluginEntry;
+  v2AppToolsPlugin?: OpenCodeV2PluginEntry;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -139,15 +142,25 @@ async function startServerAttempt(options: StartServerOptions): Promise<OpenCode
   const port = await findFreePort();
   const password = randomBytes(32).toString('base64url');
   const args = ['serve', `--hostname=${SERVER_HOSTNAME}`, `--port=${port}`];
+  const appToolsToken =
+    options.v2AppToolsPlugin?.options.token ?? options.appToolsPlugin?.[1].token;
+  const redact = (output: string) => {
+    const safe = output.replaceAll(password, '[redacted]');
+    return typeof appToolsToken === 'string' && appToolsToken !== ''
+      ? safe.replaceAll(appToolsToken, '[redacted]')
+      : safe;
+  };
+  const env = { ...options.env };
+  delete env.OPENCODE_PASSWORD;
+  delete env.OPENCODE_SERVER_PASSWORD;
+  delete env.OPENCODE_SERVER_USERNAME;
+  const v2 = options.generation === 2;
+  env[v2 ? 'OPENCODE_PASSWORD' : 'OPENCODE_SERVER_PASSWORD'] = password;
+  env.OPENCODE_CONFIG_CONTENT = v2
+    ? v2ServerConfigContent(env.OPENCODE_CONFIG_CONTENT, options.v2AppToolsPlugin)
+    : serverConfigContent(env.OPENCODE_CONFIG_CONTENT, options.appToolsPlugin);
   const child = spawn(options.executable, args, {
-    env: {
-      ...options.env,
-      OPENCODE_SERVER_PASSWORD: password,
-      OPENCODE_CONFIG_CONTENT: serverConfigContent(
-        options.env.OPENCODE_CONFIG_CONTENT,
-        options.appToolsPlugin,
-      ),
-    },
+    env,
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
@@ -173,11 +186,15 @@ async function startServerAttempt(options: StartServerOptions): Promise<OpenCode
         }),
       ]).then(() => {
         clearTimeout(timer);
-        resolve({ code, signal, stderrTail: stderr.trim() });
+        resolve({ code, signal, stderrTail: redact(stderr.trim()) });
       });
     });
     child.once('error', (error) =>
-      resolve({ code: null, signal: null, stderrTail: `${stderr}\n${error.message}`.trim() }),
+      resolve({
+        code: null,
+        signal: null,
+        stderrTail: redact(`${stderr}\n${error.message}`.trim()),
+      }),
     );
   });
   child.stdout?.setEncoding('utf8');
@@ -232,7 +249,7 @@ async function startServerAttempt(options: StartServerOptions): Promise<OpenCode
           new OpenCodeServerStartError(
             [
               `OpenCode server exited before startup completed (code: ${String(exit.code)}${exit.signal === null ? '' : `, signal: ${exit.signal}`}).`,
-              stdout.trim() === '' ? undefined : `stdout:\n${stdout.trim()}`,
+              stdout.trim() === '' ? undefined : `stdout:\n${redact(stdout.trim())}`,
               exit.stderrTail === '' ? undefined : `stderr:\n${exit.stderrTail}`,
             ]
               .filter((line) => line !== undefined)
@@ -243,6 +260,12 @@ async function startServerAttempt(options: StartServerOptions): Promise<OpenCode
       });
     });
     stdout = '';
+    const expectedUrl = `http://${SERVER_HOSTNAME}:${port}`;
+    if (v2 && url !== expectedUrl && url !== `${expectedUrl}/`) {
+      throw new OpenCodeServerStartError(
+        'OpenCode reported a different server address than requested.',
+      );
+    }
     if (options.ledger !== undefined && child.pid !== undefined) {
       forget = await options.ledger.track({ pid: child.pid, port, args });
     }
