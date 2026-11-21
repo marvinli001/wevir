@@ -18,6 +18,7 @@ Wevir 是本地优先、开源、多模型的 AI Agent 工作台：以 OpenAI Co
 ### 完成一项改动时
 
 - 运行相关的验证（lint、typecheck、测试，必要时在真实应用里走一遍），如实报告命令和结果，没跑的要说明。
+- 改动 Host 依赖的适配器源码时，交付前对最终改动运行 `pnpm --filter @wevir/host typecheck`；适配器自身的 typecheck 或用 `--lib` 覆盖配置的诊断命令不能替代这项检查。
 - 提交一次 commit，message 用一句话说明改了什么。
 
 ## 界面文案
