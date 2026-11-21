@@ -1288,6 +1288,7 @@ describe('SessionManager：恢复会话（#12）', () => {
 describe('SessionManager：引擎会话恢复与只读（T3.5）', () => {
   it('建会话与恢复都记下引擎版本：resume 写 session.resumed 再转 idle；自动 resume 的 session.resumed 在 user.message 之前', async () => {
     const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 1, engineVersion: '9.9.9' }) });
+    const resume = vi.spyOn(h.adapter, 'resumeSession');
     const id = await create(h);
     expect(ofType(h, id, 'session.created')[0]?.payload.engineVersion).toBe('9.9.9');
 
@@ -1301,6 +1302,10 @@ describe('SessionManager：引擎会话恢复与只读（T3.5）', () => {
     const { h: next } = restart(h, h.adapter);
     before = lastSeq(next, id);
     await send(next, id, 'after restart');
+    expect(resume).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ resumeEngineVersion: '9.9.9' }),
+    );
     await waitForState(next, id, 'idle');
     expect(typesAfter(next, id, before).slice(0, 3)).toEqual([
       'session.resumed',

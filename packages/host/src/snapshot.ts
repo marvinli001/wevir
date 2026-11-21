@@ -81,6 +81,8 @@ export interface SessionProjection {
   readonly activityAt?: IsoTime;
   readonly activitySeq?: number;
   readonly state: SessionState;
+  /** Last reported version of the engine attached to this session. */
+  readonly engineVersion?: string;
   readonly title: string;
   readonly titleSource: TitleSource;
   /**
@@ -323,6 +325,8 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
   switch (event.type) {
     case 'session.created': {
       next.created = { providerId: event.payload.providerId, modelId: event.payload.modelId };
+      if (event.payload.engineVersion !== undefined)
+        next.engineVersion = event.payload.engineVersion;
       if (event.payload.historyContext !== undefined)
         next.handoffContext = event.payload.historyContext;
       if (event.payload.origin?.kind === 'imported') {
@@ -400,6 +404,8 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     case 'session.resumed':
       next.readOnly = undefined;
+      if (event.payload.engineVersion !== undefined)
+        next.engineVersion = event.payload.engineVersion;
       break;
     case 'session.title_changed':
       next.title = event.payload.title;
@@ -433,6 +439,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     }
     case 'session.handoff': {
       next.usage = undefined;
+      next.engineVersion = event.payload.engineVersion;
       next.interruptedTurn = undefined;
       if (event.payload.failover === undefined) next.routing = undefined;
       const { from, to, resumed } = event.payload;

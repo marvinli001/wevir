@@ -610,6 +610,10 @@ export class EventStore {
     return record === undefined ? undefined : toSession(record, this.#projection(sessionId));
   }
 
+  engineVersion(sessionId: SessionId): string | undefined {
+    return this.#projection(sessionId).engineVersion;
+  }
+
   listRow(record: SessionRecord): Session {
     const projection = this.#projection(record.id as SessionId);
     const session = toSession(record, projection);

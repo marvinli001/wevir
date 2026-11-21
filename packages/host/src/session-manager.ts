@@ -1120,7 +1120,7 @@ export class SessionManager {
     const existing = engineSessionId === undefined ? undefined : this.#runtimes.get(sessionId);
     const resumeEngineVersion =
       existing !== undefined && existing.engineSessionId === engineSessionId
-        ? this.#snapshot(existing).session.engineVersion
+        ? this.#events.engineVersion(sessionId)
         : undefined;
     const withVersion =
       resumeEngineVersion === undefined ? config : { ...config, resumeEngineVersion };
