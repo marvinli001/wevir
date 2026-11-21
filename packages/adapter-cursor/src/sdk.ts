@@ -11,6 +11,7 @@
 
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type {
@@ -111,13 +112,39 @@ export function loadCursorSdk(root?: string): Promise<CursorSdk> {
   const key = root ?? '';
   let promise = loading.get(key);
   if (promise === undefined) {
-    promise = importSdk(root).then(wrap, (error: unknown) => {
-      loading.delete(key);
-      throw error;
-    });
+    promise = importSdk(root)
+      .then(async (sdk) => {
+        // 传输协议是 SDK 的进程级配置，必须在首次使用 SDK 前设置。
+        const useHttp1ForAgent = await readCliHttp1Preference();
+        if (useHttp1ForAgent !== undefined) sdk.Cursor.configure({ local: { useHttp1ForAgent } });
+        return wrap(sdk);
+      })
+      .catch((error: unknown) => {
+        loading.delete(key);
+        throw error;
+      });
     loading.set(key, promise);
   }
   return promise;
+}
+
+async function readCliHttp1Preference(): Promise<boolean | undefined> {
+  const configOverride = process.env.CURSOR_CONFIG_DIR;
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME;
+  const directory = configOverride?.trim()
+    ? configOverride
+    : xdgConfigHome?.trim()
+      ? join(xdgConfigHome, 'cursor')
+      : join(homedir(), '.cursor');
+  try {
+    const config = JSON.parse(await readFile(join(directory, 'cli-config.json'), 'utf8')) as {
+      network?: { useHttp1ForAgent?: unknown };
+    } | null;
+    const preference = config?.network?.useHttp1ForAgent;
+    return typeof preference === 'boolean' ? preference : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function importSdk(root: string | undefined): Promise<typeof import('@cursor/sdk')> {

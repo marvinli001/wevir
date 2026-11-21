@@ -1,5 +1,14 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -7,7 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 import { NpmInstallCancelled, NpmInstallError } from '@wevir/runtime-adapter/npm-package';
-import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFinished } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { CURSOR_SDK_VERSION, loadCursorSdk } from './sdk.js';
 import {
   CURSOR_SDK_PACKAGES,
@@ -51,8 +60,9 @@ const rgName = process.platform === 'win32' ? 'rg.exe' : 'rg';
 
 const SDK_ENTRY = `import { z } from 'zod';
 const calls = [];
+let useHttp1ForAgent = 'unset';
 export const Agent = {
-  create: async () => { calls.push('create'); return { agentId: calls.join(',') }; },
+  create: async () => { calls.push('create'); return { agentId: calls.join(','), useHttp1ForAgent }; },
   resume: async () => { calls.push('resume'); return { agentId: calls.join(',') }; },
 };
 export async function createAgentPlatform({ workspaceRef }) {
@@ -65,6 +75,9 @@ export async function createAgentPlatform({ workspaceRef }) {
   };
 }
 export const Cursor = {
+  configure: ({ local }) => {
+    if (local && 'useHttp1ForAgent' in local) useHttp1ForAgent = local.useHttp1ForAgent;
+  },
   me: async ({ apiKey }) => ({ userEmail: 'fake@' + apiKey + '.' + z }),
   models: { list: async () => [] },
   auth: { login: async () => ({}) },
@@ -328,6 +341,49 @@ describe('CursorSdkInstaller', () => {
     expect(process.env.CURSOR_RIPGREP_PATH).toBe(join(platformDir, 'bin', rgName));
     expect(process.env.CURSOR_TREE_SITTER_VENDOR_DIR).toBe(join(platformDir, 'vendor'));
   });
+
+  it.each([
+    { source: 'override', config: '{"network":{"useHttp1ForAgent":false}}', expected: false },
+    { source: 'xdg', config: '{"network":{"useHttp1ForAgent":true}}', expected: true },
+    { source: 'home', config: '{"network":{"useHttp1ForAgent":true}}', expected: true },
+    { source: 'override', config: '{"network":{"useHttp1ForAgent":"true"}}', expected: 'unset' },
+    { source: 'override', config: '{', expected: 'unset' },
+    { source: 'override', config: undefined, expected: 'unset' },
+  ])(
+    '从 $source 配置初始化 SDK，HTTP/1.1 设置为 $expected',
+    async ({ source, config, expected }) => {
+      const { installer: sdk } = installer(['a']);
+      const { root } = await sdk.install();
+      const argv1 = process.argv[1];
+      onTestFinished(() => {
+        process.argv[1] = argv1 as string;
+        vi.unstubAllEnvs();
+      });
+      const override = join(root, 'override');
+      const xdg = join(root, 'xdg');
+      const home = join(root, 'home');
+      vi.stubEnv('CURSOR_CONFIG_DIR', source === 'override' ? override : undefined);
+      vi.stubEnv('XDG_CONFIG_HOME', source === 'home' ? undefined : xdg);
+      vi.stubEnv('HOME', home);
+      vi.stubEnv('USERPROFILE', home);
+      const xdgDir = join(xdg, 'cursor');
+      const configDir =
+        source === 'override' ? override : source === 'xdg' ? xdgDir : join(home, '.cursor');
+      if (source === 'override') {
+        mkdirSync(xdgDir, { recursive: true });
+        writeFileSync(join(xdgDir, 'cli-config.json'), '{"network":{"useHttp1ForAgent":true}}');
+      }
+      if (config !== undefined) {
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(join(configDir, 'cli-config.json'), config);
+      }
+
+      const loaded = await loadCursorSdk(root);
+      expect(await loaded.createAgent({ local: { cwd: root } })).toMatchObject({
+        useHttp1ForAgent: expected,
+      });
+    },
+  );
 
   it('先答的 registry 先用；一个包校验和不对就换下一个 registry', async () => {
     behaviour.a = 'corrupt';
