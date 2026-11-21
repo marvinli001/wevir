@@ -57,6 +57,11 @@ export function classifyAntigravityTurnError(error: unknown): ClassifiedTurnErro
     return { category: 'missing_credentials', ...base };
   }
   if (
+    /\bQUOTA_EXHAUSTED\b|quota (?:has been )?exhausted|reached (?:your |the )?quota/iu.test(message)
+  ) {
+    return { category: 'provider', ...base, usageLimit: {} };
+  }
+  if (
     /SUBSCRIPTION_REQUIRED|RESOURCE_EXHAUSTED|quota|rate limit|usage limit|\b429\b|PERMISSION_DENIED/iu.test(
       message,
     )

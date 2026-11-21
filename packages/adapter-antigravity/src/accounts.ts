@@ -229,7 +229,7 @@ export class AntigravityAccounts implements EngineAccounts {
       const created = await connection.agent.request(methods.agent.session.new, {
         cwd,
         mcpServers: [],
-        _meta: antigravitySessionMeta(process.initializeResponse?.agentInfo?.version),
+        _meta: antigravitySessionMeta(process.initializeResponse),
       });
       current.sessionId = created.sessionId;
       return readModels(connection, created);
@@ -601,7 +601,7 @@ export class AntigravityAccounts implements EngineAccounts {
         const created = await process.connection.agent.request(methods.agent.session.new, {
           cwd,
           mcpServers: [],
-          _meta: antigravitySessionMeta(process.initializeResponse?.agentInfo?.version),
+          _meta: antigravitySessionMeta(process.initializeResponse),
         });
         sessionId = created.sessionId;
         return readModels(process.connection, created);

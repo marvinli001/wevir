@@ -558,6 +558,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       (response) => {
         if (session.turn !== turn || turn.settle !== undefined) return;
         const failure = turn.cancelRequested ? undefined : outcome?.(response);
+        if (failure !== undefined) this.#restartWhenIdle = true;
         this.#settle(
           session,
           turn,

@@ -5,8 +5,8 @@
 // 会话元信息与回合错误照 ab8e488e10d883fa880b0ddcf01917b51839ab07（AntigravityAcpSupport.ts、AntigravityTurnOutcome.ts）；
 // 没有动静的回合超时照 3f905cac2e4dd968684298673546aacca3323b1d（AntigravityAdapterV2.ts 的 `promptInactivityTimeout`）
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：建在 Wevir 的通用 ACP 适配器（AcpAdapter）上，一个进程承载全部会话；Wevir 的三种权限模式对到 Antigravity 的
-// default / auto_edit / yolo；Wevir 的推理档位对到运行体 1.4 的思考档位（`thinking_level`）；会话中换模型、档位与模式记下、
+// 修改：建在 Wevir 的通用 ACP 适配器（AcpAdapter）上，一个进程承载全部会话；权限模式用 default / yolo；
+// Wevir 的推理档位对到运行体 1.4 的思考档位（`thinking_level`）；会话中换模型、档位与模式记下、
 // 下一个回合开始前生效；不声明 fs 能力（T3 1.4.1 起也不再声明写文件，编辑用运行体自己的 diff），工具在运行体自己的环境里
 // 执行，审批照 ACP 原样转交；没有 T3 的附件、子 agent 批次与文本生成。
 //
@@ -43,7 +43,7 @@ import {
   validateAntigravityRuntime,
 } from './process.js';
 import { antigravityQuestion } from './protocol.js';
-import { antigravitySessionMeta } from './session-meta.js';
+import { antigravityAppendsSystemPrompt, antigravitySessionMeta } from './session-meta.js';
 import { AntigravityStepUsage } from './step-usage.js';
 import { watchAntigravityPromptOutcome } from './turn-outcome.js';
 
@@ -59,7 +59,7 @@ const PROMPT_INACTIVITY_TIMEOUT_MS = 15 * 60_000;
 /** Wevir 的权限模式 → Antigravity 的会话模式（T3 的 antigravityPermissionMode）。 */
 export const ANTIGRAVITY_MODES: Readonly<Record<PermissionMode, string>> = Object.freeze({
   on_request: 'default',
-  auto_review: 'auto_edit',
+  auto_review: 'default',
   full_access: 'yolo',
 });
 
@@ -89,6 +89,7 @@ interface SessionSettings {
   providerId: string;
   configOptions: unknown;
   modes: unknown;
+  promptRules?: string;
   /** 会话中改了、下一个回合开始前才交给运行体的设置。 */
   pending?: { modelId: string; reasoningEffort?: string; permissionMode: PermissionMode };
   /** 运行体会话库里每次模型请求的 token（`step-usage.ts`）。 */
@@ -97,11 +98,7 @@ interface SessionSettings {
 
 export class AntigravityAdapter extends AcpAdapter {
   readonly accounts: AntigravityAccounts;
-  readonly permissionModes: readonly PermissionMode[] = [
-    'on_request',
-    'auto_review',
-    'full_access',
-  ];
+  readonly permissionModes: readonly PermissionMode[] = ['on_request', 'full_access'];
   readonly installation: AntigravityInstallation;
   readonly #launcher: AntigravityLauncher;
   readonly #sessions = new Map<string, SessionSettings>();
@@ -234,7 +231,6 @@ export class AntigravityAdapter extends AcpAdapter {
     if (settings !== undefined && pending !== undefined) {
       this.assertUsable();
       this.assertOpenSession(engineSessionId);
-      settings.pending = undefined;
       // 模型照通用适配器的路由选定（session/set_config_option `model`）。
       await this.applyRoute(engineSessionId, {
         providerId: settings.providerId,
@@ -243,8 +239,15 @@ export class AntigravityAdapter extends AcpAdapter {
       settings.configOptions = this.sessionConfigOptions(engineSessionId);
       await this.#applyThinking(engineSessionId, settings, pending.reasoningEffort);
       await this.#applyMode(engineSessionId, settings, pending.permissionMode);
+      if (settings.pending === pending) settings.pending = undefined;
     }
-    return super.send(engineSessionId, input);
+    const rules = settings?.promptRules;
+    return super.send(
+      engineSessionId,
+      rules && input.content.length > 0
+        ? { ...input, content: [{ type: 'text', text: rules }, ...input.content] }
+        : input,
+    );
   }
 
   /** 回答 Antigravity 借审批方法发来的提问（`interaction_*`，见 `interceptPermission`）。 */
@@ -277,6 +280,10 @@ export class AntigravityAdapter extends AcpAdapter {
       providerId: config.providerId,
       configOptions: setup.configOptions,
       modes: setup.modes,
+      ...(config.ruleInstructions &&
+        !antigravityAppendsSystemPrompt(this.process.initializeResponse) && {
+          promptRules: config.ruleInstructions,
+        }),
       usage,
     };
     this.#sessions.set(engineSessionId, settings);
@@ -290,11 +297,12 @@ export class AntigravityAdapter extends AcpAdapter {
     return value.replace(/-(?:minimal|low|medium|high|extra_high|xhigh|max)$/, '');
   }
 
-  protected override sessionMeta(config: SessionConfig): Record<string, unknown> {
-    return antigravitySessionMeta(
-      this.process.initializeResponse?.agentInfo?.version,
-      config.ruleInstructions,
-    );
+  protected override sessionMeta(config: SessionConfig): Record<string, unknown> | undefined {
+    return antigravitySessionMeta(this.process.initializeResponse, config.ruleInstructions);
+  }
+
+  protected override refreshUsage(): Promise<void> {
+    return this.accounts.refreshUsage('antigravity');
   }
 
   protected override watchPromptOutcome(
@@ -387,11 +395,7 @@ export class AntigravityAdapter extends AcpAdapter {
     }
     if (option.currentValue === level) return;
     try {
-      const result = await this.process.connection.agent.request(
-        methods.agent.session.setConfigOption,
-        { sessionId: engineSessionId, configId: option.id, value: level },
-      );
-      settings.configOptions = result.configOptions;
+      settings.configOptions = await this.setSessionConfigOption(engineSessionId, option.id, level);
     } catch (error) {
       throw new AdapterError(
         'invalid_input',
@@ -415,20 +419,15 @@ export class AntigravityAdapter extends AcpAdapter {
     const option = modeOption(settings.configOptions);
     if (option !== undefined) {
       if (option.currentValue === modeId) return;
-      if (!option.values.includes(modeId)) {
-        this.logger.warn('Antigravity 没有这个会话模式，沿用当前模式', {
-          engineSessionId,
-          modeId,
-          available: option.values,
-        });
-        return;
-      }
-      const result = await connection.agent.request(methods.agent.session.setConfigOption, {
-        sessionId: engineSessionId,
-        configId: option.id,
-        value: modeId,
-      });
-      settings.configOptions = result.configOptions;
+      if (!option.values.includes(modeId))
+        return this.#modeUnavailable(modeId, option.currentValue);
+      settings.configOptions = await this.setSessionConfigOption(
+        engineSessionId,
+        option.id,
+        modeId,
+      );
+      const applied = modeOption(settings.configOptions)?.currentValue;
+      if (applied !== modeId) this.#modeUnavailable(modeId, applied ?? option.currentValue);
       return;
     }
     const modes = settings.modes as
@@ -436,14 +435,23 @@ export class AntigravityAdapter extends AcpAdapter {
       | undefined;
     if (modes === undefined || modes === null || modes.currentModeId === modeId) return;
     if (!modes.availableModes?.some((mode) => mode.id === modeId)) {
-      this.logger.warn('Antigravity 没有这个会话模式，沿用当前模式', { engineSessionId, modeId });
-      return;
+      return this.#modeUnavailable(modeId, modes.currentModeId);
     }
     await connection.agent.request(methods.agent.session.setMode, {
       sessionId: engineSessionId,
       modeId,
     });
     settings.modes = { ...modes, currentModeId: modeId };
+  }
+
+  #modeUnavailable(modeId: string, current: unknown): void {
+    if (modeId === 'default' && current !== undefined && current !== modeId) {
+      throw new AdapterError(
+        'engine_unavailable',
+        'Antigravity could not switch to approval-required mode.',
+      );
+    }
+    this.logger.warn('Antigravity 没有这个会话模式，沿用当前模式', { modeId, current });
   }
 }
 

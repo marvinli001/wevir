@@ -4,7 +4,7 @@
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentEvent, EngineSession, SessionConfig } from '@wevir/runtime-adapter';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AntigravityAdapter } from './antigravity-adapter.js';
 import {
   collectingLogger,
@@ -86,22 +86,28 @@ function replyText(events: AgentEvent[]): string {
 const posix = process.platform !== 'win32';
 
 describe.skipIf(!posix)('AntigravityAdapter', () => {
-  it('运行体把额度错误报为 end_turn 时仍产生 turn.failed，后续正常回合不沿用旧错误', async () => {
+  it('隐藏的额度错误先刷新用量，再排空重启，恢复后的回合不沿用旧错误', async () => {
     writeFakeToken(home);
     const adapter = await create();
     const session = await adapter.createSession(config());
+    const refresh = vi.spyOn(adapter.accounts, 'refreshUsage').mockResolvedValue(undefined);
     stepDatabase(path.join(home, 'engines/antigravity/profile'), session.engineSessionId).close();
     const events = collect(adapter, session);
     const failed = await turn(adapter, session, events, 'native-quota');
-    expect(failed.at(-1)).toMatchObject({
+    expect(failed.find((event) => event.type === 'turn.failed')).toMatchObject({
       type: 'turn.failed',
       category: 'provider',
       usageLimit: { resetsAt: '2026-12-01T00:00:00Z' },
     });
-    expect((await turn(adapter, session, events, 'hello')).at(-1)).toMatchObject({
-      type: 'turn.settled',
-      outcome: 'completed',
-    });
+    expect(refresh).toHaveBeenCalledWith('antigravity');
+    await waitFor(() => events.some((event) => event.type === 'engine.exited'), 'engine.exited');
+    const resumed = await adapter.resumeSession(session.engineSessionId, config());
+    expect((await turn(adapter, resumed, collect(adapter, resumed), 'hello')).at(-1)).toMatchObject(
+      {
+        type: 'turn.settled',
+        outcome: 'completed',
+      },
+    );
   });
 
   it.each(['resume', 'load'] as const)(
@@ -160,6 +166,7 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
   it('建会话时按权限模式设 Antigravity 的会话模式，会话中换模型与模式从下一个回合起生效', async () => {
     writeFakeToken(home);
     const adapter = await create();
+    expect(adapter.permissionModes).toEqual(['on_request', 'full_access']);
     const session = await adapter.createSession(config({ permissionMode: 'full_access' }));
     expect(session).toMatchObject({ modelId: 'gemini-3.8-flash', engineVersion: '1.4.5' });
     const events = collect(adapter, session);
@@ -171,7 +178,7 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
       permissionMode: 'auto_review',
     });
     expect(replyText(await turn(adapter, session, events, 'mode?'))).toBe(
-      'mode=auto_edit model=gemini-pro-agent',
+      'mode=default model=gemini-pro-agent',
     );
     // 会话带来的模型列表存下（Host 重启后不必启动运行体）。
     expect(existsSync(path.join(home, 'engines', 'antigravity', 'models.json'))).toBe(true);
