@@ -15,6 +15,8 @@ import {
 } from './usage-model';
 
 export interface SummaryData {
+  window: UsageWindow;
+  selection: UsageSelection;
   period: UsagePeriod;
   result: UsageSummaryResult;
 }
@@ -33,10 +35,7 @@ interface UsageState {
 }
 
 export function useUsage(client: WevirClient, window: UsageWindow, selection: UsageSelection) {
-  const query = useMemo(
-    () => ({ client, window, filter: toFilter(selection) }),
-    [client, window, selection],
-  );
+  const query = useMemo(() => ({ client, window, selection }), [client, window, selection]);
   const [pagination, setPagination] = useState<{ query: typeof query; page: number }>();
   const page = pagination?.query === query ? pagination.page : 0;
   const [revision, refresh] = useReducer((n: number) => n + 1, 0);
@@ -57,7 +56,8 @@ export function useUsage(client: WevirClient, window: UsageWindow, selection: Us
 
   useEffect(() => {
     let active = true;
-    const { client, window, filter } = query;
+    const { client, window, selection } = query;
+    const filter = toFilter(selection);
     const params = filter === undefined ? {} : { filter };
     if (summary.current?.query !== query || summary.current.revision !== revision) {
       const period = usagePeriod(window, new Date());
@@ -86,7 +86,7 @@ export function useUsage(client: WevirClient, window: UsageWindow, selection: Us
     Promise.all([result, records]).then(
       ([result, records]) => {
         if (!active) return;
-        const data = { period, result, ...records, page };
+        const data = { window, selection, period, result, ...records, page };
         if (page === 0) firstPages.set(key, data);
         setState({ client, data, loading: false });
       },

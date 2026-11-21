@@ -246,7 +246,7 @@ export const UsageSummaryResultSchema = z.object({
   /** 按请求数从多到少。 */
   byProvider: z.array(UsageProviderAggregateSchema),
   byModel: z.array(UsageModelAggregateSchema),
-  /** 这个时间段里出现过的来源、Provider 与模型（不受 `filter` 限制），给筛选菜单用。 */
+  /** 当前时间段与会话或工作区范围内的筛选选项。来源和 Provider 列出全部，模型和精度各自应用其余筛选条件。 */
   options: z.object({
     precisions: z.array(UsagePrecisionSchema).optional(),
     sources: z.array(ProviderKindSchema),

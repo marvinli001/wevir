@@ -39,6 +39,8 @@ describe('UsageService', () => {
     for (const [id, kind, displayName] of [
       ['prv_claude', 'claude', 'Claude'],
       ['prv_chatgpt', 'chatgpt', 'ChatGPT'],
+      ['chatgpt-abcd', 'chatgpt', 'Codex · 工作'],
+      ['prv_zuv', 'openai-compatible', 'ZUV API'],
     ] as const) {
       storage.providers.insert({
         id,
@@ -241,7 +243,7 @@ describe('UsageService', () => {
     ).toEqual({ input: 2, output: 20, cacheRead: 2, cacheWrite: 2, total: 26 });
   });
 
-  it('汇总：按客户端的分桶聚合，过滤只影响统计不影响可选项', async () => {
+  it('汇总按客户端的分桶聚合，来源列表保留时段内的全部来源', async () => {
     const { service, at } = await setup();
     at(T0 + 10);
     service.record(
@@ -293,7 +295,36 @@ describe('UsageService', () => {
     expect(filtered.totals.requests).toBe(1);
     expect(filtered.totals.cost).toBe(0);
     expect(filtered.options.sources).toEqual(['chatgpt', 'claude']);
+    expect(filtered.options.models).toEqual(['unknown-model']);
     expect(service.records({ from: T0, to: T0 + 2 * HOUR, filter: { sources: [] } }).total).toBe(3);
+  });
+
+  it('模型选项按账号和精度筛选，选中模型后仍可切换同范围的模型', async () => {
+    const { service } = await setup();
+    const work = { ...chatgpt, providerId: 'chatgpt-abcd', sessionId: 'ses_work' };
+    const api = { providerId: 'prv_zuv', sessionId: 'ses_api', modelId: 'xai/grok-4.7' };
+    service.record(chatgpt, event());
+    service.record(work, event({ model: 'gpt-6.2-astra' }));
+    service.record(work, event({ requestId: 'sol', model: 'gpt-6.2-sol' }));
+    service.record(api, event({ origin: 'gateway' }));
+
+    const edges = [T0, T0 + 1];
+    const account = { providerIds: [work.providerId] };
+    const workModels = ['gpt-6.2-astra', 'gpt-6.2-sol'];
+    expect(service.summary(edges, account).options.models).toEqual(workModels);
+    const selected = service.summary(edges, { ...account, models: ['gpt-6.2-sol'] });
+    expect(selected.options.models).toEqual(workModels);
+    expect(selected.byModel.map((row) => row.model)).toEqual(['gpt-6.2-sol']);
+    expect(service.summary(edges, { ...account, precision: 'exact' }).options).toMatchObject({
+      models: [],
+      precisions: ['engine'],
+    });
+    expect(service.summary(edges, { precision: 'exact' }).options.models).toEqual([api.modelId]);
+    expect(service.summary(edges, undefined).options.models).toEqual([
+      chatgpt.modelId,
+      ...workModels,
+      api.modelId,
+    ]);
   });
 
   it('分桶要严格升序且不超过上限', async () => {

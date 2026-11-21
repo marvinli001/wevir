@@ -46,10 +46,10 @@ import {
   totalTokens,
   USAGE_RANGES,
   USAGE_TABS,
-  type UsagePeriod,
   type UsageRange,
   type UsageSelection,
   type UsageTab,
+  type UsageWindow,
 } from './usage-model';
 import { prefsWindow, usagePrefs } from './usage-prefs';
 import { ModelsTable, ProvidersTable, RecordsTable } from './usage-tables';
@@ -126,7 +126,7 @@ export function UsagePage({ client }: { client: WevirClient }) {
             selection={selection}
             range={prefs.range}
             custom={prefs.custom}
-            period={summary?.period}
+            window={window}
             locale={locale}
             onSelection={setSelection}
             onRange={(range) => usagePrefs.set((current) => ({ ...current, range }))}
@@ -267,7 +267,7 @@ function Filters({
   selection,
   range,
   custom,
-  period,
+  window,
   locale,
   onSelection,
   onRange,
@@ -278,7 +278,7 @@ function Filters({
   selection: UsageSelection;
   range: UsageRange | 'custom';
   custom: CustomRange | undefined;
-  period: UsagePeriod | undefined;
+  window: UsageWindow;
   locale: string;
   onSelection: (selection: UsageSelection) => void;
   onRange: (range: UsageRange) => void;
@@ -288,7 +288,11 @@ function Filters({
   const accounts = useAccounts();
   const options = summary?.result.options;
   const listed = filterProviders(providers, options?.providers ?? []);
-  const models = [...(options?.models ?? [])];
+  const sameProvider =
+    summary?.window === window && summary.selection.providerId === selection.providerId;
+  const modelsReady = sameProvider && summary.selection.precision === selection.precision;
+  const precisionsReady = sameProvider && summary.selection.model === selection.model;
+  const models = modelsReady ? [...summary.result.options.models] : [];
   if (selection.model !== undefined && !models.includes(selection.model))
     models.push(selection.model);
   const modelOptions: SelectOption[] = [
@@ -321,12 +325,15 @@ function Filters({
         {options?.precisions !== undefined && (
           <Select
             aria-label={t('usage.precision')}
+            disabled={!precisionsReady}
             value={selection.precision ?? ALL}
             options={[
               { value: ALL, label: t('usage.precision.all') },
               ...(['exact', 'engine', 'turn'] as const)
                 .filter(
-                  (value) => options.precisions?.includes(value) || value === selection.precision,
+                  (value) =>
+                    (precisionsReady && options.precisions?.includes(value)) ||
+                    value === selection.precision,
                 )
                 .map((value) => ({ value, label: t(`usage.precision.${value}`) })),
             ]}
@@ -339,6 +346,7 @@ function Filters({
         )}
         <Select
           aria-label={t('usage.filter.model')}
+          disabled={!modelsReady}
           value={selection.model ?? ALL}
           options={modelOptions}
           onValueChange={(value) =>
@@ -352,7 +360,7 @@ function Filters({
           <RangePicker
             active={range === 'custom'}
             value={custom}
-            start={period?.edges[0] ?? Date.now()}
+            start={summary?.period.edges[0] ?? Date.now()}
             locale={locale}
             onApply={onCustom}
           />

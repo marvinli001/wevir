@@ -154,7 +154,9 @@ export class UsageService {
     const buckets = Array.from({ length: edges.length - 1 }, emptyAggregate);
     const byProvider = new Map<string, UsageProviderAggregate>();
     const byModel = new Map<string, UsageModelAggregate>();
-    const matchesSeries = seriesMatcher(filter);
+    const selectedSources = nonEmpty(filter?.sources);
+    const selectedProviders = nonEmpty(filter?.providerIds);
+    const selectedModels = nonEmpty(filter?.models);
     let bucket = 0;
 
     for (const row of rows) {
@@ -165,11 +167,14 @@ export class UsageService {
         name: row.providerName,
         source: row.source as ProviderKind,
       });
-      models.add(row.model);
-      if (!matchesSeries(row)) continue;
+      if (selectedSources && !selectedSources.has(row.source)) continue;
+      if (selectedProviders && !selectedProviders.has(row.providerId)) continue;
       const precision = usagePrecision(row);
+      const matchesPrecision = filter?.precision === undefined || filter.precision === precision;
+      if (matchesPrecision) models.add(row.model);
+      if (selectedModels && !selectedModels.has(row.model)) continue;
       precisions.add(precision);
-      if (filter?.precision !== undefined && filter.precision !== precision) continue;
+      if (!matchesPrecision) continue;
       const requests = precision === 'turn' ? row.modelCalls : 1;
       const priced = this.#price(row, baseURLs.get(row.providerId));
       while (bucket < buckets.length - 1 && row.at >= (edges[bucket + 1] as number)) bucket += 1;
@@ -506,16 +511,6 @@ function add(
     target.timing.firstTokenCount += 1;
     target.timing.firstTokenMs += row.firstTokenMs;
   }
-}
-
-function seriesMatcher(filter: UsageFilter | undefined): (row: UsageSummaryRow) => boolean {
-  const sources = nonEmpty(filter?.sources);
-  const providers = nonEmpty(filter?.providerIds);
-  const models = nonEmpty(filter?.models);
-  return (row) =>
-    (sources === undefined || sources.has(row.source)) &&
-    (providers === undefined || providers.has(row.providerId)) &&
-    (models === undefined || models.has(row.model));
 }
 
 /** 协议里空数组与省略都表示不限。 */
