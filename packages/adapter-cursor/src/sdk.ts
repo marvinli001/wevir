@@ -168,9 +168,38 @@ function useInstalledPlatformPackage(root: string): void {
 }
 
 function wrap(sdk: typeof import('@cursor/sdk')): CursorSdk {
+  let sandboxPrimed: Promise<void> | undefined;
+  async function prepareFullAccess(options: AgentOptions): Promise<void> {
+    if (process.platform === 'win32' || options.local?.sandboxOptions?.enabled !== false) return;
+    const { cwd } = options.local;
+    // The SDK caches the first sandbox capability check, even when the helper was disabled.
+    sandboxPrimed ??= (async () => {
+      const workspace = await sdk.createAgentPlatform(
+        cwd === undefined ? {} : { workspaceRef: cwd },
+      );
+      const release = await workspace.prewarmLocalWorkspace({
+        ...(options.apiKey !== undefined && { apiKey: options.apiKey }),
+        local: {
+          ...(cwd !== undefined && { cwd }),
+          settingSources: [],
+          sandboxOptions: { enabled: true },
+        },
+      });
+      await release();
+    })().catch(() => {
+      // Full access remains usable on hosts where the sandbox helper cannot start.
+    });
+    await sandboxPrimed;
+  }
   return {
-    createAgent: (options) => sdk.Agent.create(options),
-    resumeAgent: (agentId, options) => sdk.Agent.resume(agentId, options),
+    createAgent: async (options) => {
+      await prepareFullAccess(options);
+      return sdk.Agent.create(options);
+    },
+    resumeAgent: async (agentId, options) => {
+      await prepareFullAccess(options);
+      return sdk.Agent.resume(agentId, options);
+    },
     listRuns: (agentId, options) => sdk.Agent.listRuns(agentId, { runtime: 'local', ...options }),
     cancelRun: (runId, options) => sdk.Agent.cancelRun(runId, { runtime: 'local', ...options }),
     // 与 Agent.create 的本地 agent 同一个存储：SDK 按工作目录缓存平台（createAgentPlatform 的 workspaceRef 就是 local.cwd）。

@@ -50,7 +50,20 @@ const platformName = `@cursor/sdk-${process.platform}-${process.arch}`;
 const rgName = process.platform === 'win32' ? 'rg.exe' : 'rg';
 
 const SDK_ENTRY = `import { z } from 'zod';
-export const Agent = {};
+const calls = [];
+export const Agent = {
+  create: async () => { calls.push('create'); return { agentId: calls.join(',') }; },
+  resume: async () => { calls.push('resume'); return { agentId: calls.join(',') }; },
+};
+export async function createAgentPlatform({ workspaceRef }) {
+  return {
+    async prewarmLocalWorkspace({ local }) {
+      calls.push(local.cwd === workspaceRef && local.settingSources.length === 0 &&
+        local.sandboxOptions.enabled === true ? 'prewarm-sandbox' : 'incorrect-prewarm');
+      return async () => { calls.push('release'); };
+    },
+  };
+}
 export const Cursor = {
   me: async ({ apiKey }) => ({ userEmail: 'fake@' + apiKey + '.' + z }),
   models: { list: async () => [] },
@@ -323,6 +336,26 @@ describe('CursorSdkInstaller', () => {
     expect(readFileSync(join(root, 'node_modules', 'zod', 'index.js'), 'utf8')).toContain('flat');
     expect(existsSync(join(root, 'node_modules', 'zod', 'x'))).toBe(false);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    '完全访问的创建与恢复共用一次沙箱预热，并等预热结束',
+    async () => {
+      const { installer: sdk } = installer(['a']);
+      const { root } = await sdk.install();
+      const argv1 = process.argv[1];
+      onTestFinished(() => {
+        process.argv[1] = argv1 as string;
+      });
+      const loaded = await loadCursorSdk(root);
+      const options = { local: { cwd: root, sandboxOptions: { enabled: false } } };
+      const [created, resumed] = await Promise.all([
+        loaded.createAgent(options),
+        loaded.resumeAgent('old', options),
+      ]);
+      expect(created.agentId).toBe('prewarm-sandbox,release,create');
+      expect(resumed.agentId).toBe('prewarm-sandbox,release,create,resume');
+    },
+  );
 
   it('都失败：报 NpmInstallError（带各 registry 的原因），不留半截、不写指针，原因留在 error 里直到下一次安装', async () => {
     behaviour.a = 'corrupt';
