@@ -61,7 +61,7 @@ import {
   sessionConfigInfo,
 } from './acp-mapping.js';
 import { type AcpExit, type AcpProcess, settledWithin } from './acp-process.js';
-import type { AcpEngine } from './engine.js';
+import type { AcpEngine, AcpRouteCodec } from './engine.js';
 import {
   type AdapterLogger,
   SessionEventQueue,
@@ -178,6 +178,10 @@ export interface AcpSessionSetup {
   modes?: unknown;
 }
 
+interface SessionOptions {
+  value: unknown;
+}
+
 interface AcpSession {
   commands: EngineComposerCommand[];
   readonly id: string;
@@ -191,7 +195,7 @@ interface AcpSession {
   /** 未决提问（`requestAnswers`），按 requestId；规则同审批。 */
   readonly questions: Map<string, PendingQuestion>;
   /** 引擎最近报的 `configOptions`（`session/new` / `session/resume`、选定路由、`config_option_update`）。 */
-  configOptions: unknown;
+  readonly configOptions: SessionOptions;
   selection: Pick<SessionConfig, 'providerId' | 'modelId'>;
   /** 角色关掉的引擎工具类别（`SessionConfig.engineTools`）：这些类别的审批请求直接拒绝。 */
   readonly deniedTools: ReadonlySet<EngineToolClass>;
@@ -284,6 +288,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
    */
   #activating = 0;
   readonly #activatingCommands = new Map<string, EngineComposerCommand[]>();
+  readonly #activatingOptions = new Map<string, SessionOptions>();
 
   constructor(options: AcpAdapterOptions<P>) {
     const { engine } = options;
@@ -385,18 +390,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         throw engineError(error, 'session/new');
       }
       const id = response.sessionId;
-      let configOptions: unknown;
+      const options = this.#activationOptions(id, response.configOptions, response.models);
       try {
-        configOptions = await this.#selectRoute(
-          id,
-          config,
-          this.#withSessionModels(response.configOptions, response.models),
-          true,
-        );
-        configOptions = await this.afterActivation(id, config, {
-          configOptions,
-          modes: response.modes,
-        });
+        return await this.#activate(id, config, options, response.modes);
       } catch (error) {
         // 选不上路由的会话不交给 Host，引擎侧也关掉。
         await connection.agent
@@ -404,15 +400,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           .catch(() => {});
         throw error;
       }
-      this.#register(id, config, configOptions, config.engineTools?.denied);
-      return {
-        engineSessionId: id,
-        engineVersion: this.engine.version,
-        ...sessionConfigInfo(configOptions, this.engine.route),
-      };
     } finally {
-      this.#activating -= 1;
-      if (!this.#activating) this.#activatingCommands.clear();
+      this.#finishActivation();
     }
   }
 
@@ -472,32 +461,17 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           { engineSessionId },
         );
       }
+      const options = this.#activationOptions(engineSessionId, configOptions, models);
       try {
-        configOptions = await this.#selectRoute(
-          engineSessionId,
-          config,
-          this.#withSessionModels(configOptions, models),
-          true,
-        );
-        configOptions = await this.afterActivation(engineSessionId, config, {
-          configOptions,
-          modes,
-        });
+        return await this.#activate(engineSessionId, config, options, modes);
       } catch (error) {
         await connection.agent
           .request(methods.agent.session.close, { sessionId: engineSessionId })
           .catch(() => {});
         throw error;
       }
-      this.#register(engineSessionId, config, configOptions, config.engineTools?.denied);
-      return {
-        engineSessionId,
-        engineVersion: this.engine.version,
-        ...sessionConfigInfo(configOptions, this.engine.route),
-      };
     } finally {
-      this.#activating -= 1;
-      if (!this.#activating) this.#activatingCommands.clear();
+      this.#finishActivation();
     }
   }
 
@@ -562,7 +536,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const pending = this.#promptBlocks(input);
     const blocks = Array.isArray(pending) ? pending : await pending;
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
-    this.#validateModel(session.configOptions, session.selection);
+    this.#validateModel(session.configOptions.value, session.selection);
     const connection = this.process.connection;
     let finish!: () => void;
     const done = new Promise<void>((resolve) => {
@@ -1011,17 +985,43 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     config: Pick<SessionConfig, 'providerId' | 'modelId' | 'reasoningEffort'>,
   ): Promise<void> {
     const session = this.#openSession(engineSessionId);
-    session.configOptions = await this.#selectRoute(engineSessionId, config, session.configOptions);
+    await this.#selectRoute(engineSessionId, config, session.configOptions);
     session.selection = { providerId: config.providerId, modelId: config.modelId };
   }
 
-  /** 会话最近的 `configOptions`（子类在 `applyRoute` 之后按新模型设别的选项时读，Antigravity：思考档位）。 */
   async listCommands(engineSessionId: string): Promise<EngineComposerCommand[]> {
     return this.#session(engineSessionId).commands;
   }
 
+  /** 会话最近的 `configOptions`，也可在 `afterActivation` 内读取。 */
   protected sessionConfigOptions(engineSessionId: string): unknown {
-    return this.#openSession(engineSessionId).configOptions;
+    return this.#sessionOptions(engineSessionId).value;
+  }
+
+  protected async setSessionConfigOption(
+    engineSessionId: string,
+    configId: string,
+    value: string,
+  ): Promise<unknown> {
+    const options = this.#sessionOptions(engineSessionId);
+    const before = options.value;
+    const result = await this.process.connection.agent.request(
+      methods.agent.session.setConfigOption,
+      {
+        sessionId: engineSessionId,
+        configId,
+        value,
+      },
+    );
+    // 引擎可能先通知目录变化，再回一个请求开始时的快照。
+    if (options.value === before && Array.isArray(result?.configOptions)) {
+      options.value = result.configOptions;
+    }
+    return options.value;
+  }
+
+  protected get sessionRoute(): AcpRouteCodec {
+    return this.engine.route;
   }
 
   /** 旧版模型 ID 对应的目录值；默认就是原值。 */
@@ -1097,6 +1097,20 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     }
     const session = this.#sessions.get(params.sessionId);
     if (
+      params.update.sessionUpdate === 'config_option_update' &&
+      Array.isArray(params.update.configOptions)
+    ) {
+      const activating = this.#activatingOptions.get(params.sessionId);
+      if (session?.status === 'open') session.configOptions.value = params.update.configOptions;
+      else if (activating !== undefined) {
+        activating.value = params.update.configOptions;
+        return;
+      } else if (this.#activating > 0 && this.#activatingOptions.size < 128) {
+        this.#activatingOptions.set(params.sessionId, { value: params.update.configOptions });
+        return;
+      }
+    }
+    if (
       params.update.sessionUpdate === 'available_commands_update' &&
       Array.isArray(params.update.availableCommands)
     ) {
@@ -1130,12 +1144,6 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         { engineSessionId: params.sessionId, sessionUpdate: params.update.sessionUpdate },
       );
       return;
-    }
-    if (
-      params.update.sessionUpdate === 'config_option_update' &&
-      Array.isArray(params.update.configOptions)
-    ) {
-      session.configOptions = params.update.configOptions;
     }
     let notification = params;
     if (this.engine.normalizeUpdate !== undefined) {
@@ -1508,7 +1516,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   #withSessionModels(configOptions: unknown, models: unknown): unknown {
     const options = this.engine.sessionModels?.(configOptions, models) ?? configOptions;
     const available = (models as { availableModels?: unknown } | undefined)?.availableModels;
-    const id = routeModelOption(options, this.engine.route);
+    const id = routeModelOption(options, this.sessionRoute);
     if (
       !Array.isArray(available) ||
       (Array.isArray(options) && options.some((o) => o?.id === id))
@@ -1530,8 +1538,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     configOptions: unknown,
     config: Pick<SessionConfig, 'providerId' | 'modelId'>,
   ): void {
-    const value = this.engine.route.encode(config.providerId, config.modelId);
-    const id = routeModelOption(configOptions, this.engine.route);
+    const route = this.sessionRoute;
+    const value = route.encode(config.providerId, config.modelId);
+    const id = routeModelOption(configOptions, route);
     const option = Array.isArray(configOptions)
       ? configOptions.find((entry) => entry?.id === id && entry.type === 'select')
       : undefined;
@@ -1555,28 +1564,24 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
 
   /**
    * 选定会话的路由：模型选项的值按引擎描述的 `route` 编码（dsh 是 `JSON.stringify([provider, model])`），与
-   * `session/new` 给的当前值不同就 `set_config_option`；给了推理强度、且引擎有这个选项时也一样。返回最终的
-   * `configOptions`。选不上（引擎没有这个 Provider 或模型，dsh 是 `-32602 unknown model option`）报 `invalid_input`。
+   * `session/new` 给的当前值不同就 `set_config_option`；给了推理强度、且引擎有这个选项时也一样。
+   * 选不上（引擎没有这个 Provider 或模型，dsh 是 `-32602 unknown model option`）报 `invalid_input`。
    * `activated`（建会话与恢复）时引擎的 `route.alwaysSetModel` 让模型相同也写一次。
    */
   async #selectRoute(
     engineSessionId: string,
     config: Pick<SessionConfig, 'providerId' | 'modelId' | 'reasoningEffort'>,
-    initial: unknown,
+    options: SessionOptions,
     activated = false,
-  ): Promise<unknown> {
+  ): Promise<void> {
     const connection = this.process.connection;
-    const { name, route } = this.engine;
-    let configOptions = initial;
+    const { name } = this.engine;
+    const route = this.sessionRoute;
+    const configOptions = options.value;
     this.#validateModel(configOptions, config);
     const set = async (configId: string, value: string, what: string) => {
       try {
-        const result = await connection.agent.request(methods.agent.session.setConfigOption, {
-          sessionId: engineSessionId,
-          configId,
-          value,
-        });
-        configOptions = result.configOptions;
+        await this.setSessionConfigOption(engineSessionId, configId, value);
       } catch (error) {
         const failed = engineError(error, 'session/set_config_option');
         throw new AdapterError(
@@ -1601,10 +1606,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       const current = currentOption(configOptions, modelOption);
       const target = value ?? current;
       if ((value === undefined || (value === current && !resend)) && !effortChanged) {
-        return configOptions;
+        return;
       }
       // 只换推理强度又不知道当前模型：没法发 set_model，用引擎的默认档位。
-      if (target === undefined) return configOptions;
+      if (target === undefined) return;
       let result: { _meta?: unknown } | undefined;
       try {
         result = await connection.agent.request<{ _meta?: unknown } | undefined>(
@@ -1630,11 +1635,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           `${name} 选不上模型 ${config.modelId}：${typeof rejected === 'string' ? rejected : JSON.stringify(rejected)}`,
         );
       }
-      configOptions = withCurrentOption(configOptions, modelOption, target);
-      if (effort !== undefined && effortOption !== undefined) {
-        configOptions = withCurrentOption(configOptions, effortOption, effort);
+      if (options.value === configOptions) {
+        options.value = withCurrentOption(configOptions, modelOption, target);
+        if (effort !== undefined && effortOption !== undefined) {
+          options.value = withCurrentOption(options.value, effortOption, effort);
+        }
       }
-      return configOptions;
+      return;
     }
     if (value !== undefined && (resend || currentOption(configOptions, modelOption) !== value)) {
       await set(modelOption, value, ` ${config.providerId} 的模型 ${config.modelId}`);
@@ -1642,11 +1649,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     if (
       effort !== undefined &&
       effortOption !== undefined &&
-      currentOption(configOptions, effortOption) !== effort
+      currentOption(options.value, effortOption) !== effort
     ) {
       await set(effortOption, effort, `推理强度 ${effort}`);
     }
-    return configOptions;
   }
 
   /** 引擎要求先认证时（`authenticateAfter`）认证后重试一次。 */
@@ -1693,11 +1699,48 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     trimSessionCache(this.#sessions, (held) => held.status !== 'open');
   }
 
+  #activationOptions(id: string, initial: unknown, models: unknown): SessionOptions {
+    const options = this.#activatingOptions.get(id) ?? { value: initial };
+    options.value = this.#withSessionModels(options.value, models);
+    this.#activatingOptions.set(id, options);
+    return options;
+  }
+
+  async #activate(
+    id: string,
+    config: SessionConfig,
+    options: SessionOptions,
+    modes: unknown,
+  ): Promise<EngineSession> {
+    try {
+      await this.#selectRoute(id, config, options, true);
+      const before = options.value;
+      const next = await this.afterActivation(id, config, { configOptions: before, modes });
+      if (options.value === before) options.value = next;
+      this.#register(id, config, options, config.engineTools?.denied);
+      return {
+        engineSessionId: id,
+        engineVersion: this.engine.version,
+        ...sessionConfigInfo(options.value, this.sessionRoute),
+      };
+    } finally {
+      this.#activatingOptions.delete(id);
+    }
+  }
+
+  #finishActivation(): void {
+    this.#activating -= 1;
+    if (this.#activating === 0) {
+      this.#activatingCommands.clear();
+      this.#activatingOptions.clear();
+    }
+  }
+
   /** 登记一个刚挂到本进程上的会话；之前的记录（已关闭或已脱开，事件队列已结束）被替换。 */
   #register(
     id: string,
     config: SessionConfig,
-    configOptions: unknown,
+    configOptions: SessionOptions,
     deniedTools: readonly EngineToolClass[] = [],
   ): void {
     this.#sessions.set(id, {
@@ -1722,6 +1765,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       throw new AdapterError('session_not_found', `不认识的引擎会话 ${engineSessionId}`);
     }
     return session;
+  }
+
+  #sessionOptions(id: string): SessionOptions {
+    return this.#activatingOptions.get(id) ?? this.#openSession(id).configOptions;
   }
 
   #openSession(engineSessionId: string): AcpSession {

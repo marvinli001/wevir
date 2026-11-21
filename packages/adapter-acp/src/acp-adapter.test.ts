@@ -15,6 +15,9 @@ const calls = [];
 let pendingPrompt;
 let receivedPrompt;
 const reply = (id, result) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id, result }) + '\n');
+const notifyOptions = (configOptions) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
+  sessionId: 's1', update: { sessionUpdate: 'config_option_update', configOptions }
+} }) + '\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const { id, method, params } = JSON.parse(line);
   calls.push(method);
@@ -25,10 +28,12 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     case 'session/new':
     case 'session/resume':
       if (setup.commands) process.stdout.write(JSON.stringify({jsonrpc:'2.0',method:'session/update',params:{sessionId:'s1',update:{sessionUpdate:'available_commands_update',availableCommands:setup.commands}}}) + '\n');
+      if (setup.activationOptions) notifyOptions(setup.activationOptions);
       reply(id, { sessionId: 's1', configOptions, models: setup.models });
       break;
     case 'session/set_config_option':
       configOptions = configOptions.map((o) => o.id === params.configId ? { ...o, currentValue: params.value } : o);
+      if (setup.optionsWhileSetting) notifyOptions(setup.optionsWhileSetting);
       reply(id, { configOptions });
       break;
     case 'session/set_model':
@@ -46,9 +51,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       if (setup.stopReason) { reply(id, { stopReason: setup.stopReason }); break; }
       if (setup.hangPrompt) { pendingPrompt = id; break; }
       configOptions = setup.nextOptions ?? configOptions;
-      process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'session/update', params: {
-        sessionId: 's1', update: { sessionUpdate: 'config_option_update', configOptions }
-      } }) + '\n');
+      notifyOptions(configOptions);
       reply(id, { stopReason: 'end_turn' });
       break;
     case 'fixture/releasePrompt':
@@ -230,6 +233,31 @@ it('retains commands advertised before session/new responds', async () => {
   expect(await adapter.listCommands(session.engineSessionId)).toEqual([
     { name: 'stats', description: 'Show usage', argumentHint: '[period]' },
   ]);
+});
+
+it('uses config options announced before session creation and resume complete', async () => {
+  const adapter = setup('config_option', {
+    configOptions: [option(['a'])],
+    activationOptions: [{ ...option(['b']), currentValue: 'b' }],
+  });
+  const session = await adapter.createSession(config('b'));
+  expect(session.modelId).toBe('b');
+  await adapter.close(session.engineSessionId);
+  const resumed = await adapter.resumeSession(session.engineSessionId, config('b'));
+  expect(resumed.modelId).toBe('b');
+  expect(await calls(adapter)).not.toContain('session/set_config_option');
+});
+
+it('preserves a config update received during route selection even when the response is stale', async () => {
+  const adapter = setup('config_option', { optionsWhileSetting: [option(['a'])] });
+  const activated = await adapter.createSession(config('b'));
+  expect(activated.modelId).toBe('a');
+  const open = await adapter.createSession(config('a'));
+  await adapter.select(open.engineSessionId, 'b');
+  await expect(
+    adapter.send(open.engineSessionId, { content: [{ type: 'text', text: 'hi' }] }),
+  ).rejects.toMatchObject({ code: 'invalid_input' });
+  expect(await calls(adapter)).not.toContain('session/prompt');
 });
 
 describe('ACP 额度失败结算', () => {
