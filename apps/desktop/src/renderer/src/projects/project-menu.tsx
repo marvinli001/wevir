@@ -15,6 +15,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import { MenuHighlight } from '@/components/ui/menu-highlight';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useWorkspaceManagement } from '@/data/workspace-actions';
 import { t } from '@/i18n';
@@ -24,7 +25,9 @@ import { openCreateProject } from './create-project';
 /**
  * 选项目的下拉菜单内容（紧凑菜单，`components/compact-menu.ts`）：每个项目一行，文件夹图标、名称与截掉开头的上一级目录
  * （`~` 开头），当前的打勾；下面是“创建项目…”，Host 能建对话时（0.39.0，照 Codex 桌面端）最下面还有“不在目录中工作”，
- * 没选项目时它打勾。项目多时列表最高 320 px，带滚动边缘渐隐。首页标题里的项目名与输入框上方的环境栏（U12）共用。
+ * 没选项目时它打勾。项目多时列表最高 320 px，带滚动边缘渐隐，列表里放自己的高亮指示块（随列表滚动）；窗口矮、弹层放
+ * 不下时只压缩项目列表（菜单的列表区改成纵向 flex，其余行不收缩），下面两项始终露出，不让整个菜单再套一层滚动条。
+ * 首页标题里的项目名与输入框上方的环境栏（U12）共用。
  * `workspaces` 只放项目（`projectsOf`），`onSelect(null)` 是不在项目里。
  */
 export function ProjectMenuContent({
@@ -42,8 +45,12 @@ export function ProjectMenuContent({
 } & Pick<ComponentProps<typeof DropdownMenuContent>, 'align' | 'side' | 'sideOffset'>) {
   const { create } = useWorkspaceManagement();
   return (
-    <DropdownMenuContent className="w-auto max-w-80 min-w-56" {...props}>
-      <ScrollFade className="max-h-80 overflow-y-auto [--scroll-fade-size:16px]">
+    <DropdownMenuContent
+      className="w-auto max-w-80 min-w-56 *:flex *:flex-col [&>*>:not(.scroll-fade)]:shrink-0"
+      {...props}
+    >
+      <ScrollFade className="relative isolate max-h-80 min-h-0 overflow-y-auto [--scroll-fade-size:16px]">
+        <MenuHighlight />
         <DropdownMenuRadioGroup
           value={currentId ?? ''}
           onValueChange={(id: string) => onSelect(id)}
