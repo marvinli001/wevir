@@ -31,6 +31,7 @@ import {
   filesAfterAnswer,
   finalAnswer,
   foldItems,
+  foldsAsProcess,
   foldTurn,
   type TurnFold,
   turnHeaderText,
@@ -182,8 +183,9 @@ export const TurnView = memo(
           <div id={id}>
             {messages.slice(lead).map((message) => {
               if (message.role === 'user') {
-                // 回合中途插进来的后台进程通知属于过程：随过程一起收进“已处理”，不留在回答上面。进行中也包着，结束时不重新挂载。
-                if (message.from?.process !== undefined) {
+                // 回合中途插进来的后台进程通知与别的会话发来的消息属于过程：随过程一起收进“已处理”，不堆在回答上面。进行中
+                // 也包着，结束时不重新挂载。开启回合的那条（lead）仍留在上面，它是这个回合的起因。
+                if (foldsAsProcess(message)) {
                   return (
                     <Collapse key={message.id} open={!folded} fromOpen={justFolded} flow>
                       <div className="mt-3" data-chat-message={message.id}>

@@ -8,6 +8,7 @@ import type {
   SessionNotice,
   TranscriptEngineSegment,
   TurnEngine,
+  UserChatMessage,
 } from '@wevir/client-sdk';
 import type { ProviderProfile, SessionState, TurnId, TurnOutcome } from '@wevir/protocol';
 import { sourceOf } from '@/data/sources';
@@ -235,6 +236,11 @@ export function alwaysShown(part: ChatPart): boolean {
   );
 }
 
+/** 回合中途插进来时随过程收起的用户消息：后台进程通知与别的会话发来的消息。用户自己的插话与回报照样留下。 */
+export function foldsAsProcess(message: UserChatMessage): boolean {
+  return message.from?.process !== undefined || message.from?.kind === 'message';
+}
+
 /** `finalKey` 的格式。 */
 export function partId(messageId: string, partKey: string): string {
   return `${messageId}/${partKey}`;
@@ -264,7 +270,11 @@ export function foldTurn(
   const paths = new Set<string>();
   let unnamed = 0;
   const changes = { files: 0, added: 0, removed: 0 };
-  for (const message of messages) {
+  for (const [index, message] of messages.entries()) {
+    // 回合中途插进来的后台进程通知与别的会话发来的消息算过程（turn-view.tsx 随过程收起）；开启回合的那条不算。
+    if (message.role === 'user' && (index > 0 || message.steered) && foldsAsProcess(message)) {
+      hasProcess = true;
+    }
     if (message.role !== 'assistant') continue;
     for (const part of visibleParts(message.parts, hasSubagents)) {
       if (partId(message.id, part.key) === finalKey || alwaysShown(part)) continue;

@@ -20,6 +20,7 @@ import {
   finalAnswer,
   foldedParts,
   foldItems,
+  foldsAsProcess,
   foldTurn,
   groupTurns,
   handoffAfterLastTurn,
@@ -559,6 +560,36 @@ describe('foldTurn', () => {
     const fold = foldTurn(s.project().messages, false, false);
     expect(fold).toMatchObject({ hasProcess: false, showHeader: false, defaultFolded: false });
     expect(fold.changes.files).toBe(0);
+  });
+
+  it('回合中途别的会话发来的消息算过程，随过程收起；用户自己的插话不算', () => {
+    const steer = (from?: { sessionId: SessionId; kind: 'message' }) => {
+      const s = session();
+      s.turn();
+      s.add('user.steered', {
+        turnId: TURN,
+        pendingId: PENDING,
+        clientMessageId: 'c1',
+        content: [{ type: 'text', text: '测试过了' }],
+        sentBy: self,
+        ...(from && { from }),
+      });
+      s.say(TURN, '收到。');
+      s.finish(TURN, 'completed');
+      return s.project().messages;
+    };
+    const relayed = steer({ sessionId: SES, kind: 'message' });
+    expect(
+      relayed.flatMap((message) => (message.role === 'user' ? [foldsAsProcess(message)] : [])),
+    ).toEqual([false, true]);
+    expect(foldTurn(relayed, false, false)).toMatchObject({
+      hasProcess: true,
+      defaultFolded: true,
+    });
+    expect(foldTurn(steer(), false, false)).toMatchObject({
+      hasProcess: false,
+      defaultFolded: false,
+    });
   });
 
   it('出错、被停止、被中断的回合不自动收起，那一行写结果与用时；只有正文也有那一行', () => {
