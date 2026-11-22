@@ -127,6 +127,31 @@ describe('contextBreakdown', () => {
     expect(snapshot.categories[2]?.tokens).toBe(65);
   });
 
+  it('takes a shrink since the measurement out of messages and returns it to free space', () => {
+    const snapshot = {
+      categories: [
+        { name: 'Messages', tokens: 50, kind: 'used' },
+        { name: 'System tools', tokens: 10, kind: 'used' },
+        { name: 'Free space', tokens: 40, kind: 'free' },
+      ],
+      measuredUsed: 60,
+    };
+    expect(contextBreakdown(snapshot, 45, 100)?.rows.map((r) => [r.name, r.tokens])).toEqual([
+      ['Messages', 35],
+      ['System tools', 10],
+      ['Free space', 55],
+    ]);
+    expect(snapshot.categories[0]?.tokens).toBe(50);
+    expect(contextBreakdown(snapshot, 9, 100)).toBeUndefined();
+
+    const full = { categories: snapshot.categories.slice(0, 2), measuredUsed: 60 };
+    expect(contextBreakdown(full, 55, 60)?.rows.map((r) => [r.name, r.tokens])).toEqual([
+      ['Messages', 45],
+      ['System tools', 10],
+      ['Free space', 5],
+    ]);
+  });
+
   it('显示旧会话保存的 Codex 输入输出拆分', () => {
     const view = contextBreakdown({
       categories: [

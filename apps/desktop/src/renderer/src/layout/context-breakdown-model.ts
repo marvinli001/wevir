@@ -131,8 +131,22 @@ export function contextBreakdown(
   if (!breakdown) return undefined;
   const delta =
     used !== undefined && breakdown.measuredUsed !== undefined ? used - breakdown.measuredUsed : 0;
-  if (delta < 0) return undefined;
   let categories = breakdown.categories;
+  if (delta < 0) {
+    // 测量之后上下文变小了（引擎清掉旧工具结果、裁剪、回退等）：减掉的算在消息上，还给剩余空间；消息不够扣就不画分布。
+    const shrink = -delta;
+    const messages = categories.find((row) => row.kind === 'used' && row.name === 'Messages');
+    if (!messages || messages.tokens < shrink) return undefined;
+    const hasFree = categories.some((row) => row.kind === 'free');
+    categories = categories.map((row) =>
+      row === messages
+        ? { ...row, tokens: row.tokens - shrink }
+        : row.kind === 'free'
+          ? { ...row, tokens: row.tokens + shrink }
+          : row,
+    );
+    if (!hasFree) categories.push({ name: 'Free space', kind: 'free', tokens: shrink });
+  }
   if (delta > 0) {
     let growth = delta;
     categories = [...categories];
