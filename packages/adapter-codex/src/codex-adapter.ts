@@ -1561,7 +1561,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       }
       session.model = model;
     }
-    await settledWithin(this.#warmContext(session), 1500);
+    // 上下文构成只在回合结束时用（#publishContext）：在后台取，不挡回合开始。列 MCP 工具要等 MCP 服务起来，等它会让每个新会话的
+    // 第一条消息晚 1.5 秒交给引擎。
+    void this.#warmContext(session).catch(() => undefined);
     if (session.turn) throw new AdapterError('session_busy', '会话有进行中的回合');
     return session;
   }
