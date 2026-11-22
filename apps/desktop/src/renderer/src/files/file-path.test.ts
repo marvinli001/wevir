@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  documentLinkHref,
   fileLinkPaths,
   folderFile,
   isMarkdownPath,
@@ -152,5 +153,36 @@ describe('paneFile', () => {
     expect(paneFile(scope, '/elsewhere/a.md', folders)).toBeUndefined();
     expect(paneFile(scope, '/work/extra/TODO.md', [])).toBeUndefined();
     expect(paneFile(scope, '/work/main', folders)).toBeUndefined();
+  });
+});
+
+describe('documentLinkHref（文件窗格里 Markdown 的文件链接）', () => {
+  const doc = '/project/docs/v1/README.md';
+
+  it('相对路径按文件所在的目录解析，parseFileHref 读回同一个文件与行', () => {
+    expect(documentLinkHref(doc, 'plan.md')).toBe('/project/docs/v1/plan.md');
+    expect(documentLinkHref(doc, './tasks/P04.md#L12')).toBe('/project/docs/v1/tasks/P04.md#L12');
+    expect(documentLinkHref(doc, '../adr/0001.md:3')).toBe('/project/docs/adr/0001.md#L3');
+    expect(documentLinkHref(doc, '%E8%AE%A1%E5%88%92.md')).toBe('/project/docs/v1/计划.md');
+    expect(parseFileHref(documentLinkHref(doc, '../a%23b%2525.md:7') ?? '')).toEqual({
+      path: '/project/docs/a#b%25.md',
+      line: 7,
+    });
+  });
+
+  it('往上走出会话目录也给绝对路径，文件夹链接保留结尾的 /', () => {
+    expect(documentLinkHref(doc, '../../../../other/x.md')).toBe('/other/x.md');
+    expect(documentLinkHref(doc, '../')).toBe('/project/docs/');
+    expect(documentLinkHref('/a.md', '..')).toBe('/');
+  });
+
+  it('绝对路径原样，Windows 的盘符不丢', () => {
+    expect(documentLinkHref(doc, '/elsewhere/a.md')).toBe('/elsewhere/a.md');
+    expect(documentLinkHref('C:\\work\\docs\\a.md', '..\\b.md')).toBe('C:/work/b.md');
+  });
+
+  it('不像文件路径的链接不换', () => {
+    expect(documentLinkHref(doc, 'https://example.com/a.md')).toBeUndefined();
+    expect(documentLinkHref(doc, '#section')).toBeUndefined();
   });
 });

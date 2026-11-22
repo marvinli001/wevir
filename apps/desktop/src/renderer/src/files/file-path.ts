@@ -156,6 +156,31 @@ export function resolveRelativeTo(from: string, href: string, cwd: string): stri
   return parts.length === 0 ? undefined : parts.join('/');
 }
 
+/**
+ * 文件窗格里的 Markdown 文件（`document`，绝对路径）里的文件链接换成绝对路径的链接：相对路径按文件所在的目录解析，行号写成
+ * `#L12`，路径里的 `%` 与 `#` 转义，parseFileHref 读回来是同一个文件与行。不像文件路径时 undefined（原样渲染）。
+ */
+export function documentLinkHref(document: string, href: string): string | undefined {
+  const target = parseFileHref(href);
+  if (!target) return undefined;
+  const value = target.path.replace(/\\/g, '/');
+  let absolute = value;
+  if (!isAbsolutePath(value)) {
+    // POSIX 的第一段是空字符串，Windows 是盘符；都不往上走掉。
+    const parts = normalize(document).split('/').slice(0, -1);
+    for (const part of value.split('/')) {
+      if (part === '' || part === '.') continue;
+      if (part === '..') {
+        if (parts.length > 1) parts.pop();
+      } else parts.push(part);
+    }
+    absolute = parts.length === 1 ? `${parts[0]}/` : parts.join('/');
+    if (value.endsWith('/') && !absolute.endsWith('/')) absolute += '/';
+  }
+  const escaped = absolute.replace(/%/g, '%25').replace(/#/g, '%23');
+  return target.line === undefined ? escaped : `${escaped}#L${target.line}`;
+}
+
 /** 文件链接的右键菜单（file-link-menu.tsx）要用的几种写法。 */
 export interface FileLinkPaths {
   /** 这台电脑上的绝对路径；相对路径往上走出会话目录、或会话没有目录时没有。 */

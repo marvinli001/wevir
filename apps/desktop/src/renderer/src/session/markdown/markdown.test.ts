@@ -242,6 +242,18 @@ describe('renderDocumentHtml（文件窗格，0.32.0）', () => {
   it('原文里的 HTML 照旧按文本显示', () => {
     expect(renderDocumentHtml('<img src=x onerror=alert(1)>')).toContain('&lt;img');
   });
+
+  it('文件链接按 linkHref 换成解析好的链接，外链与会话链接不经过它', () => {
+    const html = renderDocumentHtml(
+      '[计划](./plan.md) [外部](https://example.com) [会话](wevir://session/ses_1)',
+      {
+        linkHref: (href) => (href.startsWith('./') ? `/project/docs/${href.slice(2)}` : undefined),
+      },
+    );
+    expect(html).toContain('data-file-link="/project/docs/plan.md"');
+    expect(html).toContain('<a href="https://example.com/"');
+    expect(html).toContain('data-session-link="ses_1"');
+  });
 });
 
 describe('extractSvgStyles（Mermaid 的 SVG 挂上前）', () => {

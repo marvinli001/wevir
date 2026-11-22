@@ -53,8 +53,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { filePreviewDelimiter } from '@/files/delimited-preview';
-import { extraFolders } from '@/files/file-links';
-import { paneFile, resolveRelativeTo, toAbsolutePath } from '@/files/file-path';
+import { extraFolders, OpenFileLink, openFileLink } from '@/files/file-links';
+import { documentLinkHref, paneFile, resolveRelativeTo, toAbsolutePath } from '@/files/file-path';
 import {
   type FilePaneView,
   filePaneView,
@@ -90,6 +90,7 @@ import { type DocumentMarkdown, MarkdownView } from '@/session/markdown/markdown
 import { formatFileSize } from '@/session/shared-files-model';
 import { useTheme } from '@/theme/theme';
 import { canOpenExternally } from '../../../../shared/open-path.js';
+import { usePanes } from '../pane-controller';
 import type { PaneContext } from '../pane-registry';
 import type { PaneTab } from '../pane-state';
 import { EditableSource, type SaveStatus } from './file-editor';
@@ -140,6 +141,23 @@ export function FilePane({
         : undefined,
     [base, param, folderKey],
   );
+  // Markdown 里的文件链接（已按文件解析成绝对路径）：同助手消息里的链接，会话目录与附加文件夹里的进文件窗格。
+  const panes = usePanes();
+  const synchronized = session?.origin?.kind === 'synced';
+  const openLink = useMemo(
+    () =>
+      base && panes
+        ? (href: string) =>
+            openFileLink(
+              panes,
+              base.root,
+              href,
+              folderKey === '' ? [] : folderKey.split('\0'),
+              synchronized,
+            )
+        : undefined,
+    [base, panes, folderKey, synchronized],
+  );
   const artifactSeq =
     tab.params?.artifactSeq === undefined ? undefined : Number(tab.params.artifactSeq);
   const scope = useMemo(
@@ -160,14 +178,16 @@ export function FilePane({
   )
     return <Note icon={FileWarning}>{t('files.unavailable')}</Note>;
   return (
-    <FilePreview
-      key={`${param}:${artifactSeq ?? ''}`}
-      scope={scope}
-      path={target.path}
-      revealKey={param}
-      refreshKey={refreshKey}
-      embedded={embedded}
-    />
+    <OpenFileLink value={openLink}>
+      <FilePreview
+        key={`${param}:${artifactSeq ?? ''}`}
+        scope={scope}
+        path={target.path}
+        revealKey={param}
+        refreshKey={refreshKey}
+        embedded={embedded}
+      />
+    </OpenFileLink>
   );
 }
 
@@ -633,6 +653,7 @@ function DocumentBody({ scope, path, text }: { scope: FileScope; path: string; t
       render: (text) =>
         renderDocumentHtml(text, {
           imagePath: (href) => resolveRelativeTo(path, href, scope.root),
+          linkHref: (href) => documentLinkHref(toAbsolutePath(path, scope.root), href),
         }),
       imageUrl: (image) => {
         let pending = urls.current.get(image);

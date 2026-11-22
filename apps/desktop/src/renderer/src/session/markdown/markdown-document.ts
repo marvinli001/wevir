@@ -20,12 +20,18 @@ import { withMath } from './markdown-math-loader';
 
 /** 这次渲染的文件里，图片的相对路径换成会话目录里的路径（renderDocumentHtml 同步设置）。 */
 let documentImagePath: ((href: string) => string | undefined) | undefined;
+/** 同上，文件链接换成按这个文件解析好的链接。 */
+let documentLinkHref: ((href: string) => string | undefined) | undefined;
 
 const documentParser = withMath(
   new Marked<string, string>({
     ...BASE_OPTIONS,
     renderer: {
       ...renderer,
+      link(token) {
+        const href = documentLinkHref?.(token.href);
+        return renderer.link?.call(this, href === undefined ? token : { ...token, href }) ?? '';
+      },
       image({ href, text }) {
         const path = externalHref(href) ? undefined : documentImagePath?.(href);
         if (path === undefined) return imageLinkHtml(href, text);
@@ -37,17 +43,22 @@ const documentParser = withMath(
 
 /**
  * 文件窗格里的 Markdown：同 renderMarkdownHtml，`imagePath` 认得的图片输出成
- * `<img data-file-image>`。
+ * `<img data-file-image>`，文件链接按 `linkHref` 换成按这个文件解析好的链接。
  */
 export function renderDocumentHtml(
   text: string,
-  options: { imagePath?: (href: string) => string | undefined } = {},
+  options: {
+    imagePath?: (href: string) => string | undefined;
+    linkHref?: (href: string) => string | undefined;
+  } = {},
 ): string {
   if (!text.trim()) return '';
   documentImagePath = options.imagePath;
+  documentLinkHref = options.linkHref;
   try {
     return sanitizeMarkdown(documentParser.parse(text, { async: false }), true);
   } finally {
     documentImagePath = undefined;
+    documentLinkHref = undefined;
   }
 }
