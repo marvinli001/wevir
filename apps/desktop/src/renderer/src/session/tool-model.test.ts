@@ -17,6 +17,7 @@ import {
   toolLine,
   toolParameters,
   toolSummary,
+  toolThumbnail,
   type WorkEntry,
   workSummary,
   workSummaryParts,
@@ -263,6 +264,21 @@ describe('groupWork：生成的图片（0.118.0）', () => {
     expect(items[1]).toMatchObject({ kind: 'part', part: { key: 't:2' } });
     expect(isImageTool(tool('4', 'image'))).toBe(true);
     expect(isImageTool(tool('5', 'unknown'))).toBe(false);
+  });
+});
+
+describe('toolThumbnail', () => {
+  it('取组里最后一张工具读到的图片；没有图片时 undefined', () => {
+    const image = (imageId: string) => ({
+      type: 'image' as const,
+      imageId: imageId as `img_${string}`,
+      mimeType: 'image/png' as const,
+      size: 10,
+    });
+    const a = tool('1', 'read', { images: [image('img_a')] });
+    const b = tool('2', 'read', { images: [image('img_b'), image('img_c')] });
+    expect(toolThumbnail([a, b, tool('3', 'shell'), thought('r')])?.imageId).toBe('img_c');
+    expect(toolThumbnail([tool('4', 'read'), thought('r')])).toBeUndefined();
   });
 });
 

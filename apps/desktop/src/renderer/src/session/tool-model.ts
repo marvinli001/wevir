@@ -10,7 +10,7 @@
 // 的审批被拒）。
 
 import type { ChatPart, ChatPartOf } from '@wevir/client-sdk';
-import type { ToolDisplayKind } from '@wevir/protocol';
+import type { ToolDisplayKind, UserImagePart } from '@wevir/protocol';
 import { t } from '@/i18n';
 import { between, formatDuration } from './format';
 
@@ -227,6 +227,15 @@ export function isImageTool(part: ChatPart): boolean {
 
 /** 工作组里的一条：思考、工具调用、钩子结果，或（只在开发模式投影的）未识别的引擎消息。 */
 export type WorkEntry = ToolPart | ReasoningPart | RawPart | ChatPartOf<'hook'>;
+
+/** 组里最后一张工具读到的图片（收起的组头的缩略图）；没有时 undefined。 */
+export function toolThumbnail(entries: readonly WorkEntry[]): UserImagePart | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.type === 'tool' && entry.images?.length) return entry.images.at(-1);
+  }
+  return undefined;
+}
 
 /** 助手消息渲染时的一项。 */
 export type StreamItem =

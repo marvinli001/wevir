@@ -833,6 +833,35 @@ describe('映射的边界情况', () => {
     }
   });
 
+  it('imageView：读它看的文件作为工具的图片；读不到就不出图', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wevir-codex-view-'));
+    try {
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 4, 5, 6]);
+      const path = join(dir, 'shot.png');
+      writeFileSync(path, png);
+      const events = new CodexEventMapper(id).map('item/completed', {
+        threadId: id,
+        turnId,
+        item: { type: 'imageView', id: 'iv1', path },
+      });
+      expect(types(events)).toEqual(['tool.started', 'tool.finished']);
+      expect(events[0]).toMatchObject({ display: { kind: 'read', paths: [path] } });
+      expect(events[1]).toMatchObject({
+        status: 'completed',
+        images: [{ data: png.toString('base64') }],
+      });
+      const gone = new CodexEventMapper(id).map('item/completed', {
+        threadId: id,
+        turnId,
+        item: { type: 'imageView', id: 'iv2', path: join(dir, 'gone.png') },
+      });
+      expect(gone[1]).toMatchObject({ status: 'completed' });
+      expect(gone[1]).not.toHaveProperty('images');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('imageGeneration 失败：没有图片；额度用完时输出写明何时恢复', () => {
     const mapper = new CodexEventMapper(id);
     const item = {

@@ -405,7 +405,8 @@ export const EventPayloadSchemas = {
     /** Host 收尾补写（`unknown`）时没有。 */
     output: ToolOutputSchema.optional(),
     /**
-     * 工具产出的图片（0.118.0，展示类型 `image` 的工具）：Host 存下的图片，字节同消息里的图片经 `image.read` 读。没有时省略。
+     * 工具的图片：Host 存下的图片，字节同消息里的图片经 `image.read` 读。没有时省略。展示类型 `image` 的工具（0.118.0）是生成的
+     * 图片；其余是工具读到的图片（看图、读图片文件、截图），客户端在这条工具调用里显示。
      */
     images: z.array(UserImagePartSchema).min(1).max(TOOL_IMAGES_MAX).optional(),
   }),

@@ -4,6 +4,7 @@ import { t } from '@/i18n';
 import { FilePreviewBlock } from './file-preview';
 import { filePreviews } from './file-preview-model';
 import { formatJson } from './format';
+import { ToolImageList } from './tool-images';
 import { type ToolPart, toolParameters } from './tool-model';
 
 // 工具调用的详情（T5.3 的工具卡片展开后的内容，U2 起在工作组里逐条展开时显示）：参数与完整结果；修改与写文件（§56）是
@@ -21,6 +22,20 @@ export function ToolDetails({ part, root }: { part: ToolPart; root?: string }) {
           <FilePreviewBlock key={index} preview={preview} root={root} />
         ))}
         {part.status !== 'completed' && part.output && <Pre>{part.output.text}</Pre>}
+      </div>
+    );
+  }
+  const images = part.images ?? [];
+  if (images.length > 0 && part.display.kind === 'read') {
+    // 读图片（照 Claude Code）：路径与图片，不列参数；结果里有文字时接在后面。
+    const path = part.display.paths?.[0] ?? part.display.summary;
+    return (
+      <div className="space-y-2">
+        {path && (
+          <p className="font-mono text-xs break-all text-muted-foreground select-text">{path}</p>
+        )}
+        <ToolImageList images={images} />
+        {part.output?.text.trim() && <Pre>{part.output.text}</Pre>}
       </div>
     );
   }
@@ -47,8 +62,13 @@ export function ToolDetails({ part, root }: { part: ToolPart; root?: string }) {
                 </p>
               )}
             </>
-          ) : (
+          ) : images.length === 0 ? (
             <p className="text-xs text-muted-foreground">{t('tool.noOutput')}</p>
+          ) : null}
+          {images.length > 0 && (
+            <div className={cn(part.output && 'mt-2')}>
+              <ToolImageList images={images} />
+            </div>
           )}
         </Section>
       )}

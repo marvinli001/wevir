@@ -127,7 +127,7 @@ export interface ToolFinishedEvent {
   exitCode?: number;
   output?: string;
   outputMeta?: AgentToolOutputMeta;
-  /** 工具产出的图片（0.118.0，展示类型 `image`）。Host 认格式、存进图片目录，事件里换成图片的引用。 */
+  /** 工具的图片：生成的（0.118.0，展示类型 `image`）或读到的。Host 认格式、存进图片目录，事件里换成图片的引用。 */
   images?: AgentToolImage[];
 }
 

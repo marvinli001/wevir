@@ -212,10 +212,15 @@ function webSearchResults(results: readonly unknown[] | null | undefined): strin
 }
 
 /**
- * 生成的图片（`tool.finished.images`）：完成且有数据时一张，交给 Host 存。item 不带 `result`（只有 `fileId`）时读
- * Codex 存下的 `savedPath`；两样都没有、或文件读不到就不出图。Codex 与 Host 在同一台机器上，路径直接可读。
+ * 工具的图片（`tool.finished.images`），交给 Host 存。生成的图片：完成且有数据时一张，item 不带 `result`（只有 `fileId`）
+ * 时读 Codex 存下的 `savedPath`。看图（`imageView`）：读它看的那个文件，客户端在这一行显示缩略图。两样都没有、或文件读
+ * 不到就不出图。Codex 与 Host 在同一台机器上，路径直接可读。
  */
 export function toolImages(item: ToolItem): AgentToolImage[] | undefined {
+  if (item.type === 'imageView') {
+    const data = savedImage(item.path);
+    return data ? [{ data }] : undefined;
+  }
   if (item.type !== 'imageGeneration' || item.status !== 'completed') return undefined;
   const data = item.result?.trim() || savedImage(item.savedPath);
   return data ? [{ data }] : undefined;

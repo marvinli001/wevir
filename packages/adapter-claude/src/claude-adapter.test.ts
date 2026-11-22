@@ -13,6 +13,7 @@ import {
   engineToolOptions,
   PLAN_CAPTURED_MESSAGE,
   subagentReport,
+  toolResultImages,
 } from './claude-adapter.js';
 import { claudeLoginCommand } from './executable.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
@@ -2597,5 +2598,22 @@ describe('角色对引擎工具的限制', () => {
       'NotebookEdit',
     ]);
     expect(sessionQueries(sdk)[0]?.options.tools).toBeUndefined();
+  });
+});
+
+describe('toolResultImages', () => {
+  it('工具结果里的 base64 图片块作为工具的图片；文字结果与其他来源没有', () => {
+    expect(
+      toolResultImages([
+        { type: 'text', text: 'x' },
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' },
+        },
+        { type: 'image', source: { type: 'url', url: 'https://example.com/a.png' } },
+      ]),
+    ).toEqual([{ data: 'iVBORw0KGgo=' }]);
+    expect(toolResultImages('plain')).toBeUndefined();
+    expect(toolResultImages([{ type: 'text', text: 'x' }])).toBeUndefined();
   });
 });

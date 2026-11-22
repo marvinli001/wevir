@@ -41,6 +41,7 @@ import { AWAITING_PILL, LiveIndicator, type LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { SessionLink, useSessionEntry } from './session-link';
 import { ToolDetails } from './tool-details';
+import { ToolThumb } from './tool-images';
 import {
   currentAction,
   editStats,
@@ -54,6 +55,7 @@ import {
   tallyWork,
   thoughtLine,
   toolLine,
+  toolThumbnail,
   type WorkEntry,
   type WorkLineView,
   workSummaryParts,
@@ -155,48 +157,56 @@ export function WorkGroup({
   const clipped = live !== undefined && shown.length > LIVE_ROWS;
   const list = useTailClip(clipped);
   const previewKey = live ? livePreviewKey(shown) : undefined;
+  // 收起的组头在行尾带组里最后一张读到的图片（照 Claude Code）；展开后由那一行带。
+  const thumb = !open && !action ? toolThumbnail(entries) : undefined;
   return (
     <div className="my-1.5" data-work-group={live ? 'live' : 'done'}>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          'flex max-w-full min-h-6 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring',
-          open && 'text-foreground',
-        )}
-      >
-        {action && indicator ? (
-          <>
-            <LiveIndicator state={indicator} />
-            {/* 当前动作换了一句时新的一句上浮进入（按文字作 key 重新挂上）；上浮在外层，闪光的动画在里层，互不覆盖。 */}
-            <span key={live === 'stopping' ? 'stopping' : action.text} className="min-w-0 rise-in">
-              <span
-                className={cn(
-                  'block truncate',
-                  action.tone === 'awaiting' ? AWAITING_PILL : 'shimmer',
-                )}
-              >
-                {live === 'stopping' ? t('work.stopping') : action.text}
-              </span>
-            </span>
-            <Elapsed since={startedAt} className="shrink-0 tabular-nums" />
-          </>
-        ) : (
-          <>
-            <SummaryText tally={tally} />
-            {tally.lines && <DiffStat stats={tally.lines} />}
-          </>
-        )}
-        <ChevronRight
-          aria-hidden
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen(!open)}
           className={cn(
-            'size-3.5 shrink-0 opacity-75 transition-transform duration-200 ease-expand',
-            open && 'rotate-90',
+            'flex max-w-full min-h-6 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring',
+            open && 'text-foreground',
           )}
-        />
-      </button>
+        >
+          {action && indicator ? (
+            <>
+              <LiveIndicator state={indicator} />
+              {/* 当前动作换了一句时新的一句上浮进入（按文字作 key 重新挂上）；上浮在外层，闪光的动画在里层，互不覆盖。 */}
+              <span
+                key={live === 'stopping' ? 'stopping' : action.text}
+                className="min-w-0 rise-in"
+              >
+                <span
+                  className={cn(
+                    'block truncate',
+                    action.tone === 'awaiting' ? AWAITING_PILL : 'shimmer',
+                  )}
+                >
+                  {live === 'stopping' ? t('work.stopping') : action.text}
+                </span>
+              </span>
+              <Elapsed since={startedAt} className="shrink-0 tabular-nums" />
+            </>
+          ) : (
+            <>
+              <SummaryText tally={tally} />
+              {tally.lines && <DiffStat stats={tally.lines} />}
+            </>
+          )}
+          <ChevronRight
+            aria-hidden
+            className={cn(
+              'size-3.5 shrink-0 opacity-75 transition-transform duration-200 ease-expand',
+              open && 'rotate-90',
+            )}
+          />
+        </button>
+        {thumb && <ToolThumb image={thumb} className="ml-auto" />}
+      </div>
       <Collapse open={open} id={id}>
         <ul
           ref={list}
@@ -364,6 +374,7 @@ function WorkLine({
     entry.type === 'tool' && view.tone === 'failed' ? outputSummary(entry) : undefined;
   // 只涉及一个文件的那行，右键弹文件菜单。
   const onContextMenu = useFileContextMenu(view.filePath);
+  const thumb = entry.type === 'tool' && !open ? entry.images?.at(-1) : undefined;
   return (
     <li
       data-work-line={view.tone}
@@ -416,6 +427,7 @@ function WorkLine({
               )}
             />
           )}
+          {thumb && <ToolThumb image={thumb} className="ml-auto" />}
         </button>
       )}
       {problem && !open && (

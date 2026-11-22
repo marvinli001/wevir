@@ -28,6 +28,7 @@ import {
   type AgentEvent,
   type AgentInput,
   type AgentRuntimeAdapter,
+  type AgentToolImage,
   APP_TOOLS_NO_APPROVAL,
   APP_TOOLS_SERVER,
   type ApprovalDecision,
@@ -616,6 +617,22 @@ export function toolResultText(content: unknown): string | undefined {
     return fields.type === 'text' && typeof fields.text === 'string' ? [fields.text] : [];
   });
   return texts.length === 0 ? undefined : texts.join('\n');
+}
+
+/** 工具结果里的图片（Read 读图片、截图类 MCP 工具）：base64 的图片块，交给 Host 存（`tool.finished.images`）。 */
+export function toolResultImages(content: unknown): AgentToolImage[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const images = content.flatMap((part): AgentToolImage[] => {
+    const fields = record(part);
+    const source = record(fields.source);
+    return fields.type === 'image' &&
+      source.type === 'base64' &&
+      typeof source.data === 'string' &&
+      source.data !== ''
+      ? [{ data: source.data }]
+      : [];
+  });
+  return images.length === 0 ? undefined : images;
 }
 
 const TOOL_RESULT_TYPES = new Set<unknown>([
@@ -2826,6 +2843,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         kind === 'interrupted' ||
         (kind === 'permission-rule' && session.turn?.rejectedTools.has(toolCallId) === true);
       const status = cancelled ? 'cancelled' : failed ? 'failed' : 'completed';
+      const images = status === 'completed' ? toolResultImages(fields.content) : undefined;
       owner.hub.emit({
         type: 'tool.finished',
         engineSessionId: owner.id,
@@ -2833,6 +2851,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         status,
         ...(status === 'failed' && { failureConfirmed: true }),
         ...(text !== undefined && boundedToolOutput(text)),
+        ...(images !== undefined && { images }),
       });
       const tool = owner.tools.get(toolCallId);
       if (tool !== undefined && status === 'completed' && TASK_TOOLS.has(tool.name)) {
