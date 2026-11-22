@@ -257,6 +257,7 @@ describe('bundleHost / checkBundleImports / writeBundleManifest', () => {
               'const require = createRequire(import.meta.url);',
               "require('node-pty'); require.resolve('zod/package.json'); require('./local.js');",
               '__require("fs"); __require("node:path"); some.require("x");',
+              "createRequire(import.meta.url)('original-fs');",
             ].join('\n'),
             ['node:fs', 'events', 'zod', '@anthropic-ai/claude-agent-sdk', 'chunk-1.js'],
           ),

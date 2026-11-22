@@ -395,8 +395,11 @@ function packageName(specifier: string): string {
 const RUNTIME_REQUIRE =
   /(?:(?<![\w$.])(?:__)?require(?:\$\d+)?(?:\.resolve)?|createRequire\([^()]*\))\(\s*["']([^"'./][^"']*)["']\s*\)/g;
 
+/** Electron 自带的模块：Host 在 Electron 里跑时才 require（例如 remove-tree.ts 的 `original-fs`），不用打进去。 */
+const ELECTRON_BUILTINS = new Set(['electron', 'original-fs']);
+
 /**
- * bundle 里剩下的 import 与运行时的 require 只能是 Node 内置模块与 `allowed` 里的包；别的包没打进去，安装包里也没有，运行时会
+ * bundle 里剩下的 import 与运行时的 require 只能是 Node 与 Electron 的内置模块和 `allowed` 里的包；别的包没打进去，安装包里也没有，运行时会
  * 找不到（例如 `createRequire(import.meta.url)('x')` 取的包，要改成 `import()` 才会打进去）。
  */
 export function checkBundleImports(
@@ -404,7 +407,7 @@ export function checkBundleImports(
   allowed: readonly string[],
 ): void {
   const local = new Set(chunks.map((chunk) => chunk.fileName));
-  const builtins = new Set(builtinModules);
+  const builtins = new Set([...builtinModules, ...ELECTRON_BUILTINS]);
   const problems: string[] = [];
   const check = (fileName: string, specifier: string, how: string) => {
     if (local.has(specifier) || specifier.startsWith('node:') || builtins.has(specifier)) return;
