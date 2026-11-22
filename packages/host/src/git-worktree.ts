@@ -3,10 +3,10 @@
 // 用 core.hooksPath 指向空目录绕开）。
 
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { existsSync, mkdirSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { gitBinary, runGit, safeConfig } from './git-diff.js';
+import { removeTree, removeTreeSync } from './remove-tree.js';
 
 const TIMEOUT_MS = 30_000;
 
@@ -101,7 +101,7 @@ export async function restoreSnapshot(root: string, tree: string): Promise<void>
 export async function removeWorktree(created: CreatedWorktree, dir: string): Promise<void> {
   const emptyHooks = join(dir, '.no-hooks');
   await git(created.repo, ['worktree', 'remove', '--force', created.root], emptyHooks).catch(() =>
-    rmSync(created.root, { recursive: true, force: true }),
+    removeTreeSync(created.root),
   );
   await git(created.repo, ['worktree', 'prune'], emptyHooks).catch(() => {});
   await git(created.repo, ['branch', '-D', created.branch], emptyHooks).catch(() => {});
@@ -148,7 +148,7 @@ export async function deleteWorktree(
   if (common !== undefined && config !== undefined) {
     await runGit(common, [...config, 'worktree', 'remove', '--force', root]).catch(() => {});
   }
-  await rm(root, { recursive: true, force: true });
+  await removeTree(root);
   if (common === undefined || config === undefined) return { branchKept: false };
   await runGit(common, [...config, 'worktree', 'prune']).catch(() => {});
   const exists = await runGit(

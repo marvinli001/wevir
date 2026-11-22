@@ -11,6 +11,7 @@ import type { SessionWorktreeArchive, WorktreeArchiveReason } from '@wevir/proto
 import { CAPTURE_TIMEOUT_MS, captureBlocker, captureCheckpoint } from './checkpoints.js';
 import { GitError, repoInfo, runGit, safeConfig } from './git-diff.js';
 import { restoreSnapshot } from './git-worktree.js';
+import { removeTree } from './remove-tree.js';
 
 export const WORKTREE_ARCHIVE_REF_PREFIX = 'refs/wevir/worktree-archive';
 /** 记录快照的文件，在 `<worktreesDir>/<会话 ID>/` 下。 */
@@ -232,7 +233,7 @@ async function removeWorktreeDir(commonDir: string, root: string): Promise<void>
   if (config !== undefined) {
     await runGit(commonDir, [...config, 'worktree', 'remove', '--force', root]).catch(() => {});
   }
-  await rm(root, { recursive: true, force: true });
+  await removeTree(root);
   if (config !== undefined) {
     await runGit(commonDir, [...config, 'worktree', 'prune']).catch(() => {});
   }
@@ -310,7 +311,7 @@ async function restoreOne(entry: ArchivedWorktree): Promise<SessionWorktreeArchi
   try {
     await git(add);
   } catch (error) {
-    await rm(entry.root, { recursive: true, force: true }).catch(() => {});
+    await removeTree(entry.root).catch(() => {});
     await git(['worktree', 'prune']).catch(() => {});
     const message = errorText(error);
     return fail(
