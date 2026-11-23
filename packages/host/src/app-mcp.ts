@@ -117,8 +117,8 @@ export interface AppMcpServerOptions {
   spill?: (sessionId: SessionId, toolName: string, result: AppToolResult) => Promise<AppToolResult>;
   /**
    * 分层（地址带 `?tier=core` / `?tier=more`，Codex 把应用级工具拆成常驻与按需两个服务）：工具属于哪一层，认不出的当作按需。
-   * 带层的请求只列、只调这一层的工具；不带层的照旧全部，常驻那层的带 `_meta["anthropic/alwaysLoad"]`（Claude Code 打开工具搜索时
-   * 照样直接给模型）。`?tier=dispatch`（没有自带工具搜索的引擎）列常驻那层与 tool-dispatch.ts 的搜索和分发工具。不给时不认层。
+   * 带层的请求只列、只调这一层的工具；不带层的照旧全部，常驻那层的带 `_meta["anthropic/alwaysLoad"]` 与 `["antigravity/alwaysLoad"]`
+   * （Claude Code 打开工具搜索时、Antigravity 按需加载 MCP 工具时照样直接给模型）。`?tier=dispatch`（没有自带工具搜索的引擎）列常驻那层与 tool-dispatch.ts 的搜索和分发工具。不给时不认层。
    */
   tierOf?: (name: string) => AppToolTier | undefined;
   /** `?tier=more` 那个服务的说明（`initialize`）；工具说明与记忆索引只在常驻的那个服务上。 */
@@ -127,8 +127,11 @@ export interface AppMcpServerOptions {
 
 type JsonRpcId = string | number;
 
-/** Claude Code 的工具搜索不推迟的工具（MCP 工具的 `_meta`）。 */
-const ALWAYS_LOAD = Object.freeze({ 'anthropic/alwaysLoad': true });
+/**
+ * 引擎按需加载 MCP 工具时也直接给模型的工具（MCP 工具的 `_meta`）：Claude Code 的工具搜索，以及 Antigravity（agy 默认把 MCP
+ * 工具都做成按需，模型要先读 schema 文件再经 `call_mcp_tool` 调，常常以为工具不存在）。
+ */
+const ALWAYS_LOAD = Object.freeze({ 'anthropic/alwaysLoad': true, 'antigravity/alwaysLoad': true });
 interface JsonRpcMessage {
   jsonrpc?: unknown;
   id?: JsonRpcId | null;

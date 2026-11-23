@@ -315,6 +315,7 @@ export class AntigravityAdapter extends AcpAdapter {
       this.process.initializeResponse,
       this.#isNativeCli,
       config.ruleInstructions,
+      this.appTools === true && config.appTools !== undefined,
     );
   }
 

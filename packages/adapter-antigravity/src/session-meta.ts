@@ -23,11 +23,26 @@ export function antigravityAppendsSystemPrompt(
   );
 }
 
+/**
+ * 挂了应用级工具的会话追加的说明：Antigravity 的 `run_command` 能转成后台任务（`WaitMsBeforeAsync`），Wevir 看不到，
+ * 结束时也不会叫醒空闲的会话；模型会拿它当“后台监控”回报给用户。长命令改用 `wevir_process_start`。
+ */
+export const ANTIGRAVITY_APP_TOOLS_INSTRUCTIONS =
+  'Start long-running commands (test suites, builds, dev servers, anything you will check on or report later) ' +
+  'with wevir_process_start, not as a background run_command task. Wevir shows those processes to the user and ' +
+  'messages you when they exit, so end your turn and report then. Background run_command tasks are invisible in ' +
+  'Wevir and do not wake you when they finish: never tell the user one is being monitored. Wevir tools that are ' +
+  'not declared to you are loaded on demand: read their schema file and call them with call_mcp_tool.';
+
 export function antigravitySessionMeta(
   initialize: InitializeResponse | undefined,
   nativeCli: boolean,
-  instructions?: string,
+  rules?: string,
+  appTools = false,
 ): Record<string, unknown> | undefined {
+  const instructions = [rules, appTools ? ANTIGRAVITY_APP_TOOLS_INSTRUCTIONS : undefined]
+    .filter((part) => part !== undefined && part !== '')
+    .join('\n\n');
   const version = legacyVersion(initialize);
   // Legacy 1.4.2–1.4.5 write SKILL.md when creating or loading sessions.
   const disableWorkflow =
